@@ -1,0 +1,72 @@
+# jpr-transcribe
+
+Transcriptor automático de notas de voz, en Swift, camino de ser una app propia
+con biblioteca de grabaciones. El `README.md` explica el dominio (iCloud,
+asentamiento, ledger, backends); esto son las reglas para tocar el código.
+
+## Comandos
+
+```bash
+swift build                 # CLI + app
+swift test                  # swift-testing; --filter NO casa con nombres de @Suite
+./scripts/build-app.sh      # .build/app/JPR Transcribe.app
+./scripts/install-app.sh    # a /Applications (la firma ad-hoc puede invalidar el Acceso total al disco)
+```
+
+## Arquitectura: núcleo funcional, cáscara imperativa
+
+| Target | Qué | I/O | Dependencias |
+|---|---|---|---|
+| `JPRCore` | Modelo (`Transcript`, `Recording`), parseo, decisiones | ninguno | ninguna |
+| `JPRKit` | FSEvents, ledger, procesos, orquestación (`Pipeline`) | sí | ninguna |
+| `JPRWhisperKit` | Backend WhisperKit + SpeakerKit | sí | argmax-oss-swift |
+| `JPRStore` | Biblioteca SQLite + copia del audio | sí | GRDB |
+| `jpr-transcribe` | CLI | | |
+| `JPRMenuBar` | App de barra de menús | | aislamiento MainActor por defecto |
+
+- **Los puertos son structs de funciones**, no protocolos ni herencia:
+  `TranscriptionBackend`, `RecordingSource`, `Sink`. Una implementación nueva
+  es una función `make(...)` que devuelve el struct.
+- **Toda decisión va en `JPRCore` como función pura y con test.** La cáscara
+  solo ejecuta. Si un bloque pide un comentario, extráelo a una función con
+  nombre.
+- **Cada dependencia externa vive en su propio target.** `JPRCore` y `JPRKit`
+  no importan nada.
+- **Tests primero**, con swift-testing (`@Suite`/`@Test`/`#expect`), nunca
+  XCTest. Los nombres de test describen el comportamiento en castellano.
+
+## Decisiones cerradas (no reabrir)
+
+- **Mínimo macOS 26 / tools 6.2, a propósito**: da `Observations`,
+  FoundationModels, SpeechAnalyzer y el aislamiento por defecto. No bajarlo.
+- **Nada de Combine.** Notificaciones a la UI con `AsyncSequence`
+  (`ValueObservation.values(in:)`, `Observations`) sobre modelos
+  `@MainActor @Observable`. `Observations` exige el modelo en `@MainActor`
+  o pide `Sendable` y no compila.
+- **GRDB, nunca SwiftData ni Core Data**: clavan los datos a Apple y bloquean
+  `sqlite-vec`.
+- **El pipeline no adivina cuántos hablan.** Guarda lo que sale; la corrección
+  (`merging`, `renaming`, `--speakers-count N`) es de la app.
+- **La app se descarga sus modelos** a
+  `~/Library/Application Support/jpr-transcribe/models`; nunca reutiliza los
+  de MacWhisper.
+- **MacWhisper sigue de backend por defecto** hasta decisión explícita.
+
+## Trampas del stack
+
+- `DecodingOptions.skipSpecialTokens` viene en `false`: sin activarlo el
+  texto sale con `<|startoftranscript|><|0.00|>…`.
+- `WhisperKit` y `WhisperKitConfig` **no son `Sendable`**: el kit vive dentro
+  de un `actor` y solo cruzan la frontera tipos que sí lo son.
+- `SpeakerSegment.text` sale de `speakerWords`, no de `transcription`: sin
+  `wordTimestamps` las transcripciones diarizadas salen vacías **en silencio**.
+- `SpeakerInfo` es enum no-frozen con `.noMatch` y `.multiple`: `@unknown default`.
+- `SpeakerKit.diarize` pide PCM 16 kHz en memoria
+  (`AudioProcessor.loadAudioAsFloatArray`), no una ruta.
+- HubApi deja metadatos en `.cache` con el mismo nombre que la carpeta del
+  modelo, y la carpeta existe desde el primer byte: un modelo está completo
+  solo si tiene los tres `.mlmodelc` con `coremldata.bin`.
+- Los métodos de WhisperKit son `open func`, no `public func` (grep engañoso).
+- `mw` imprime `Transcribing X.m4a...` antes del JSON.
+- Grabaciones multicanal: los canales se suman a mono y la diarización se
+  degrada. Pendiente diarizar por canal.
