@@ -132,6 +132,36 @@ disponible en `transcript.text`.
 
     jpr-transcribe once --speakers    # detecta hablantes en esta pasada
 
+## Backends de transcripcion
+
+| Backend | Como | Diarizacion |
+|---|---|---|
+| `macwhisper` (por defecto) | CLI `mw`, necesita la app de MacWhisper viva | `--speakers` |
+| `whisperkit` | CoreML sobre el Neural Engine, sin apps de terceros | SpeakerKit (pyannote v4) |
+
+    jpr-transcribe download                      # trae el modelo de WhisperKit
+    jpr-transcribe once --backend whisperkit     # transcribe sin MacWhisper
+    jpr-transcribe once --backend whisperkit --speakers
+
+WhisperKit guarda su modelo en `~/Library/Application Support/jpr-transcribe/models`
+y se lo descarga el solo: no depende de que MacWhisper lo haya bajado antes, o
+no arrancaria en un Mac limpio. SpeakerKit hace lo propio con los suyos.
+
+Medido sobre 26 grabaciones reales, la divergencia entre ambos backends es del
+**6,45%** y es sobre todo de estilo: MacWhisper segmenta fino y conserva las
+dudas del habla, WhisperKit agrupa en frases y las limpia. Ninguno gana al otro
+de forma consistente.
+
+Cuando hay diarizacion, la salida agrupa por interlocutor:
+
+    Speaker 1: Quiero proponer una cosa.
+    Speaker 2: Cuentame.
+
+**WhisperKit y SpeakerKit son CoreML**: macOS y iOS, ni Windows ni Linux. Si
+algun dia hicieran falta, el equivalente multiplataforma es sherpa-onnx, que
+trae transcripcion y diarizacion, y el puerto permite anadirlo sin tocar el
+resto.
+
 ## Modelo de transcripcion
 
 El modelo esta **fijado explicitamente** en `Transcriber.defaultModel`:

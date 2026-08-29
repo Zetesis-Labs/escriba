@@ -1,6 +1,7 @@
 import Foundation
 import JPRCore
 import JPRKit
+import SpeakerKit
 import WhisperKit
 
 public enum WhisperKitBackend {
@@ -15,16 +16,17 @@ public enum WhisperKitBackend {
     public static func make(
         language: String = "es",
         variant: String = defaultVariant,
+        diarize: Bool = false,
         modelsRoot: URL = defaultModelsRoot
     ) -> TranscriptionBackend {
-        let engine = Engine(language: language, variant: variant, modelsRoot: modelsRoot)
+        let engine = Engine(
+            language: language, variant: variant, diarize: diarize, modelsRoot: modelsRoot)
         return TranscriptionBackend(
             name: name,
             transcribe: { source in
                 try engine.preflight()
                 let path = source.path(percentEncoded: false)
-                let results = try runBlocking { try await engine.results(for: path) }
-                return transcript(from: results)
+                return try runBlocking { try await engine.transcript(for: path) }
             },
             preflight: { try engine.preflight() })
     }
@@ -97,6 +99,34 @@ public enum WhisperKitBackend {
         return Transcript(text: clean(fallbackText))
     }
 
+    static func transcript(speakerSegments: [SpeakerSegment]) -> Transcript {
+        let segments = speakerSegments.compactMap { segment -> TranscriptSegment? in
+            let text = clean(spokenText(of: segment))
+            guard !text.isEmpty else { return nil }
+            return TranscriptSegment(
+                start: TimeInterval(segment.startTime),
+                end: TimeInterval(segment.endTime),
+                speaker: label(segment.speaker),
+                text: text)
+        }
+        return Transcript(segments: segments)
+    }
+
+    static func spokenText(of segment: SpeakerSegment) -> String {
+        let fromWords = segment.text
+        guard fromWords.trimmingCharacters(in: .whitespaces).isEmpty else { return fromWords }
+        return segment.transcription?.text ?? ""
+    }
+
+    static func label(_ speaker: SpeakerInfo) -> String? {
+        switch speaker {
+        case .speakerId(let id): "Speaker \(id + 1)"
+        case .multiple(let ids): ids.map { "Speaker \($0 + 1)" }.joined(separator: " + ")
+        case .noMatch: nil
+        @unknown default: nil
+        }
+    }
+
     static func clean(_ text: String) -> String {
         text
             .replacingOccurrences(of: "<\\|[^|]*\\|>", with: "", options: .regularExpression)
@@ -107,12 +137,15 @@ public enum WhisperKitBackend {
 private actor Engine {
     private let language: String
     private let variant: String
+    private let diarize: Bool
     private let modelsRoot: URL
     private var loaded: WhisperKit?
+    private var speaker: SpeakerKit?
 
-    init(language: String, variant: String, modelsRoot: URL) {
+    init(language: String, variant: String, diarize: Bool, modelsRoot: URL) {
         self.language = language
         self.variant = variant
+        self.diarize = diarize
         self.modelsRoot = modelsRoot
     }
 
@@ -121,7 +154,7 @@ private actor Engine {
         else { throw TranscriptionError.modelMissing(model: variant, installed: []) }
     }
 
-    func results(for path: String) async throws -> [TranscriptionResult] {
+    func transcript(for path: String) async throws -> Transcript {
         let kit = try await loadedKit()
         let options = DecodingOptions(
             task: .transcribe,
@@ -129,12 +162,35 @@ private actor Engine {
             skipSpecialTokens: true,
             wordTimestamps: true)
 
-        let batches = await kit.transcribe(audioPaths: [path], decodeOptions: options)
+        guard diarize else {
+            let batches = await kit.transcribe(audioPaths: [path], decodeOptions: options)
+            return WhisperKitBackend.transcript(from: try unwrap(batches, path: path))
+        }
 
+        let audio = try AudioProcessor.loadAudioAsFloatArray(fromPath: path)
+        let batches = await kit.transcribe(audioArrays: [audio], decodeOptions: options)
+        let transcriptions = try unwrap(batches, path: path)
+
+        let diarization = try await loadedSpeakerKit().diarize(audioArray: audio)
+        let labelled = diarization.addSpeakerInfo(to: transcriptions).flatMap { $0 }
+
+        return WhisperKitBackend.transcript(speakerSegments: labelled)
+    }
+
+    private func unwrap(
+        _ batches: [[TranscriptionResult]?], path: String
+    ) throws -> [TranscriptionResult] {
         guard let first = batches.first, let transcriptions = first else {
             throw TranscriptionError.failed("WhisperKit no devolvio resultado para \(path)")
         }
         return transcriptions
+    }
+
+    private func loadedSpeakerKit() async throws -> SpeakerKit {
+        if let speaker { return speaker }
+        let created = try await SpeakerKit(PyannoteConfig(download: true, load: true))
+        speaker = created
+        return created
     }
 
     private func loadedKit() async throws -> WhisperKit {

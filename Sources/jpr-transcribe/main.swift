@@ -84,7 +84,8 @@ let options = parseOptions()
 
 func makeBackend(_ options: Options) -> TranscriptionBackend {
     switch options.backend {
-    case "whisperkit": WhisperKitBackend.make(language: options.language)
+    case "whisperkit":
+        WhisperKitBackend.make(language: options.language, diarize: options.diarize)
     case "macwhisper":
         MacWhisperBackend.make(
             language: options.language, model: options.model, diarize: options.diarize)

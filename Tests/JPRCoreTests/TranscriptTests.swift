@@ -69,3 +69,52 @@ struct TranscriptTests {
         #expect(!transcript.isSegmented)
     }
 }
+
+@Suite("Texto con hablantes")
+struct RenderedTranscriptTests {
+    private func segment(_ text: String, _ speaker: String?) -> TranscriptSegment {
+        TranscriptSegment(start: 0, end: 1, speaker: speaker, text: text)
+    }
+
+    @Test("sin diarizacion se escribe el texto tal cual")
+    func sinHablantes() {
+        let transcript = Transcript(segments: [segment("una", nil), segment("dos", nil)])
+
+        #expect(transcript.rendered == "una\ndos")
+    }
+
+    @Test("los tramos seguidos del mismo hablante se juntan en una intervencion")
+    func agrupaConsecutivos() {
+        let transcript = Transcript(segments: [
+            segment("Hola,", "Speaker 1"),
+            segment("que tal.", "Speaker 1"),
+        ])
+
+        #expect(transcript.rendered == "Speaker 1: Hola, que tal.")
+    }
+
+    @Test("cada cambio de hablante abre una intervencion nueva")
+    func alternancia() {
+        let transcript = Transcript(segments: [
+            segment("Hola.", "Speaker 1"),
+            segment("Buenas.", "Speaker 2"),
+            segment("Vamos alla.", "Speaker 1"),
+        ])
+
+        #expect(transcript.rendered == """
+            Speaker 1: Hola.
+            Speaker 2: Buenas.
+            Speaker 1: Vamos alla.
+            """)
+    }
+
+    @Test("un tramo sin hablante identificado va sin etiqueta")
+    func tramoSinEtiqueta() {
+        let transcript = Transcript(segments: [
+            segment("Ruido.", nil),
+            segment("Hola.", "Speaker 1"),
+        ])
+
+        #expect(transcript.rendered == "Ruido.\nSpeaker 1: Hola.")
+    }
+}

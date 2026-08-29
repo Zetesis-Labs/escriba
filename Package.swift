@@ -15,6 +15,7 @@ let package = Package(
             dependencies: [
                 "JPRCore", "JPRKit",
                 .product(name: "WhisperKit", package: "argmax-oss-swift"),
+                .product(name: "SpeakerKit", package: "argmax-oss-swift"),
             ]),
         .executableTarget(
             name: "jpr-transcribe", dependencies: ["JPRKit", "JPRCore", "JPRWhisperKit"]),
