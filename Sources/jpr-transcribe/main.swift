@@ -1,6 +1,7 @@
 import Foundation
 import JPRCore
 import JPRKit
+import JPRWhisperKit
 
 let defaultRoot = FileManager.default.homeDirectoryForCurrentUser
     .appending(path: "Library/Mobile Documents/iCloud~com~openplanetsoftware~just-press-record/Documents")
@@ -16,6 +17,7 @@ struct Options {
     var state = defaultState
     var language = "es"
     var diarize = false
+    var backend = "macwhisper"
     var model: String? = MacWhisperBackend.defaultModel
 }
 
@@ -43,9 +45,10 @@ func parseOptions() -> Options {
         case "--state": options.state = URL(fileURLWithPath: value("--state"))
         case "--language": options.language = value("--language")
         case "--speakers": options.diarize = true
+        case "--backend": options.backend = value("--backend")
         case "--model": options.model = value("--model")
         case "-v", "--verbose": Log.verbose = true
-        case "watch", "once", "status": options.command = argument
+        case "watch", "once", "status", "download": options.command = argument
         case "-h", "--help":
             print("""
                 uso: jpr-transcribe <watch|once|status> [opciones]
@@ -53,6 +56,7 @@ func parseOptions() -> Options {
                   watch    vigila la carpeta y transcribe segun llegan grabaciones
                   once     hace una pasada y sale
                   status   muestra que hay en disco y que se ha transcrito
+                  download descarga el modelo de WhisperKit
 
                 opciones:
                   --root <ruta>      carpeta de Just Press Record
@@ -61,6 +65,7 @@ func parseOptions() -> Options {
                   --language <cod>   idioma ISO 639-1 (por defecto: es)
                   --model <id>       modelo de MacWhisper (engine:model-id)
                   --speakers         detecta hablantes (diarizacion)
+                  --backend <nombre> macwhisper (por defecto) o whisperkit
                   -v, --verbose      log detallado
                 """)
             exit(0)
@@ -68,11 +73,39 @@ func parseOptions() -> Options {
         }
     }
 
-    if options.command.isEmpty { fail("falta el comando: watch, once o status") }
+    if options.command.isEmpty { fail("falta el comando: watch, once, status o download") }
+    guard ["macwhisper", "whisperkit"].contains(options.backend) else {
+        fail("backend desconocido: \(options.backend). Usa macwhisper o whisperkit")
+    }
     return options
 }
 
 let options = parseOptions()
+
+func makeBackend(_ options: Options) -> TranscriptionBackend {
+    switch options.backend {
+    case "whisperkit": WhisperKitBackend.make(language: options.language)
+    case "macwhisper":
+        MacWhisperBackend.make(
+            language: options.language, model: options.model, diarize: options.diarize)
+    default: fail("backend desconocido: \(options.backend)")
+    }
+}
+
+if options.command == "download" {
+    let destino = WhisperKitBackend.defaultModelsRoot.path(percentEncoded: false)
+    print("descargando \(WhisperKitBackend.defaultVariant)")
+    print("destino: \(destino)")
+    do {
+        let folder = try WhisperKitBackend.downloadModel { fraction in
+            FileHandle.standardError.write(Data("\rprogreso: \(Int(fraction * 100))%".utf8))
+        }
+        print("\nmodelo listo en \(folder.path(percentEncoded: false))")
+        exit(0)
+    } catch {
+        fail("\nno se pudo descargar: \(error)")
+    }
+}
 
 var isDirectory: ObjCBool = false
 guard FileManager.default.fileExists(
@@ -96,6 +129,8 @@ do {
         let modelo = options.model ?? "(el seleccionado en la app)"
         let disponible = (try? MacWhisperBackend.verifyModelAvailable(options.model)) != nil
         print("modelo               : \(modelo)\(disponible ? "" : "  ← NO INSTALADO")")
+        let wkFolder = WhisperKitBackend.installedModelFolder()
+        print("whisperkit           : \(wkFolder == nil ? "modelo NO descargado (jpr-transcribe download)" : "listo")")
         print("salida               : \(options.output.path(percentEncoded: false))")
         for failure in try ledger.failures().prefix(10) {
             print("  ! \(failure.key) (intentos: \(failure.attempts)) \(failure.error.prefix(120))")
@@ -114,8 +149,7 @@ do {
     let pipeline = Pipeline(
         root: options.root,
         ledger: ledger,
-        backend: MacWhisperBackend.make(
-            language: options.language, model: options.model, diarize: options.diarize),
+        backend: makeBackend(options),
         sink: sidecarTextSink(outputRoot: options.output)
     )
 
