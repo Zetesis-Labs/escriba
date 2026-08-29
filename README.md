@@ -142,6 +142,12 @@ disponible en `transcript.text`.
     jpr-transcribe download                      # trae el modelo de WhisperKit
     jpr-transcribe once --backend whisperkit     # transcribe sin MacWhisper
     jpr-transcribe once --backend whisperkit --speakers
+    jpr-transcribe once --backend whisperkit --speakers-count 2
+
+Si sabes cuanta gente habla, **dilo**: sin acotar, pyannote puede abrir un
+interlocutor de mas. Medido sobre una llamada real de 76 s a dos voces, sin
+acotar acierta 10 de 11 turnos y se inventa un tercer hablante al final; con
+`--speakers-count 2`, 11 de 11.
 
 WhisperKit guarda su modelo en `~/Library/Application Support/jpr-transcribe/models`
 y se lo descarga el solo: no depende de que MacWhisper lo haya bajado antes, o

@@ -18,6 +18,7 @@ struct Options {
     var language = "es"
     var diarize = false
     var backend = "macwhisper"
+    var speakerCount: Int?
     var model: String? = MacWhisperBackend.defaultModel
 }
 
@@ -46,6 +47,12 @@ func parseOptions() -> Options {
         case "--language": options.language = value("--language")
         case "--speakers": options.diarize = true
         case "--backend": options.backend = value("--backend")
+        case "--speakers-count":
+            guard let count = Int(value("--speakers-count")), count > 0 else {
+                fail("--speakers-count necesita un entero positivo")
+            }
+            options.speakerCount = count
+            options.diarize = true
         case "--model": options.model = value("--model")
         case "-v", "--verbose": Log.verbose = true
         case "watch", "once", "status", "download": options.command = argument
@@ -65,6 +72,7 @@ func parseOptions() -> Options {
                   --language <cod>   idioma ISO 639-1 (por defecto: es)
                   --model <id>       modelo de MacWhisper (engine:model-id)
                   --speakers         detecta hablantes (diarizacion)
+                  --speakers-count N si sabes cuantos hablan, fijalo
                   --backend <nombre> macwhisper (por defecto) o whisperkit
                   -v, --verbose      log detallado
                 """)
@@ -85,7 +93,9 @@ let options = parseOptions()
 func makeBackend(_ options: Options) -> TranscriptionBackend {
     switch options.backend {
     case "whisperkit":
-        WhisperKitBackend.make(language: options.language, diarize: options.diarize)
+        WhisperKitBackend.make(
+            language: options.language, diarize: options.diarize,
+            speakerCount: options.speakerCount)
     case "macwhisper":
         MacWhisperBackend.make(
             language: options.language, model: options.model, diarize: options.diarize)

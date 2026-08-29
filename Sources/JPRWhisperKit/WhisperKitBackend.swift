@@ -17,10 +17,12 @@ public enum WhisperKitBackend {
         language: String = "es",
         variant: String = defaultVariant,
         diarize: Bool = false,
+        speakerCount: Int? = nil,
         modelsRoot: URL = defaultModelsRoot
     ) -> TranscriptionBackend {
         let engine = Engine(
-            language: language, variant: variant, diarize: diarize, modelsRoot: modelsRoot)
+            language: language, variant: variant, diarize: diarize,
+            speakerCount: speakerCount, modelsRoot: modelsRoot)
         return TranscriptionBackend(
             name: name,
             transcribe: { source in
@@ -138,14 +140,18 @@ private actor Engine {
     private let language: String
     private let variant: String
     private let diarize: Bool
+    private let speakerCount: Int?
     private let modelsRoot: URL
     private var loaded: WhisperKit?
     private var speaker: SpeakerKit?
 
-    init(language: String, variant: String, diarize: Bool, modelsRoot: URL) {
+    init(
+        language: String, variant: String, diarize: Bool, speakerCount: Int?, modelsRoot: URL
+    ) {
         self.language = language
         self.variant = variant
         self.diarize = diarize
+        self.speakerCount = speakerCount
         self.modelsRoot = modelsRoot
     }
 
@@ -171,7 +177,11 @@ private actor Engine {
         let batches = await kit.transcribe(audioArrays: [audio], decodeOptions: options)
         let transcriptions = try unwrap(batches, path: path)
 
-        let diarization = try await loadedSpeakerKit().diarize(audioArray: audio)
+        let diarizationOptions = speakerCount.map {
+            PyannoteDiarizationOptions(numberOfSpeakers: $0)
+        }
+        let diarization = try await loadedSpeakerKit().diarize(
+            audioArray: audio, options: diarizationOptions)
         let labelled = diarization.addSpeakerInfo(to: transcriptions).flatMap { $0 }
 
         return WhisperKitBackend.transcript(speakerSegments: labelled)
