@@ -38,6 +38,31 @@ struct MappingTests {
         #expect(transcript.segments[0].words[0].text == " Hola")
     }
 
+    @Test("los tokens especiales del modelo no acaban en la transcripcion")
+    func tokensEspeciales() {
+        let transcript = WhisperKitBackend.transcript(
+            segments: [
+                TranscriptionSegment(
+                    start: 0, end: 6.66,
+                    text: "<|startoftranscript|><|es|><|transcribe|><|0.00|> Quiero proponer.<|6.66|>")
+            ],
+            fallbackText: "")
+
+        #expect(transcript.text == "Quiero proponer.")
+    }
+
+    @Test("un segmento que solo son tokens no genera una linea vacia")
+    func segmentoVacio() {
+        let transcript = WhisperKitBackend.transcript(
+            segments: [
+                TranscriptionSegment(start: 0, end: 1, text: "<|endoftext|>"),
+                TranscriptionSegment(start: 1, end: 2, text: " Hola."),
+            ],
+            fallbackText: "")
+
+        #expect(transcript.text == "Hola.")
+    }
+
     @Test("sin segmentos cae al texto plano en vez de quedarse vacio")
     func sinSegmentos() {
         let transcript = WhisperKitBackend.transcript(segments: [], fallbackText: "  texto suelto ")

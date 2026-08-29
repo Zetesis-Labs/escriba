@@ -85,15 +85,22 @@ public enum WhisperKitBackend {
             TranscriptSegment(
                 start: TimeInterval(segment.start),
                 end: TimeInterval(segment.end),
-                text: segment.text.trimmingCharacters(in: .whitespaces),
+                text: clean(segment.text),
                 words: (segment.words ?? []).map {
                     TranscriptWord(
                         start: TimeInterval($0.start), end: TimeInterval($0.end), text: $0.word)
                 })
         }
 
-        guard segments.isEmpty else { return Transcript(segments: segments) }
-        return Transcript(text: fallbackText.trimmingCharacters(in: .whitespaces))
+        let meaningful = segments.filter { !$0.text.isEmpty }
+        guard meaningful.isEmpty else { return Transcript(segments: meaningful) }
+        return Transcript(text: clean(fallbackText))
+    }
+
+    static func clean(_ text: String) -> String {
+        text
+            .replacingOccurrences(of: "<\\|[^|]*\\|>", with: "", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
 
@@ -116,7 +123,11 @@ private actor Engine {
 
     func results(for path: String) async throws -> [TranscriptionResult] {
         let kit = try await loadedKit()
-        let options = DecodingOptions(task: .transcribe, language: language, wordTimestamps: true)
+        let options = DecodingOptions(
+            task: .transcribe,
+            language: language,
+            skipSpecialTokens: true,
+            wordTimestamps: true)
 
         let batches = await kit.transcribe(audioPaths: [path], decodeOptions: options)
 
