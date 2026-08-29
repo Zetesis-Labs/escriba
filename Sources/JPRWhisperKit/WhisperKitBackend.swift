@@ -29,19 +29,31 @@ public enum WhisperKitBackend {
             preflight: { try engine.preflight() })
     }
 
+    static let modelComponents = [
+        "AudioEncoder.mlmodelc", "MelSpectrogram.mlmodelc", "TextDecoder.mlmodelc",
+    ]
+
     public static func installedModelFolder(
         variant: String = defaultVariant, modelsRoot: URL = defaultModelsRoot
     ) -> URL? {
         guard let walker = FileManager.default.enumerator(
-            at: modelsRoot, includingPropertiesForKeys: [.isDirectoryKey])
+            at: modelsRoot, includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles])
         else { return nil }
 
-        for case let url as URL in walker where url.lastPathComponent == variant {
-            guard (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
-            else { continue }
+        for case let url as URL in walker
+        where url.lastPathComponent == variant && isModelComplete(url) {
             return url
         }
         return nil
+    }
+
+    static func isModelComplete(_ folder: URL) -> Bool {
+        modelComponents.allSatisfy { component in
+            FileManager.default.fileExists(
+                atPath: folder.appending(path: component)
+                    .appending(path: "coremldata.bin").path(percentEncoded: false))
+        }
     }
 
     @discardableResult
