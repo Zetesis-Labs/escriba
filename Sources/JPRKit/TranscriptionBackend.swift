@@ -1,4 +1,5 @@
 import Foundation
+import JPRCore
 
 public enum TranscriptionError: Error, CustomStringConvertible {
     case backendUnavailable(String)
@@ -25,12 +26,12 @@ public enum TranscriptionError: Error, CustomStringConvertible {
 
 public struct TranscriptionBackend: Sendable {
     public let name: String
-    public let transcribe: @Sendable (URL) throws -> String
+    public let transcribe: @Sendable (URL) throws -> Transcript
     public let preflight: @Sendable () throws -> Void
 
     public init(
         name: String,
-        transcribe: @escaping @Sendable (URL) throws -> String,
+        transcribe: @escaping @Sendable (URL) throws -> Transcript,
         preflight: @escaping @Sendable () throws -> Void = {}
     ) {
         self.name = name

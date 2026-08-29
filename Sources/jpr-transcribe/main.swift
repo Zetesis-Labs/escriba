@@ -8,8 +8,6 @@ let defaultOutput = FileManager.default.homeDirectoryForCurrentUser
     .appending(path: "Documents/Transcripciones JPR")
 let defaultState = FileManager.default.homeDirectoryForCurrentUser
     .appending(path: ".local/state/jpr-transcribe/ledger.db")
-let lockPath = FileManager.default.homeDirectoryForCurrentUser
-    .appending(path: ".local/state/jpr-transcribe/instance.lock")
 
 struct Options {
     var command = ""
@@ -17,6 +15,7 @@ struct Options {
     var output = defaultOutput
     var state = defaultState
     var language = "es"
+    var diarize = false
     var model: String? = MacWhisperBackend.defaultModel
 }
 
@@ -43,6 +42,7 @@ func parseOptions() -> Options {
         case "--output": options.output = URL(fileURLWithPath: value("--output"))
         case "--state": options.state = URL(fileURLWithPath: value("--state"))
         case "--language": options.language = value("--language")
+        case "--speakers": options.diarize = true
         case "--model": options.model = value("--model")
         case "-v", "--verbose": Log.verbose = true
         case "watch", "once", "status": options.command = argument
@@ -60,6 +60,7 @@ func parseOptions() -> Options {
                   --state <ruta>     fichero SQLite del ledger
                   --language <cod>   idioma ISO 639-1 (por defecto: es)
                   --model <id>       modelo de MacWhisper (engine:model-id)
+                  --speakers         detecta hablantes (diarizacion)
                   -v, --verbose      log detallado
                 """)
             exit(0)
@@ -102,6 +103,7 @@ do {
         exit(0)
     }
 
+    let lockPath = options.state.deletingLastPathComponent().appending(path: "instance.lock")
     guard let instanceLock = InstanceLock(path: lockPath) else {
         fail(
             "ya hay \(InstanceLock.holderDescription(path: lockPath)) trabajando sobre el mismo ledger."
@@ -112,7 +114,8 @@ do {
     let pipeline = Pipeline(
         root: options.root,
         ledger: ledger,
-        backend: MacWhisperBackend.make(language: options.language, model: options.model),
+        backend: MacWhisperBackend.make(
+            language: options.language, model: options.model, diarize: options.diarize),
         sink: sidecarTextSink(outputRoot: options.output)
     )
 

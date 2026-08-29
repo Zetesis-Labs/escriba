@@ -20,8 +20,8 @@ enum EventRouter {
         case .passStarted(let pending):
             state.status = .working(pending: pending)
 
-        case .transcribed(let key, let text, let output):
-            let preview = preview(of: text)
+        case .transcribed(let key, let transcript, let output):
+            let preview = preview(of: transcript.text)
             state.remember(TranscriptSummary(key: key, preview: preview, output: output))
             state.status = .watching
             Notifier.transcribed(key: key, preview: preview)

@@ -9,27 +9,30 @@ public enum MacWhisperBackend {
     public static func make(
         language: String = "es",
         model: String? = defaultModel,
+        diarize: Bool = false,
         timeout: TimeInterval = 3600
     ) -> TranscriptionBackend {
         TranscriptionBackend(
             name: appName,
             transcribe: { source in
-                try transcribe(source, language: language, model: model, timeout: timeout)
+                try transcribe(
+                    source, language: language, model: model, diarize: diarize, timeout: timeout)
             },
             preflight: { try verifyModelAvailable(model) })
     }
 
     private static func transcribe(
-        _ source: URL, language: String, model: String?, timeout: TimeInterval
-    ) throws -> String {
+        _ source: URL, language: String, model: String?, diarize: Bool, timeout: TimeInterval
+    ) throws -> Transcript {
         try ensureRunning()
 
         var arguments = [
             "transcribe", source.path(percentEncoded: false),
             "--language", language,
-            "--format", "txt",
+            "--format", "json",
         ]
         if let model { arguments += ["--model", model] }
+        if diarize { arguments.append("--speakers") }
 
         let result = try Shell.run(executable, arguments: arguments, timeout: timeout)
 
@@ -41,7 +44,55 @@ public enum MacWhisperBackend {
             throw TranscriptionError.failed("mw codigo \(result.status): \(detail)")
         }
 
-        return result.output.trimmingCharacters(in: .whitespacesAndNewlines)
+        return try decode(Data(result.output.utf8))
+    }
+
+    public static func decode(_ data: Data) throws -> Transcript {
+        let raw = String(decoding: data, as: UTF8.self)
+        guard let opening = raw.firstIndex(of: "{") else {
+            throw TranscriptionError.failed("mw no devolvio JSON: \(raw.prefix(200))")
+        }
+
+        let payload: Payload
+        do {
+            payload = try JSONDecoder().decode(Payload.self, from: Data(raw[opening...].utf8))
+        } catch {
+            throw TranscriptionError.failed("no entiendo la salida de mw: \(error)")
+        }
+
+        guard !payload.segments.isEmpty else { return Transcript(text: payload.text) }
+
+        return Transcript(segments: payload.segments.map { segment in
+            TranscriptSegment(
+                start: seconds(segment.start),
+                end: seconds(segment.end),
+                speaker: segment.speaker,
+                text: segment.text,
+                words: (segment.words ?? []).map {
+                    TranscriptWord(start: seconds($0.start), end: seconds($0.end), text: $0.text)
+                })
+        })
+    }
+
+    private static func seconds(_ milliseconds: Double) -> TimeInterval { milliseconds / 1000 }
+
+    private struct Payload: Decodable {
+        struct Segment: Decodable {
+            struct Word: Decodable {
+                let start: Double
+                let end: Double
+                let text: String
+            }
+
+            let start: Double
+            let end: Double
+            let text: String
+            let speaker: String?
+            let words: [Word]?
+        }
+
+        let text: String
+        let segments: [Segment]
     }
 
     public static func installedModels() -> ModelListing {

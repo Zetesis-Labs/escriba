@@ -78,9 +78,9 @@ public struct Pipeline: Sendable {
         Log.info("transcribiendo \(recording.key)")
         let started = Date()
 
-        let text: String
+        let transcript: Transcript
         do {
-            text = try backend.transcribe(recording.url)
+            transcript = try backend.transcribe(recording.url)
         } catch let error as TranscriptionError where error.isBackendUnavailable {
             throw error
         } catch {
@@ -90,9 +90,9 @@ public struct Pipeline: Sendable {
             return false
         }
 
-        let output = try sink(recording, text)
+        let output = try sink(recording, transcript)
         try ledger.markDone(key: recording.key, source: recording.url, output: output)
-        onEvent?(.transcribed(key: recording.key, text: text, output: output))
+        onEvent?(.transcribed(key: recording.key, transcript: transcript, output: output))
 
         let elapsed = Date().timeIntervalSince(started)
         Log.info(

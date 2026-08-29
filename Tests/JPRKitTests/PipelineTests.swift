@@ -47,14 +47,14 @@ private struct Sandbox {
 
 private func backend(
     name: String = "falso",
-    transcribe: @escaping @Sendable (URL) throws -> String
+    transcribe: @escaping @Sendable (URL) throws -> Transcript
 ) -> TranscriptionBackend {
     TranscriptionBackend(name: name, transcribe: transcribe, preflight: {})
 }
 
 private func capturingSink(into spy: Spy<String>, output: URL) -> Sink {
-    { recording, text in
-        spy.append(text)
+    { recording, transcript in
+        spy.append(transcript.text)
         return output.appending(path: "\(recording.key).txt")
     }
 }
@@ -70,7 +70,7 @@ struct PipelineTests {
         let pipeline = Pipeline(
             root: sandbox.root,
             ledger: sandbox.ledger,
-            backend: backend { _ in "hola que tal" },
+            backend: backend { _ in Transcript(text: "hola que tal") },
             sink: capturingSink(into: escrito, output: sandbox.output),
             settleSeconds: 0)
 
@@ -94,7 +94,7 @@ struct PipelineTests {
             ledger: sandbox.ledger,
             backend: backend { url in
                 llamadas.append(url)
-                return "texto"
+                return Transcript(text: "texto")
             },
             sink: capturingSink(into: escrito, output: sandbox.output),
             settleSeconds: 0)
@@ -185,7 +185,7 @@ struct PipelineTests {
             ledger: sandbox.ledger,
             backend: backend { url in
                 llamadas.append(url)
-                return "texto"
+                return Transcript(text: "texto")
             },
             sink: capturingSink(into: Spy<String>(), output: sandbox.output),
             settleSeconds: 3600)

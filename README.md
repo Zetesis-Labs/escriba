@@ -119,6 +119,19 @@ a la vez apuntando a la misma carpeta).
 > Terminal, asi que hay que concederselo a `~/.local/bin/jpr-transcribe` en
 > Ajustes > Privacidad y seguridad. Sin eso no puede leer `~/Library/Mobile Documents`.
 
+## El backend de transcripcion es un puerto
+
+`Pipeline` no conoce MacWhisper. Recibe un `TranscriptionBackend`, que es una
+struct de funciones —`transcribe` y `preflight`— igual que `Sink`. MacWhisper es
+una implementacion (`MacWhisperBackend.make(...)`), no el unico camino posible.
+
+Se invoca a `mw` con `--format json`, asi que cada transcripcion llega como un
+`Transcript` con segmentos, tiempos de inicio y fin, tiempos por palabra y, si la
+diarizacion esta activa, el hablante de cada segmento. El texto plano sigue
+disponible en `transcript.text`.
+
+    jpr-transcribe once --speakers    # detecta hablantes en esta pasada
+
 ## Modelo de transcripcion
 
 El modelo esta **fijado explicitamente** en `Transcriber.defaultModel`:
@@ -142,15 +155,16 @@ El idioma tambien esta fijo (`--language es`). Fijarlo da mejor precision que
 Por defecto escribe `~/Documents/Transcripciones JPR/YYYY-MM-DD/HH-MM-SS.txt`.
 
 El destino es un punto de extension: `Sink` es un simple
-`(Recording, String) throws -> URL`. Cambiar de destino es escribir otra funcion
-y pasarla al `Pipeline`.
+`(Recording, Transcript) throws -> URL`. Cambiar de destino es escribir otra
+funcion y pasarla al `Pipeline`. El sink por defecto escribe solo
+`transcript.text`; los segmentos estan disponibles para destinos mas ricos.
 
 ## Estructura
 
 | Modulo | Que hay |
 |---|---|
-| `JPRCore` | Nucleo puro: parseo de rutas, clasificacion de estado, seleccion de pendientes, ritmo del bucle. Sin I/O, cubierto por tests. |
-| `JPRKit` | Cascara: FSEvents, stat y materializacion, ledger SQLite, invocacion de `mw`, orquestacion. |
+| `JPRCore` | Nucleo puro: parseo de rutas, clasificacion de estado, seleccion de pendientes, ritmo del bucle, modelo `Transcript`. Sin I/O, cubierto por tests. |
+| `JPRKit` | Cascara: FSEvents, stat y materializacion, ledger SQLite, backends de transcripcion, orquestacion. |
 | `jpr-transcribe` | CLI. |
 | `JPRMenuBar` | App de barra de menus: estado, notificaciones y acciones. |
 
