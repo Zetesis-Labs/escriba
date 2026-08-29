@@ -11,7 +11,7 @@ public final class DaemonController: @unchecked Sendable {
     private let retryInterval: TimeInterval
     private let waker = Waker()
     private let stopping = Waker()
-    private var watcher: DirectoryWatcher?
+    private var watchers: [DirectoryWatcher] = []
     private var thread: Thread?
 
     public init(
@@ -25,15 +25,20 @@ public final class DaemonController: @unchecked Sendable {
     }
 
     public func start() {
-        let watcher = DirectoryWatcher(root: pipeline.root) { [waker] in
-            Log.debug("evento de fichero")
-            waker.signal()
+        watchers = pipeline.source.locations.map { location in
+            let watcher = DirectoryWatcher(root: location) { [waker] in
+                Log.debug("evento de fichero")
+                waker.signal()
+            }
+            watcher.start()
+            return watcher
         }
-        watcher.start()
-        self.watcher = watcher
 
+        let paths = pipeline.source.locations
+            .map { $0.path(percentEncoded: false) }
+            .joined(separator: ", ")
         Log.info(
-            "vigilando \(pipeline.root.path(percentEncoded: false)) (reconciliacion cada \(Int(reconcileInterval))s)"
+            "vigilando \(paths) [\(pipeline.source.name)] (reconciliacion cada \(Int(reconcileInterval))s)"
         )
 
         let thread = Thread { [weak self] in self?.loop() }
@@ -49,8 +54,8 @@ public final class DaemonController: @unchecked Sendable {
     public func stop() {
         stopping.signal()
         waker.signal()
-        watcher?.stop()
-        watcher = nil
+        watchers.forEach { $0.stop() }
+        watchers = []
     }
 
     public func runBlocking() {

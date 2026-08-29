@@ -61,3 +61,23 @@ public enum RecordingParser {
         return calendar.date(from: components)
     }
 }
+
+public let audioExtensions: Set<String> = [
+    "m4a", "mp3", "wav", "aac", "flac", "opus", "ogg", "caf", "aiff", "aif", "mp4", "mov",
+]
+
+public func recordingKey(for url: URL, root: URL) -> String? {
+    guard audioExtensions.contains(url.pathExtension.lowercased()) else { return nil }
+
+    var base = root.standardizedFileURL.path(percentEncoded: false)
+    while base.count > 1 && base.hasSuffix("/") { base.removeLast() }
+
+    let file = url.standardizedFileURL.path(percentEncoded: false)
+    let prefix = base == "/" ? "/" : base + "/"
+    guard file.hasPrefix(prefix) else { return nil }
+
+    let relative = String(file.dropFirst(prefix.count))
+    guard !relative.isEmpty else { return nil }
+
+    return (relative as NSString).deletingPathExtension
+}

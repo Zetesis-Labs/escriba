@@ -132,6 +132,29 @@ disponible en `transcript.text`.
 
     jpr-transcribe once --speakers    # detecta hablantes en esta pasada
 
+## De donde sale el audio
+
+`Pipeline` no conoce Just Press Record: recibe un `RecordingSource`, que dice
+que vigilar y como enumerar lo que hay. Hay dos:
+
+| Fuente | Que acepta | Clave |
+|---|---|---|
+| `jpr` (por defecto) | solo `YYYY-MM-DD/HH-MM-SS.m4a` | la del esquema |
+| `folder` | cualquier audio o video, con cualquier nombre y en cualquier subcarpeta | la ruta relativa sin extension |
+
+    jpr-transcribe once --source folder --root ~/Downloads/llamadas
+
+La salida respeta la estructura de la fuente, asi que
+`soporte/llamada-42.wav` acaba en `soporte/llamada-42.txt`.
+
+`RecordingSource` tambien declara `expectedSpeakers`, para que una carpeta que
+sabes que son llamadas a dos pueda decirlo sin que nadie lo teclee grabacion a
+grabacion.
+
+**Limitacion conocida**: con grabaciones multicanal (un interlocutor por canal)
+los canales se suman a mono y la diarizacion se degrada — en una prueba de 4
+canales metio a los dos hablantes en el mismo. En estereo normal separa bien.
+
 ## Backends de transcripcion
 
 | Backend | Como | Diarizacion |

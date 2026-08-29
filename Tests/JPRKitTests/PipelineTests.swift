@@ -68,7 +68,7 @@ struct PipelineTests {
         let escrito = Spy<String>()
 
         let pipeline = Pipeline(
-            root: sandbox.root,
+            source: justPressRecordSource(root: sandbox.root),
             ledger: sandbox.ledger,
             backend: backend { _ in Transcript(text: "hola que tal") },
             sink: capturingSink(into: escrito, output: sandbox.output),
@@ -90,7 +90,7 @@ struct PipelineTests {
         let escrito = Spy<String>()
 
         let pipeline = Pipeline(
-            root: sandbox.root,
+            source: justPressRecordSource(root: sandbox.root),
             ledger: sandbox.ledger,
             backend: backend { url in
                 llamadas.append(url)
@@ -113,7 +113,7 @@ struct PipelineTests {
         let eventos = Spy<PipelineEvent>()
 
         let pipeline = Pipeline(
-            root: sandbox.root,
+            source: justPressRecordSource(root: sandbox.root),
             ledger: sandbox.ledger,
             backend: backend { _ in throw TranscriptionError.backendUnavailable("apagado") },
             sink: capturingSink(into: Spy<String>(), output: sandbox.output),
@@ -138,7 +138,7 @@ struct PipelineTests {
         let llamadas = Spy<URL>()
 
         let pipeline = Pipeline(
-            root: sandbox.root,
+            source: justPressRecordSource(root: sandbox.root),
             ledger: sandbox.ledger,
             backend: backend { url in
                 llamadas.append(url)
@@ -158,7 +158,7 @@ struct PipelineTests {
         try sandbox.add("2026-08-29/10-00-00")
 
         let pipeline = Pipeline(
-            root: sandbox.root,
+            source: justPressRecordSource(root: sandbox.root),
             ledger: sandbox.ledger,
             backend: backend { _ in throw TranscriptionError.failed("audio corrupto") },
             sink: capturingSink(into: Spy<String>(), output: sandbox.output),
@@ -181,7 +181,7 @@ struct PipelineTests {
         let llamadas = Spy<URL>()
 
         let pipeline = Pipeline(
-            root: sandbox.root,
+            source: justPressRecordSource(root: sandbox.root),
             ledger: sandbox.ledger,
             backend: backend { url in
                 llamadas.append(url)

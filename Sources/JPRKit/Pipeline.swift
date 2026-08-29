@@ -2,7 +2,7 @@ import Foundation
 import JPRCore
 
 public struct Pipeline: Sendable {
-    public let root: URL
+    public let source: RecordingSource
     public let ledger: Ledger
     public let backend: TranscriptionBackend
     public let sink: Sink
@@ -11,7 +11,7 @@ public struct Pipeline: Sendable {
     public let onEvent: EventHandler?
 
     public init(
-        root: URL,
+        source: RecordingSource,
         ledger: Ledger,
         backend: TranscriptionBackend,
         sink: @escaping Sink,
@@ -19,7 +19,7 @@ public struct Pipeline: Sendable {
         materializeTimeout: TimeInterval = 300,
         onEvent: EventHandler? = nil
     ) {
-        self.root = root
+        self.source = source
         self.ledger = ledger
         self.backend = backend
         self.sink = sink
@@ -32,7 +32,7 @@ public struct Pipeline: Sendable {
     public func runOnce() throws -> PassOutcome {
         let all: [Recording]
         do {
-            all = try FileSystem.scan(root: root)
+            all = try source.scan()
         } catch {
             onEvent?(.scanFailed(reason: "\(error)"))
             throw error

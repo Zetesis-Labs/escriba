@@ -18,6 +18,7 @@ struct Options {
     var language = "es"
     var diarize = false
     var backend = "macwhisper"
+    var source = "jpr"
     var speakerCount: Int?
     var model: String? = MacWhisperBackend.defaultModel
 }
@@ -47,6 +48,7 @@ func parseOptions() -> Options {
         case "--language": options.language = value("--language")
         case "--speakers": options.diarize = true
         case "--backend": options.backend = value("--backend")
+        case "--source": options.source = value("--source")
         case "--speakers-count":
             guard let count = Int(value("--speakers-count")), count > 0 else {
                 fail("--speakers-count necesita un entero positivo")
@@ -74,6 +76,7 @@ func parseOptions() -> Options {
                   --speakers         detecta hablantes (diarizacion)
                   --speakers-count N si sabes cuantos hablan, fijalo
                   --backend <nombre> macwhisper (por defecto) o whisperkit
+                  --source <nombre>  jpr (por defecto) o folder (cualquier audio)
                   -v, --verbose      log detallado
                 """)
             exit(0)
@@ -85,10 +88,20 @@ func parseOptions() -> Options {
     guard ["macwhisper", "whisperkit"].contains(options.backend) else {
         fail("backend desconocido: \(options.backend). Usa macwhisper o whisperkit")
     }
+    guard ["jpr", "folder"].contains(options.source) else {
+        fail("fuente desconocida: \(options.source). Usa jpr o folder")
+    }
     return options
 }
 
 let options = parseOptions()
+
+func makeSource(_ options: Options) -> RecordingSource {
+    switch options.source {
+    case "folder": folderSource(name: "carpeta", root: options.root)
+    default: justPressRecordSource(root: options.root)
+    }
+}
 
 func makeBackend(_ options: Options) -> TranscriptionBackend {
     switch options.backend {
@@ -123,7 +136,7 @@ guard FileManager.default.fileExists(
     atPath: options.root.path(percentEncoded: false), isDirectory: &isDirectory),
     isDirectory.boolValue
 else {
-    fail("no existe la carpeta de Just Press Record: \(options.root.path(percentEncoded: false))")
+    fail("no existe la carpeta: \(options.root.path(percentEncoded: false))")
 }
 
 do {
@@ -158,7 +171,7 @@ do {
     defer { _ = instanceLock }
 
     let pipeline = Pipeline(
-        root: options.root,
+        source: makeSource(options),
         ledger: ledger,
         backend: makeBackend(options),
         sink: sidecarTextSink(outputRoot: options.output)

@@ -36,6 +36,28 @@ public enum FileSystem {
         }
     }
 
+    public static func scanAudio(root: URL) throws -> [Recording] {
+        let manager = FileManager.default
+        guard let walker = manager.enumerator(
+            at: root, includingPropertiesForKeys: [.contentModificationDateKey],
+            options: [.skipsHiddenFiles])
+        else {
+            throw ScanError.unreadable(
+                root: root.path(percentEncoded: false),
+                underlying: CocoaError(.fileReadNoSuchFile))
+        }
+
+        var recordings: [Recording] = []
+        for case let url as URL in walker {
+            guard let key = recordingKey(for: url, root: root) else { continue }
+            let modified =
+                (try? url.resourceValues(forKeys: [.contentModificationDateKey])
+                    .contentModificationDate) ?? Date()
+            recordings.append(Recording(url: url, startedAt: modified, key: key))
+        }
+        return recordings
+    }
+
     @discardableResult
     public static func requestMaterialization(_ url: URL, timeout: TimeInterval) -> Bool {
         let finished = DispatchSemaphore(value: 0)

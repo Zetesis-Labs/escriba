@@ -68,7 +68,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
             let ledger = try Ledger(path: ledgerPath)
             let pipeline = Pipeline(
-                root: root,
+                source: justPressRecordSource(root: root),
                 ledger: ledger,
                 backend: backend,
                 sink: sidecarTextSink(outputRoot: output),
