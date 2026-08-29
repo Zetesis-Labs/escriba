@@ -182,6 +182,7 @@ private actor Engine {
         }
         let diarization = try await loadedSpeakerKit().diarize(
             audioArray: audio, options: diarizationOptions)
+        logCentroidDistances(diarization)
         let labelled = diarization.addSpeakerInfo(to: transcriptions).flatMap { $0 }
 
         return WhisperKitBackend.transcript(speakerSegments: labelled)
@@ -194,6 +195,25 @@ private actor Engine {
             throw TranscriptionError.failed("WhisperKit no devolvio resultado para \(path)")
         }
         return transcriptions
+    }
+
+    private func logCentroidDistances(_ result: DiarizationResult) {
+        let ids = result.speakerCentroidEmbeddings.keys.sorted()
+        guard ids.count > 1 else {
+            Log.info("diarizacion: 1 hablante")
+            return
+        }
+
+        var pairs: [String] = []
+        for (index, a) in ids.enumerated() {
+            for b in ids.dropFirst(index + 1) {
+                guard let distance = result.centroidCosineDistance(between: a, and: b) else {
+                    continue
+                }
+                pairs.append(String(format: "%d-%d: %.3f", a + 1, b + 1, distance))
+            }
+        }
+        Log.info("diarizacion: \(ids.count) hablantes; distancias \(pairs.joined(separator: ", "))")
     }
 
     private func loadedSpeakerKit() async throws -> SpeakerKit {

@@ -118,3 +118,68 @@ struct RenderedTranscriptTests {
         #expect(transcript.rendered == "Ruido.\nSpeaker 1: Hola.")
     }
 }
+
+@Suite("Correccion de hablantes")
+struct SpeakerCorrectionTests {
+    private func segment(_ text: String, _ speaker: String?, at start: TimeInterval)
+        -> TranscriptSegment
+    {
+        TranscriptSegment(
+            start: start, end: start + 1, speaker: speaker, text: text,
+            words: [TranscriptWord(start: start, end: start + 1, text: text)])
+    }
+
+    private var llamada: Transcript {
+        Transcript(segments: [
+            segment("Hola, digame.", "Speaker 1", at: 0),
+            segment("Queria informacion.", "Speaker 2", at: 1),
+            segment("Le paso con el area.", "Speaker 3", at: 2),
+        ])
+    }
+
+    @Test("fusionar dos hablantes reetiqueta sus tramos")
+    func fusiona() {
+        let corregida = llamada.merging(["Speaker 3"], into: "Speaker 1")
+
+        #expect(corregida.speakers == ["Speaker 1", "Speaker 2"])
+        #expect(corregida.segments[2].speaker == "Speaker 1")
+    }
+
+    @Test("al fusionar, los turnos que quedan seguidos se agrupan en uno")
+    func reagrupaTurnos() {
+        let corregida = Transcript(segments: [
+            segment("Hola.", "Speaker 1", at: 0),
+            segment("Un momento.", "Speaker 3", at: 1),
+        ]).merging(["Speaker 3"], into: "Speaker 1")
+
+        #expect(corregida.rendered == "Speaker 1: Hola. Un momento.")
+    }
+
+    @Test("fusionar conserva tiempos y palabras")
+    func conservaDatos() {
+        let corregida = llamada.merging(["Speaker 3"], into: "Speaker 1")
+
+        #expect(corregida.segments[2].start == 2)
+        #expect(corregida.segments[2].end == 3)
+        #expect(corregida.segments[2].words.count == 1)
+    }
+
+    @Test("renombrar un hablante le pone nombre real")
+    func renombra() {
+        let corregida = llamada.renaming("Speaker 2", to: "Ruben")
+
+        #expect(corregida.speakers == ["Speaker 1", "Ruben", "Speaker 3"])
+    }
+
+    @Test("fusionar un hablante que no existe no toca nada")
+    func hablanteInexistente() {
+        #expect(llamada.merging(["Speaker 9"], into: "Speaker 1") == llamada)
+    }
+
+    @Test("sobre una transcripcion sin diarizar no hay nada que corregir")
+    func sinDiarizar() {
+        let plana = Transcript(text: "solo texto")
+
+        #expect(plana.merging(["Speaker 1"], into: "Speaker 2") == plana)
+    }
+}

@@ -52,6 +52,24 @@ public struct Transcript: Sendable, Equatable {
 
     public var duration: TimeInterval? { segments.last?.end }
 
+    public func merging(_ speakers: Set<String>, into target: String) -> Transcript {
+        guard isSegmented else { return self }
+
+        return Transcript(segments: segments.map { segment in
+            guard let speaker = segment.speaker, speakers.contains(speaker) else { return segment }
+            return TranscriptSegment(
+                start: segment.start,
+                end: segment.end,
+                speaker: target,
+                text: segment.text,
+                words: segment.words)
+        })
+    }
+
+    public func renaming(_ speaker: String, to name: String) -> Transcript {
+        merging([speaker], into: name)
+    }
+
     public var rendered: String {
         guard !speakers.isEmpty else { return text }
 

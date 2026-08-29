@@ -144,10 +144,24 @@ disponible en `transcript.text`.
     jpr-transcribe once --backend whisperkit --speakers
     jpr-transcribe once --backend whisperkit --speakers-count 2
 
-Si sabes cuanta gente habla, **dilo**: sin acotar, pyannote puede abrir un
-interlocutor de mas. Medido sobre una llamada real de 76 s a dos voces, sin
-acotar acierta 10 de 11 turnos y se inventa un tercer hablante al final; con
+Sin acotar, pyannote puede abrir un interlocutor de mas. Medido sobre una
+llamada real de 76 s a dos voces, acierta 10 de 11 turnos y se inventa un tercer
+hablante en el tramo final, donde las dos voces se solapan; con
 `--speakers-count 2`, 11 de 11.
+
+Ese tercer hablante **no se puede fusionar por parecido de voz**: sus centroides
+estan a 1.021 y 1.069 de los otros dos, mas lejos de lo que estan entre si los
+dos interlocutores reales (0.897). No hay umbral que lo arregle. Por eso el
+pipeline **no intenta adivinar**: guarda los hablantes tal como salen y deja la
+correccion para quien pueda verla. `Transcript` trae las dos operaciones que hace
+falta, puras y sin I/O:
+
+    transcript.merging(["Speaker 3"], into: "Speaker 1")
+    transcript.renaming("Speaker 2", to: "Ruben")
+
+Y `--speakers-count N` sirve para reprocesar una grabacion concreta cuando ya
+sabes cuantos hablaban. Cada diarizacion registra en el log cuantos hablantes
+salieron y a que distancia estan, que es lo que permite decidir.
 
 WhisperKit guarda su modelo en `~/Library/Application Support/jpr-transcribe/models`
 y se lo descarga el solo: no depende de que MacWhisper lo haya bajado antes, o
