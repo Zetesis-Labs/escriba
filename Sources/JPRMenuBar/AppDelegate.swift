@@ -51,6 +51,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         instanceLock = lock
 
         guard FileManager.default.fileExists(atPath: root.path(percentEncoded: false)) else {
+            Log.error(
+                "no encuentro \(root.path(percentEncoded: false)); si existe, falta el Acceso total al disco")
             state.status = .problem("no encuentro la carpeta de Just Press Record")
             refreshIcon()
             Notifier.problem(
