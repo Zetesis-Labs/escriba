@@ -5,7 +5,7 @@ extension Notification.Name {
     static let jprStateChanged = Notification.Name("dev.ruben.jpr-transcribe.stateChanged")
 }
 
-enum EventRouter {
+nonisolated enum EventRouter {
     static func handler(for state: AppState) -> EventHandler {
         { event in
             apply(event, to: state)

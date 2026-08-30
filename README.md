@@ -4,7 +4,8 @@ Transcribe automaticamente las notas de voz de **Just Press Record** con el CLI 
 **MacWhisper**. No toca la app ni cambia como grabas: tu sigues pulsando el boton
 en el iPhone, el Watch o el Mac, y el texto aparece solo.
 
-Swift puro, sin dependencias externas. Un binario y un LaunchAgent.
+Swift nativo. Cada transcripcion acaba en un `.txt` y en una biblioteca propia
+(SQLite + copia del audio), que es la base de la app que viene.
 
 ## Por que no se leen las transcripciones de la propia app
 
@@ -229,16 +230,46 @@ Por defecto escribe `~/Documents/Transcripciones JPR/YYYY-MM-DD/HH-MM-SS.txt`.
 
 El destino es un punto de extension: `Sink` es un simple
 `(Recording, Transcript) throws -> URL`. Cambiar de destino es escribir otra
-funcion y pasarla al `Pipeline`. El sink por defecto escribe solo
-`transcript.text`; los segmentos estan disponibles para destinos mas ricos.
+funcion y pasarla al `Pipeline`; `sinks(primary:also:)` encadena varios y
+devuelve la URL del primario. El `.txt` escribe `transcript.rendered` (agrupado
+por hablante si los hay) y sigue existiendo como red de seguridad al lado de la
+biblioteca.
+
+## La biblioteca
+
+`Store` (target `JPRStore`, sobre GRDB) guarda cada transcripcion entera —
+segmentos, hablantes y tiempos por palabra— y **copia el audio** dentro de su
+carpeta. Sin la copia no habria reprocesado: Just Press Record borra o mueve
+sus ficheros y la grabacion original deja de estar donde estaba.
+
+    ~/Library/Application Support/jpr-transcribe/library/
+    ├── library.sqlite
+    └── audio/YYYY-MM-DD/HH-MM-SS.m4a
+
+Tres tablas: `recording` (clave, origen, copia, fechas), `transcript` (varias
+por grabacion: cada reprocesado anade una y **la ultima gana**) y `segment`
+(posicion, tiempos, hablante, texto y las palabras como JSON). Borrar una
+grabacion arrastra en cascada sus transcripciones, sus segmentos y su audio.
+
+La biblioteca se observa como `AsyncSequence` (`store.observeRecordings()`),
+sin Combine: la app abre, lee lo que haya, y se entera sola de cada escritura
+del demonio aunque la ventana estuviera cerrada cuando ocurrio.
+
+    jpr-transcribe once --library ~/otra/biblioteca    # ruta alternativa
+    jpr-transcribe status                              # cuantas grabaciones hay
+
+El `Ledger` (que decide que esta pendiente, con reintentos y backoff) sigue
+aparte a proposito: son dos preguntas distintas.
 
 ## Estructura
 
 | Modulo | Que hay |
 |---|---|
 | `JPRCore` | Nucleo puro: parseo de rutas, clasificacion de estado, seleccion de pendientes, ritmo del bucle, modelo `Transcript`. Sin I/O, cubierto por tests. |
-| `JPRKit` | Cascara: FSEvents, stat y materializacion, ledger SQLite, backends de transcripcion, orquestacion. |
+| `JPRKit` | Cascara: FSEvents, stat y materializacion, ledger SQLite, backend MacWhisper, orquestacion. Sin dependencias. |
+| `JPRWhisperKit` | Backend WhisperKit + SpeakerKit (argmax-oss-swift). |
+| `JPRStore` | Biblioteca: SQLite con GRDB y copia del audio. |
 | `jpr-transcribe` | CLI. |
-| `JPRMenuBar` | App de barra de menus: estado, notificaciones y acciones. |
+| `JPRMenuBar` | App de barra de menus: estado, notificaciones y acciones. Aislamiento MainActor por defecto. |
 
     swift test

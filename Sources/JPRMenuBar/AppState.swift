@@ -32,7 +32,7 @@ enum WatcherStatus: Sendable {
     }
 }
 
-final class AppState: @unchecked Sendable {
+nonisolated final class AppState: @unchecked Sendable {
     private let lock = NSLock()
     private var _status: WatcherStatus = .starting
     private var _recent: [TranscriptSummary] = []
@@ -63,7 +63,7 @@ final class AppState: @unchecked Sendable {
 }
 
 extension NSLock {
-    func withLock<T>(_ body: () throws -> T) rethrows -> T {
+    nonisolated func withLock<T>(_ body: () throws -> T) rethrows -> T {
         lock()
         defer { unlock() }
         return try body()

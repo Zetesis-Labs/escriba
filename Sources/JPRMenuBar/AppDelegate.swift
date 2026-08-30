@@ -2,6 +2,7 @@ import AppKit
 import Foundation
 import JPRCore
 import JPRKit
+import JPRStore
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
@@ -13,6 +14,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let root = Paths.defaultRoot
     private let output = Paths.defaultOutput
     private let ledgerPath = Paths.defaultState
+    private let library = Paths.defaultLibrary
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         Log.mirrorToFile(Paths.logFile)
@@ -67,11 +69,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
 
             let ledger = try Ledger(path: ledgerPath)
+            let store = try Store(root: library)
             let pipeline = Pipeline(
                 source: justPressRecordSource(root: root),
                 ledger: ledger,
                 backend: backend,
-                sink: sidecarTextSink(outputRoot: output),
+                sink: sinks(
+                    primary: sidecarTextSink(outputRoot: output),
+                    also: store.sink(backend: backend.name)),
                 onEvent: EventRouter.handler(for: state)
             )
 

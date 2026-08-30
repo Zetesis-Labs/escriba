@@ -1,6 +1,7 @@
 import Foundation
 import JPRCore
 import JPRKit
+import JPRStore
 import JPRWhisperKit
 
 let defaultRoot = FileManager.default.homeDirectoryForCurrentUser
@@ -9,12 +10,15 @@ let defaultOutput = FileManager.default.homeDirectoryForCurrentUser
     .appending(path: "Documents/Transcripciones JPR")
 let defaultState = FileManager.default.homeDirectoryForCurrentUser
     .appending(path: ".local/state/jpr-transcribe/ledger.db")
+let defaultLibrary = FileManager.default.homeDirectoryForCurrentUser
+    .appending(path: "Library/Application Support/jpr-transcribe/library")
 
 struct Options {
     var command = ""
     var root = defaultRoot
     var output = defaultOutput
     var state = defaultState
+    var library = defaultLibrary
     var language = "es"
     var diarize = false
     var backend = "macwhisper"
@@ -45,6 +49,7 @@ func parseOptions() -> Options {
         case "--root": options.root = URL(fileURLWithPath: value("--root"))
         case "--output": options.output = URL(fileURLWithPath: value("--output"))
         case "--state": options.state = URL(fileURLWithPath: value("--state"))
+        case "--library": options.library = URL(fileURLWithPath: value("--library"))
         case "--language": options.language = value("--language")
         case "--speakers": options.diarize = true
         case "--backend": options.backend = value("--backend")
@@ -71,6 +76,7 @@ func parseOptions() -> Options {
                   --root <ruta>      carpeta de Just Press Record
                   --output <ruta>    donde escribir las transcripciones
                   --state <ruta>     fichero SQLite del ledger
+                  --library <ruta>   biblioteca: SQLite con las transcripciones y copia del audio
                   --language <cod>   idioma ISO 639-1 (por defecto: es)
                   --model <id>       modelo de MacWhisper (engine:model-id)
                   --speakers         detecta hablantes (diarizacion)
@@ -156,6 +162,8 @@ do {
         let wkFolder = WhisperKitBackend.installedModelFolder()
         print("whisperkit           : \(wkFolder == nil ? "modelo NO descargado (jpr-transcribe download)" : "listo")")
         print("salida               : \(options.output.path(percentEncoded: false))")
+        let library = try Store(root: options.library)
+        print("biblioteca           : \(try library.count()) grabaciones en \(options.library.path(percentEncoded: false))")
         for failure in try ledger.failures().prefix(10) {
             print("  ! \(failure.key) (intentos: \(failure.attempts)) \(failure.error.prefix(120))")
         }
@@ -170,11 +178,15 @@ do {
     }
     defer { _ = instanceLock }
 
+    let backend = makeBackend(options)
+    let library = try Store(root: options.library)
     let pipeline = Pipeline(
         source: makeSource(options),
         ledger: ledger,
-        backend: makeBackend(options),
-        sink: sidecarTextSink(outputRoot: options.output)
+        backend: backend,
+        sink: sinks(
+            primary: sidecarTextSink(outputRoot: options.output),
+            also: library.sink(backend: backend.name))
     )
 
     if options.command == "once" {

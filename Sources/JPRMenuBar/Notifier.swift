@@ -1,7 +1,7 @@
 import Foundation
 import UserNotifications
 
-enum Notifier {
+nonisolated enum Notifier {
     private static var isAvailable: Bool { Bundle.main.bundleIdentifier != nil }
 
     static func requestAuthorization() {

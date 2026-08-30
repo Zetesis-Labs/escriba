@@ -17,6 +17,10 @@ enum Paths {
         home.appending(path: ".local/state/jpr-transcribe/ledger.db")
     }
 
+    static var defaultLibrary: URL {
+        home.appending(path: "Library/Application Support/jpr-transcribe/library")
+    }
+
     static var lockFile: URL {
         home.appending(path: ".local/state/jpr-transcribe/instance.lock")
     }

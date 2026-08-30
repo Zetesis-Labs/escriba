@@ -1,6 +1,6 @@
 import Foundation
 
-public struct TranscriptWord: Sendable, Equatable {
+public struct TranscriptWord: Sendable, Equatable, Codable {
     public let start: TimeInterval
     public let end: TimeInterval
     public let text: String
@@ -12,7 +12,7 @@ public struct TranscriptWord: Sendable, Equatable {
     }
 }
 
-public struct TranscriptSegment: Sendable, Equatable {
+public struct TranscriptSegment: Sendable, Equatable, Codable {
     public let start: TimeInterval
     public let end: TimeInterval
     public let speaker: String?
