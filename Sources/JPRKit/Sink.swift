@@ -12,3 +12,11 @@ public func sidecarTextSink(outputRoot: URL) -> Sink {
         return target
     }
 }
+
+public func sinks(primary: @escaping Sink, also secondaries: Sink...) -> Sink {
+    { recording, transcript in
+        let output = try primary(recording, transcript)
+        for sink in secondaries { _ = try sink(recording, transcript) }
+        return output
+    }
+}
