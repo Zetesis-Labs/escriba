@@ -58,6 +58,29 @@ struct SpeakerMappingTests {
         #expect(transcript.segments[0].speaker == "Speaker 2")
     }
 
+    @Test("las palabras conservan sus tiempos: el karaoke sigue vivo tras diarizar")
+    func palabrasConTiempos() {
+        let segment = SpeakerSegment(
+            speaker: .speakerId(0), startTime: 0, endTime: 2, frameRate: 1,
+            speakerWords: [
+                SpeakerWordTiming(
+                    wordTiming: WordTiming(
+                        word: " Hola", tokens: [], start: 0.25, end: 0.5, probability: 1),
+                    speaker: .speakerId(0)),
+                SpeakerWordTiming(
+                    wordTiming: WordTiming(
+                        word: " que", tokens: [], start: 0.75, end: 1.5, probability: 1),
+                    speaker: .speakerId(0)),
+            ])
+
+        let transcript = WhisperKitBackend.transcript(speakerSegments: [segment])
+
+        #expect(transcript.segments[0].words == [
+            TranscriptWord(start: 0.25, end: 0.5, text: "Hola"),
+            TranscriptWord(start: 0.75, end: 1.5, text: "que"),
+        ])
+    }
+
     @Test("un tramo sin nada de texto se descarta")
     func tramoMudo() {
         let segment = SpeakerSegment(

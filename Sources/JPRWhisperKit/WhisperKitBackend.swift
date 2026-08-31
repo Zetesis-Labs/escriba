@@ -116,7 +116,15 @@ public enum WhisperKitBackend {
                 start: TimeInterval(segment.startTime),
                 end: TimeInterval(segment.endTime),
                 speaker: label(segment.speaker),
-                text: text)
+                text: text,
+                words: segment.speakerWords.compactMap { timed in
+                    let word = timed.wordTiming.word.trimmingCharacters(in: .whitespaces)
+                    guard !word.isEmpty else { return nil }
+                    return TranscriptWord(
+                        start: TimeInterval(timed.wordTiming.start),
+                        end: TimeInterval(timed.wordTiming.end),
+                        text: word)
+                })
         }
         return Transcript(segments: segments)
     }
