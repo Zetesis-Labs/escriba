@@ -14,11 +14,13 @@ public enum MacWhisperBackend {
     ) -> TranscriptionBackend {
         TranscriptionBackend(
             name: appName,
-            transcribe: { source throws(TranscriptionError) in
-                try TranscriptionError.catching {
-                    try transcribe(
-                        source, language: language, model: model, diarize: diarize,
-                        timeout: timeout)
+            transcribe: { source async throws(TranscriptionError) in
+                try await TranscriptionError.catching {
+                    try await offloaded {
+                        try transcribe(
+                            source, language: language, model: model, diarize: diarize,
+                            timeout: timeout)
+                    }
                 }
             },
             preflight: { () throws(TranscriptionError) in

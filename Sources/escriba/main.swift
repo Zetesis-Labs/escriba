@@ -128,7 +128,7 @@ if options.command == "download" {
     print("descargando \(WhisperKitBackend.defaultVariant)")
     print("destino: \(destino)")
     do {
-        let folder = try WhisperKitBackend.downloadModel { fraction in
+        let folder = try await WhisperKitBackend.downloadModel { fraction in
             FileHandle.standardError.write(Data("\rprogreso: \(Int(fraction * 100))%".utf8))
         }
         print("\nmodelo listo en \(folder.path(percentEncoded: false))")
@@ -190,7 +190,7 @@ do {
     )
 
     if options.command == "once" {
-        try pipeline.runOnce()
+        try await pipeline.runOnce()
     } else {
         DaemonController(pipeline: pipeline).runBlocking()
     }

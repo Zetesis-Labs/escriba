@@ -32,16 +32,28 @@ public enum TranscriptionError: Error, CustomStringConvertible {
             throw TranscriptionError.failed("\(error)")
         }
     }
+
+    public static func catching<T>(
+        _ body: () async throws -> T
+    ) async throws(TranscriptionError) -> T {
+        do {
+            return try await body()
+        } catch let error as TranscriptionError {
+            throw error
+        } catch {
+            throw TranscriptionError.failed("\(error)")
+        }
+    }
 }
 
 public struct TranscriptionBackend: Sendable {
     public let name: String
-    public let transcribe: @Sendable (URL) throws(TranscriptionError) -> Transcript
+    public let transcribe: @Sendable (URL) async throws(TranscriptionError) -> Transcript
     public let preflight: @Sendable () throws(TranscriptionError) -> Void
 
     public init(
         name: String,
-        transcribe: @escaping @Sendable (URL) throws(TranscriptionError) -> Transcript,
+        transcribe: @escaping @Sendable (URL) async throws(TranscriptionError) -> Transcript,
         preflight: @escaping @Sendable () throws(TranscriptionError) -> Void = {}
     ) {
         self.name = name

@@ -199,11 +199,9 @@ private struct ModelTab: View {
         failure = nil
         Task {
             do {
-                try await Task.detached {
-                    try WhisperKitBackend.downloadModel { fraction in
-                        Task { @MainActor in progress = fraction }
-                    }
-                }.value
+                try await WhisperKitBackend.downloadModel { fraction in
+                    Task { @MainActor in progress = fraction }
+                }
             } catch {
                 failure = "\(error)"
             }

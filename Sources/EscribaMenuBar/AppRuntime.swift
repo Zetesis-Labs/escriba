@@ -69,7 +69,7 @@ final class AppRuntime {
             let engine = WhisperKitEngine(language: settings.languageCode)
 
             let model = LibraryModel(store: store, reprocess: { [engine] url, count in
-                try engine.backend(diarize: true, speakerCount: count).transcribe(url)
+                try await engine.backend(diarize: true, speakerCount: count).transcribe(url)
             })
             model.startObserving()
             self.model = model

@@ -1,6 +1,5 @@
 import Foundation
 import EscribaCore
-import Synchronization
 import EscribaKit
 import SpeakerKit
 import WhisperKit
@@ -60,15 +59,13 @@ public enum WhisperKitBackend {
         variant: String = defaultVariant,
         modelsRoot: URL = defaultModelsRoot,
         onProgress: (@Sendable (Double) -> Void)? = nil
-    ) throws -> URL {
+    ) async throws -> URL {
         try FileManager.default.createDirectory(at: modelsRoot, withIntermediateDirectories: true)
 
-        return try runBlocking {
-            try await WhisperKit.download(
-                variant: variant,
-                downloadBase: modelsRoot,
-                progressCallback: { progress in onProgress?(progress.fractionCompleted) })
-        }
+        return try await WhisperKit.download(
+            variant: variant,
+            downloadBase: modelsRoot,
+            progressCallback: { progress in onProgress?(progress.fractionCompleted) })
     }
 
     static func transcript(from results: [TranscriptionResult]) -> Transcript {
@@ -158,14 +155,12 @@ public final class WhisperKitEngine: Sendable {
         let engine = engine
         return TranscriptionBackend(
             name: WhisperKitBackend.name,
-            transcribe: { source throws(TranscriptionError) in
-                try TranscriptionError.catching {
+            transcribe: { source async throws(TranscriptionError) in
+                try await TranscriptionError.catching {
                     try engine.preflight()
-                    let path = source.path(percentEncoded: false)
-                    return try runBlocking {
-                        try await engine.transcript(
-                            for: path, diarize: diarize, speakerCount: speakerCount)
-                    }
+                    return try await engine.transcript(
+                        for: source.path(percentEncoded: false),
+                        diarize: diarize, speakerCount: speakerCount)
                 }
             },
             preflight: { () throws(TranscriptionError) in
@@ -308,20 +303,3 @@ private actor Engine {
     }
 }
 
-func runBlocking<T: Sendable>(_ body: @escaping @Sendable () async throws -> T) throws -> T {
-    let semaphore = DispatchSemaphore(value: 0)
-    let outcome = Mutex<Result<T, any Error>?>(nil)
-
-    Task {
-        let result: Result<T, any Error>
-        do { result = .success(try await body()) } catch { result = .failure(error) }
-        outcome.withLock { $0 = result }
-        semaphore.signal()
-    }
-
-    semaphore.wait()
-    guard let result = outcome.withLock({ $0 }) else {
-        throw TranscriptionError.failed("la tarea asincrona no devolvio resultado")
-    }
-    return try result.get()
-}

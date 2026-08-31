@@ -29,7 +29,7 @@ public struct Pipeline: Sendable {
     }
 
     @discardableResult
-    public func runOnce() throws -> PassOutcome {
+    public func runOnce() async throws -> PassOutcome {
         let all: [Recording]
         do {
             all = try source.scan()
@@ -51,7 +51,7 @@ public struct Pipeline: Sendable {
 
         for recording in pending {
             do {
-                if try process(recording) { processed += 1 } else { deferred += 1 }
+                if try await process(recording) { processed += 1 } else { deferred += 1 }
             } catch let error as TranscriptionError where error.isBackendUnavailable {
                 Log.error("backend caido, se reintenta en el proximo ciclo: \(error)")
                 onEvent?(.backendUnavailable(reason: "\(error)"))
@@ -68,8 +68,8 @@ public struct Pipeline: Sendable {
         return PassOutcome(processed: processed, deferred: deferred)
     }
 
-    private func process(_ recording: Recording) throws -> Bool {
-        let state = awaitReadiness(recording)
+    private func process(_ recording: Recording) async throws -> Bool {
+        let state = await offloaded { awaitReadiness(recording) }
         guard state == .ready else {
             Log.info("\(recording.key) aun no listo (\(state.rawValue)), se deja para el proximo ciclo")
             return false
@@ -80,7 +80,7 @@ public struct Pipeline: Sendable {
 
         let transcript: Transcript
         do {
-            transcript = try backend.transcribe(recording.url)
+            transcript = try await backend.transcribe(recording.url)
         } catch where error.isBackendUnavailable {
             throw error
         } catch {
@@ -101,7 +101,7 @@ public struct Pipeline: Sendable {
         return true
     }
 
-    private func awaitReadiness(_ recording: Recording) -> FileState {
+    private nonisolated func awaitReadiness(_ recording: Recording) -> FileState {
         guard var probe = FileSystem.probe(recording.url) else { return .empty }
 
         var state = classify(probe: probe, previous: nil, settleSeconds: settleSeconds)

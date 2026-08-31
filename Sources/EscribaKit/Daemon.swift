@@ -11,7 +11,6 @@ public final class DaemonController: @unchecked Sendable {
     private let retryInterval: TimeInterval
     private let debounce: TimeInterval
     private let waker = WakeSignal()
-    private let passQueue = DispatchQueue(label: "dev.ruben.escriba.pass")
     private var loop: Task<Void, Never>?
     private var watchers: [DirectoryWatcher] = []
     private var signalSources: [DispatchSourceSignal] = []
@@ -91,16 +90,11 @@ public final class DaemonController: @unchecked Sendable {
     }
 
     private func pass() async -> PassOutcome {
-        let pipeline = pipeline
-        return await withCheckedContinuation { continuation in
-            passQueue.async {
-                do {
-                    continuation.resume(returning: try pipeline.runOnce())
-                } catch {
-                    Log.error("ciclo fallido, se continua: \(error)")
-                    continuation.resume(returning: PassOutcome(processed: 0, deferred: 0))
-                }
-            }
+        do {
+            return try await pipeline.runOnce()
+        } catch {
+            Log.error("ciclo fallido, se continua: \(error)")
+            return PassOutcome(processed: 0, deferred: 0)
         }
     }
 }

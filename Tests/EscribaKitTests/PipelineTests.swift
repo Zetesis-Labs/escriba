@@ -62,7 +62,7 @@ private func capturingSink(into spy: Spy<String>, output: URL) -> Sink {
 @Suite("Pipeline con backend inyectado")
 struct PipelineTests {
     @Test("transcribe lo pendiente, lo pasa al sink y lo marca como hecho")
-    func casoFeliz() throws {
+    func casoFeliz() async throws {
         let sandbox = try Sandbox()
         try sandbox.add("2026-08-29/10-00-00")
         let escrito = Spy<String>()
@@ -74,7 +74,7 @@ struct PipelineTests {
             sink: capturingSink(into: escrito, output: sandbox.output),
             settleSeconds: 0)
 
-        let outcome = try pipeline.runOnce()
+        let outcome = try await pipeline.runOnce()
 
         #expect(outcome.processed == 1)
         #expect(outcome.deferred == 0)
@@ -83,7 +83,7 @@ struct PipelineTests {
     }
 
     @Test("no reprocesa lo que ya esta en el ledger")
-    func idempotencia() throws {
+    func idempotencia() async throws {
         let sandbox = try Sandbox()
         try sandbox.add("2026-08-29/10-00-00")
         let llamadas = Spy<URL>()
@@ -99,15 +99,15 @@ struct PipelineTests {
             sink: capturingSink(into: escrito, output: sandbox.output),
             settleSeconds: 0)
 
-        try pipeline.runOnce()
-        let segunda = try pipeline.runOnce()
+        try await pipeline.runOnce()
+        let segunda = try await pipeline.runOnce()
 
         #expect(llamadas.count == 1)
         #expect(segunda.processed == 0)
     }
 
     @Test("un backend caido aplaza sin consumir intentos, para reintentarlo despues")
-    func backendCaido() throws {
+    func backendCaido() async throws {
         let sandbox = try Sandbox()
         try sandbox.add("2026-08-29/10-00-00")
         let eventos = Spy<PipelineEvent>()
@@ -122,7 +122,7 @@ struct PipelineTests {
             settleSeconds: 0,
             onEvent: { eventos.append($0) })
 
-        let outcome = try pipeline.runOnce()
+        let outcome = try await pipeline.runOnce()
 
         #expect(outcome.processed == 0)
         #expect(outcome.deferred == 1)
@@ -132,7 +132,7 @@ struct PipelineTests {
     }
 
     @Test("un backend caido corta la pasada en vez de quemar el resto de grabaciones")
-    func backendCaidoCortaLaPasada() throws {
+    func backendCaidoCortaLaPasada() async throws {
         let sandbox = try Sandbox()
         try sandbox.add("2026-08-29/10-00-00")
         try sandbox.add("2026-08-29/11-00-00")
@@ -149,13 +149,13 @@ struct PipelineTests {
             sink: capturingSink(into: Spy<String>(), output: sandbox.output),
             settleSeconds: 0)
 
-        _ = try pipeline.runOnce()
+        _ = try await pipeline.runOnce()
 
         #expect(llamadas.count == 1)
     }
 
     @Test("un fallo de transcripcion queda registrado con su motivo y suma un intento")
-    func falloDeTranscripcion() throws {
+    func falloDeTranscripcion() async throws {
         let sandbox = try Sandbox()
         try sandbox.add("2026-08-29/10-00-00")
 
@@ -168,7 +168,7 @@ struct PipelineTests {
             sink: capturingSink(into: Spy<String>(), output: sandbox.output),
             settleSeconds: 0)
 
-        let outcome = try pipeline.runOnce()
+        let outcome = try await pipeline.runOnce()
         let fallos = try sandbox.ledger.failures()
 
         #expect(outcome.processed == 0)
@@ -179,7 +179,7 @@ struct PipelineTests {
     }
 
     @Test("una grabacion que aun se esta escribiendo se deja para el proximo ciclo")
-    func grabacionSinAsentar() throws {
+    func grabacionSinAsentar() async throws {
         let sandbox = try Sandbox()
         try sandbox.add("2026-08-29/10-00-00")
         let llamadas = Spy<URL>()
@@ -194,7 +194,7 @@ struct PipelineTests {
             sink: capturingSink(into: Spy<String>(), output: sandbox.output),
             settleSeconds: 3600)
 
-        let outcome = try pipeline.runOnce()
+        let outcome = try await pipeline.runOnce()
 
         #expect(llamadas.count == 0)
         #expect(outcome.deferred == 1)

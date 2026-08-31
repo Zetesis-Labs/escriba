@@ -3,7 +3,7 @@ import EscribaCore
 import EscribaStore
 import Observation
 
-public typealias Reprocessor = @Sendable (URL, Int?) throws -> Transcript
+public typealias Reprocessor = @Sendable (URL, Int?) async throws -> Transcript
 
 @Observable
 public final class LibraryModel {
@@ -71,8 +71,7 @@ public final class LibraryModel {
         reprocessing.insert(recording.key)
         defer { reprocessing.remove(recording.key) }
 
-        let url = recording.audioURL
-        let transcript = try await Task.detached { try reprocess(url, speakers) }.value
+        let transcript = try await reprocess(recording.audioURL, speakers)
         try store.addTranscript(transcript, for: recording.key, backend: "reprocesado")
     }
 }
