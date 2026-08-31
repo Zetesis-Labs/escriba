@@ -10,7 +10,7 @@ import Observation
 final class AppRuntime {
     private(set) var model: LibraryModel?
     private(set) var startupProblem: String?
-    let settings = AppSettings()
+    let settings: AppSettings
 
     @ObservationIgnored private var controllers: [DaemonController] = []
     @ObservationIgnored private var instanceLock: InstanceLock?
@@ -29,6 +29,9 @@ final class AppRuntime {
     init() {
         Log.mirrorToFile(Paths.logFile)
         Log.info("Escriba arrancando")
+        LegacyMigration.run()
+        AppSettings.adoptLegacyDefaults(from: UserDefaults(suiteName: "dev.ruben.jpr-transcribe"))
+        settings = AppSettings()
         Notifier.requestAuthorization()
         start()
         watchSettings()

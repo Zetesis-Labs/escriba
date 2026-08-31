@@ -125,6 +125,20 @@ public final class AppSettings {
         language == "auto" ? nil : language
     }
 
+    public static func adoptLegacyDefaults(
+        from legacy: UserDefaults?, into defaults: UserDefaults = .standard
+    ) {
+        guard let legacy, defaults.data(forKey: Keys.watchedFolders) == nil else { return }
+        for key in [
+            Keys.language, Keys.diarization, Keys.notifyEveryNote,
+            Keys.writeTxt, Keys.txtFolder, Keys.watchedFolders,
+        ] {
+            if let value = legacy.object(forKey: key) {
+                defaults.set(value, forKey: key)
+            }
+        }
+    }
+
     private enum Keys {
         static let language = "language"
         static let diarization = "diarization"

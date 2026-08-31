@@ -101,6 +101,7 @@ func parseOptions() -> Options {
 }
 
 let options = parseOptions()
+LegacyMigration.run()
 
 func makeSource(_ options: Options) -> RecordingSource {
     switch options.source {

@@ -15,6 +15,13 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$PROJECT/.build/release/EscribaMenuBar" "$APP/Contents/MacOS/EscribaMenuBar"
 cp "$PROJECT/Resources/Info.plist" "$APP/Contents/Info.plist"
 
-codesign --force --deep --sign - "$APP"
+IDENTITY=$(security find-identity -v -p codesigning 2>/dev/null | grep -o '"Escriba[^"]*"' | head -1 | tr -d '"')
+if [ -n "${IDENTITY:-}" ]; then
+  codesign --force --deep --sign "$IDENTITY" "$APP"
+  echo "firmada con: $IDENTITY"
+else
+  codesign --force --deep --sign - "$APP"
+  echo "firmada ad-hoc; crea un certificado 'Escriba' en el Llavero para identidad estable"
+fi
 
 echo "construido: $APP"
