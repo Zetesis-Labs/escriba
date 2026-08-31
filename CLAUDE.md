@@ -52,6 +52,23 @@ swift test                  # swift-testing; --filter NO casa con nombres de @Su
   de MacWhisper.
 - **MacWhisper sigue de backend por defecto** hasta decisión explícita.
 
+## Swift moderno: qué se usa y dónde
+
+Directriz (2026-08-31): usar lo último del lenguaje, cada cosa donde paga.
+
+- **Concurrencia estricta Swift 6** en todo; aislamiento MainActor por defecto
+  en los targets de UI; `@concurrent` para trabajo pesado fuera del main actor.
+- **AsyncSequence como transporte único**: `values(in:)` de GRDB,
+  `Observations`, `AsyncStream` para puentear callbacks (FSEvents, time
+  observers de AVPlayer). Nada de Combine ni `NotificationCenter`.
+- **Typed throws en los puertos** (`throws(TranscriptionError)`) cuando se
+  toquen (Fase 6d).
+- **`Mutex` (Synchronization) donde sobreviva un lock**; `NSLock` es legado.
+- **Ownership donde es real, no adorno**: `~Copyable` para recursos de un solo
+  dueño (`InstanceLock`/flock); `Span<Float>`/`borrowing` para mirar PCM sin
+  copiarlo (una hora a 16 kHz float ≈ 230 MB). El resto no lo necesita.
+- Sin caso aquí: Embedded Swift, interop C++, `InlineArray`.
+
 ## Trampas del stack
 
 - `DecodingOptions.skipSpecialTokens` viene en `false`: sin activarlo el
