@@ -4,6 +4,11 @@ Transcriptor automático de notas de voz, en Swift, camino de ser una app propia
 con biblioteca de grabaciones. El `README.md` explica el dominio (iCloud,
 asentamiento, ledger, backends); esto son las reglas para tocar el código.
 
+**Alcance**: utilidad personal de Rubén — transcriptor automático + UI de
+seguimiento. Sin objetivo de comercializar: simplicidad de utilidad propia
+antes que generalidad (nada de onboarding, distribución ni features
+especulativas).
+
 ## Comandos
 
 ```bash
