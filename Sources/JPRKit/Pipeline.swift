@@ -81,7 +81,7 @@ public struct Pipeline: Sendable {
         let transcript: Transcript
         do {
             transcript = try backend.transcribe(recording.url)
-        } catch let error as TranscriptionError where error.isBackendUnavailable {
+        } catch where error.isBackendUnavailable {
             throw error
         } catch {
             try ledger.markFailed(key: recording.key, source: recording.url, error: "\(error)")
