@@ -57,6 +57,9 @@ swift test                  # swift-testing; --filter NO casa con nombres de @Su
   de MacWhisper.
 - **WhisperKit es el backend por defecto** (decidido 2026-08-31). MacWhisper
   queda como contraste vía `--backend macwhisper`; no depender de él.
+- **El daemon (Thread + NSCondition/Waker) se queda así a propósito**
+  (2026-08-31): es la pieza más rodada; no reescribirlo a concurrencia
+  estructurada sin una razón de comportamiento.
 
 ## Swift moderno: qué se usa y dónde
 
@@ -67,8 +70,9 @@ Directriz (2026-08-31): usar lo último del lenguaje, cada cosa donde paga.
 - **AsyncSequence como transporte único**: `values(in:)` de GRDB,
   `Observations`, `AsyncStream` para puentear callbacks (FSEvents, time
   observers de AVPlayer). Nada de Combine ni `NotificationCenter`.
-- **Typed throws en los puertos** (`throws(TranscriptionError)`) cuando se
-  toquen (Fase 6d).
+- **Typed throws en los puertos**: `TranscriptionBackend` es
+  `throws(TranscriptionError)`; el mapeo se hace en la frontera con
+  `TranscriptionError.catching`.
 - **`Mutex` (Synchronization) donde sobreviva un lock**; `NSLock` es legado.
 - **Ownership donde es real, no adorno**: `~Copyable` para recursos de un solo
   dueño (`InstanceLock`/flock); `Span<Float>`/`borrowing` para mirar PCM sin
