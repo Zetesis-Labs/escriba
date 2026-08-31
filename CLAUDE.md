@@ -57,9 +57,10 @@ swift test                  # swift-testing; --filter NO casa con nombres de @Su
   de MacWhisper.
 - **WhisperKit es el backend por defecto** (decidido 2026-08-31). MacWhisper
   queda como contraste vía `--backend macwhisper`; no depender de él.
-- **El daemon (Thread + NSCondition/Waker) se queda así a propósito**
-  (2026-08-31): es la pieza más rodada; no reescribirlo a concurrencia
-  estructurada sin una razón de comportamiento.
+- **El daemon es concurrencia estructurada** (decidido por Rubén 2026-08-31,
+  tras proponerse conservar el hilo): Task cancelable + actor `WakeSignal`;
+  la pasada bloqueante va en su cola GCD puenteada con una continuation —
+  nunca bloquear el pool cooperativo.
 
 ## Swift moderno: qué se usa y dónde
 
