@@ -24,6 +24,7 @@ struct JPRTranscribeApp: App {
 struct MenuContent: View {
     let runtime: AppRuntime
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.openSettings) private var openSettings
 
     var body: some View {
         Text(runtime.statusLabel)
@@ -38,8 +39,9 @@ struct MenuContent: View {
             Button("Buscar grabaciones ahora") { runtime.wake() }
         }
 
-        SettingsLink {
-            Text("Ajustes…")
+        Button("Ajustes…") {
+            openSettings()
+            NSApp.activate()
         }
 
         Divider()
