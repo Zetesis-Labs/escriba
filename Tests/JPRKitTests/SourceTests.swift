@@ -52,3 +52,21 @@ struct SourceTests {
         #expect(folderSource(name: "test", root: root).locations == [root])
     }
 }
+
+@Suite("Fuente con prefijo")
+struct NamespacedSourceTests {
+    @Test("las claves llevan el prefijo y la URL queda intacta")
+    func prefijo() throws {
+        let base = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appending(path: "jpr-ns-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(
+            at: base.appending(path: "sub"), withIntermediateDirectories: true)
+        try Data("x".utf8).write(to: base.appending(path: "sub/nota.wav"))
+
+        let source = namespaced(folderSource(name: "llamadas", root: base), prefix: "llamadas")
+        let recordings = try source.scan()
+
+        #expect(recordings.map(\.key) == ["llamadas/sub/nota"])
+        #expect(recordings[0].url.lastPathComponent == "nota.wav")
+    }
+}

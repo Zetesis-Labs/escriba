@@ -36,3 +36,18 @@ public func folderSource(
         expectedSpeakers: expectedSpeakers,
         scan: { try FileSystem.scanAudio(root: root) })
 }
+
+public func namespaced(_ source: RecordingSource, prefix: String) -> RecordingSource {
+    RecordingSource(
+        name: source.name,
+        locations: source.locations,
+        expectedSpeakers: source.expectedSpeakers,
+        scan: {
+            try source.scan().map { recording in
+                Recording(
+                    url: recording.url,
+                    startedAt: recording.startedAt,
+                    key: "\(prefix)/\(recording.key)")
+            }
+        })
+}

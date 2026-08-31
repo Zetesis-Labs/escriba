@@ -15,28 +15,17 @@ public enum WhisperKitBackend {
     }
 
     public static func make(
-        language: String = "es",
+        language: String? = "es",
         variant: String = defaultVariant,
         diarize: Bool = false,
         speakerCount: Int? = nil,
         modelsRoot: URL = defaultModelsRoot,
         unloadAfter: Duration = .seconds(300)
     ) -> TranscriptionBackend {
-        let engine = Engine(
-            language: language, variant: variant, diarize: diarize,
-            speakerCount: speakerCount, modelsRoot: modelsRoot, unloadAfter: unloadAfter)
-        return TranscriptionBackend(
-            name: name,
-            transcribe: { source throws(TranscriptionError) in
-                try TranscriptionError.catching {
-                    try engine.preflight()
-                    let path = source.path(percentEncoded: false)
-                    return try runBlocking { try await engine.transcript(for: path) }
-                }
-            },
-            preflight: { () throws(TranscriptionError) in
-                try TranscriptionError.catching { try engine.preflight() }
-            })
+        WhisperKitEngine(
+            language: language, variant: variant, modelsRoot: modelsRoot,
+            unloadAfter: unloadAfter
+        ).backend(diarize: diarize, speakerCount: speakerCount)
     }
 
     static let modelComponents = [
@@ -151,25 +140,52 @@ public enum WhisperKitBackend {
     }
 }
 
+public final class WhisperKitEngine: Sendable {
+    private let engine: Engine
+
+    public init(
+        language: String? = "es",
+        variant: String = WhisperKitBackend.defaultVariant,
+        modelsRoot: URL = WhisperKitBackend.defaultModelsRoot,
+        unloadAfter: Duration = .seconds(300)
+    ) {
+        engine = Engine(
+            language: language, variant: variant, modelsRoot: modelsRoot,
+            unloadAfter: unloadAfter)
+    }
+
+    public func backend(diarize: Bool = false, speakerCount: Int? = nil) -> TranscriptionBackend {
+        let engine = engine
+        return TranscriptionBackend(
+            name: WhisperKitBackend.name,
+            transcribe: { source throws(TranscriptionError) in
+                try TranscriptionError.catching {
+                    try engine.preflight()
+                    let path = source.path(percentEncoded: false)
+                    return try runBlocking {
+                        try await engine.transcript(
+                            for: path, diarize: diarize, speakerCount: speakerCount)
+                    }
+                }
+            },
+            preflight: { () throws(TranscriptionError) in
+                try TranscriptionError.catching { try engine.preflight() }
+            })
+    }
+}
+
 private actor Engine {
-    private let language: String
+    private let language: String?
     private let variant: String
-    private let diarize: Bool
-    private let speakerCount: Int?
     private let modelsRoot: URL
     private let unloadAfter: Duration
     private var loaded: WhisperKit?
     private var speaker: SpeakerKit?
     private var unloader: IdleUnloader?
 
-    init(
-        language: String, variant: String, diarize: Bool, speakerCount: Int?, modelsRoot: URL,
-        unloadAfter: Duration
-    ) {
+    init(language: String?, variant: String, modelsRoot: URL, unloadAfter: Duration) {
         self.language = language
         self.variant = variant
-        self.diarize = diarize
-        self.speakerCount = speakerCount
         self.modelsRoot = modelsRoot
         self.unloadAfter = unloadAfter
     }
@@ -179,11 +195,11 @@ private actor Engine {
         else { throw TranscriptionError.modelMissing(model: variant, installed: []) }
     }
 
-    func transcript(for path: String) async throws -> Transcript {
+    func transcript(for path: String, diarize: Bool, speakerCount: Int?) async throws -> Transcript {
         let unloader = idleUnloader()
         await unloader.cancel()
         do {
-            let transcript = try await perform(path)
+            let transcript = try await perform(path, diarize: diarize, speakerCount: speakerCount)
             await unloader.touch()
             return transcript
         } catch {
@@ -192,7 +208,9 @@ private actor Engine {
         }
     }
 
-    private func perform(_ path: String) async throws -> Transcript {
+    private func perform(
+        _ path: String, diarize: Bool, speakerCount: Int?
+    ) async throws -> Transcript {
         let kit = try await loadedKit()
         let options = DecodingOptions(
             task: .transcribe,
