@@ -66,3 +66,68 @@ struct AppSettingsTests {
         #expect(Diarization.fixed(3).storageValue == 3)
     }
 }
+
+@Suite("La carpeta por defecto viene de fuera, no del codigo")
+struct DefaultRecorderRootTests {
+    private let home = URL(fileURLWithPath: "/Users/prueba")
+
+    @Test("precedencia: argumento > entorno > Info.plist")
+    func precedencia() {
+        let all = defaultRecorderRoot(
+            argument: "/de/argumento", environment: ["JPR_TRANSCRIBE_ROOT": "/de/entorno"],
+            bundle: "/de/plist", home: home)
+        #expect(all?.path(percentEncoded: false) == "/de/argumento")
+
+        let sinArgumento = defaultRecorderRoot(
+            argument: nil, environment: ["JPR_TRANSCRIBE_ROOT": "/de/entorno"],
+            bundle: "/de/plist", home: home)
+        #expect(sinArgumento?.path(percentEncoded: false) == "/de/entorno")
+
+        let soloPlist = defaultRecorderRoot(
+            argument: nil, environment: [:], bundle: "/de/plist", home: home)
+        #expect(soloPlist?.path(percentEncoded: false) == "/de/plist")
+    }
+
+    @Test("una ruta relativa cuelga de home; sin valor no hay carpeta")
+    func rutas() {
+        let relativa = defaultRecorderRoot(
+            argument: nil, environment: [:], bundle: "Library/Grabaciones", home: home)
+        #expect(relativa?.path(percentEncoded: false) == "/Users/prueba/Library/Grabaciones")
+
+        #expect(defaultRecorderRoot(argument: nil, environment: [:], bundle: nil, home: home) == nil)
+    }
+}
+
+@Suite("Siembra de la carpeta por defecto")
+struct SeedingTests {
+    @Test("primer arranque: la carpeta del grabador aparece como vigilada, estilo JPR")
+    func siembra() {
+        let settings = AppSettings(
+            defaults: freshDefaults(), recorderRoot: URL(fileURLWithPath: "/tmp/jpr"))
+
+        #expect(settings.watchedFolders == [
+            WatchedFolder(path: "/tmp/jpr", style: .justPressRecord)
+        ])
+    }
+
+    @Test("si el usuario la borro, borrada se queda: no se resiembra")
+    func noResiembra() {
+        let defaults = freshDefaults()
+        let root = URL(fileURLWithPath: "/tmp/jpr")
+
+        let primera = AppSettings(defaults: defaults, recorderRoot: root)
+        primera.watchedFolders = []
+
+        let segunda = AppSettings(defaults: defaults, recorderRoot: root)
+        #expect(segunda.watchedFolders.isEmpty)
+    }
+
+    @Test("las carpetas guardadas sin estilo se leen como carpetas normales")
+    func compatibilidad() {
+        let defaults = freshDefaults()
+        defaults.set(Data(#"[{"path":"/tmp/viejas"}]"#.utf8), forKey: "watchedFolders")
+
+        let settings = AppSettings(defaults: defaults, recorderRoot: nil)
+        #expect(settings.watchedFolders == [WatchedFolder(path: "/tmp/viejas", style: .any)])
+    }
+}

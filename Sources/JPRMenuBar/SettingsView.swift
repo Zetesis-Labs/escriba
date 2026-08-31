@@ -110,7 +110,10 @@ private struct FoldersTab: View {
                 ForEach($settings.watchedFolders) { $folder in
                     HStack {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(URL(fileURLWithPath: folder.path).lastPathComponent)
+                            Text(
+                                folder.style == .justPressRecord
+                                    ? "Just Press Record"
+                                    : URL(fileURLWithPath: folder.path).lastPathComponent)
                             Text(abbreviated(folder.path))
                                 .font(.caption)
                                 .foregroundStyle(.secondary)

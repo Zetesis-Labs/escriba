@@ -2,15 +2,49 @@ import Foundation
 import Observation
 
 public struct WatchedFolder: Codable, Sendable, Equatable, Identifiable {
+    public enum Style: String, Codable, Sendable {
+        case justPressRecord
+        case any
+    }
+
     public var path: String
     public var speakers: Int?
+    public var style: Style
 
     public var id: String { path }
 
-    public init(path: String, speakers: Int? = nil) {
+    public init(path: String, speakers: Int? = nil, style: Style = .any) {
         self.path = path
         self.speakers = speakers
+        self.style = style
     }
+
+    private enum CodingKeys: String, CodingKey {
+        case path, speakers, style
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        path = try container.decode(String.self, forKey: .path)
+        speakers = try container.decodeIfPresent(Int.self, forKey: .speakers)
+        style = try container.decodeIfPresent(Style.self, forKey: .style) ?? .any
+    }
+}
+
+public func defaultRecorderRoot(
+    argument: String?, environment: [String: String], bundle: String?, home: URL
+) -> URL? {
+    let raw = argument ?? environment["JPR_TRANSCRIBE_ROOT"] ?? bundle
+    guard let raw, !raw.isEmpty else { return nil }
+    return raw.hasPrefix("/") ? URL(fileURLWithPath: raw) : home.appending(path: raw)
+}
+
+public func liveRecorderRoot() -> URL? {
+    defaultRecorderRoot(
+        argument: UserDefaults.standard.string(forKey: "defaultRoot"),
+        environment: ProcessInfo.processInfo.environment,
+        bundle: Bundle.main.object(forInfoDictionaryKey: "JPRDefaultRoot") as? String,
+        home: FileManager.default.homeDirectoryForCurrentUser)
 }
 
 public enum Diarization: Equatable, Sendable {
@@ -65,7 +99,7 @@ public final class AppSettings {
 
     @ObservationIgnored private let defaults: UserDefaults
 
-    public init(defaults: UserDefaults = .standard) {
+    public init(defaults: UserDefaults = .standard, recorderRoot: URL? = liveRecorderRoot()) {
         self.defaults = defaults
         language = defaults.string(forKey: Keys.language) ?? "es"
         diarization = Diarization(
@@ -75,8 +109,16 @@ public final class AppSettings {
         txtFolderPath = defaults.string(forKey: Keys.txtFolder)
             ?? FileManager.default.homeDirectoryForCurrentUser
                 .appending(path: "Documents/Transcripciones JPR").path(percentEncoded: false)
-        watchedFolders = defaults.data(forKey: Keys.watchedFolders)
-            .flatMap { try? JSONDecoder().decode([WatchedFolder].self, from: $0) } ?? []
+        if let stored = defaults.data(forKey: Keys.watchedFolders)
+            .flatMap({ try? JSONDecoder().decode([WatchedFolder].self, from: $0) }) {
+            watchedFolders = stored
+        } else {
+            let seeded = recorderRoot.map {
+                [WatchedFolder(path: $0.path(percentEncoded: false), style: .justPressRecord)]
+            } ?? []
+            watchedFolders = seeded
+            defaults.set(try? JSONEncoder().encode(seeded), forKey: Keys.watchedFolders)
+        }
     }
 
     public var languageCode: String? {

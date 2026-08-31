@@ -61,17 +61,6 @@ final class AppRuntime {
     private func build() {
         stopPipelines()
 
-        let root = Paths.defaultRoot
-        guard FileManager.default.fileExists(atPath: root.path(percentEncoded: false)) else {
-            Log.error(
-                "no encuentro \(root.path(percentEncoded: false)); si existe, falta el Acceso total al disco")
-            startupProblem = "no encuentro la carpeta de Just Press Record"
-            Notifier.problem(
-                title: "Just Press Record no encontrado",
-                detail: "No existe \(root.path(percentEncoded: false))")
-            return
-        }
-
         do {
             let store = try Store(root: Paths.defaultLibrary)
             let engine = WhisperKitEngine(language: settings.languageCode)
@@ -100,7 +89,7 @@ final class AppRuntime {
             }
 
             let ledger = try Ledger(path: Paths.defaultState)
-            controllers = sources(jprRoot: root, engine: engine).map { source, backend in
+            controllers = sources(engine: engine).map { source, backend in
                 let pipeline = Pipeline(
                     source: source,
                     ledger: ledger,
@@ -112,32 +101,41 @@ final class AppRuntime {
                 controller.start()
                 return controller
             }
-            model.status = .watching
+            if controllers.isEmpty {
+                Log.error("ninguna carpeta vigilada disponible")
+                model.status = .problem("ninguna carpeta vigilada disponible")
+            } else {
+                model.status = .watching
+            }
         } catch {
             startupProblem = "\(error)"
             Notifier.problem(title: "No se pudo arrancar", detail: "\(error)")
         }
 
-        func sources(
-            jprRoot: URL, engine: WhisperKitEngine
-        ) -> [(RecordingSource, TranscriptionBackend)] {
-            var result: [(RecordingSource, TranscriptionBackend)] = [
-                (
-                    justPressRecordSource(root: jprRoot),
-                    engine.backend(
-                        diarize: settings.diarization != .off,
-                        speakerCount: settings.diarization.speakerCount)
-                )
-            ]
-
+        func sources(engine: WhisperKitEngine) -> [(RecordingSource, TranscriptionBackend)] {
+            var result: [(RecordingSource, TranscriptionBackend)] = []
             var prefixes: Set<String> = []
+
             for folder in settings.watchedFolders {
                 let folderRoot = URL(fileURLWithPath: folder.path)
                 var isDirectory: ObjCBool = false
                 guard FileManager.default.fileExists(
                     atPath: folder.path, isDirectory: &isDirectory), isDirectory.boolValue
                 else {
-                    Log.error("carpeta vigilada inexistente, se ignora: \(folder.path)")
+                    Log.error(
+                        "no encuentro \(folder.path); si existe, falta el Acceso total al disco")
+                    Notifier.problem(
+                        title: "Carpeta vigilada inaccesible", detail: folder.path)
+                    continue
+                }
+
+                let diarize = folder.speakers != nil || settings.diarization != .off
+                let backend = engine.backend(
+                    diarize: diarize,
+                    speakerCount: folder.speakers ?? settings.diarization.speakerCount)
+
+                if folder.style == .justPressRecord {
+                    result.append((justPressRecordSource(root: folderRoot), backend))
                     continue
                 }
 
@@ -147,16 +145,12 @@ final class AppRuntime {
                     prefix = "\(folderRoot.lastPathComponent)-\(counter)"
                     counter += 1
                 }
-
-                let diarize = folder.speakers != nil || settings.diarization != .off
                 result.append((
                     namespaced(
                         folderSource(
                             name: prefix, root: folderRoot, expectedSpeakers: folder.speakers),
                         prefix: prefix),
-                    engine.backend(
-                        diarize: diarize,
-                        speakerCount: folder.speakers ?? settings.diarization.speakerCount)
+                    backend
                 ))
             }
             return result

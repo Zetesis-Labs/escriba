@@ -18,6 +18,8 @@
 	<string>1</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>26.0</string>
+	<key>JPRDefaultRoot</key>
+	<string>Library/Mobile Documents/iCloud~com~openplanetsoftware~just-press-record/Documents</string>
 	<key>LSUIElement</key>
 	<true/>
 	<key>NSHumanReadableCopyright</key>
