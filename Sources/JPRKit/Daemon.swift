@@ -9,26 +9,30 @@ public final class DaemonController: @unchecked Sendable {
     private let pipeline: Pipeline
     private let reconcileInterval: TimeInterval
     private let retryInterval: TimeInterval
-    private let waker = Waker()
-    private let stopping = Waker()
+    private let debounce: TimeInterval
+    private let waker = WakeSignal()
+    private let passQueue = DispatchQueue(label: "dev.ruben.jpr-transcribe.pass")
+    private var loop: Task<Void, Never>?
     private var watchers: [DirectoryWatcher] = []
-    private var thread: Thread?
+    private var signalSources: [DispatchSourceSignal] = []
 
     public init(
         pipeline: Pipeline,
         reconcileInterval: TimeInterval = reconcileInterval,
-        retryInterval: TimeInterval = retryInterval
+        retryInterval: TimeInterval = retryInterval,
+        debounce: TimeInterval = debounce
     ) {
         self.pipeline = pipeline
         self.reconcileInterval = reconcileInterval
         self.retryInterval = retryInterval
+        self.debounce = debounce
     }
 
     public func start() {
         watchers = pipeline.source.locations.map { location in
             let watcher = DirectoryWatcher(root: location) { [waker] in
                 Log.debug("evento de fichero")
-                waker.signal()
+                Task { await waker.signal() }
             }
             watcher.start()
             return watcher
@@ -41,90 +45,62 @@ public final class DaemonController: @unchecked Sendable {
             "vigilando \(paths) [\(pipeline.source.name)] (reconciliacion cada \(Int(reconcileInterval))s)"
         )
 
-        let thread = Thread { [weak self] in self?.loop() }
-        thread.name = "dev.ruben.jpr-transcribe.loop"
-        thread.start()
-        self.thread = thread
+        loop = Task { await run() }
     }
 
     public func wake() {
-        waker.signal()
+        Task { [waker] in await waker.signal() }
     }
 
     public func stop() {
-        stopping.signal()
-        waker.signal()
+        loop?.cancel()
+        loop = nil
         watchers.forEach { $0.stop() }
         watchers = []
     }
 
     public func runBlocking() {
         start()
-        installSignalHandlers()
-        while !stopping.isSignalled {
-            Thread.sleep(forTimeInterval: 0.5)
-        }
-        stop()
-    }
 
-    private func loop() {
-        while !stopping.isSignalled {
-            var outcome = PassOutcome(processed: 0, deferred: 0)
-            do {
-                outcome = try pipeline.runOnce()
-            } catch {
-                Log.error("ciclo fallido, se continua: \(error)")
-            }
-
-            let interval = nextWakeInterval(
-                after: outcome, retryInterval: retryInterval, reconcileInterval: reconcileInterval)
-
-            let woken = waker.wait(timeout: interval)
-            if woken && !stopping.isSignalled {
-                Thread.sleep(forTimeInterval: Self.debounce)
-            }
-        }
-    }
-
-    private func installSignalHandlers() {
+        let stopped = DispatchSemaphore(value: 0)
         for code in [SIGTERM, SIGINT] {
             signal(code, SIG_IGN)
             let source = DispatchSource.makeSignalSource(signal: code, queue: .global())
             source.setEventHandler { [weak self] in
                 Log.info("parando")
-                self?.stopping.signal()
-                self?.waker.signal()
+                self?.stop()
+                stopped.signal()
             }
             source.resume()
             signalSources.append(source)
         }
+        stopped.wait()
     }
 
-    private var signalSources: [DispatchSourceSignal] = []
-}
+    private func run() async {
+        while !Task.isCancelled {
+            let outcome = await pass()
+            let interval = nextWakeInterval(
+                after: outcome, retryInterval: retryInterval, reconcileInterval: reconcileInterval)
 
-final class Waker: @unchecked Sendable {
-    private let condition = NSCondition()
-    private var pending = false
-    private(set) var isSignalled = false
-
-    func signal() {
-        condition.lock()
-        pending = true
-        isSignalled = true
-        condition.signal()
-        condition.unlock()
-    }
-
-    @discardableResult
-    func wait(timeout: TimeInterval) -> Bool {
-        condition.lock()
-        defer {
-            pending = false
-            condition.unlock()
+            let woken = await waker.wait(upTo: interval)
+            if woken, !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(debounce))
+            }
         }
+    }
 
-        if pending { return true }
-        return condition.wait(until: Date().addingTimeInterval(timeout))
+    private func pass() async -> PassOutcome {
+        let pipeline = pipeline
+        return await withCheckedContinuation { continuation in
+            passQueue.async {
+                do {
+                    continuation.resume(returning: try pipeline.runOnce())
+                } catch {
+                    Log.error("ciclo fallido, se continua: \(error)")
+                    continuation.resume(returning: PassOutcome(processed: 0, deferred: 0))
+                }
+            }
+        }
     }
 }
