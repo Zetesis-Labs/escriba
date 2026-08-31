@@ -1,8 +1,9 @@
 # jpr-transcribe
 
-Transcribe automaticamente las notas de voz de **Just Press Record** con el CLI de
-**MacWhisper**. No toca la app ni cambia como grabas: tu sigues pulsando el boton
-en el iPhone, el Watch o el Mac, y el texto aparece solo.
+Transcribe automaticamente las notas de voz de **Just Press Record** con
+**WhisperKit** (CoreML sobre el Neural Engine, todo local). No toca la app ni
+cambia como grabas: tu sigues pulsando el boton en el iPhone, el Watch o el
+Mac, y el texto aparece solo.
 
 Swift nativo. Cada transcripcion acaba en un `.txt` y en una biblioteca propia
 (SQLite + copia del audio), que es la base de la app que viene.
@@ -43,8 +44,9 @@ las trampas y como se manejan:
 - **Ritmo adaptativo.** Si algo quedo esperando a asentarse, el siguiente ciclo
   es a los 10 s, no a los 5 minutos. Sin esto una grabacion recien llegada se
   quedaba parada hasta la siguiente reconciliacion.
-- **MacWhisper debe estar vivo.** `mw` es un cliente delgado que habla por socket
-  con la app; si no corre, se lanza en background (`open -gj`) y se espera.
+- **MacWhisper debe estar vivo** (solo con `--backend macwhisper`). `mw` es un
+  cliente delgado que habla por socket con la app; si no corre, se lanza en
+  background (`open -gj`) y se espera. El backend por defecto no necesita nada.
 - **Reintentos acotados.** Un fallo se reintenta pasados 10 minutos, hasta 5 veces,
   y queda registrado con su motivo en `status`.
 - **Una sola instancia a la vez.** Un `flock` sobre
@@ -160,13 +162,14 @@ canales metio a los dos hablantes en el mismo. En estereo normal separa bien.
 
 | Backend | Como | Diarizacion |
 |---|---|---|
-| `macwhisper` (por defecto) | CLI `mw`, necesita la app de MacWhisper viva | `--speakers` |
-| `whisperkit` | CoreML sobre el Neural Engine, sin apps de terceros | SpeakerKit (pyannote v4) |
+| `whisperkit` (por defecto) | CoreML sobre el Neural Engine, sin apps de terceros | SpeakerKit (pyannote v4) |
+| `macwhisper` | CLI `mw`, necesita la app de MacWhisper viva | `--speakers` |
 
-    jpr-transcribe download                      # trae el modelo de WhisperKit
-    jpr-transcribe once --backend whisperkit     # transcribe sin MacWhisper
-    jpr-transcribe once --backend whisperkit --speakers
-    jpr-transcribe once --backend whisperkit --speakers-count 2
+    jpr-transcribe download                      # trae el modelo (una vez)
+    jpr-transcribe once                          # transcribe con WhisperKit
+    jpr-transcribe once --speakers
+    jpr-transcribe once --speakers-count 2
+    jpr-transcribe once --backend macwhisper     # contraste con MacWhisper
 
 Sin acotar, pyannote puede abrir un interlocutor de mas. Medido sobre una
 llamada real de 76 s a dos voces, acierta 10 de 11 turnos y se inventa un tercer
@@ -208,18 +211,17 @@ resto.
 
 ## Modelo de transcripcion
 
-El modelo esta **fijado explicitamente** en `Transcriber.defaultModel`:
+El modelo esta **fijado explicitamente** (`WhisperKitBackend.defaultVariant`):
 
-    whisperkit:openai_whisper-large-v3-v20240930   (Large v3 Turbo)
+    openai_whisper-large-v3-v20240930   (Large v3 Turbo)
 
-Se clava a proposito. Si se dejara sin especificar, `mw` usaria el que este
-seleccionado en la interfaz de MacWhisper, y cambiarlo alli cambiaria en silencio
-la calidad de todas tus transcripciones. Asi es reproducible.
+Se clava a proposito para que la calidad sea reproducible y no dependa de
+ninguna seleccion externa. Con `--backend macwhisper` rige el mismo criterio
+(`MacWhisperBackend.defaultModel` fija el equivalente `whisperkit:` de `mw`;
+cambiarlo puntualmente: `jpr-transcribe --model <id> once --backend macwhisper`).
 
-Al arrancar se comprueba que sigue instalado; si no lo esta, la app avisa con una
-notificacion y `status` lo marca como `NO INSTALADO`. Para cambiarlo puntualmente:
-
-    jpr-transcribe --model parakeet-pro:nvidia_parakeet-v3_494MB once
+Al arrancar se comprueba que el modelo esta instalado; si no lo esta, la app
+avisa con una notificacion y `status` lo marca como `NO descargado`.
 
 El idioma tambien esta fijo (`--language es`). Fijarlo da mejor precision que
 `auto`, a cambio de forzar el castellano en una grabacion en otro idioma.

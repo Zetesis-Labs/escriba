@@ -3,6 +3,7 @@ import Foundation
 import JPRCore
 import JPRKit
 import JPRStore
+import JPRWhisperKit
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
@@ -62,7 +63,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
 
         do {
-            let backend = MacWhisperBackend.make()
+            let backend = WhisperKitBackend.make()
             do {
                 try backend.preflight()
             } catch {

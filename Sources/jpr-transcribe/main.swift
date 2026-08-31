@@ -21,7 +21,7 @@ struct Options {
     var library = defaultLibrary
     var language = "es"
     var diarize = false
-    var backend = "macwhisper"
+    var backend = "whisperkit"
     var source = "jpr"
     var speakerCount: Int?
     var model: String? = MacWhisperBackend.defaultModel
@@ -81,7 +81,7 @@ func parseOptions() -> Options {
                   --model <id>       modelo de MacWhisper (engine:model-id)
                   --speakers         detecta hablantes (diarizacion)
                   --speakers-count N si sabes cuantos hablan, fijalo
-                  --backend <nombre> macwhisper (por defecto) o whisperkit
+                  --backend <nombre> whisperkit (por defecto) o macwhisper
                   --source <nombre>  jpr (por defecto) o folder (cualquier audio)
                   -v, --verbose      log detallado
                 """)

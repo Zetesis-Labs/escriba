@@ -31,8 +31,8 @@ nonisolated enum EventRouter {
             Notifier.problem(title: "Fallo al transcribir \(key)", detail: reason)
 
         case .backendUnavailable(let reason):
-            state.status = .problem("MacWhisper no responde")
-            Notifier.problem(title: "MacWhisper no responde", detail: reason)
+            state.status = .problem("el motor de transcripcion no responde")
+            Notifier.problem(title: "El motor de transcripcion no responde", detail: reason)
 
         case .scanFailed(let reason):
             state.status = .problem("no puedo leer la carpeta")

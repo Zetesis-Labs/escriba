@@ -55,7 +55,8 @@ swift test                  # swift-testing; --filter NO casa con nombres de @Su
 - **La app se descarga sus modelos** a
   `~/Library/Application Support/jpr-transcribe/models`; nunca reutiliza los
   de MacWhisper.
-- **MacWhisper sigue de backend por defecto** hasta decisión explícita.
+- **WhisperKit es el backend por defecto** (decidido 2026-08-31). MacWhisper
+  queda como contraste vía `--backend macwhisper`; no depender de él.
 
 ## Swift moderno: qué se usa y dónde
 
