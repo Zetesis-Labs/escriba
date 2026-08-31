@@ -60,7 +60,9 @@ final class AppRuntime {
 
         do {
             let store = try Store(root: Paths.defaultLibrary)
-            let model = LibraryModel(store: store)
+            let model = LibraryModel(store: store, reprocess: { url, count in
+                try WhisperKitBackend.make(diarize: true, speakerCount: count).transcribe(url)
+            })
             model.startObserving()
             self.model = model
 

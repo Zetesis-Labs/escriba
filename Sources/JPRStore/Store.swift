@@ -47,16 +47,45 @@ public final class Store: Sendable {
             if row.id == nil { try row.insert(db) }
             guard let recordingId = row.id else { throw StoreError.missingRowID }
 
-            var stored = TranscriptRow(
-                recordingId: recordingId, backend: backend, createdAt: now, text: transcript.text)
-            try stored.insert(db)
-            guard let transcriptId = stored.id else { throw StoreError.missingRowID }
-
-            for (position, segment) in transcript.segments.enumerated() {
-                try SegmentRow(transcriptId: transcriptId, position: position, segment: segment)
-                    .insert(db)
-            }
+            try Self.insert(transcript, recordingId: recordingId, backend: backend, in: db)
             return row.stored(in: root)
+        }
+    }
+
+    public func addTranscript(
+        _ transcript: Transcript, for key: String, backend: String
+    ) throws {
+        try writer.write { db in
+            guard
+                let row = try RecordingRow.filter(RecordingRow.Columns.key == key).fetchOne(db),
+                let recordingId = row.id
+            else { throw StoreError.unknownRecording(key) }
+            try Self.insert(transcript, recordingId: recordingId, backend: backend, in: db)
+        }
+    }
+
+    private static func insert(
+        _ transcript: Transcript, recordingId: Int64, backend: String, in db: Database
+    ) throws {
+        var row = TranscriptRow(
+            recordingId: recordingId, backend: backend, createdAt: Date(), text: transcript.text)
+        try row.insert(db)
+        guard let transcriptId = row.id else { throw StoreError.missingRowID }
+
+        for (position, segment) in transcript.segments.enumerated() {
+            try SegmentRow(transcriptId: transcriptId, position: position, segment: segment)
+                .insert(db)
+        }
+    }
+
+    func transcriptCount(for key: String) throws -> Int {
+        try writer.read { db in
+            guard
+                let row = try RecordingRow.filter(RecordingRow.Columns.key == key).fetchOne(db),
+                let recordingId = row.id
+            else { return 0 }
+            return try TranscriptRow.filter(TranscriptRow.Columns.recordingId == recordingId)
+                .fetchCount(db)
         }
     }
 
@@ -152,10 +181,12 @@ private func fetchRecordings(_ db: Database, root: URL) throws -> [StoredRecordi
 
 public enum StoreError: Error, CustomStringConvertible {
     case missingRowID
+    case unknownRecording(String)
 
     public var description: String {
         switch self {
         case .missingRowID: "SQLite no devolvio el id de la fila insertada"
+        case .unknownRecording(let key): "no hay ninguna grabacion con clave \(key)"
         }
     }
 }

@@ -3,6 +3,7 @@ import Testing
 
 @testable import JPRApp
 @testable import JPRCore
+import JPRKit
 @testable import JPRStore
 
 private struct Sandbox {
@@ -10,12 +11,12 @@ private struct Sandbox {
     let store: Store
     let model: LibraryModel
 
-    init() throws {
+    init(reprocess: Reprocessor? = nil) throws {
         base = URL(fileURLWithPath: NSTemporaryDirectory())
             .appending(path: "jpr-app-tests-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
         store = try Store(root: base.appending(path: "library"))
-        model = LibraryModel(store: store)
+        model = LibraryModel(store: store, reprocess: reprocess)
     }
 
     func save(_ key: String, text: String = "hola") throws {
@@ -102,5 +103,71 @@ struct LibraryModelTests {
 
         #expect(try sandbox.model.transcript(for: "2026-08-31/10-00-00")?.text == "el contenido")
         #expect(try sandbox.model.transcript(for: "no/existe") == nil)
+    }
+}
+
+nonisolated private final class ReprocessSpy: @unchecked Sendable {
+    private let lock = NSLock()
+    private var counts: [Int?] = []
+
+    var received: [Int?] {
+        lock.lock()
+        defer { lock.unlock() }
+        return counts
+    }
+
+    func note(_ count: Int?) {
+        lock.lock()
+        defer { lock.unlock() }
+        counts.append(count)
+    }
+}
+
+@Suite("Correcciones y reprocesado desde el modelo")
+struct LibraryCorrectionTests {
+    @Test("una correccion de hablantes persiste y pasa a ser la vigente")
+    func correccion() throws {
+        let sandbox = try Sandbox()
+        try sandbox.save("2026-08-31/13-00-00", text: "hola")
+        let original = try #require(try sandbox.model.transcript(for: "2026-08-31/13-00-00"))
+
+        let corregida = Transcript(segments: [
+            TranscriptSegment(start: 0, end: 1, speaker: "Ruben", text: original.text)
+        ])
+        try sandbox.model.applyCorrection(corregida, to: "2026-08-31/13-00-00")
+
+        #expect(try sandbox.model.transcript(for: "2026-08-31/13-00-00") == corregida)
+    }
+
+    @Test("reprocesar guarda el resultado como transcripcion vigente y pasa los hablantes pedidos")
+    func reprocesa() async throws {
+        let spy = ReprocessSpy()
+        let sandbox = try Sandbox(reprocess: { _, count in
+            spy.note(count)
+            return Transcript(text: "reprocesada")
+        })
+        try sandbox.save("2026-08-31/13-00-00", text: "original")
+        let recording = try #require(try sandbox.store.recordings().first)
+
+        try await sandbox.model.reprocess(recording, speakers: 2)
+
+        #expect(spy.received == [2])
+        #expect(try sandbox.model.transcript(for: recording.key)?.text == "reprocesada")
+        #expect(sandbox.model.reprocessing.isEmpty)
+    }
+
+    @Test("un reprocesado que falla no toca la transcripcion vigente")
+    func reprocesadoFallido() async throws {
+        let sandbox = try Sandbox(reprocess: { _, _ in
+            throw TranscriptionError.failed("audio corrupto")
+        })
+        try sandbox.save("2026-08-31/13-00-00", text: "original")
+        let recording = try #require(try sandbox.store.recordings().first)
+
+        await #expect(throws: TranscriptionError.self) {
+            try await sandbox.model.reprocess(recording, speakers: nil)
+        }
+        #expect(try sandbox.model.transcript(for: recording.key)?.text == "original")
+        #expect(sandbox.model.reprocessing.isEmpty)
     }
 }

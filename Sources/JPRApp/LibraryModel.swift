@@ -3,17 +3,22 @@ import JPRCore
 import JPRStore
 import Observation
 
+public typealias Reprocessor = @Sendable (URL, Int?) throws -> Transcript
+
 @Observable
 public final class LibraryModel {
     public private(set) var recordings: [StoredRecording] = []
+    public private(set) var reprocessing: Set<String> = []
     public var status: WatcherStatus = .starting
     public private(set) var scanned = 0
 
     private let store: Store
+    @ObservationIgnored private let reprocess: Reprocessor?
     @ObservationIgnored private var observation: Task<Void, Never>?
 
-    public init(store: Store) {
+    public init(store: Store, reprocess: Reprocessor? = nil) {
         self.store = store
+        self.reprocess = reprocess
     }
 
     deinit {
@@ -53,5 +58,31 @@ public final class LibraryModel {
 
     public func transcript(for key: String) throws -> Transcript? {
         try store.transcript(for: key)
+    }
+
+    public func applyCorrection(_ corrected: Transcript, to key: String) throws {
+        try store.addTranscript(corrected, for: key, backend: "correccion")
+    }
+
+    public func reprocess(_ recording: StoredRecording, speakers: Int?) async throws {
+        guard let reprocess else { throw LibraryModelError.reprocessUnavailable }
+        guard !reprocessing.contains(recording.key) else { return }
+
+        reprocessing.insert(recording.key)
+        defer { reprocessing.remove(recording.key) }
+
+        let url = recording.audioURL
+        let transcript = try await Task.detached { try reprocess(url, speakers) }.value
+        try store.addTranscript(transcript, for: recording.key, backend: "reprocesado")
+    }
+}
+
+public enum LibraryModelError: Error, CustomStringConvertible {
+    case reprocessUnavailable
+
+    public var description: String {
+        switch self {
+        case .reprocessUnavailable: "esta app no tiene motor de reprocesado configurado"
+        }
     }
 }

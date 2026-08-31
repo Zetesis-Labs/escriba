@@ -50,6 +50,9 @@ struct TranscriptDetail: View {
     @State private var transcript: Transcript?
     @State private var failure: String?
     @State private var player = PlayerModel()
+    @State private var renameTarget: String?
+    @State private var newName = ""
+    @State private var actionError: String?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -63,13 +66,104 @@ struct TranscriptDetail: View {
         }
         .navigationTitle(recording.key)
         .task(id: recording.key) {
-            do {
-                transcript = try model.transcript(for: recording.key)
-                failure = nil
-            } catch {
-                failure = "\(error)"
-            }
+            reload()
             player.load(recording.audioURL)
+        }
+        .toolbar {
+            if model.reprocessing.contains(recording.key) {
+                ToolbarItem { ProgressView().controlSize(.small) }
+            }
+            ToolbarItem { speakersMenu }
+        }
+        .alert(
+            "Renombrar hablante",
+            isPresented: Binding(
+                get: { renameTarget != nil },
+                set: { if !$0 { renameTarget = nil } })
+        ) {
+            TextField("Nombre", text: $newName)
+            Button("Renombrar") { renameCurrent() }
+            Button("Cancelar", role: .cancel) { renameTarget = nil }
+        }
+        .alert(
+            "No se pudo",
+            isPresented: Binding(
+                get: { actionError != nil },
+                set: { if !$0 { actionError = nil } })
+        ) {
+            Button("Vale") { actionError = nil }
+        } message: {
+            Text(actionError ?? "")
+        }
+    }
+
+    private var speakersMenu: some View {
+        Menu {
+            if let transcript, !transcript.speakers.isEmpty {
+                Section("Hablantes") {
+                    ForEach(transcript.speakers, id: \.self) { speaker in
+                        Menu(speaker) {
+                            Button("Renombrar…") {
+                                newName = speaker
+                                renameTarget = speaker
+                            }
+                            ForEach(
+                                transcript.speakers.filter { $0 != speaker }, id: \.self
+                            ) { other in
+                                Button("Fusionar con \(other)") {
+                                    correct(transcript.merging([speaker], into: other))
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            Section("Reprocesar") {
+                Button("Detectar hablantes") { reprocess(nil) }
+                ForEach(2...4, id: \.self) { count in
+                    Button("Con \(count) hablantes") { reprocess(count) }
+                }
+            }
+        } label: {
+            Label("Hablantes", systemImage: "person.2")
+        }
+        .disabled(model.reprocessing.contains(recording.key))
+    }
+
+    private func reload() {
+        do {
+            transcript = try model.transcript(for: recording.key)
+            failure = nil
+        } catch {
+            failure = "\(error)"
+        }
+    }
+
+    private func correct(_ corrected: Transcript) {
+        do {
+            try model.applyCorrection(corrected, to: recording.key)
+            transcript = corrected
+        } catch {
+            actionError = "\(error)"
+        }
+    }
+
+    private func renameCurrent() {
+        let name = newName.trimmingCharacters(in: .whitespaces)
+        if let renameTarget, let transcript, !name.isEmpty {
+            correct(transcript.renaming(renameTarget, to: name))
+        }
+        renameTarget = nil
+    }
+
+    private func reprocess(_ speakers: Int?) {
+        Task {
+            do {
+                try await model.reprocess(recording, speakers: speakers)
+                reload()
+            } catch {
+                actionError = "\(error)"
+            }
         }
     }
 

@@ -166,3 +166,29 @@ struct StoreTests {
         #expect(try sandbox.store.transcript(for: recording.key) == conversacion)
     }
 }
+
+@Suite("Store: correcciones sobre lo ya guardado")
+struct StoreCorrectionTests {
+    @Test("una correccion se guarda como transcripcion nueva y pasa a ser la vigente")
+    func correccion() throws {
+        let sandbox = try Sandbox()
+        let recording = try sandbox.recording("2026-08-31/12-00-00")
+        try sandbox.store.save(recording, conversacion, backend: "falso")
+
+        let corregida = conversacion.renaming("Speaker 1", to: "Ruben")
+        try sandbox.store.addTranscript(corregida, for: recording.key, backend: "correccion")
+
+        #expect(try sandbox.store.transcript(for: recording.key) == corregida)
+        #expect(try sandbox.store.transcriptCount(for: recording.key) == 2)
+    }
+
+    @Test("corregir una clave que no existe falla con un error claro, no en silencio")
+    func claveInexistente() throws {
+        let sandbox = try Sandbox()
+
+        #expect(throws: StoreError.self) {
+            try sandbox.store.addTranscript(
+                Transcript(text: "x"), for: "no/existe", backend: "correccion")
+        }
+    }
+}
