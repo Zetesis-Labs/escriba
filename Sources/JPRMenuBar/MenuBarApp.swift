@@ -14,6 +14,10 @@ struct JPRTranscribeApp: App {
             LibraryWindow(model: runtime.model, problem: runtime.startupProblem)
         }
         .defaultLaunchBehavior(.suppressed)
+
+        Settings {
+            SettingsView(settings: runtime.settings)
+        }
     }
 }
 
@@ -25,13 +29,17 @@ struct MenuContent: View {
         Text(runtime.statusLabel)
 
         if let model = runtime.model {
-            Text("\(model.scanned) grabaciones en disco · \(model.recordings.count) en la biblioteca")
+            Text("\(model.recordings.count) en la biblioteca")
             Divider()
             Button("Abrir biblioteca") {
                 openWindow(id: "library")
                 NSApp.activate()
             }
             Button("Buscar grabaciones ahora") { runtime.wake() }
+        }
+
+        SettingsLink {
+            Text("Ajustes…")
         }
 
         Divider()
