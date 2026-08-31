@@ -15,8 +15,14 @@ especulativas).
 swift build                 # CLI + app
 swift test                  # swift-testing; --filter NO casa con nombres de @Suite
 ./scripts/build-app.sh      # .build/app/Escriba.app
-./scripts/install-app.sh    # a /Applications (la firma ad-hoc puede invalidar el Acceso total al disco)
+./scripts/install-app.sh    # a /Applications
 ```
+
+La app se firma con la identidad del Llavero que contenga «Escriba»
+(hoy `Zetesis - Escriba`, autofirmada, confiada vía `add-trusted-cert
+-p codeSign`; caduca 2027-08-31 — renovar igual). Con identidad estable el
+Acceso total al disco sobrevive a las reinstalaciones; sin ella cae a
+ad-hoc y puede caducar.
 
 ## Arquitectura: núcleo funcional, cáscara imperativa
 
