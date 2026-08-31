@@ -35,7 +35,7 @@ struct MappingTests {
             fallbackText: "")
 
         #expect(transcript.segments[0].words.count == 1)
-        #expect(transcript.segments[0].words[0].text == " Hola")
+        #expect(transcript.segments[0].words[0].text == "Hola")
     }
 
     @Test("los tokens especiales del modelo no acaban en la transcripcion")

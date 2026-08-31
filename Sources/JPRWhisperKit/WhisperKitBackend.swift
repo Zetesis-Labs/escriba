@@ -93,7 +93,8 @@ public enum WhisperKitBackend {
                 text: clean(segment.text),
                 words: (segment.words ?? []).map {
                     TranscriptWord(
-                        start: TimeInterval($0.start), end: TimeInterval($0.end), text: $0.word)
+                        start: TimeInterval($0.start), end: TimeInterval($0.end),
+                        text: $0.word.trimmingCharacters(in: .whitespaces))
                 })
         }
 

@@ -23,8 +23,9 @@ struct LibraryWindow: View {
                 }
                 .navigationSplitViewColumnWidth(min: 220, ideal: 260)
             } detail: {
-                if let selected {
-                    TranscriptDetail(model: model, key: selected)
+                if let selected,
+                    let recording = model.recordings.first(where: { $0.key == selected }) {
+                    TranscriptDetail(model: model, recording: recording)
                 } else {
                     ContentUnavailableView(
                         "Elige una grabacion",
@@ -44,32 +45,44 @@ struct LibraryWindow: View {
 
 struct TranscriptDetail: View {
     let model: LibraryModel
-    let key: String
+    let recording: StoredRecording
 
     @State private var transcript: Transcript?
     @State private var failure: String?
+    @State private var player = PlayerModel()
 
     var body: some View {
-        ScrollView {
-            Text(content)
-                .textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding()
+        VStack(spacing: 0) {
+            PlayerBar(player: player)
+            Divider()
+            ScrollView {
+                content
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding()
+            }
         }
-        .navigationTitle(key)
-        .task(id: key) {
+        .navigationTitle(recording.key)
+        .task(id: recording.key) {
             do {
-                transcript = try model.transcript(for: key)
+                transcript = try model.transcript(for: recording.key)
                 failure = nil
             } catch {
                 failure = "\(error)"
             }
+            player.load(recording.audioURL)
         }
     }
 
-    private var content: String {
-        if let failure { return "No se pudo leer: \(failure)" }
-        guard let transcript else { return "Sin transcripcion" }
-        return transcript.rendered
+    @ViewBuilder private var content: some View {
+        if let failure {
+            Text("No se pudo leer: \(failure)")
+        } else if let transcript {
+            KaraokeView(
+                transcript: transcript,
+                position: transcript.position(at: player.currentTime),
+                onSeek: { player.seek(to: $0) })
+        } else {
+            Text("Sin transcripcion").foregroundStyle(.secondary)
+        }
     }
 }

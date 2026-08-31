@@ -101,3 +101,22 @@ public struct Transcript: Sendable, Equatable {
         return segments.compactMap(\.speaker).filter { seen.insert($0).inserted }
     }
 }
+
+public struct PlaybackPosition: Sendable, Equatable {
+    public let segment: Int
+    public let word: Int?
+
+    public init(segment: Int, word: Int?) {
+        self.segment = segment
+        self.word = word
+    }
+}
+
+extension Transcript {
+    public func position(at time: TimeInterval) -> PlaybackPosition? {
+        guard let segment = segments.lastIndex(where: { $0.start <= time }) else { return nil }
+        return PlaybackPosition(
+            segment: segment,
+            word: segments[segment].words.lastIndex(where: { $0.start <= time }))
+    }
+}
