@@ -24,17 +24,25 @@ let package = Package(
                 "JPRCore", "JPRKit",
                 .product(name: "GRDB", package: "GRDB.swift"),
             ]),
+        .target(
+            name: "JPRApp",
+            dependencies: ["JPRCore", "JPRKit", "JPRStore"],
+            swiftSettings: [.defaultIsolation(MainActor.self)]),
         .executableTarget(
             name: "jpr-transcribe",
             dependencies: ["JPRKit", "JPRCore", "JPRWhisperKit", "JPRStore"]),
         .executableTarget(
             name: "JPRMenuBar",
-            dependencies: ["JPRKit", "JPRCore", "JPRWhisperKit", "JPRStore"],
+            dependencies: ["JPRKit", "JPRCore", "JPRWhisperKit", "JPRStore", "JPRApp"],
             swiftSettings: [.defaultIsolation(MainActor.self)]),
         .testTarget(name: "JPRCoreTests", dependencies: ["JPRCore"]),
         .testTarget(name: "JPRKitTests", dependencies: ["JPRKit", "JPRCore"]),
         .testTarget(
             name: "JPRWhisperKitTests", dependencies: ["JPRWhisperKit", "JPRCore", "JPRKit"]),
         .testTarget(name: "JPRStoreTests", dependencies: ["JPRStore", "JPRCore", "JPRKit"]),
+        .testTarget(
+            name: "JPRAppTests",
+            dependencies: ["JPRApp", "JPRStore", "JPRCore"],
+            swiftSettings: [.defaultIsolation(MainActor.self)]),
     ]
 )
