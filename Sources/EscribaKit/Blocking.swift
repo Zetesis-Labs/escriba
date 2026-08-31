@@ -1,6 +1,6 @@
 import Foundation
 
-func offloaded<T: Sendable>(_ body: @escaping @Sendable () throws -> T) async throws -> T {
+public func offloaded<T: Sendable>(_ body: @escaping @Sendable () throws -> T) async throws -> T {
     try await withCheckedThrowingContinuation { continuation in
         DispatchQueue.global(qos: .utility).async {
             do {
@@ -12,7 +12,7 @@ func offloaded<T: Sendable>(_ body: @escaping @Sendable () throws -> T) async th
     }
 }
 
-func offloaded<T: Sendable>(_ body: @escaping @Sendable () -> T) async -> T {
+public func offloaded<T: Sendable>(_ body: @escaping @Sendable () -> T) async -> T {
     await withCheckedContinuation { continuation in
         DispatchQueue.global(qos: .utility).async {
             continuation.resume(returning: body())

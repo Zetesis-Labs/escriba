@@ -3,6 +3,12 @@ import EscribaCore
 import EscribaStore
 import SwiftUI
 
+private func librarySummary(_ model: LibraryModel) -> String {
+    let sinTranscribir = model.recordings.count(where: { $0.status != .done })
+    let total = "\(model.recordings.count) en la biblioteca"
+    return sinTranscribir == 0 ? total : "\(total), \(sinTranscribir) sin transcribir"
+}
+
 struct LibraryWindow: View {
     let model: LibraryModel?
     let problem: String?
@@ -13,11 +19,15 @@ struct LibraryWindow: View {
         if let model {
             NavigationSplitView {
                 List(model.recordings, selection: $selected) { recording in
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(recording.startedAt, format: .dateTime.day().month(.wide).hour().minute())
-                        Text(recording.key)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                    HStack(spacing: 8) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(recording.startedAt, format: .dateTime.day().month(.wide).hour().minute())
+                            Text(recording.key)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer(minLength: 0)
+                        StatusBadge(status: recording.status)
                     }
                     .padding(.vertical, 2)
                 }
@@ -30,7 +40,7 @@ struct LibraryWindow: View {
                     ContentUnavailableView(
                         "Elige una grabacion",
                         systemImage: "waveform",
-                        description: Text("\(model.recordings.count) en la biblioteca"))
+                        description: Text(librarySummary(model)))
                 }
             }
             .navigationTitle("Biblioteca")
@@ -69,6 +79,7 @@ struct TranscriptDetail: View {
             reload()
             player.load(recording.audioURL)
         }
+        .onChange(of: recording.status) { reload() }
         .toolbar {
             if model.reprocessing.contains(recording.key) {
                 ToolbarItem { ProgressView().controlSize(.small) }
@@ -176,7 +187,63 @@ struct TranscriptDetail: View {
                 position: transcript.position(at: player.currentTime),
                 onSeek: { player.seek(to: $0) })
         } else {
+            statusPlaceholder
+        }
+    }
+
+    @ViewBuilder private var statusPlaceholder: some View {
+        switch recording.status {
+        case .pending:
+            VStack(alignment: .leading, spacing: 12) {
+                Label("En cola", systemImage: "clock")
+                Text("Se transcribira automaticamente en la proxima pasada.")
+                    .foregroundStyle(.secondary)
+                Button("Transcribir ahora") { reprocess(nil) }
+                    .disabled(model.reprocessing.contains(recording.key))
+            }
+        case .processing:
+            HStack(spacing: 8) {
+                ProgressView().controlSize(.small)
+                Text("Transcribiendo…").foregroundStyle(.secondary)
+            }
+        case .failed:
+            VStack(alignment: .leading, spacing: 12) {
+                Label("Fallo la transcripcion", systemImage: "exclamationmark.triangle")
+                    .foregroundStyle(.orange)
+                if let error = recording.lastError {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                }
+                Button("Reintentar") { reprocess(nil) }
+                    .disabled(model.reprocessing.contains(recording.key))
+            }
+        case .done:
             Text("Sin transcripcion").foregroundStyle(.secondary)
+        }
+    }
+}
+
+struct StatusBadge: View {
+    let status: RecordingStatus
+
+    var body: some View {
+        switch status {
+        case .pending:
+            Image(systemName: "clock")
+                .foregroundStyle(.secondary)
+                .help("Pendiente de transcribir")
+        case .processing:
+            ProgressView()
+                .controlSize(.small)
+                .help("Transcribiendo")
+        case .failed:
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
+                .help("Fallo la transcripcion")
+        case .done:
+            EmptyView()
         }
     }
 }

@@ -25,6 +25,17 @@ public enum RecordingParser {
         return Recording(url: url, startedAt: startedAt, key: "\(day)/\(time)")
     }
 
+    public static func startDate(fromKey key: String) -> Date? {
+        let parts = key.split(separator: "/")
+        guard parts.count >= 2,
+              let (year, month, dayOfMonth) = split(
+                String(parts[parts.count - 2]), separator: "-", widths: [4, 2, 2]),
+              let (hour, minute, second) = split(
+                String(parts[parts.count - 1]), separator: "-", widths: [2, 2, 2])
+        else { return nil }
+        return date(year, month, dayOfMonth, hour, minute, second)
+    }
+
     private static func normalized(_ url: URL) -> String {
         var path = url.standardizedFileURL.path(percentEncoded: false)
         while path.count > 1 && path.hasSuffix("/") { path.removeLast() }

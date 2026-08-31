@@ -58,6 +58,11 @@ ad-hoc y puede caducar.
   `sqlite-vec`.
 - **El pipeline no adivina cuántos hablan.** Guarda lo que sale; la corrección
   (`merging`, `renaming`, `--speakers-count N`) es de la app.
+- **El ledger es la única fuente de verdad del pipeline; la biblioteca es el
+  espejo de estados para la UI.** Toda grabación escaneada tiene fila en la
+  biblioteca (`pending/processing/done/failed`, eventos `.scanned` /
+  `.transcribing` / `.failed`); el pipeline decide qué transcribir solo con el
+  ledger. No mover esa decisión al Store ni al revés.
 - **La app se descarga sus modelos** a
   `~/Library/Application Support/escriba/models`; nunca reutiliza los
   de MacWhisper.

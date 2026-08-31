@@ -37,6 +37,7 @@ public struct Pipeline: Sendable {
             onEvent?(.scanFailed(reason: "\(error)"))
             throw error
         }
+        onEvent?(.scanned(recordings: all))
         let pending = selectPending(all, done: try ledger.settledKeys())
         guard !pending.isEmpty else {
             Log.debug("sin pendientes (\(all.count) grabaciones en disco)")
@@ -76,6 +77,7 @@ public struct Pipeline: Sendable {
         }
 
         Log.info("transcribiendo \(recording.key)")
+        onEvent?(.transcribing(key: recording.key))
         let started = Date()
 
         let transcript: Transcript

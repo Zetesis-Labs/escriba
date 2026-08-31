@@ -171,3 +171,61 @@ struct LibraryCorrectionTests {
         #expect(sandbox.model.reprocessing.isEmpty)
     }
 }
+
+@Suite("El modelo refleja los estados del pipeline en la biblioteca")
+struct LibraryStatusTests {
+    private func makeRecording(_ sandbox: Sandbox, _ key: String) throws -> Recording {
+        let url = sandbox.base.appending(path: "source/\(key).m4a")
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("audio".utf8).write(to: url)
+        return Recording(url: url, startedAt: Date(timeIntervalSince1970: 1_000), key: key)
+    }
+
+    @Test("lo escaneado aparece como pendiente en la biblioteca")
+    func escaneado() throws {
+        let sandbox = try Sandbox()
+        let recording = try makeRecording(sandbox, "2026-08-31/09-00-00")
+
+        sandbox.model.apply(.scanned(recordings: [recording]))
+
+        #expect(try sandbox.store.recordings().first?.status == .pending)
+    }
+
+    @Test("al empezar a transcribir pasa a procesando")
+    func procesando() throws {
+        let sandbox = try Sandbox()
+        let recording = try makeRecording(sandbox, "2026-08-31/09-00-00")
+        sandbox.model.apply(.scanned(recordings: [recording]))
+
+        sandbox.model.apply(.transcribing(key: recording.key))
+
+        #expect(try sandbox.store.recordings().first?.status == .processing)
+    }
+
+    @Test("un fallo del pipeline queda anotado con su motivo")
+    func fallo() throws {
+        let sandbox = try Sandbox()
+        let recording = try makeRecording(sandbox, "2026-08-31/09-00-00")
+        sandbox.model.apply(.scanned(recordings: [recording]))
+
+        sandbox.model.apply(.failed(key: recording.key, reason: "se rompio"))
+
+        let fila = try #require(try sandbox.store.recordings().first)
+        #expect(fila.status == .failed)
+        #expect(fila.lastError == "se rompio")
+        #expect(sandbox.model.status == .problem(recording.key))
+    }
+
+    @Test("cuando el sink guarda, un transcribing rezagado no la devuelve a procesando")
+    func hechoNoRetrocede() throws {
+        let sandbox = try Sandbox()
+        let recording = try makeRecording(sandbox, "2026-08-31/09-00-00")
+        sandbox.model.apply(.scanned(recordings: [recording]))
+        try sandbox.store.save(recording, Transcript(text: "lista"), backend: "falso")
+
+        sandbox.model.apply(.transcribing(key: recording.key))
+
+        #expect(try sandbox.store.recordings().first?.status == .done)
+    }
+}

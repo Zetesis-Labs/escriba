@@ -192,3 +192,224 @@ struct StoreCorrectionTests {
         }
     }
 }
+
+@Suite("Store: estados de trabajo")
+struct StoreStatusTests {
+    @Test("lo escaneado se registra como pendiente, sin copia de audio y reproducible desde el origen")
+    func registro() throws {
+        let sandbox = try Sandbox()
+        let recording = try sandbox.recording("2026-08-31/09-00-00")
+
+        try sandbox.store.register([recording])
+        let fila = try #require(try sandbox.store.recordings().first)
+
+        #expect(fila.status == .pending)
+        #expect(fila.audioURL == recording.url)
+        #expect(try sandbox.store.transcript(for: recording.key) == nil)
+    }
+
+    @Test("registrar es idempotente y no pisa lo que ya esta en la biblioteca")
+    func registroNoPisa() throws {
+        let sandbox = try Sandbox()
+        let recording = try sandbox.recording("2026-08-31/09-00-00")
+        try sandbox.store.save(recording, Transcript(text: "hecho"), backend: "falso")
+
+        try sandbox.store.register([recording])
+        try sandbox.store.register([recording])
+        let fila = try #require(try sandbox.store.recordings().first)
+
+        #expect(try sandbox.store.recordings().count == 1)
+        #expect(fila.status == .done)
+        #expect(try sandbox.store.transcript(for: recording.key)?.text == "hecho")
+    }
+
+    @Test("el ciclo pendiente -> procesando -> hecho deja la fila limpia y con su audio")
+    func cicloCompleto() throws {
+        let sandbox = try Sandbox()
+        let recording = try sandbox.recording("2026-08-31/09-00-00")
+
+        try sandbox.store.register([recording])
+        try sandbox.store.markProcessing(recording.key)
+        #expect(try sandbox.store.recordings().first?.status == .processing)
+
+        try sandbox.store.save(recording, Transcript(text: "lista"), backend: "falso")
+        let fila = try #require(try sandbox.store.recordings().first)
+
+        #expect(fila.status == .done)
+        #expect(fila.lastError == nil)
+        #expect(fila.audioURL.path().hasPrefix(sandbox.store.root.path()))
+    }
+
+    @Test("marcar en proceso no toca lo que ya esta hecho")
+    func procesandoNoTocaHecho() throws {
+        let sandbox = try Sandbox()
+        let recording = try sandbox.recording("2026-08-31/09-00-00")
+        try sandbox.store.save(recording, Transcript(text: "hecha"), backend: "falso")
+
+        try sandbox.store.markProcessing(recording.key)
+
+        #expect(try sandbox.store.recordings().first?.status == .done)
+    }
+
+    @Test("un fallo guarda el motivo y un exito posterior lo limpia")
+    func falloYRecuperacion() throws {
+        let sandbox = try Sandbox()
+        let recording = try sandbox.recording("2026-08-31/09-00-00")
+        try sandbox.store.register([recording])
+
+        try sandbox.store.markFailed(recording.key, error: "se rompio")
+        let fallida = try #require(try sandbox.store.recordings().first)
+        #expect(fallida.status == .failed)
+        #expect(fallida.lastError == "se rompio")
+
+        try sandbox.store.save(recording, Transcript(text: "al final si"), backend: "falso")
+        let recuperada = try #require(try sandbox.store.recordings().first)
+        #expect(recuperada.status == .done)
+        #expect(recuperada.lastError == nil)
+    }
+
+    @Test("los procesando huerfanos vuelven a pendiente; lo hecho no se toca")
+    func resetInterrumpidos() throws {
+        let sandbox = try Sandbox()
+        let colgada = try sandbox.recording("2026-08-31/09-00-00")
+        let hecha = try sandbox.recording("2026-08-31/10-00-00")
+        try sandbox.store.register([colgada])
+        try sandbox.store.markProcessing(colgada.key)
+        try sandbox.store.save(hecha, Transcript(text: "x"), backend: "falso")
+
+        try sandbox.store.resetInterrupted()
+
+        let porClave = Dictionary(
+            uniqueKeysWithValues: try sandbox.store.recordings().map { ($0.key, $0.status) })
+        #expect(porClave[colgada.key] == .pending)
+        #expect(porClave[hecha.key] == .done)
+    }
+
+    @Test("una transcripcion manual sobre una pendiente la marca como hecha")
+    func manualSobrePendiente() throws {
+        let sandbox = try Sandbox()
+        let recording = try sandbox.recording("2026-08-31/09-00-00")
+        try sandbox.store.register([recording])
+
+        try sandbox.store.addTranscript(
+            Transcript(text: "a mano"), for: recording.key, backend: "reprocesado")
+
+        #expect(try sandbox.store.recordings().first?.status == .done)
+        #expect(try sandbox.store.transcript(for: recording.key)?.text == "a mano")
+    }
+}
+
+@Suite("Store: importar la historia del ledger")
+struct StoreBackfillTests {
+    @Test("importa lo hecho con su texto, copia el audio y saca la fecha de la clave")
+    func importa() throws {
+        let sandbox = try Sandbox()
+        let recording = try sandbox.recording("2026-05-15/18-17-28", contents: "audio viejo")
+        let txt = sandbox.base.appending(path: "salida/18-17-28.txt")
+        try FileManager.default.createDirectory(
+            at: txt.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "el texto antiguo\n".write(to: txt, atomically: true, encoding: .utf8)
+
+        let adopted = sandbox.store.adoptLedgerHistory([
+            LedgerRecord(
+                key: recording.key,
+                sourcePath: recording.url.path(percentEncoded: false),
+                outputPath: txt.path(percentEncoded: false))
+        ])
+
+        #expect(adopted == 1)
+        let fila = try #require(try sandbox.store.recordings().first)
+        #expect(fila.status == .done)
+        #expect(fila.audioURL.path().hasPrefix(sandbox.store.root.path()))
+        #expect(fila.startedAt == RecordingParser.startDate(fromKey: recording.key))
+        #expect(try sandbox.store.transcript(for: recording.key)?.text == "el texto antiguo")
+    }
+
+    @Test("sin fichero de salida no hay nada que importar")
+    func sinSalida() throws {
+        let sandbox = try Sandbox()
+        let recording = try sandbox.recording("2026-05-15/18-17-28")
+
+        let adopted = sandbox.store.adoptLedgerHistory([
+            LedgerRecord(
+                key: recording.key,
+                sourcePath: recording.url.path(percentEncoded: false),
+                outputPath: nil),
+            LedgerRecord(
+                key: "otro/2026-05-16/09-00-00",
+                sourcePath: recording.url.path(percentEncoded: false),
+                outputPath: "/no/existe.txt"),
+        ])
+
+        #expect(adopted == 0)
+        #expect(try sandbox.store.recordings().isEmpty)
+    }
+
+    @Test("si el audio de origen ya no existe, importa el texto igualmente")
+    func sinAudio() throws {
+        let sandbox = try Sandbox()
+        let txt = sandbox.base.appending(path: "salida/18-17-28.txt")
+        try FileManager.default.createDirectory(
+            at: txt.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "texto huerfano".write(to: txt, atomically: true, encoding: .utf8)
+
+        let adopted = sandbox.store.adoptLedgerHistory([
+            LedgerRecord(
+                key: "2026-05-15/18-17-28",
+                sourcePath: "/ya/no/existe.m4a",
+                outputPath: txt.path(percentEncoded: false))
+        ])
+
+        #expect(adopted == 1)
+        let fila = try #require(try sandbox.store.recordings().first)
+        #expect(fila.status == .done)
+        #expect(fila.audioURL == URL(fileURLWithPath: "/ya/no/existe.m4a"))
+        #expect(try sandbox.store.transcript(for: "2026-05-15/18-17-28")?.text == "texto huerfano")
+    }
+
+    @Test("una fila ya registrada como pendiente se adopta igualmente")
+    func adoptaPendientes() throws {
+        let sandbox = try Sandbox()
+        let recording = try sandbox.recording("2026-05-15/18-17-28", contents: "audio viejo")
+        try sandbox.store.register([recording])
+        let txt = sandbox.base.appending(path: "salida/18-17-28.txt")
+        try FileManager.default.createDirectory(
+            at: txt.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "rescatado".write(to: txt, atomically: true, encoding: .utf8)
+
+        let adopted = sandbox.store.adoptLedgerHistory([
+            LedgerRecord(
+                key: recording.key,
+                sourcePath: recording.url.path(percentEncoded: false),
+                outputPath: txt.path(percentEncoded: false))
+        ])
+
+        #expect(adopted == 1)
+        let fila = try #require(try sandbox.store.recordings().first)
+        #expect(fila.status == .done)
+        #expect(fila.audioURL.path().hasPrefix(sandbox.store.root.path()))
+        #expect(try sandbox.store.transcript(for: recording.key)?.text == "rescatado")
+    }
+
+    @Test("lo que ya esta en la biblioteca no se toca")
+    func noPisa() throws {
+        let sandbox = try Sandbox()
+        let recording = try sandbox.recording("2026-05-15/18-17-28")
+        try sandbox.store.save(recording, Transcript(text: "vigente"), backend: "falso")
+        let txt = sandbox.base.appending(path: "salida/18-17-28.txt")
+        try FileManager.default.createDirectory(
+            at: txt.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "texto viejo".write(to: txt, atomically: true, encoding: .utf8)
+
+        let adopted = sandbox.store.adoptLedgerHistory([
+            LedgerRecord(
+                key: recording.key,
+                sourcePath: recording.url.path(percentEncoded: false),
+                outputPath: txt.path(percentEncoded: false))
+        ])
+
+        #expect(adopted == 0)
+        #expect(try sandbox.store.recordings().count == 1)
+        #expect(try sandbox.store.transcript(for: recording.key)?.text == "vigente")
+    }
+}

@@ -2,6 +2,18 @@ import Foundation
 import SQLite3
 import Synchronization
 
+public struct LedgerRecord: Sendable {
+    public let key: String
+    public let sourcePath: String
+    public let outputPath: String?
+
+    public init(key: String, sourcePath: String, outputPath: String?) {
+        self.key = key
+        self.sourcePath = sourcePath
+        self.outputPath = outputPath
+    }
+}
+
 public struct LedgerFailure: Sendable {
     public let key: String
     public let attempts: Int
@@ -144,6 +156,33 @@ public final class Ledger: @unchecked Sendable {
                         key: String(cString: key),
                         attempts: Int(sqlite3_column_int(statement, 1)),
                         error: String(cString: error)))
+            }
+            return result
+        }
+    }
+
+    public func doneRecords() throws -> [LedgerRecord] {
+        try lock.withLock { _ in
+            let sql = """
+                SELECT key, source_path, output_path FROM transcriptions
+                WHERE status = 'done' ORDER BY key
+                """
+            var statement: OpaquePointer?
+            guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
+                throw LedgerError.query(lastMessage)
+            }
+            defer { sqlite3_finalize(statement) }
+
+            var result: [LedgerRecord] = []
+            while sqlite3_step(statement) == SQLITE_ROW {
+                guard let key = sqlite3_column_text(statement, 0),
+                      let source = sqlite3_column_text(statement, 1)
+                else { continue }
+                result.append(
+                    LedgerRecord(
+                        key: String(cString: key),
+                        sourcePath: String(cString: source),
+                        outputPath: sqlite3_column_text(statement, 2).map { String(cString: $0) }))
             }
             return result
         }

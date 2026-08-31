@@ -2,6 +2,13 @@ import Foundation
 import GRDB
 import EscribaCore
 
+public enum RecordingStatus: String, Sendable, Codable, CaseIterable {
+    case pending
+    case processing
+    case done
+    case failed
+}
+
 struct RecordingRow: Codable, FetchableRecord, MutablePersistableRecord {
     static let databaseTableName = "recording"
 
@@ -11,10 +18,13 @@ struct RecordingRow: Codable, FetchableRecord, MutablePersistableRecord {
     var audioPath: String
     var startedAt: Date
     var importedAt: Date
+    var status: String
+    var lastError: String?
 
     enum Columns {
         static let key = Column(CodingKeys.key)
         static let startedAt = Column(CodingKeys.startedAt)
+        static let status = Column(CodingKeys.status)
     }
 
     mutating func didInsert(_ inserted: InsertionSuccess) {
@@ -25,9 +35,13 @@ struct RecordingRow: Codable, FetchableRecord, MutablePersistableRecord {
         StoredRecording(
             key: key,
             sourceURL: URL(fileURLWithPath: sourcePath),
-            audioURL: root.appending(path: audioPath),
+            audioURL: audioPath.isEmpty
+                ? URL(fileURLWithPath: sourcePath)
+                : root.appending(path: audioPath),
             startedAt: startedAt,
-            importedAt: importedAt)
+            importedAt: importedAt,
+            status: RecordingStatus(rawValue: status) ?? .done,
+            lastError: lastError)
     }
 }
 
@@ -108,6 +122,12 @@ func makeMigrator() -> DatabaseMigrator {
             t.column("speaker", .text)
             t.column("text", .text).notNull()
             t.column("words", .text).notNull()
+        }
+    }
+    migrator.registerMigration("v2-estados") { db in
+        try db.alter(table: "recording") { t in
+            t.add(column: "status", .text).notNull().defaults(to: "done")
+            t.add(column: "lastError", .text)
         }
     }
     return migrator

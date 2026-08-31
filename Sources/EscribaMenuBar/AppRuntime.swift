@@ -92,6 +92,7 @@ final class AppRuntime {
             }
 
             let ledger = try Ledger(path: Paths.defaultState)
+            reconcileLibrary(store: store, ledger: ledger)
             controllers = sources(engine: engine).map { source, backend in
                 let pipeline = Pipeline(
                     source: source,
@@ -157,6 +158,19 @@ final class AppRuntime {
                 ))
             }
             return result
+        }
+    }
+
+    private func reconcileLibrary(store: Store, ledger: Ledger) {
+        Task {
+            await offloaded {
+                do {
+                    try store.resetInterrupted()
+                    store.adoptLedgerHistory(try ledger.doneRecords())
+                } catch {
+                    Log.error("no se pudo reconciliar la biblioteca con el ledger: \(error)")
+                }
+            }
         }
     }
 

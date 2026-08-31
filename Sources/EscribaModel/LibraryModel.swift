@@ -1,5 +1,6 @@
 import Foundation
 import EscribaCore
+import EscribaKit
 import EscribaStore
 import Observation
 
@@ -40,11 +41,16 @@ public final class LibraryModel {
 
     public func apply(_ event: PipelineEvent) {
         switch event {
+        case .scanned(let recordings):
+            mirror("registrar lo escaneado") { try store.register(recordings) }
         case .passStarted(let pending):
             status = .working(pending: pending)
+        case .transcribing(let key):
+            mirror("marcar \(key) en proceso") { try store.markProcessing(key) }
         case .transcribed:
             status = .watching
-        case .failed(let key, _):
+        case .failed(let key, let reason):
+            mirror("anotar el fallo de \(key)") { try store.markFailed(key, error: reason) }
             status = .problem(key)
         case .backendUnavailable:
             status = .problem("el motor de transcripcion no responde")
@@ -53,6 +59,14 @@ public final class LibraryModel {
         case .idle(let scanned):
             self.scanned = scanned
             if case .problem = status {} else { status = .watching }
+        }
+    }
+
+    private func mirror(_ what: String, _ work: () throws -> Void) {
+        do {
+            try work()
+        } catch {
+            Log.error("la biblioteca no pudo \(what): \(error)")
         }
     }
 

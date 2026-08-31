@@ -9,6 +9,8 @@ public struct StoredRecording: Sendable, Equatable, Identifiable {
     public let audioURL: URL
     public let startedAt: Date
     public let importedAt: Date
+    public let status: RecordingStatus
+    public let lastError: String?
 
     public var id: String { key }
 }
@@ -43,8 +45,17 @@ public final class Store: Sendable {
                     sourcePath: recording.url.path(percentEncoded: false),
                     audioPath: audioPath,
                     startedAt: recording.startedAt,
-                    importedAt: now)
-            if row.id == nil { try row.insert(db) }
+                    importedAt: now,
+                    status: RecordingStatus.done.rawValue,
+                    lastError: nil)
+            if row.id == nil {
+                try row.insert(db)
+            } else {
+                row.audioPath = audioPath
+                row.status = RecordingStatus.done.rawValue
+                row.lastError = nil
+                try row.update(db)
+            }
             guard let recordingId = row.id else { throw StoreError.missingRowID }
 
             try Self.insert(transcript, recordingId: recordingId, backend: backend, in: db)
@@ -57,10 +68,13 @@ public final class Store: Sendable {
     ) throws {
         try writer.write { db in
             guard
-                let row = try RecordingRow.filter(RecordingRow.Columns.key == key).fetchOne(db),
+                var row = try RecordingRow.filter(RecordingRow.Columns.key == key).fetchOne(db),
                 let recordingId = row.id
             else { throw StoreError.unknownRecording(key) }
             try Self.insert(transcript, recordingId: recordingId, backend: backend, in: db)
+            row.status = RecordingStatus.done.rawValue
+            row.lastError = nil
+            try row.update(db)
         }
     }
 
@@ -92,6 +106,77 @@ public final class Store: Sendable {
     public func sink(backend: String) -> Sink {
         { recording, transcript in
             try self.save(recording, transcript, backend: backend).audioURL
+        }
+    }
+
+    public func register(_ recordings: [Recording]) throws {
+        guard !recordings.isEmpty else { return }
+        try writer.write { db in
+            for recording in recordings {
+                let exists = try RecordingRow
+                    .filter(RecordingRow.Columns.key == recording.key)
+                    .fetchCount(db) > 0
+                guard !exists else { continue }
+                var row = RecordingRow(
+                    key: recording.key,
+                    sourcePath: recording.url.path(percentEncoded: false),
+                    audioPath: "",
+                    startedAt: recording.startedAt,
+                    importedAt: Date(),
+                    status: RecordingStatus.pending.rawValue,
+                    lastError: nil)
+                try row.insert(db)
+            }
+        }
+    }
+
+    public func markProcessing(_ key: String) throws {
+        try writer.write { db in
+            try db.execute(
+                sql: "UPDATE recording SET status = ? WHERE key = ? AND status <> ?",
+                arguments: [
+                    RecordingStatus.processing.rawValue, key, RecordingStatus.done.rawValue,
+                ])
+        }
+    }
+
+    public func markFailed(_ key: String, error: String) throws {
+        try writer.write { db in
+            try db.execute(
+                sql: "UPDATE recording SET status = ?, lastError = ? WHERE key = ?",
+                arguments: [RecordingStatus.failed.rawValue, String(error.prefix(2000)), key])
+        }
+    }
+
+    public func resetInterrupted() throws {
+        try writer.write { db in
+            try db.execute(
+                sql: "UPDATE recording SET status = ? WHERE status = ?",
+                arguments: [RecordingStatus.pending.rawValue, RecordingStatus.processing.rawValue])
+        }
+    }
+
+    func knows(_ key: String) throws -> Bool {
+        try writer.read { db in
+            try RecordingRow.filter(RecordingRow.Columns.key == key).fetchCount(db) > 0
+        }
+    }
+
+    func insertDoneWithoutAudio(
+        _ recording: Recording, _ transcript: Transcript, backend: String
+    ) throws {
+        try writer.write { db in
+            var row = RecordingRow(
+                key: recording.key,
+                sourcePath: recording.url.path(percentEncoded: false),
+                audioPath: "",
+                startedAt: recording.startedAt,
+                importedAt: Date(),
+                status: RecordingStatus.done.rawValue,
+                lastError: nil)
+            try row.insert(db)
+            guard let recordingId = row.id else { throw StoreError.missingRowID }
+            try Self.insert(transcript, recordingId: recordingId, backend: backend, in: db)
         }
     }
 

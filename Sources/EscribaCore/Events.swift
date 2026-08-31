@@ -2,6 +2,8 @@ import Foundation
 
 public enum PipelineEvent: Sendable {
     case passStarted(pending: Int)
+    case scanned(recordings: [Recording])
+    case transcribing(key: String)
     case transcribed(key: String, transcript: Transcript, output: URL)
     case failed(key: String, reason: String)
     case backendUnavailable(reason: String)
