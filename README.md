@@ -1,4 +1,4 @@
-# jpr-transcribe
+# escriba
 
 Transcribe automaticamente las notas de voz de **Just Press Record** con
 **WhisperKit** (CoreML sobre el Neural Engine, todo local). No toca la app ni
@@ -50,7 +50,7 @@ las trampas y como se manejan:
 - **Reintentos acotados.** Un fallo se reintenta pasados 10 minutos, hasta 5 veces,
   y queda registrado con su motivo en `status`.
 - **Una sola instancia a la vez.** Un `flock` sobre
-  `~/.local/state/jpr-transcribe/instance.lock` impide que la app y el CLI (o dos
+  `~/.local/state/escriba/instance.lock` impide que la app y el CLI (o dos
   copias de la app) trabajen sobre el mismo ledger y transcriban por duplicado.
   El segundo en llegar se niega e identifica al que tiene el lock. `status` no
   necesita el lock: es solo lectura.
@@ -76,7 +76,7 @@ trabajo**, devolviendo la app al reposo.
 
 ## La app de barra de menus
 
-`JPR Transcribe.app` es una app sin ventana ni icono en el Dock (`LSUIElement`)
+`Escriba.app` es una app sin ventana ni icono en el Dock (`LSUIElement`)
 que **sustituye al LaunchAgent**: ella misma es el vigilante. Desde la barra de
 menus se ve el estado, las ultimas transcripciones (clic para abrirlas), el
 recuento y las acciones.
@@ -86,7 +86,7 @@ modo de fallo posible para unas notas en las que confias. El icono cambia segun
 el estado y las notificaciones avisan de cada transcripcion (sin sonido) y de
 cualquier problema (con sonido).
 
-    ./scripts/build-app.sh      # construye .build/app/JPR Transcribe.app
+    ./scripts/build-app.sh      # construye .build/app/Escriba.app
     ./scripts/install-app.sh    # la instala en /Applications
 
 `install-app.sh` solo recompila la app. Si tambien quieres el CLI actualizado,
@@ -98,11 +98,11 @@ vuelve a concederselo.
 
 Despues:
 
-1. **Acceso total al disco** para `JPR Transcribe` en Ajustes > Privacidad y
+1. **Acceso total al disco** para `Escriba` en Ajustes > Privacidad y
    seguridad, o no podra leer `~/Library/Mobile Documents`.
 2. **Arranque automatico**: Ajustes > General > Elementos de inicio > +.
 
-El registro va a `~/Library/Logs/jpr-transcribe.log` ("Ver registro" en el menu).
+El registro va a `~/Library/Logs/escriba.log` ("Ver registro" en el menu).
 
 ## Uso desde terminal
 
@@ -110,18 +110,18 @@ El CLI sigue existiendo y comparte el mismo ledger que la app (no los ejecutes
 a la vez apuntando a la misma carpeta).
 
     swift build -c release
-    .build/release/jpr-transcribe status    # que hay en disco y que se transcribio
-    .build/release/jpr-transcribe once      # una pasada y salir
-    .build/release/jpr-transcribe watch     # se queda vigilando
+    .build/release/escriba status    # que hay en disco y que se transcribio
+    .build/release/escriba once      # una pasada y salir
+    .build/release/escriba watch     # se queda vigilando
 
 ### Como servicio
 
     ./launchd/install.sh      # compila, instala en ~/.local/bin y carga el agente
-    tail -f ~/Library/Logs/jpr-transcribe.log
+    tail -f ~/Library/Logs/escriba.log
     ./launchd/uninstall.sh
 
 > **Acceso total al disco**: launchd arranca el agente fuera de la sesion de
-> Terminal, asi que hay que concederselo a `~/.local/bin/jpr-transcribe` en
+> Terminal, asi que hay que concederselo a `~/.local/bin/escriba` en
 > Ajustes > Privacidad y seguridad. Sin eso no puede leer `~/Library/Mobile Documents`.
 
 ## El backend de transcripcion es un puerto
@@ -135,7 +135,7 @@ Se invoca a `mw` con `--format json`, asi que cada transcripcion llega como un
 diarizacion esta activa, el hablante de cada segmento. El texto plano sigue
 disponible en `transcript.text`.
 
-    jpr-transcribe once --speakers    # detecta hablantes en esta pasada
+    escriba once --speakers    # detecta hablantes en esta pasada
 
 ## De donde sale el audio
 
@@ -147,7 +147,7 @@ que vigilar y como enumerar lo que hay. Hay dos:
 | `jpr` (por defecto) | solo `YYYY-MM-DD/HH-MM-SS.m4a` | la del esquema |
 | `folder` | cualquier audio o video, con cualquier nombre y en cualquier subcarpeta | la ruta relativa sin extension |
 
-    jpr-transcribe once --source folder --root ~/Downloads/llamadas
+    escriba once --source folder --root ~/Downloads/llamadas
 
 La salida respeta la estructura de la fuente, asi que
 `soporte/llamada-42.wav` acaba en `soporte/llamada-42.txt`.
@@ -167,11 +167,11 @@ canales metio a los dos hablantes en el mismo. En estereo normal separa bien.
 | `whisperkit` (por defecto) | CoreML sobre el Neural Engine, sin apps de terceros | SpeakerKit (pyannote v4) |
 | `macwhisper` | CLI `mw`, necesita la app de MacWhisper viva | `--speakers` |
 
-    jpr-transcribe download                      # trae el modelo (una vez)
-    jpr-transcribe once                          # transcribe con WhisperKit
-    jpr-transcribe once --speakers
-    jpr-transcribe once --speakers-count 2
-    jpr-transcribe once --backend macwhisper     # contraste con MacWhisper
+    escriba download                      # trae el modelo (una vez)
+    escriba once                          # transcribe con WhisperKit
+    escriba once --speakers
+    escriba once --speakers-count 2
+    escriba once --backend macwhisper     # contraste con MacWhisper
 
 Sin acotar, pyannote puede abrir un interlocutor de mas. Medido sobre una
 llamada real de 76 s a dos voces, acierta 10 de 11 turnos y se inventa un tercer
@@ -192,7 +192,7 @@ Y `--speakers-count N` sirve para reprocesar una grabacion concreta cuando ya
 sabes cuantos hablaban. Cada diarizacion registra en el log cuantos hablantes
 salieron y a que distancia estan, que es lo que permite decidir.
 
-WhisperKit guarda su modelo en `~/Library/Application Support/jpr-transcribe/models`
+WhisperKit guarda su modelo en `~/Library/Application Support/escriba/models`
 y se lo descarga el solo: no depende de que MacWhisper lo haya bajado antes, o
 no arrancaria en un Mac limpio. SpeakerKit hace lo propio con los suyos.
 
@@ -220,7 +220,7 @@ El modelo esta **fijado explicitamente** (`WhisperKitBackend.defaultVariant`):
 Se clava a proposito para que la calidad sea reproducible y no dependa de
 ninguna seleccion externa. Con `--backend macwhisper` rige el mismo criterio
 (`MacWhisperBackend.defaultModel` fija el equivalente `whisperkit:` de `mw`;
-cambiarlo puntualmente: `jpr-transcribe --model <id> once --backend macwhisper`).
+cambiarlo puntualmente: `escriba --model <id> once --backend macwhisper`).
 
 Al arrancar se comprueba que el modelo esta instalado; si no lo esta, la app
 avisa con una notificacion y `status` lo marca como `NO descargado`.
@@ -241,12 +241,12 @@ biblioteca.
 
 ## La biblioteca
 
-`Store` (target `JPRStore`, sobre GRDB) guarda cada transcripcion entera —
+`Store` (target `EscribaStore`, sobre GRDB) guarda cada transcripcion entera —
 segmentos, hablantes y tiempos por palabra— y **copia el audio** dentro de su
 carpeta. Sin la copia no habria reprocesado: Just Press Record borra o mueve
 sus ficheros y la grabacion original deja de estar donde estaba.
 
-    ~/Library/Application Support/jpr-transcribe/library/
+    ~/Library/Application Support/escriba/library/
     ├── library.sqlite
     └── audio/YYYY-MM-DD/HH-MM-SS.m4a
 
@@ -259,8 +259,8 @@ La biblioteca se observa como `AsyncSequence` (`store.observeRecordings()`),
 sin Combine: la app abre, lee lo que haya, y se entera sola de cada escritura
 del demonio aunque la ventana estuviera cerrada cuando ocurrio.
 
-    jpr-transcribe once --library ~/otra/biblioteca    # ruta alternativa
-    jpr-transcribe status                              # cuantas grabaciones hay
+    escriba once --library ~/otra/biblioteca    # ruta alternativa
+    escriba status                              # cuantas grabaciones hay
 
 El `Ledger` (que decide que esta pendiente, con reintentos y backoff) sigue
 aparte a proposito: son dos preguntas distintas.
@@ -269,11 +269,11 @@ aparte a proposito: son dos preguntas distintas.
 
 | Modulo | Que hay |
 |---|---|
-| `JPRCore` | Nucleo puro: parseo de rutas, clasificacion de estado, seleccion de pendientes, ritmo del bucle, modelo `Transcript`. Sin I/O, cubierto por tests. |
-| `JPRKit` | Cascara: FSEvents, stat y materializacion, ledger SQLite, backend MacWhisper, orquestacion. Sin dependencias. |
-| `JPRWhisperKit` | Backend WhisperKit + SpeakerKit (argmax-oss-swift). |
-| `JPRStore` | Biblioteca: SQLite con GRDB y copia del audio. |
-| `jpr-transcribe` | CLI. |
-| `JPRMenuBar` | App de barra de menus: estado, notificaciones y acciones. Aislamiento MainActor por defecto. |
+| `EscribaCore` | Nucleo puro: parseo de rutas, clasificacion de estado, seleccion de pendientes, ritmo del bucle, modelo `Transcript`. Sin I/O, cubierto por tests. |
+| `EscribaKit` | Cascara: FSEvents, stat y materializacion, ledger SQLite, backend MacWhisper, orquestacion. Sin dependencias. |
+| `EscribaWhisper` | Backend WhisperKit + SpeakerKit (argmax-oss-swift). |
+| `EscribaStore` | Biblioteca: SQLite con GRDB y copia del audio. |
+| `escriba` | CLI. |
+| `EscribaMenuBar` | App de barra de menus: estado, notificaciones y acciones. Aislamiento MainActor por defecto. |
 
     swift test

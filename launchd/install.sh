@@ -2,7 +2,7 @@
 set -euo pipefail
 
 PROJECT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-LABEL="dev.ruben.jpr-transcribe"
+LABEL="dev.ruben.escriba"
 INSTALL_DIR="$HOME/.local/bin"
 TARGET="$HOME/Library/LaunchAgents/$LABEL.plist"
 
@@ -10,8 +10,8 @@ echo "compilando en release..."
 (cd "$PROJECT" && swift build -c release)
 
 mkdir -p "$INSTALL_DIR"
-cp "$PROJECT/.build/release/jpr-transcribe" "$INSTALL_DIR/jpr-transcribe"
-echo "binario instalado en $INSTALL_DIR/jpr-transcribe"
+cp "$PROJECT/.build/release/escriba" "$INSTALL_DIR/escriba"
+echo "binario instalado en $INSTALL_DIR/escriba"
 
 mkdir -p "$HOME/Library/LaunchAgents"
 sed -e "s|__INSTALL__|$INSTALL_DIR|g" -e "s|__HOME__|$HOME|g" \
@@ -23,7 +23,7 @@ launchctl enable "gui/$UID/$LABEL"
 
 echo "servicio cargado: $TARGET"
 echo
-echo "IMPORTANTE: concede Acceso total al disco a $INSTALL_DIR/jpr-transcribe"
+echo "IMPORTANTE: concede Acceso total al disco a $INSTALL_DIR/escriba"
 echo "en Ajustes > Privacidad y seguridad > Acceso total al disco."
 echo "Sin eso launchd no puede leer ~/Library/Mobile Documents."
 echo

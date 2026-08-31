@@ -3,11 +3,11 @@
 <plist version="1.0">
 <dict>
 	<key>Label</key>
-	<string>dev.ruben.jpr-transcribe</string>
+	<string>dev.ruben.escriba</string>
 
 	<key>ProgramArguments</key>
 	<array>
-		<string>__INSTALL__/jpr-transcribe</string>
+		<string>__INSTALL__/escriba</string>
 		<string>watch</string>
 	</array>
 
@@ -36,8 +36,8 @@
 	</dict>
 
 	<key>StandardOutPath</key>
-	<string>__HOME__/Library/Logs/jpr-transcribe.log</string>
+	<string>__HOME__/Library/Logs/escriba.log</string>
 	<key>StandardErrorPath</key>
-	<string>__HOME__/Library/Logs/jpr-transcribe.log</string>
+	<string>__HOME__/Library/Logs/escriba.log</string>
 </dict>
 </plist>

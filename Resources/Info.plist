@@ -3,13 +3,13 @@
 <plist version="1.0">
 <dict>
 	<key>CFBundleName</key>
-	<string>JPR Transcribe</string>
+	<string>Escriba</string>
 	<key>CFBundleDisplayName</key>
-	<string>JPR Transcribe</string>
+	<string>Escriba</string>
 	<key>CFBundleIdentifier</key>
-	<string>dev.ruben.jpr-transcribe</string>
+	<string>dev.ruben.escriba</string>
 	<key>CFBundleExecutable</key>
-	<string>JPRMenuBar</string>
+	<string>EscribaMenuBar</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
@@ -18,7 +18,7 @@
 	<string>1</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>26.0</string>
-	<key>JPRDefaultRoot</key>
+	<key>EscribaDefaultRoot</key>
 	<string>Library/Mobile Documents/iCloud~com~openplanetsoftware~just-press-record/Documents</string>
 	<key>LSUIElement</key>
 	<true/>

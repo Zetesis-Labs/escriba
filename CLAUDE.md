@@ -1,4 +1,4 @@
-# jpr-transcribe
+# escriba
 
 Transcriptor automático de notas de voz, en Swift, camino de ser una app propia
 con biblioteca de grabaciones. El `README.md` explica el dominio (iCloud,
@@ -14,7 +14,7 @@ especulativas).
 ```bash
 swift build                 # CLI + app
 swift test                  # swift-testing; --filter NO casa con nombres de @Suite
-./scripts/build-app.sh      # .build/app/JPR Transcribe.app
+./scripts/build-app.sh      # .build/app/Escriba.app
 ./scripts/install-app.sh    # a /Applications (la firma ad-hoc puede invalidar el Acceso total al disco)
 ```
 
@@ -22,20 +22,20 @@ swift test                  # swift-testing; --filter NO casa con nombres de @Su
 
 | Target | Qué | I/O | Dependencias |
 |---|---|---|---|
-| `JPRCore` | Modelo (`Transcript`, `Recording`), parseo, decisiones | ninguno | ninguna |
-| `JPRKit` | FSEvents, ledger, procesos, orquestación (`Pipeline`) | sí | ninguna |
-| `JPRWhisperKit` | Backend WhisperKit + SpeakerKit | sí | argmax-oss-swift |
-| `JPRStore` | Biblioteca SQLite + copia del audio | sí | GRDB |
-| `jpr-transcribe` | CLI | | |
-| `JPRMenuBar` | App de barra de menús | | aislamiento MainActor por defecto |
+| `EscribaCore` | Modelo (`Transcript`, `Recording`), parseo, decisiones | ninguno | ninguna |
+| `EscribaKit` | FSEvents, ledger, procesos, orquestación (`Pipeline`) | sí | ninguna |
+| `EscribaWhisper` | Backend WhisperKit + SpeakerKit | sí | argmax-oss-swift |
+| `EscribaStore` | Biblioteca SQLite + copia del audio | sí | GRDB |
+| `escriba` | CLI | | |
+| `EscribaMenuBar` | App de barra de menús | | aislamiento MainActor por defecto |
 
 - **Los puertos son structs de funciones**, no protocolos ni herencia:
   `TranscriptionBackend`, `RecordingSource`, `Sink`. Una implementación nueva
   es una función `make(...)` que devuelve el struct.
-- **Toda decisión va en `JPRCore` como función pura y con test.** La cáscara
+- **Toda decisión va en `EscribaCore` como función pura y con test.** La cáscara
   solo ejecuta. Si un bloque pide un comentario, extráelo a una función con
   nombre.
-- **Cada dependencia externa vive en su propio target.** `JPRCore` y `JPRKit`
+- **Cada dependencia externa vive en su propio target.** `EscribaCore` y `EscribaKit`
   no importan nada.
 - **Tests primero**, con swift-testing (`@Suite`/`@Test`/`#expect`), nunca
   XCTest. Los nombres de test describen el comportamiento en castellano.
@@ -53,7 +53,7 @@ swift test                  # swift-testing; --filter NO casa con nombres de @Su
 - **El pipeline no adivina cuántos hablan.** Guarda lo que sale; la corrección
   (`merging`, `renaming`, `--speakers-count N`) es de la app.
 - **La app se descarga sus modelos** a
-  `~/Library/Application Support/jpr-transcribe/models`; nunca reutiliza los
+  `~/Library/Application Support/escriba/models`; nunca reutiliza los
   de MacWhisper.
 - **WhisperKit es el backend por defecto** (decidido 2026-08-31). MacWhisper
   queda como contraste vía `--backend macwhisper`; no depender de él.

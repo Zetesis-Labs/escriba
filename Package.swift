@@ -2,47 +2,47 @@
 import PackageDescription
 
 let package = Package(
-    name: "jpr-transcribe",
+    name: "escriba",
     platforms: [.macOS(.v26)],
     dependencies: [
         .package(url: "https://github.com/argmaxinc/argmax-oss-swift.git", from: "1.1.0"),
         .package(url: "https://github.com/groue/GRDB.swift.git", from: "7.11.1"),
     ],
     targets: [
-        .target(name: "JPRCore"),
-        .target(name: "JPRKit", dependencies: ["JPRCore"]),
+        .target(name: "EscribaCore"),
+        .target(name: "EscribaKit", dependencies: ["EscribaCore"]),
         .target(
-            name: "JPRWhisperKit",
+            name: "EscribaWhisper",
             dependencies: [
-                "JPRCore", "JPRKit",
+                "EscribaCore", "EscribaKit",
                 .product(name: "WhisperKit", package: "argmax-oss-swift"),
                 .product(name: "SpeakerKit", package: "argmax-oss-swift"),
             ]),
         .target(
-            name: "JPRStore",
+            name: "EscribaStore",
             dependencies: [
-                "JPRCore", "JPRKit",
+                "EscribaCore", "EscribaKit",
                 .product(name: "GRDB", package: "GRDB.swift"),
             ]),
         .target(
-            name: "JPRApp",
-            dependencies: ["JPRCore", "JPRKit", "JPRStore"],
+            name: "EscribaModel",
+            dependencies: ["EscribaCore", "EscribaKit", "EscribaStore"],
             swiftSettings: [.defaultIsolation(MainActor.self)]),
         .executableTarget(
-            name: "jpr-transcribe",
-            dependencies: ["JPRKit", "JPRCore", "JPRWhisperKit", "JPRStore"]),
+            name: "escriba",
+            dependencies: ["EscribaKit", "EscribaCore", "EscribaWhisper", "EscribaStore"]),
         .executableTarget(
-            name: "JPRMenuBar",
-            dependencies: ["JPRKit", "JPRCore", "JPRWhisperKit", "JPRStore", "JPRApp"],
+            name: "EscribaMenuBar",
+            dependencies: ["EscribaKit", "EscribaCore", "EscribaWhisper", "EscribaStore", "EscribaModel"],
             swiftSettings: [.defaultIsolation(MainActor.self)]),
-        .testTarget(name: "JPRCoreTests", dependencies: ["JPRCore"]),
-        .testTarget(name: "JPRKitTests", dependencies: ["JPRKit", "JPRCore"]),
+        .testTarget(name: "EscribaCoreTests", dependencies: ["EscribaCore"]),
+        .testTarget(name: "EscribaKitTests", dependencies: ["EscribaKit", "EscribaCore"]),
         .testTarget(
-            name: "JPRWhisperKitTests", dependencies: ["JPRWhisperKit", "JPRCore", "JPRKit"]),
-        .testTarget(name: "JPRStoreTests", dependencies: ["JPRStore", "JPRCore", "JPRKit"]),
+            name: "EscribaWhisperTests", dependencies: ["EscribaWhisper", "EscribaCore", "EscribaKit"]),
+        .testTarget(name: "EscribaStoreTests", dependencies: ["EscribaStore", "EscribaCore", "EscribaKit"]),
         .testTarget(
-            name: "JPRAppTests",
-            dependencies: ["JPRApp", "JPRStore", "JPRCore"],
+            name: "EscribaModelTests",
+            dependencies: ["EscribaModel", "EscribaStore", "EscribaCore"],
             swiftSettings: [.defaultIsolation(MainActor.self)]),
     ]
 )

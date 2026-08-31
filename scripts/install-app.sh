@@ -2,7 +2,7 @@
 set -euo pipefail
 
 PROJECT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-APP_NAME="JPR Transcribe"
+APP_NAME="Escriba"
 SOURCE="$PROJECT/.build/app/$APP_NAME.app"
 TARGET="/Applications/$APP_NAME.app"
 
