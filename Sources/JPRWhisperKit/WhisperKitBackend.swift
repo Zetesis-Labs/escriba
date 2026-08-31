@@ -18,11 +18,12 @@ public enum WhisperKitBackend {
         variant: String = defaultVariant,
         diarize: Bool = false,
         speakerCount: Int? = nil,
-        modelsRoot: URL = defaultModelsRoot
+        modelsRoot: URL = defaultModelsRoot,
+        unloadAfter: Duration = .seconds(300)
     ) -> TranscriptionBackend {
         let engine = Engine(
             language: language, variant: variant, diarize: diarize,
-            speakerCount: speakerCount, modelsRoot: modelsRoot)
+            speakerCount: speakerCount, modelsRoot: modelsRoot, unloadAfter: unloadAfter)
         return TranscriptionBackend(
             name: name,
             transcribe: { source in
@@ -142,17 +143,21 @@ private actor Engine {
     private let diarize: Bool
     private let speakerCount: Int?
     private let modelsRoot: URL
+    private let unloadAfter: Duration
     private var loaded: WhisperKit?
     private var speaker: SpeakerKit?
+    private var unloader: IdleUnloader?
 
     init(
-        language: String, variant: String, diarize: Bool, speakerCount: Int?, modelsRoot: URL
+        language: String, variant: String, diarize: Bool, speakerCount: Int?, modelsRoot: URL,
+        unloadAfter: Duration
     ) {
         self.language = language
         self.variant = variant
         self.diarize = diarize
         self.speakerCount = speakerCount
         self.modelsRoot = modelsRoot
+        self.unloadAfter = unloadAfter
     }
 
     nonisolated func preflight() throws {
@@ -161,6 +166,19 @@ private actor Engine {
     }
 
     func transcript(for path: String) async throws -> Transcript {
+        let unloader = idleUnloader()
+        await unloader.cancel()
+        do {
+            let transcript = try await perform(path)
+            await unloader.touch()
+            return transcript
+        } catch {
+            await unloader.touch()
+            throw error
+        }
+    }
+
+    private func perform(_ path: String) async throws -> Transcript {
         let kit = try await loadedKit()
         let options = DecodingOptions(
             task: .transcribe,
@@ -214,6 +232,22 @@ private actor Engine {
             }
         }
         Log.info("diarizacion: \(ids.count) hablantes; distancias \(pairs.joined(separator: ", "))")
+    }
+
+    private func idleUnloader() -> IdleUnloader {
+        if let unloader { return unloader }
+        let created = IdleUnloader(after: unloadAfter) { [weak self] in
+            await self?.releaseModels()
+        }
+        unloader = created
+        return created
+    }
+
+    private func releaseModels() {
+        guard loaded != nil || speaker != nil else { return }
+        loaded = nil
+        speaker = nil
+        Log.info("modelo fuera de memoria tras \(Int(unloadAfter.components.seconds))s sin trabajo")
     }
 
     private func loadedSpeakerKit() async throws -> SpeakerKit {

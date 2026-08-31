@@ -69,8 +69,10 @@ las trampas y como se manejan:
 Latencia medida de punta a punta: **~25 s** desde que el fichero aparece hasta que
 el texto esta escrito (15 de ellos son el asentamiento deliberado).
 
-En reposo la app ocupa **13 MB** de memoria fisica y 0 % de CPU: no carga ningun
-modelo, el trabajo pesado lo hace MacWhisper solo cuando hay algo que transcribir.
+En reposo la app ocupa **~13 MB** de memoria fisica y 0 % de CPU. El modelo se
+carga al llegar trabajo (la primera nota de una rafaga paga ~25 s; mientras esta
+cargado la app ronda los 230 MB) y **se descarga solo tras 5 minutos sin
+trabajo**, devolviendo la app al reposo.
 
 ## La app de barra de menus
 
