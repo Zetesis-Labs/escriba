@@ -228,4 +228,30 @@ struct LibraryStatusTests {
 
         #expect(try sandbox.store.recordings().first?.status == .done)
     }
+
+    @Test("borrar desde el modelo esconde la fila y el siguiente escaneo no la devuelve")
+    func borrar() throws {
+        let sandbox = try Sandbox()
+        let recording = try makeRecording(sandbox, "2026-08-31/09-00-00")
+        try sandbox.store.save(recording, Transcript(text: "t"), backend: "falso")
+
+        try sandbox.model.discard(recording.key)
+        #expect(try sandbox.store.recordings().isEmpty)
+
+        sandbox.model.apply(.scanned(recordings: [recording]))
+        #expect(try sandbox.store.recordings().isEmpty)
+    }
+
+    @Test("quitar el audio desde el modelo conserva la transcripcion")
+    func quitarAudio() throws {
+        let sandbox = try Sandbox()
+        let recording = try makeRecording(sandbox, "2026-08-31/09-00-00")
+        try sandbox.store.save(recording, Transcript(text: "t"), backend: "falso")
+
+        try sandbox.model.removeAudio(recording.key)
+
+        let fila = try #require(try sandbox.store.recordings().first)
+        #expect(fila.audio == .sourceOnly)
+        #expect(try sandbox.model.transcript(for: recording.key)?.text == "t")
+    }
 }

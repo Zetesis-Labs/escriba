@@ -22,7 +22,9 @@ extension Store {
     }
 
     private func adopt(_ record: LedgerRecord) throws -> Bool {
-        guard try transcriptCount(for: record.key) == 0, let outputPath = record.outputPath
+        guard try status(for: record.key) != .discarded,
+              try transcriptCount(for: record.key) == 0,
+              let outputPath = record.outputPath
         else { return false }
         guard let raw = try? String(contentsOfFile: outputPath, encoding: .utf8) else {
             return false

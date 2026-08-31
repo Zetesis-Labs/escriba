@@ -299,6 +299,151 @@ struct StoreStatusTests {
     }
 }
 
+@Suite("Store: resumen para la UI")
+struct StoreSummaryTests {
+    @Test("una diarizada resume backend, tiempos y numero de hablantes")
+    func diarizada() throws {
+        let sandbox = try Sandbox()
+        let recording = try sandbox.recording("2026-08-31/09-00-00")
+
+        try sandbox.store.save(recording, conversacion, backend: "falso")
+        let fila = try #require(try sandbox.store.recordings().first)
+
+        #expect(
+            fila.transcript
+                == TranscriptSummary(backend: "falso", isSegmented: true, speakerCount: 2))
+        #expect(fila.audio == .libraryCopy)
+    }
+
+    @Test("una de solo texto resume sin tiempos ni hablantes")
+    func plana() throws {
+        let sandbox = try Sandbox()
+        let recording = try sandbox.recording("2026-08-31/09-00-00")
+
+        try sandbox.store.save(recording, Transcript(text: "plano"), backend: "importado")
+        let fila = try #require(try sandbox.store.recordings().first)
+
+        #expect(
+            fila.transcript
+                == TranscriptSummary(backend: "importado", isSegmented: false, speakerCount: 0))
+    }
+
+    @Test("una pendiente no tiene resumen y su audio vive en el origen")
+    func pendiente() throws {
+        let sandbox = try Sandbox()
+        let recording = try sandbox.recording("2026-08-31/09-00-00")
+
+        try sandbox.store.register([recording])
+        let fila = try #require(try sandbox.store.recordings().first)
+
+        #expect(fila.transcript == nil)
+        #expect(fila.audio == .sourceOnly)
+    }
+
+    @Test("sin copia y sin origen, el audio consta como perdido")
+    func perdido() throws {
+        let sandbox = try Sandbox()
+        let recording = Recording(
+            url: URL(fileURLWithPath: "/ya/no/existe.m4a"),
+            startedAt: Date(timeIntervalSince1970: 1_000),
+            key: "2026-08-31/09-00-00")
+
+        try sandbox.store.insertDoneWithoutAudio(
+            recording, Transcript(text: "huerfana"), backend: "importado")
+
+        #expect(try sandbox.store.recordings().first?.audio == .missing)
+    }
+}
+
+@Suite("Store: quitar audio y borrar filas")
+struct StoreCleanupTests {
+    @Test("quitar el audio borra la copia y conserva la transcripcion")
+    func quitarAudio() throws {
+        let sandbox = try Sandbox()
+        let recording = try sandbox.recording("2026-08-31/09-00-00")
+        try sandbox.store.save(recording, conversacion, backend: "falso")
+        let copia = try #require(try sandbox.store.recordings().first).audioURL
+
+        try sandbox.store.removeAudio(key: recording.key)
+        let fila = try #require(try sandbox.store.recordings().first)
+
+        #expect(!FileManager.default.fileExists(atPath: copia.path(percentEncoded: false)))
+        #expect(fila.audio == .sourceOnly)
+        #expect(fila.status == .done)
+        #expect(try sandbox.store.transcript(for: recording.key) == conversacion)
+    }
+
+    @Test("quitar el audio cuando el origen ya no existe deja solo la transcripcion")
+    func quitarAudioSinOrigen() throws {
+        let sandbox = try Sandbox()
+        let recording = try sandbox.recording("2026-08-31/09-00-00")
+        try sandbox.store.save(recording, conversacion, backend: "falso")
+        try FileManager.default.removeItem(at: recording.url)
+
+        try sandbox.store.removeAudio(key: recording.key)
+        let fila = try #require(try sandbox.store.recordings().first)
+
+        #expect(fila.audio == .missing)
+        #expect(try sandbox.store.transcript(for: recording.key) == conversacion)
+    }
+
+    @Test("borrar esconde la fila, borra audio y transcripciones, y el re-escaneo no la resucita")
+    func borrado() throws {
+        let sandbox = try Sandbox()
+        let recording = try sandbox.recording("2026-08-31/09-00-00")
+        try sandbox.store.save(recording, conversacion, backend: "falso")
+        let copia = try #require(try sandbox.store.recordings().first).audioURL
+
+        try sandbox.store.discard(key: recording.key)
+
+        #expect(try sandbox.store.recordings().isEmpty)
+        #expect(try sandbox.store.count() == 0)
+        #expect(try sandbox.store.transcript(for: recording.key) == nil)
+        #expect(!FileManager.default.fileExists(atPath: copia.path(percentEncoded: false)))
+        #expect(try sandbox.store.orphanRows() == 0)
+
+        try sandbox.store.register([recording])
+        #expect(try sandbox.store.recordings().isEmpty)
+    }
+
+    @Test("una transcripcion tardia del pipeline no resucita una fila borrada")
+    func borradoNoResucita() throws {
+        let sandbox = try Sandbox()
+        let recording = try sandbox.recording("2026-08-31/09-00-00")
+        try sandbox.store.register([recording])
+        try sandbox.store.discard(key: recording.key)
+
+        try sandbox.store.save(recording, conversacion, backend: "falso")
+        try sandbox.store.markProcessing(recording.key)
+        try sandbox.store.markFailed(recording.key, error: "tarde")
+
+        #expect(try sandbox.store.recordings().isEmpty)
+        #expect(try sandbox.store.status(for: recording.key) == .discarded)
+    }
+
+    @Test("el backfill del ledger tampoco resucita una fila borrada")
+    func backfillNoResucita() throws {
+        let sandbox = try Sandbox()
+        let recording = try sandbox.recording("2026-05-15/18-17-28")
+        try sandbox.store.register([recording])
+        try sandbox.store.discard(key: recording.key)
+        let txt = sandbox.base.appending(path: "salida/18-17-28.txt")
+        try FileManager.default.createDirectory(
+            at: txt.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "texto viejo".write(to: txt, atomically: true, encoding: .utf8)
+
+        let adopted = sandbox.store.adoptLedgerHistory([
+            LedgerRecord(
+                key: recording.key,
+                sourcePath: recording.url.path(percentEncoded: false),
+                outputPath: txt.path(percentEncoded: false))
+        ])
+
+        #expect(adopted == 0)
+        #expect(try sandbox.store.recordings().isEmpty)
+    }
+}
+
 @Suite("Store: importar la historia del ledger")
 struct StoreBackfillTests {
     @Test("importa lo hecho con su texto, copia el audio y saca la fecha de la clave")

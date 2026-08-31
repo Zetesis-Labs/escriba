@@ -78,6 +78,14 @@ public final class LibraryModel {
         try store.addTranscript(corrected, for: key, backend: "correccion")
     }
 
+    public func discard(_ key: String) throws {
+        try store.discard(key: key)
+    }
+
+    public func removeAudio(_ key: String) throws {
+        try store.removeAudio(key: key)
+    }
+
     public func reprocess(_ recording: StoredRecording, speakers: Int?) async throws {
         guard let reprocess else { throw LibraryModelError.reprocessUnavailable }
         guard !reprocessing.contains(recording.key) else { return }

@@ -11,8 +11,28 @@ public struct StoredRecording: Sendable, Equatable, Identifiable {
     public let importedAt: Date
     public let status: RecordingStatus
     public let lastError: String?
+    public let audio: AudioAvailability
+    public let transcript: TranscriptSummary?
 
     public var id: String { key }
+}
+
+public enum AudioAvailability: String, Sendable, Equatable {
+    case libraryCopy
+    case sourceOnly
+    case missing
+}
+
+public struct TranscriptSummary: Sendable, Equatable {
+    public let backend: String
+    public let isSegmented: Bool
+    public let speakerCount: Int
+
+    public init(backend: String, isSegmented: Bool, speakerCount: Int) {
+        self.backend = backend
+        self.isSegmented = isSegmented
+        self.speakerCount = speakerCount
+    }
 }
 
 public final class Store: Sendable {
@@ -52,14 +72,21 @@ public final class Store: Sendable {
                 try row.insert(db)
             } else {
                 row.audioPath = audioPath
-                row.status = RecordingStatus.done.rawValue
-                row.lastError = nil
+                if row.status != RecordingStatus.discarded.rawValue {
+                    row.status = RecordingStatus.done.rawValue
+                    row.lastError = nil
+                }
                 try row.update(db)
             }
             guard let recordingId = row.id else { throw StoreError.missingRowID }
 
             try Self.insert(transcript, recordingId: recordingId, backend: backend, in: db)
-            return row.stored(in: root)
+            return row.stored(
+                in: root,
+                transcript: TranscriptSummary(
+                    backend: backend,
+                    isSegmented: transcript.isSegmented,
+                    speakerCount: transcript.speakers.count))
         }
     }
 
@@ -72,8 +99,10 @@ public final class Store: Sendable {
                 let recordingId = row.id
             else { throw StoreError.unknownRecording(key) }
             try Self.insert(transcript, recordingId: recordingId, backend: backend, in: db)
-            row.status = RecordingStatus.done.rawValue
-            row.lastError = nil
+            if row.status != RecordingStatus.discarded.rawValue {
+                row.status = RecordingStatus.done.rawValue
+                row.lastError = nil
+            }
             try row.update(db)
         }
     }
@@ -133,9 +162,10 @@ public final class Store: Sendable {
     public func markProcessing(_ key: String) throws {
         try writer.write { db in
             try db.execute(
-                sql: "UPDATE recording SET status = ? WHERE key = ? AND status <> ?",
+                sql: "UPDATE recording SET status = ? WHERE key = ? AND status NOT IN (?, ?)",
                 arguments: [
-                    RecordingStatus.processing.rawValue, key, RecordingStatus.done.rawValue,
+                    RecordingStatus.processing.rawValue, key,
+                    RecordingStatus.done.rawValue, RecordingStatus.discarded.rawValue,
                 ])
         }
     }
@@ -143,8 +173,11 @@ public final class Store: Sendable {
     public func markFailed(_ key: String, error: String) throws {
         try writer.write { db in
             try db.execute(
-                sql: "UPDATE recording SET status = ?, lastError = ? WHERE key = ?",
-                arguments: [RecordingStatus.failed.rawValue, String(error.prefix(2000)), key])
+                sql: "UPDATE recording SET status = ?, lastError = ? WHERE key = ? AND status <> ?",
+                arguments: [
+                    RecordingStatus.failed.rawValue, String(error.prefix(2000)), key,
+                    RecordingStatus.discarded.rawValue,
+                ])
         }
     }
 
@@ -153,6 +186,53 @@ public final class Store: Sendable {
             try db.execute(
                 sql: "UPDATE recording SET status = ? WHERE status = ?",
                 arguments: [RecordingStatus.pending.rawValue, RecordingStatus.processing.rawValue])
+        }
+    }
+
+    public func discard(key: String) throws {
+        let root = root
+        try writer.write { db in
+            guard var row = try RecordingRow.filter(RecordingRow.Columns.key == key).fetchOne(db),
+                  let recordingId = row.id
+            else { return }
+            try db.execute(
+                sql: "DELETE FROM transcript WHERE recordingId = ?", arguments: [recordingId])
+            Self.deleteAudioCopy(row, root: root)
+            row.audioPath = ""
+            row.status = RecordingStatus.discarded.rawValue
+            row.lastError = nil
+            try row.update(db)
+        }
+    }
+
+    public func removeAudio(key: String) throws {
+        let root = root
+        try writer.write { db in
+            guard var row = try RecordingRow.filter(RecordingRow.Columns.key == key).fetchOne(db)
+            else { return }
+            Self.deleteAudioCopy(row, root: root)
+            row.audioPath = ""
+            try row.update(db)
+        }
+    }
+
+    private static func deleteAudioCopy(_ row: RecordingRow, root: URL) {
+        guard !row.audioPath.isEmpty else { return }
+        let copy = root.appending(path: row.audioPath)
+        guard FileManager.default.fileExists(atPath: copy.path(percentEncoded: false)) else {
+            return
+        }
+        do {
+            try FileManager.default.removeItem(at: copy)
+        } catch {
+            Log.error("no se pudo borrar la copia de audio \(row.audioPath): \(error)")
+        }
+    }
+
+    func status(for key: String) throws -> RecordingStatus? {
+        try writer.read { db in
+            try RecordingRow.filter(RecordingRow.Columns.key == key).fetchOne(db)
+                .flatMap { RecordingStatus(rawValue: $0.status) }
         }
     }
 
@@ -186,7 +266,11 @@ public final class Store: Sendable {
     }
 
     public func count() throws -> Int {
-        try writer.read { db in try RecordingRow.fetchCount(db) }
+        try writer.read { db in
+            try RecordingRow
+                .filter(RecordingRow.Columns.status != RecordingStatus.discarded.rawValue)
+                .fetchCount(db)
+        }
     }
 
     public func transcript(for key: String) throws -> Transcript? {
@@ -259,9 +343,35 @@ public final class Store: Sendable {
 
 private func fetchRecordings(_ db: Database, root: URL) throws -> [StoredRecording] {
     try RecordingRow
+        .filter(RecordingRow.Columns.status != RecordingStatus.discarded.rawValue)
         .order(RecordingRow.Columns.startedAt.desc)
         .fetchAll(db)
-        .map { $0.stored(in: root) }
+        .map { try $0.stored(in: root, transcript: latestSummary(for: $0, in: db)) }
+}
+
+private func latestSummary(
+    for row: RecordingRow, in db: Database
+) throws -> TranscriptSummary? {
+    guard let recordingId = row.id,
+          let latest = try TranscriptRow
+              .filter(TranscriptRow.Columns.recordingId == recordingId)
+              .order(TranscriptRow.Columns.id.desc)
+              .fetchOne(db),
+          let transcriptId = latest.id
+    else { return nil }
+
+    let segments = try Int.fetchOne(
+        db, sql: "SELECT COUNT(*) FROM segment WHERE transcriptId = ?",
+        arguments: [transcriptId]) ?? 0
+    let speakers = try Int.fetchOne(
+        db,
+        sql: """
+            SELECT COUNT(DISTINCT speaker) FROM segment
+            WHERE transcriptId = ? AND speaker IS NOT NULL
+            """,
+        arguments: [transcriptId]) ?? 0
+    return TranscriptSummary(
+        backend: latest.backend, isSegmented: segments > 0, speakerCount: speakers)
 }
 
 public enum StoreError: Error, CustomStringConvertible {

@@ -7,6 +7,7 @@ public enum RecordingStatus: String, Sendable, Codable, CaseIterable {
     case processing
     case done
     case failed
+    case discarded
 }
 
 struct RecordingRow: Codable, FetchableRecord, MutablePersistableRecord {
@@ -31,17 +32,28 @@ struct RecordingRow: Codable, FetchableRecord, MutablePersistableRecord {
         id = inserted.rowID
     }
 
-    func stored(in root: URL) -> StoredRecording {
-        StoredRecording(
+    func stored(in root: URL, transcript: TranscriptSummary? = nil) -> StoredRecording {
+        let copy = audioPath.isEmpty ? nil : root.appending(path: audioPath)
+        let files = FileManager.default
+        let audio: AudioAvailability =
+            if let copy, files.fileExists(atPath: copy.path(percentEncoded: false)) {
+                .libraryCopy
+            } else if files.fileExists(atPath: sourcePath) {
+                .sourceOnly
+            } else {
+                .missing
+            }
+
+        return StoredRecording(
             key: key,
             sourceURL: URL(fileURLWithPath: sourcePath),
-            audioURL: audioPath.isEmpty
-                ? URL(fileURLWithPath: sourcePath)
-                : root.appending(path: audioPath),
+            audioURL: (audio == .libraryCopy ? copy : nil) ?? URL(fileURLWithPath: sourcePath),
             startedAt: startedAt,
             importedAt: importedAt,
             status: RecordingStatus(rawValue: status) ?? .done,
-            lastError: lastError)
+            lastError: lastError,
+            audio: audio,
+            transcript: transcript)
     }
 }
 
