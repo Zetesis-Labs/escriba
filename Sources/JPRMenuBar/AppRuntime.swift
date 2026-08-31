@@ -45,7 +45,7 @@ final class AppRuntime {
                 detail: "Hay \(holder) vigilando. Esta copia no hara nada.")
             return
         }
-        instanceLock = lock
+        instanceLock = consume lock
 
         let root = Paths.defaultRoot
         guard FileManager.default.fileExists(atPath: root.path(percentEncoded: false)) else {

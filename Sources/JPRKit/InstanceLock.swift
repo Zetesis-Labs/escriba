@@ -1,6 +1,6 @@
 import Foundation
 
-public final class InstanceLock: @unchecked Sendable {
+public struct InstanceLock: ~Copyable, Sendable {
     private let descriptor: Int32
 
     public init?(path: URL) {

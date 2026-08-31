@@ -176,7 +176,6 @@ do {
             "ya hay \(InstanceLock.holderDescription(path: lockPath)) trabajando sobre el mismo ledger."
             + " Cierra JPR Transcribe (o el otro proceso) antes de seguir.")
     }
-    defer { _ = instanceLock }
 
     let backend = makeBackend(options)
     let library = try Store(root: options.library)
@@ -194,6 +193,7 @@ do {
     } else {
         DaemonController(pipeline: pipeline).runBlocking()
     }
+    _ = consume instanceLock
 } catch {
     fail("\(error)")
 }
