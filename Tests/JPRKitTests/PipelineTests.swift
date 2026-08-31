@@ -47,7 +47,7 @@ private struct Sandbox {
 
 private func backend(
     name: String = "falso",
-    transcribe: @escaping @Sendable (URL) throws -> Transcript
+    transcribe: @escaping @Sendable (URL) throws(TranscriptionError) -> Transcript
 ) -> TranscriptionBackend {
     TranscriptionBackend(name: name, transcribe: transcribe, preflight: {})
 }
@@ -115,7 +115,9 @@ struct PipelineTests {
         let pipeline = Pipeline(
             source: justPressRecordSource(root: sandbox.root),
             ledger: sandbox.ledger,
-            backend: backend { _ in throw TranscriptionError.backendUnavailable("apagado") },
+            backend: backend { _ throws(TranscriptionError) in
+                throw TranscriptionError.backendUnavailable("apagado")
+            },
             sink: capturingSink(into: Spy<String>(), output: sandbox.output),
             settleSeconds: 0,
             onEvent: { eventos.append($0) })
@@ -140,7 +142,7 @@ struct PipelineTests {
         let pipeline = Pipeline(
             source: justPressRecordSource(root: sandbox.root),
             ledger: sandbox.ledger,
-            backend: backend { url in
+            backend: backend { url throws(TranscriptionError) in
                 llamadas.append(url)
                 throw TranscriptionError.backendUnavailable("apagado")
             },
@@ -160,7 +162,9 @@ struct PipelineTests {
         let pipeline = Pipeline(
             source: justPressRecordSource(root: sandbox.root),
             ledger: sandbox.ledger,
-            backend: backend { _ in throw TranscriptionError.failed("audio corrupto") },
+            backend: backend { _ throws(TranscriptionError) in
+                throw TranscriptionError.failed("audio corrupto")
+            },
             sink: capturingSink(into: Spy<String>(), output: sandbox.output),
             settleSeconds: 0)
 

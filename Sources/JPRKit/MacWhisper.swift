@@ -14,11 +14,16 @@ public enum MacWhisperBackend {
     ) -> TranscriptionBackend {
         TranscriptionBackend(
             name: appName,
-            transcribe: { source in
-                try transcribe(
-                    source, language: language, model: model, diarize: diarize, timeout: timeout)
+            transcribe: { source throws(TranscriptionError) in
+                try TranscriptionError.catching {
+                    try transcribe(
+                        source, language: language, model: model, diarize: diarize,
+                        timeout: timeout)
+                }
             },
-            preflight: { try verifyModelAvailable(model) })
+            preflight: { () throws(TranscriptionError) in
+                try TranscriptionError.catching { try verifyModelAvailable(model) }
+            })
     }
 
     private static func transcribe(

@@ -1,9 +1,9 @@
 import Foundation
+import Synchronization
 
 public enum Log {
     nonisolated(unsafe) public static var verbose = false
-    nonisolated(unsafe) private static var fileHandle: FileHandle?
-    private static let lock = NSLock()
+    private static let fileHandle = Mutex<FileHandle?>(nil)
 
     private static let formatter: DateFormatter = {
         let f = DateFormatter()
@@ -12,9 +12,6 @@ public enum Log {
     }()
 
     public static func mirrorToFile(_ url: URL) {
-        lock.lock()
-        defer { lock.unlock() }
-
         let manager = FileManager.default
         try? manager.createDirectory(
             at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -24,7 +21,7 @@ public enum Log {
 
         guard let handle = try? FileHandle(forWritingTo: url) else { return }
         handle.seekToEndOfFile()
-        fileHandle = handle
+        fileHandle.withLock { $0 = handle }
     }
 
     public static func info(_ message: String) { emit("INFO ", message) }
@@ -38,10 +35,10 @@ public enum Log {
         print(line)
         fflush(stdout)
 
-        lock.lock()
-        defer { lock.unlock() }
-        if let fileHandle, let data = (line + "\n").data(using: .utf8) {
-            try? fileHandle.write(contentsOf: data)
+        fileHandle.withLock { handle in
+            if let handle, let data = (line + "\n").data(using: .utf8) {
+                try? handle.write(contentsOf: data)
+            }
         }
     }
 }

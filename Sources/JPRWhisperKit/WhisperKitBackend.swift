@@ -1,5 +1,6 @@
 import Foundation
 import JPRCore
+import Synchronization
 import JPRKit
 import SpeakerKit
 import WhisperKit
@@ -26,12 +27,16 @@ public enum WhisperKitBackend {
             speakerCount: speakerCount, modelsRoot: modelsRoot, unloadAfter: unloadAfter)
         return TranscriptionBackend(
             name: name,
-            transcribe: { source in
-                try engine.preflight()
-                let path = source.path(percentEncoded: false)
-                return try runBlocking { try await engine.transcript(for: path) }
+            transcribe: { source throws(TranscriptionError) in
+                try TranscriptionError.catching {
+                    try engine.preflight()
+                    let path = source.path(percentEncoded: false)
+                    return try runBlocking { try await engine.transcript(for: path) }
+                }
             },
-            preflight: { try engine.preflight() })
+            preflight: { () throws(TranscriptionError) in
+                try TranscriptionError.catching { try engine.preflight() }
+            })
     }
 
     static let modelComponents = [
@@ -279,33 +284,18 @@ private actor Engine {
 
 func runBlocking<T: Sendable>(_ body: @escaping @Sendable () async throws -> T) throws -> T {
     let semaphore = DispatchSemaphore(value: 0)
-    let box = OutcomeBox<T>()
+    let outcome = Mutex<Result<T, any Error>?>(nil)
 
     Task {
-        do { box.set(.success(try await body())) } catch { box.set(.failure(error)) }
+        let result: Result<T, any Error>
+        do { result = .success(try await body()) } catch { result = .failure(error) }
+        outcome.withLock { $0 = result }
         semaphore.signal()
     }
 
     semaphore.wait()
-    return try box.take()
-}
-
-private final class OutcomeBox<T: Sendable>: @unchecked Sendable {
-    private let lock = NSLock()
-    private var outcome: Result<T, Error>?
-
-    func set(_ value: Result<T, Error>) {
-        lock.lock()
-        defer { lock.unlock() }
-        outcome = value
+    guard let result = outcome.withLock({ $0 }) else {
+        throw TranscriptionError.failed("la tarea asincrona no devolvio resultado")
     }
-
-    func take() throws -> T {
-        lock.lock()
-        defer { lock.unlock() }
-        guard let outcome else {
-            throw TranscriptionError.failed("la tarea asincrona no devolvio resultado")
-        }
-        return try outcome.get()
-    }
+    return try result.get()
 }

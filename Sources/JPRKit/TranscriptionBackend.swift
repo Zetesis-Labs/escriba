@@ -22,17 +22,27 @@ public enum TranscriptionError: Error, CustomStringConvertible {
         if case .backendUnavailable = self { return true }
         return false
     }
+
+    public static func catching<T>(_ body: () throws -> T) throws(TranscriptionError) -> T {
+        do {
+            return try body()
+        } catch let error as TranscriptionError {
+            throw error
+        } catch {
+            throw TranscriptionError.failed("\(error)")
+        }
+    }
 }
 
 public struct TranscriptionBackend: Sendable {
     public let name: String
-    public let transcribe: @Sendable (URL) throws -> Transcript
-    public let preflight: @Sendable () throws -> Void
+    public let transcribe: @Sendable (URL) throws(TranscriptionError) -> Transcript
+    public let preflight: @Sendable () throws(TranscriptionError) -> Void
 
     public init(
         name: String,
-        transcribe: @escaping @Sendable (URL) throws -> Transcript,
-        preflight: @escaping @Sendable () throws -> Void = {}
+        transcribe: @escaping @Sendable (URL) throws(TranscriptionError) -> Transcript,
+        preflight: @escaping @Sendable () throws(TranscriptionError) -> Void = {}
     ) {
         self.name = name
         self.transcribe = transcribe

@@ -3,7 +3,7 @@ import UserNotifications
 
 import JPRCore
 
-nonisolated enum Notifier {
+enum Notifier {
     private static var isAvailable: Bool { Bundle.main.bundleIdentifier != nil }
 
     static func notify(_ event: PipelineEvent) {
