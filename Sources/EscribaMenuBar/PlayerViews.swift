@@ -45,8 +45,12 @@ struct KaraokeView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            ForEach(Array(transcript.segments.enumerated()), id: \.offset) { index, segment in
-                turn(segment, at: index)
+            if transcript.isSegmented {
+                ForEach(Array(transcript.segments.enumerated()), id: \.offset) { index, segment in
+                    turn(segment, at: index)
+                }
+            } else {
+                Text(transcript.text)
             }
         }
         .textSelection(.enabled)
