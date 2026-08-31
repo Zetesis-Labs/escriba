@@ -15,7 +15,7 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$PROJECT/.build/release/EscribaMenuBar" "$APP/Contents/MacOS/EscribaMenuBar"
 cp "$PROJECT/Resources/Info.plist" "$APP/Contents/Info.plist"
 
-IDENTITY=$(security find-identity -v -p codesigning 2>/dev/null | grep -o '"Escriba[^"]*"' | head -1 | tr -d '"')
+IDENTITY=$(security find-identity -v -p codesigning 2>/dev/null | grep -o '"Escriba[^"]*"' | head -1 | tr -d '"' || true)
 if [ -n "${IDENTITY:-}" ]; then
   codesign --force --deep --sign "$IDENTITY" "$APP"
   echo "firmada con: $IDENTITY"
