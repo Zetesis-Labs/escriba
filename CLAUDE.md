@@ -93,3 +93,7 @@ Directriz (2026-08-31): usar lo último del lenguaje, cada cosa donde paga.
 - `mw` imprime `Transcribing X.m4a...` antes del JSON.
 - Grabaciones multicanal: los canales se suman a mono y la diarización se
   degrada. Pendiente diarizar por canal.
+- `isolated deinit` con el aislamiento por defecto del target compila en
+  debug pero **release exige el `@MainActor` explícito en la clase**.
+- El modelo se descarga solo tras 5 min sin trabajo (`IdleUnloader`); el RSS
+  no vuelve del todo (malloc retiene páginas), pero los objetos se liberan.
