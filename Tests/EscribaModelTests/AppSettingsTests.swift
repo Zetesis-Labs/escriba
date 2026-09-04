@@ -24,6 +24,17 @@ struct AppSettingsTests {
         #expect(settings.watchedFolders.isEmpty)
     }
 
+    @Test("la carpeta del .txt solo existe si esta activado escribirlo")
+    func carpetaDelTxt() {
+        let settings = AppSettings(defaults: freshDefaults(), voiceMemos: nil)
+        settings.txtFolderPath = "/tmp/salida"
+
+        #expect(settings.txtFolder?.pathComponents == ["/", "tmp", "salida"])
+
+        settings.writeTxt = false
+        #expect(settings.txtFolder == nil)
+    }
+
     @Test("lo cambiado sobrevive a una instancia nueva")
     func persiste() {
         let defaults = freshDefaults()

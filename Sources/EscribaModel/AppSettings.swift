@@ -175,6 +175,10 @@ public final class AppSettings {
         language == "auto" ? nil : language
     }
 
+    public var txtFolder: URL? {
+        writeTxt ? URL(fileURLWithPath: txtFolderPath) : nil
+    }
+
     public static func adoptLegacyDefaults(
         from legacy: UserDefaults?, into defaults: UserDefaults = .standard
     ) {

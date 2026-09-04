@@ -25,6 +25,7 @@ struct LibraryWindow: View {
     let model: LibraryModel?
     let problem: String?
     let folders: [WatchedFolder]
+    let txtFolder: URL?
 
     @State private var selected: String?
     @State private var pendingAction: RowAction?
@@ -53,6 +54,7 @@ struct LibraryWindow: View {
                         model: model,
                         recording: recording,
                         origin: origin(recording),
+                        txtFolder: txtFolder,
                         onAction: { pendingAction = $0 })
                 } else {
                     ContentUnavailableView(
@@ -246,6 +248,7 @@ struct TranscriptDetail: View {
     let model: LibraryModel
     let recording: StoredRecording
     let origin: WatchedFolder?
+    let txtFolder: URL?
     let onAction: (RowAction) -> Void
 
     @State private var transcript: Transcript?
@@ -315,6 +318,13 @@ struct TranscriptDetail: View {
 
     private var actionsMenu: some View {
         Menu {
+            Button("Mostrar el .txt en el Finder") { reveal(txtTarget) }
+                .disabled(txtTarget == .unavailable)
+            Button("Copiar la transcripcion") { copyToPasteboard(transcript?.rendered) }
+                .disabled(transcript == nil)
+            Button("Copiar el JSON") { copyJSON() }
+                .disabled(transcript == nil)
+            Divider()
             Button("Quitar la copia de audio…") { onAction(.removeAudio(recording)) }
                 .disabled(recording.audio != .libraryCopy)
             Divider()
@@ -324,6 +334,38 @@ struct TranscriptDetail: View {
         } label: {
             Label("Acciones", systemImage: "ellipsis.circle")
         }
+    }
+
+    private var txtTarget: RevealTarget {
+        revealTarget(txtFolder: txtFolder, key: recording.key) {
+            FileManager.default.fileExists(atPath: $0.path(percentEncoded: false))
+        }
+    }
+
+    private func reveal(_ target: RevealTarget) {
+        switch target {
+        case .file(let url): NSWorkspace.shared.activateFileViewerSelecting([url])
+        case .folder(let url): NSWorkspace.shared.open(url)
+        case .unavailable: break
+        }
+    }
+
+    private func copyToPasteboard(_ text: String?) {
+        guard let text else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+    }
+
+    private func copyJSON() {
+        guard let transcript else { return }
+        copyToPasteboard(
+            transcriptExport(
+                key: recording.key,
+                startedAt: recording.startedAt,
+                source: recording.sourceURL,
+                backend: recording.transcript?.backend,
+                transcript: transcript
+            ).json())
     }
 
     private var speakersMenu: some View {
