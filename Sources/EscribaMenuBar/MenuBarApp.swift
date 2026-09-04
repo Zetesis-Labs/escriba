@@ -11,7 +11,10 @@ struct EscribaApp: App {
         }
 
         Window("Biblioteca", id: "library") {
-            LibraryWindow(model: runtime.model, problem: runtime.startupProblem)
+            LibraryWindow(
+                model: runtime.model,
+                problem: runtime.startupProblem,
+                folders: runtime.settings.watchedFolders)
         }
         .defaultLaunchBehavior(.suppressed)
 

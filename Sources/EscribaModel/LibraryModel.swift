@@ -39,18 +39,20 @@ public final class LibraryModel {
         }
     }
 
-    public func apply(_ event: PipelineEvent) {
+    public func apply(_ event: PipelineEvent) async {
         switch event {
         case .scanned(let recordings):
-            mirror("registrar lo escaneado") { try store.register(recordings) }
+            await mirror("registrar lo escaneado") { try await store.register(recordings) }
         case .passStarted(let pending):
             status = .working(pending: pending)
         case .transcribing(let key):
-            mirror("marcar \(key) en proceso") { try store.markProcessing(key) }
+            await mirror("marcar \(key) en proceso") { try await store.markProcessing(key) }
         case .transcribed:
             status = .watching
         case .failed(let key, let reason):
-            mirror("anotar el fallo de \(key)") { try store.markFailed(key, error: reason) }
+            await mirror("anotar el fallo de \(key)") {
+                try await store.markFailed(key, error: reason)
+            }
             status = .problem(key)
         case .backendUnavailable:
             status = .problem("el motor de transcripcion no responde")
@@ -62,28 +64,28 @@ public final class LibraryModel {
         }
     }
 
-    private func mirror(_ what: String, _ work: () throws -> Void) {
+    private func mirror(_ what: String, _ work: () async throws -> Void) async {
         do {
-            try work()
+            try await work()
         } catch {
             Log.error("la biblioteca no pudo \(what): \(error)")
         }
     }
 
-    public func transcript(for key: String) throws -> Transcript? {
-        try store.transcript(for: key)
+    public func transcript(for key: String) async throws -> Transcript? {
+        try await store.transcript(for: key)
     }
 
-    public func applyCorrection(_ corrected: Transcript, to key: String) throws {
-        try store.addTranscript(corrected, for: key, backend: "correccion")
+    public func applyCorrection(_ corrected: Transcript, to key: String) async throws {
+        try await store.addTranscript(corrected, for: key, backend: "correccion")
     }
 
-    public func discard(_ key: String) throws {
-        try store.discard(key: key)
+    public func discard(_ key: String) async throws {
+        try await store.discard(key: key)
     }
 
-    public func removeAudio(_ key: String) throws {
-        try store.removeAudio(key: key)
+    public func removeAudio(_ key: String) async throws {
+        try await store.removeAudio(key: key)
     }
 
     public func reprocess(_ recording: StoredRecording, speakers: Int?) async throws {
@@ -94,7 +96,7 @@ public final class LibraryModel {
         defer { reprocessing.remove(recording.key) }
 
         let transcript = try await reprocess(recording.audioURL, speakers)
-        try store.addTranscript(transcript, for: recording.key, backend: "reprocesado")
+        try await store.addTranscript(transcript, for: recording.key, backend: "reprocesado")
     }
 }
 

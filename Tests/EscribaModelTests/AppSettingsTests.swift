@@ -14,7 +14,7 @@ private func freshDefaults() -> UserDefaults {
 struct AppSettingsTests {
     @Test("los valores por defecto son los que la app tiene hoy clavados")
     func porDefecto() {
-        let settings = AppSettings(defaults: freshDefaults())
+        let settings = AppSettings(defaults: freshDefaults(), voiceMemos: nil)
 
         #expect(settings.language == "es")
         #expect(settings.diarization == .off)
@@ -27,7 +27,7 @@ struct AppSettingsTests {
     @Test("lo cambiado sobrevive a una instancia nueva")
     func persiste() {
         let defaults = freshDefaults()
-        let settings = AppSettings(defaults: defaults)
+        let settings = AppSettings(defaults: defaults, voiceMemos: nil)
 
         settings.language = "en"
         settings.diarization = .fixed(2)
@@ -36,7 +36,7 @@ struct AppSettingsTests {
         settings.txtFolderPath = "/tmp/salida"
         settings.watchedFolders = [WatchedFolder(path: "/tmp/llamadas", speakers: 2)]
 
-        let reloaded = AppSettings(defaults: defaults)
+        let reloaded = AppSettings(defaults: defaults, voiceMemos: nil)
         #expect(reloaded.language == "en")
         #expect(reloaded.diarization == .fixed(2))
         #expect(reloaded.notifyEveryNote == false)
@@ -47,7 +47,7 @@ struct AppSettingsTests {
 
     @Test("el idioma auto se traduce a nil para el motor")
     func idiomaAuto() {
-        let settings = AppSettings(defaults: freshDefaults())
+        let settings = AppSettings(defaults: freshDefaults(), voiceMemos: nil)
 
         settings.language = "auto"
         #expect(settings.languageCode == nil)
@@ -103,7 +103,9 @@ struct SeedingTests {
     @Test("primer arranque: la carpeta del grabador aparece como vigilada, estilo JPR")
     func siembra() {
         let settings = AppSettings(
-            defaults: freshDefaults(), recorderRoot: URL(fileURLWithPath: "/tmp/jpr"))
+            defaults: freshDefaults(),
+            recorderRoot: URL(fileURLWithPath: "/tmp/jpr"),
+            voiceMemos: nil)
 
         #expect(settings.watchedFolders == [
             WatchedFolder(path: "/tmp/jpr", style: .justPressRecord)
@@ -115,10 +117,10 @@ struct SeedingTests {
         let defaults = freshDefaults()
         let root = URL(fileURLWithPath: "/tmp/jpr")
 
-        let primera = AppSettings(defaults: defaults, recorderRoot: root)
+        let primera = AppSettings(defaults: defaults, recorderRoot: root, voiceMemos: nil)
         primera.watchedFolders = []
 
-        let segunda = AppSettings(defaults: defaults, recorderRoot: root)
+        let segunda = AppSettings(defaults: defaults, recorderRoot: root, voiceMemos: nil)
         #expect(segunda.watchedFolders.isEmpty)
     }
 
@@ -127,7 +129,58 @@ struct SeedingTests {
         let defaults = freshDefaults()
         defaults.set(Data(#"[{"path":"/tmp/viejas"}]"#.utf8), forKey: "watchedFolders")
 
-        let settings = AppSettings(defaults: defaults, recorderRoot: nil)
+        let settings = AppSettings(defaults: defaults, recorderRoot: nil, voiceMemos: nil)
         #expect(settings.watchedFolders == [WatchedFolder(path: "/tmp/viejas", style: .any)])
+    }
+}
+
+@Suite("Notas de Voz llega a las instalaciones que ya existian")
+struct VoiceMemosAdoptionTests {
+    private let memos = URL(fileURLWithPath: "/tmp/memos")
+
+    @Test("una instalacion con carpetas guardadas la recibe la primera vez")
+    func llegaUnaVez() {
+        let defaults = freshDefaults()
+        _ = AppSettings(
+            defaults: defaults, recorderRoot: URL(fileURLWithPath: "/tmp/jpr"), voiceMemos: nil)
+
+        let despues = AppSettings(defaults: defaults, recorderRoot: nil, voiceMemos: memos)
+
+        #expect(despues.watchedFolders.map(\.style) == [.justPressRecord, .voiceMemos])
+    }
+
+    @Test("si el usuario la quita, no vuelve en el siguiente arranque")
+    func noVuelve() {
+        let defaults = freshDefaults()
+        let primera = AppSettings(
+            defaults: defaults, recorderRoot: URL(fileURLWithPath: "/tmp/jpr"), voiceMemos: memos)
+        primera.watchedFolders.removeAll { $0.style == .voiceMemos }
+
+        let segunda = AppSettings(defaults: defaults, recorderRoot: nil, voiceMemos: memos)
+
+        #expect(segunda.watchedFolders.map(\.style) == [.justPressRecord])
+    }
+}
+
+@Suite("Carpeta de Notas de Voz")
+struct VoiceMemosFolderTests {
+    @Test("la ruta cuelga del contenedor compartido de Notas de Voz")
+    func ruta() {
+        let home = URL(fileURLWithPath: "/Users/prueba")
+
+        #expect(
+            voiceMemosRoot(home: home).path(percentEncoded: false)
+                == "/Users/prueba/Library/Group Containers/"
+                    + "group.com.apple.VoiceMemos.shared/Recordings")
+    }
+
+    @Test("el estilo notas de voz sobrevive a guardar y releer")
+    func estiloPersiste() throws {
+        let folder = WatchedFolder(path: "/x", style: .voiceMemos)
+
+        let leido = try JSONDecoder().decode(
+            WatchedFolder.self, from: try JSONEncoder().encode(folder))
+
+        #expect(leido.style == .voiceMemos)
     }
 }

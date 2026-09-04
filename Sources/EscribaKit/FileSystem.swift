@@ -58,6 +58,39 @@ public enum FileSystem {
         return recordings
     }
 
+    public static func scanVoiceMemos(root: URL) throws -> [Recording] {
+        let entries: [URL]
+        do {
+            entries = try FileManager.default.contentsOfDirectory(
+                at: root,
+                includingPropertiesForKeys: [.fileIdentifierKey, .contentModificationDateKey],
+                options: [.skipsHiddenFiles])
+        } catch {
+            throw ScanError.unreadable(root: root.path(percentEncoded: false), underlying: error)
+        }
+
+        return voiceMemoRecordings(entries.map(entry), root: root)
+    }
+
+    public static func accessProblem(root: URL) -> ScanError? {
+        do {
+            _ = try FileManager.default.contentsOfDirectory(
+                at: root, includingPropertiesForKeys: nil, options: [])
+            return nil
+        } catch {
+            return ScanError.unreadable(root: root.path(percentEncoded: false), underlying: error)
+        }
+    }
+
+    private static func entry(_ url: URL) -> DirectoryEntry {
+        let values = try? url.resourceValues(
+            forKeys: [.fileIdentifierKey, .contentModificationDateKey])
+        return DirectoryEntry(
+            url: url,
+            fileIdentifier: values?.fileIdentifier,
+            modifiedAt: values?.contentModificationDate ?? Date())
+    }
+
     @discardableResult
     public static func requestMaterialization(_ url: URL, timeout: TimeInterval) -> Bool {
         let finished = DispatchSemaphore(value: 0)

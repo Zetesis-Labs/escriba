@@ -42,32 +42,32 @@ private let conversacion = Transcript(segments: [
 @Suite("Store: biblioteca de grabaciones y transcripciones")
 struct StoreTests {
     @Test("guarda una transcripcion y la devuelve intacta, con hablantes y palabras")
-    func idaYVuelta() throws {
+    func idaYVuelta() async throws {
         let sandbox = try Sandbox()
         let recording = try sandbox.recording("2026-08-29/10-00-00")
 
         try sandbox.store.save(recording, conversacion, backend: "falso")
 
-        #expect(try sandbox.store.transcript(for: "2026-08-29/10-00-00") == conversacion)
+        #expect(try await sandbox.store.transcript(for: "2026-08-29/10-00-00") == conversacion)
     }
 
     @Test("una transcripcion sin segmentar vuelve sin segmentar")
-    func sinSegmentar() throws {
+    func sinSegmentar() async throws {
         let sandbox = try Sandbox()
         let recording = try sandbox.recording("2026-08-29/10-00-00")
 
         try sandbox.store.save(recording, Transcript(text: "solo texto"), backend: "falso")
-        let leida = try sandbox.store.transcript(for: "2026-08-29/10-00-00")
+        let leida = try await sandbox.store.transcript(for: "2026-08-29/10-00-00")
 
         #expect(leida == Transcript(text: "solo texto"))
         #expect(leida?.isSegmented == false)
     }
 
     @Test("una clave que no existe devuelve nil, no un error")
-    func claveInexistente() throws {
+    func claveInexistente() async throws {
         let sandbox = try Sandbox()
 
-        #expect(try sandbox.store.transcript(for: "no/existe") == nil)
+        #expect(try await sandbox.store.transcript(for: "no/existe") == nil)
     }
 
     @Test("copia el audio dentro de la biblioteca y guarda la ruta")
@@ -86,7 +86,7 @@ struct StoreTests {
     }
 
     @Test("guardar la misma clave dos veces no duplica la grabacion y la ultima transcripcion gana")
-    func reprocesado() throws {
+    func reprocesado() async throws {
         let sandbox = try Sandbox()
         let recording = try sandbox.recording("2026-08-29/10-00-00")
 
@@ -94,11 +94,11 @@ struct StoreTests {
         try sandbox.store.save(recording, Transcript(text: "segunda"), backend: "falso")
 
         #expect(try sandbox.store.recordings().count == 1)
-        #expect(try sandbox.store.transcript(for: "2026-08-29/10-00-00")?.text == "segunda")
+        #expect(try await sandbox.store.transcript(for: "2026-08-29/10-00-00")?.text == "segunda")
     }
 
     @Test("reprocesar desde la propia copia no la destruye")
-    func reprocesarDesdeLaCopia() throws {
+    func reprocesarDesdeLaCopia() async throws {
         let sandbox = try Sandbox()
         let recording = try sandbox.recording("2026-08-29/10-00-00", contents: "original")
         try sandbox.store.save(recording, Transcript(text: "primera"), backend: "falso")
@@ -109,7 +109,7 @@ struct StoreTests {
         try sandbox.store.save(desdeLaCopia, Transcript(text: "segunda"), backend: "falso")
 
         #expect(try String(contentsOf: copia, encoding: .utf8) == "original")
-        #expect(try sandbox.store.transcript(for: recording.key)?.text == "segunda")
+        #expect(try await sandbox.store.transcript(for: recording.key)?.text == "segunda")
     }
 
     @Test("lista de mas reciente a mas antigua por fecha de grabacion")
@@ -126,7 +126,7 @@ struct StoreTests {
     }
 
     @Test("borrar una grabacion arrastra su audio, sus transcripciones y sus segmentos")
-    func borrado() throws {
+    func borrado() async throws {
         let sandbox = try Sandbox()
         let recording = try sandbox.recording("2026-08-29/10-00-00")
         try sandbox.store.save(recording, conversacion, backend: "falso")
@@ -135,7 +135,7 @@ struct StoreTests {
         try sandbox.store.delete(key: recording.key)
 
         #expect(try sandbox.store.recordings().isEmpty)
-        #expect(try sandbox.store.transcript(for: recording.key) == nil)
+        #expect(try await sandbox.store.transcript(for: recording.key) == nil)
         #expect(!FileManager.default.fileExists(atPath: copia.path()))
         #expect(try sandbox.store.orphanRows() == 0)
     }
@@ -155,7 +155,7 @@ struct StoreTests {
     }
 
     @Test("el sink del store devuelve la ruta del audio copiado")
-    func sink() throws {
+    func sink() async throws {
         let sandbox = try Sandbox()
         let recording = try sandbox.recording("2026-08-29/10-00-00")
 
@@ -163,31 +163,31 @@ struct StoreTests {
         let copia = try sandbox.store.recordings().first?.audioURL
 
         #expect(salida == copia)
-        #expect(try sandbox.store.transcript(for: recording.key) == conversacion)
+        #expect(try await sandbox.store.transcript(for: recording.key) == conversacion)
     }
 }
 
 @Suite("Store: correcciones sobre lo ya guardado")
 struct StoreCorrectionTests {
     @Test("una correccion se guarda como transcripcion nueva y pasa a ser la vigente")
-    func correccion() throws {
+    func correccion() async throws {
         let sandbox = try Sandbox()
         let recording = try sandbox.recording("2026-08-31/12-00-00")
         try sandbox.store.save(recording, conversacion, backend: "falso")
 
         let corregida = conversacion.renaming("Speaker 1", to: "Ruben")
-        try sandbox.store.addTranscript(corregida, for: recording.key, backend: "correccion")
+        try await sandbox.store.addTranscript(corregida, for: recording.key, backend: "correccion")
 
-        #expect(try sandbox.store.transcript(for: recording.key) == corregida)
+        #expect(try await sandbox.store.transcript(for: recording.key) == corregida)
         #expect(try sandbox.store.transcriptCount(for: recording.key) == 2)
     }
 
     @Test("corregir una clave que no existe falla con un error claro, no en silencio")
-    func claveInexistente() throws {
+    func claveInexistente() async throws {
         let sandbox = try Sandbox()
 
-        #expect(throws: StoreError.self) {
-            try sandbox.store.addTranscript(
+        await #expect(throws: StoreError.self) {
+            try await sandbox.store.addTranscript(
                 Transcript(text: "x"), for: "no/existe", backend: "correccion")
         }
     }
@@ -196,40 +196,40 @@ struct StoreCorrectionTests {
 @Suite("Store: estados de trabajo")
 struct StoreStatusTests {
     @Test("lo escaneado se registra como pendiente, sin copia de audio y reproducible desde el origen")
-    func registro() throws {
+    func registro() async throws {
         let sandbox = try Sandbox()
         let recording = try sandbox.recording("2026-08-31/09-00-00")
 
-        try sandbox.store.register([recording])
+        try await sandbox.store.register([recording])
         let fila = try #require(try sandbox.store.recordings().first)
 
         #expect(fila.status == .pending)
         #expect(fila.audioURL == recording.url)
-        #expect(try sandbox.store.transcript(for: recording.key) == nil)
+        #expect(try await sandbox.store.transcript(for: recording.key) == nil)
     }
 
     @Test("registrar es idempotente y no pisa lo que ya esta en la biblioteca")
-    func registroNoPisa() throws {
+    func registroNoPisa() async throws {
         let sandbox = try Sandbox()
         let recording = try sandbox.recording("2026-08-31/09-00-00")
         try sandbox.store.save(recording, Transcript(text: "hecho"), backend: "falso")
 
-        try sandbox.store.register([recording])
-        try sandbox.store.register([recording])
+        try await sandbox.store.register([recording])
+        try await sandbox.store.register([recording])
         let fila = try #require(try sandbox.store.recordings().first)
 
         #expect(try sandbox.store.recordings().count == 1)
         #expect(fila.status == .done)
-        #expect(try sandbox.store.transcript(for: recording.key)?.text == "hecho")
+        #expect(try await sandbox.store.transcript(for: recording.key)?.text == "hecho")
     }
 
     @Test("el ciclo pendiente -> procesando -> hecho deja la fila limpia y con su audio")
-    func cicloCompleto() throws {
+    func cicloCompleto() async throws {
         let sandbox = try Sandbox()
         let recording = try sandbox.recording("2026-08-31/09-00-00")
 
-        try sandbox.store.register([recording])
-        try sandbox.store.markProcessing(recording.key)
+        try await sandbox.store.register([recording])
+        try await sandbox.store.markProcessing(recording.key)
         #expect(try sandbox.store.recordings().first?.status == .processing)
 
         try sandbox.store.save(recording, Transcript(text: "lista"), backend: "falso")
@@ -241,23 +241,23 @@ struct StoreStatusTests {
     }
 
     @Test("marcar en proceso no toca lo que ya esta hecho")
-    func procesandoNoTocaHecho() throws {
+    func procesandoNoTocaHecho() async throws {
         let sandbox = try Sandbox()
         let recording = try sandbox.recording("2026-08-31/09-00-00")
         try sandbox.store.save(recording, Transcript(text: "hecha"), backend: "falso")
 
-        try sandbox.store.markProcessing(recording.key)
+        try await sandbox.store.markProcessing(recording.key)
 
         #expect(try sandbox.store.recordings().first?.status == .done)
     }
 
     @Test("un fallo guarda el motivo y un exito posterior lo limpia")
-    func falloYRecuperacion() throws {
+    func falloYRecuperacion() async throws {
         let sandbox = try Sandbox()
         let recording = try sandbox.recording("2026-08-31/09-00-00")
-        try sandbox.store.register([recording])
+        try await sandbox.store.register([recording])
 
-        try sandbox.store.markFailed(recording.key, error: "se rompio")
+        try await sandbox.store.markFailed(recording.key, error: "se rompio")
         let fallida = try #require(try sandbox.store.recordings().first)
         #expect(fallida.status == .failed)
         #expect(fallida.lastError == "se rompio")
@@ -269,12 +269,12 @@ struct StoreStatusTests {
     }
 
     @Test("los procesando huerfanos vuelven a pendiente; lo hecho no se toca")
-    func resetInterrumpidos() throws {
+    func resetInterrumpidos() async throws {
         let sandbox = try Sandbox()
         let colgada = try sandbox.recording("2026-08-31/09-00-00")
         let hecha = try sandbox.recording("2026-08-31/10-00-00")
-        try sandbox.store.register([colgada])
-        try sandbox.store.markProcessing(colgada.key)
+        try await sandbox.store.register([colgada])
+        try await sandbox.store.markProcessing(colgada.key)
         try sandbox.store.save(hecha, Transcript(text: "x"), backend: "falso")
 
         try sandbox.store.resetInterrupted()
@@ -286,16 +286,16 @@ struct StoreStatusTests {
     }
 
     @Test("una transcripcion manual sobre una pendiente la marca como hecha")
-    func manualSobrePendiente() throws {
+    func manualSobrePendiente() async throws {
         let sandbox = try Sandbox()
         let recording = try sandbox.recording("2026-08-31/09-00-00")
-        try sandbox.store.register([recording])
+        try await sandbox.store.register([recording])
 
-        try sandbox.store.addTranscript(
+        try await sandbox.store.addTranscript(
             Transcript(text: "a mano"), for: recording.key, backend: "reprocesado")
 
         #expect(try sandbox.store.recordings().first?.status == .done)
-        #expect(try sandbox.store.transcript(for: recording.key)?.text == "a mano")
+        #expect(try await sandbox.store.transcript(for: recording.key)?.text == "a mano")
     }
 }
 
@@ -328,12 +328,35 @@ struct StoreSummaryTests {
                 == TranscriptSummary(backend: "importado", isSegmented: false, speakerCount: 0))
     }
 
+    @Test("con varias grabaciones, cada fila resume su ultima transcripcion y no la de otra")
+    func resumenPorGrabacion() async throws {
+        let sandbox = try Sandbox()
+        let vieja = try sandbox.recording(
+            "2026-08-30/09-00-00", startedAt: Date(timeIntervalSince1970: 1_000_000))
+        let nueva = try sandbox.recording(
+            "2026-08-31/09-00-00", startedAt: Date(timeIntervalSince1970: 2_000_000))
+
+        try sandbox.store.save(vieja, Transcript(text: "plano"), backend: "importado")
+        try sandbox.store.save(nueva, Transcript(text: "primera"), backend: "falso")
+        try await sandbox.store.addTranscript(conversacion, for: nueva.key, backend: "reprocesado")
+
+        let filas = try sandbox.store.recordings()
+
+        #expect(filas.count == 2)
+        #expect(
+            filas.first(where: { $0.key == nueva.key })?.transcript
+                == TranscriptSummary(backend: "reprocesado", isSegmented: true, speakerCount: 2))
+        #expect(
+            filas.first(where: { $0.key == vieja.key })?.transcript
+                == TranscriptSummary(backend: "importado", isSegmented: false, speakerCount: 0))
+    }
+
     @Test("una pendiente no tiene resumen y su audio vive en el origen")
-    func pendiente() throws {
+    func pendiente() async throws {
         let sandbox = try Sandbox()
         let recording = try sandbox.recording("2026-08-31/09-00-00")
 
-        try sandbox.store.register([recording])
+        try await sandbox.store.register([recording])
         let fila = try #require(try sandbox.store.recordings().first)
 
         #expect(fila.transcript == nil)
@@ -358,75 +381,75 @@ struct StoreSummaryTests {
 @Suite("Store: quitar audio y borrar filas")
 struct StoreCleanupTests {
     @Test("quitar el audio borra la copia y conserva la transcripcion")
-    func quitarAudio() throws {
+    func quitarAudio() async throws {
         let sandbox = try Sandbox()
         let recording = try sandbox.recording("2026-08-31/09-00-00")
         try sandbox.store.save(recording, conversacion, backend: "falso")
         let copia = try #require(try sandbox.store.recordings().first).audioURL
 
-        try sandbox.store.removeAudio(key: recording.key)
+        try await sandbox.store.removeAudio(key: recording.key)
         let fila = try #require(try sandbox.store.recordings().first)
 
         #expect(!FileManager.default.fileExists(atPath: copia.path(percentEncoded: false)))
         #expect(fila.audio == .sourceOnly)
         #expect(fila.status == .done)
-        #expect(try sandbox.store.transcript(for: recording.key) == conversacion)
+        #expect(try await sandbox.store.transcript(for: recording.key) == conversacion)
     }
 
     @Test("quitar el audio cuando el origen ya no existe deja solo la transcripcion")
-    func quitarAudioSinOrigen() throws {
+    func quitarAudioSinOrigen() async throws {
         let sandbox = try Sandbox()
         let recording = try sandbox.recording("2026-08-31/09-00-00")
         try sandbox.store.save(recording, conversacion, backend: "falso")
         try FileManager.default.removeItem(at: recording.url)
 
-        try sandbox.store.removeAudio(key: recording.key)
+        try await sandbox.store.removeAudio(key: recording.key)
         let fila = try #require(try sandbox.store.recordings().first)
 
         #expect(fila.audio == .missing)
-        #expect(try sandbox.store.transcript(for: recording.key) == conversacion)
+        #expect(try await sandbox.store.transcript(for: recording.key) == conversacion)
     }
 
     @Test("borrar esconde la fila, borra audio y transcripciones, y el re-escaneo no la resucita")
-    func borrado() throws {
+    func borrado() async throws {
         let sandbox = try Sandbox()
         let recording = try sandbox.recording("2026-08-31/09-00-00")
         try sandbox.store.save(recording, conversacion, backend: "falso")
         let copia = try #require(try sandbox.store.recordings().first).audioURL
 
-        try sandbox.store.discard(key: recording.key)
+        try await sandbox.store.discard(key: recording.key)
 
         #expect(try sandbox.store.recordings().isEmpty)
         #expect(try sandbox.store.count() == 0)
-        #expect(try sandbox.store.transcript(for: recording.key) == nil)
+        #expect(try await sandbox.store.transcript(for: recording.key) == nil)
         #expect(!FileManager.default.fileExists(atPath: copia.path(percentEncoded: false)))
         #expect(try sandbox.store.orphanRows() == 0)
 
-        try sandbox.store.register([recording])
+        try await sandbox.store.register([recording])
         #expect(try sandbox.store.recordings().isEmpty)
     }
 
     @Test("una transcripcion tardia del pipeline no resucita una fila borrada")
-    func borradoNoResucita() throws {
+    func borradoNoResucita() async throws {
         let sandbox = try Sandbox()
         let recording = try sandbox.recording("2026-08-31/09-00-00")
-        try sandbox.store.register([recording])
-        try sandbox.store.discard(key: recording.key)
+        try await sandbox.store.register([recording])
+        try await sandbox.store.discard(key: recording.key)
 
         try sandbox.store.save(recording, conversacion, backend: "falso")
-        try sandbox.store.markProcessing(recording.key)
-        try sandbox.store.markFailed(recording.key, error: "tarde")
+        try await sandbox.store.markProcessing(recording.key)
+        try await sandbox.store.markFailed(recording.key, error: "tarde")
 
         #expect(try sandbox.store.recordings().isEmpty)
         #expect(try sandbox.store.status(for: recording.key) == .discarded)
     }
 
     @Test("el backfill del ledger tampoco resucita una fila borrada")
-    func backfillNoResucita() throws {
+    func backfillNoResucita() async throws {
         let sandbox = try Sandbox()
         let recording = try sandbox.recording("2026-05-15/18-17-28")
-        try sandbox.store.register([recording])
-        try sandbox.store.discard(key: recording.key)
+        try await sandbox.store.register([recording])
+        try await sandbox.store.discard(key: recording.key)
         let txt = sandbox.base.appending(path: "salida/18-17-28.txt")
         try FileManager.default.createDirectory(
             at: txt.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -447,7 +470,7 @@ struct StoreCleanupTests {
 @Suite("Store: importar la historia del ledger")
 struct StoreBackfillTests {
     @Test("importa lo hecho con su texto, copia el audio y saca la fecha de la clave")
-    func importa() throws {
+    func importa() async throws {
         let sandbox = try Sandbox()
         let recording = try sandbox.recording("2026-05-15/18-17-28", contents: "audio viejo")
         let txt = sandbox.base.appending(path: "salida/18-17-28.txt")
@@ -467,7 +490,7 @@ struct StoreBackfillTests {
         #expect(fila.status == .done)
         #expect(fila.audioURL.path().hasPrefix(sandbox.store.root.path()))
         #expect(fila.startedAt == RecordingParser.startDate(fromKey: recording.key))
-        #expect(try sandbox.store.transcript(for: recording.key)?.text == "el texto antiguo")
+        #expect(try await sandbox.store.transcript(for: recording.key)?.text == "el texto antiguo")
     }
 
     @Test("sin fichero de salida no hay nada que importar")
@@ -491,7 +514,7 @@ struct StoreBackfillTests {
     }
 
     @Test("si el audio de origen ya no existe, importa el texto igualmente")
-    func sinAudio() throws {
+    func sinAudio() async throws {
         let sandbox = try Sandbox()
         let txt = sandbox.base.appending(path: "salida/18-17-28.txt")
         try FileManager.default.createDirectory(
@@ -509,14 +532,14 @@ struct StoreBackfillTests {
         let fila = try #require(try sandbox.store.recordings().first)
         #expect(fila.status == .done)
         #expect(fila.audioURL == URL(fileURLWithPath: "/ya/no/existe.m4a"))
-        #expect(try sandbox.store.transcript(for: "2026-05-15/18-17-28")?.text == "texto huerfano")
+        #expect(try await sandbox.store.transcript(for: "2026-05-15/18-17-28")?.text == "texto huerfano")
     }
 
     @Test("una fila ya registrada como pendiente se adopta igualmente")
-    func adoptaPendientes() throws {
+    func adoptaPendientes() async throws {
         let sandbox = try Sandbox()
         let recording = try sandbox.recording("2026-05-15/18-17-28", contents: "audio viejo")
-        try sandbox.store.register([recording])
+        try await sandbox.store.register([recording])
         let txt = sandbox.base.appending(path: "salida/18-17-28.txt")
         try FileManager.default.createDirectory(
             at: txt.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -533,11 +556,11 @@ struct StoreBackfillTests {
         let fila = try #require(try sandbox.store.recordings().first)
         #expect(fila.status == .done)
         #expect(fila.audioURL.path().hasPrefix(sandbox.store.root.path()))
-        #expect(try sandbox.store.transcript(for: recording.key)?.text == "rescatado")
+        #expect(try await sandbox.store.transcript(for: recording.key)?.text == "rescatado")
     }
 
     @Test("lo que ya esta en la biblioteca no se toca")
-    func noPisa() throws {
+    func noPisa() async throws {
         let sandbox = try Sandbox()
         let recording = try sandbox.recording("2026-05-15/18-17-28")
         try sandbox.store.save(recording, Transcript(text: "vigente"), backend: "falso")
@@ -555,6 +578,6 @@ struct StoreBackfillTests {
 
         #expect(adopted == 0)
         #expect(try sandbox.store.recordings().count == 1)
-        #expect(try sandbox.store.transcript(for: recording.key)?.text == "vigente")
+        #expect(try await sandbox.store.transcript(for: recording.key)?.text == "vigente")
     }
 }

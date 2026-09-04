@@ -42,7 +42,7 @@ extension Store {
         if FileManager.default.fileExists(atPath: record.sourcePath) {
             try save(recording, transcript, backend: Self.importedBackend)
         } else if try knows(record.key) {
-            try addTranscript(transcript, for: record.key, backend: Self.importedBackend)
+            try attachTranscript(transcript, for: record.key, backend: Self.importedBackend)
         } else {
             try insertDoneWithoutAudio(recording, transcript, backend: Self.importedBackend)
         }

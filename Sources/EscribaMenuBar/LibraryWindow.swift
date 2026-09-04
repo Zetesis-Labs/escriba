@@ -24,6 +24,7 @@ enum RowAction: Identifiable {
 struct LibraryWindow: View {
     let model: LibraryModel?
     let problem: String?
+    let folders: [WatchedFolder]
 
     @State private var selected: String?
     @State private var pendingAction: RowAction?
@@ -33,7 +34,7 @@ struct LibraryWindow: View {
         if let model {
             NavigationSplitView {
                 List(model.recordings, selection: $selected) { recording in
-                    RecordingRowView(recording: recording)
+                    RecordingRowView(recording: recording, origin: origin(recording))
                         .contextMenu {
                             Button("Quitar la copia de audio…") {
                                 pendingAction = .removeAudio(recording)
@@ -51,6 +52,7 @@ struct LibraryWindow: View {
                     TranscriptDetail(
                         model: model,
                         recording: recording,
+                        origin: origin(recording),
                         onAction: { pendingAction = $0 })
                 } else {
                     ContentUnavailableView(
@@ -103,11 +105,11 @@ struct LibraryWindow: View {
         switch action {
         case .removeAudio(let recording):
             Button("Quitar la copia de audio", role: .destructive) {
-                perform { try model.removeAudio(recording.key) }
+                perform { try await model.removeAudio(recording.key) }
             }
         case .discard(let recording):
             Button("Borrar grabacion y transcripciones", role: .destructive) {
-                perform { try model.discard(recording.key) }
+                perform { try await model.discard(recording.key) }
                 if selected == recording.key { selected = nil }
             }
         }
@@ -126,17 +128,24 @@ struct LibraryWindow: View {
         }
     }
 
-    private func perform(_ work: () throws -> Void) {
-        do {
-            try work()
-        } catch {
-            actionError = "\(error)"
+    private func origin(_ recording: StoredRecording) -> WatchedFolder? {
+        folder(for: recording.sourceURL.path(percentEncoded: false), among: folders)
+    }
+
+    private func perform(_ work: @escaping () async throws -> Void) {
+        Task {
+            do {
+                try await work()
+            } catch {
+                actionError = "\(error)"
+            }
         }
     }
 }
 
 struct RecordingRowView: View {
     let recording: StoredRecording
+    let origin: WatchedFolder?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
@@ -146,6 +155,7 @@ struct RecordingRowView: View {
                 StatusChip(status: recording.status)
             }
             HStack(spacing: 10) {
+                originTag
                 transcriptTag
                 audioTag
                 Spacer(minLength: 4)
@@ -157,6 +167,20 @@ struct RecordingRowView: View {
             }
         }
         .padding(.vertical, 3)
+    }
+
+    @ViewBuilder private var originTag: some View {
+        if let origin {
+            tag(symbol(for: origin.style), text: origin.displayName, help: origin.path)
+        }
+    }
+
+    private func symbol(for style: WatchedFolder.Style) -> String {
+        switch style {
+        case .justPressRecord: "record.circle"
+        case .voiceMemos: "waveform"
+        case .any: "folder"
+        }
     }
 
     @ViewBuilder private var transcriptTag: some View {
@@ -221,6 +245,7 @@ struct StatusChip: View {
 struct TranscriptDetail: View {
     let model: LibraryModel
     let recording: StoredRecording
+    let origin: WatchedFolder?
     let onAction: (RowAction) -> Void
 
     @State private var transcript: Transcript?
@@ -252,12 +277,13 @@ struct TranscriptDetail: View {
                     .padding()
             }
         }
-        .navigationTitle(recording.key)
+        .navigationTitle(recording.title)
+        .navigationSubtitle(subtitle)
         .task(id: recording.key) {
-            reload()
+            await reload()
             if recording.audio != .missing { player.load(recording.audioURL) }
         }
-        .onChange(of: recording.status) { reload() }
+        .onChange(of: recording.status) { Task { await reload() } }
         .toolbar {
             if model.reprocessing.contains(recording.key) {
                 ToolbarItem { ProgressView().controlSize(.small) }
@@ -336,9 +362,9 @@ struct TranscriptDetail: View {
         .disabled(model.reprocessing.contains(recording.key))
     }
 
-    private func reload() {
+    private func reload() async {
         do {
-            transcript = try model.transcript(for: recording.key)
+            transcript = try await model.transcript(for: recording.key)
             failure = nil
         } catch {
             failure = "\(error)"
@@ -346,11 +372,13 @@ struct TranscriptDetail: View {
     }
 
     private func correct(_ corrected: Transcript) {
-        do {
-            try model.applyCorrection(corrected, to: recording.key)
-            transcript = corrected
-        } catch {
-            actionError = "\(error)"
+        Task {
+            do {
+                try await model.applyCorrection(corrected, to: recording.key)
+                transcript = corrected
+            } catch {
+                actionError = "\(error)"
+            }
         }
     }
 
@@ -366,11 +394,17 @@ struct TranscriptDetail: View {
         Task {
             do {
                 try await model.reprocess(recording, speakers: speakers)
-                reload()
+                await reload()
             } catch {
                 actionError = "\(error)"
             }
         }
+    }
+
+    private var subtitle: String {
+        let fecha = recording.startedAt.formatted(.dateTime.day().month(.wide).hour().minute())
+        guard let origin else { return fecha }
+        return "\(origin.displayName) · \(fecha)"
     }
 
     @ViewBuilder private var content: some View {

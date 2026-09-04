@@ -60,49 +60,49 @@ struct LibraryModelTests {
     }
 
     @Test("los eventos del pipeline mueven el estado del vigilante")
-    func estados() throws {
+    func estados() async throws {
         let sandbox = try Sandbox()
         #expect(sandbox.model.status == .starting)
 
-        sandbox.model.apply(.passStarted(pending: 2))
+        await sandbox.model.apply(.passStarted(pending: 2))
         #expect(sandbox.model.status == .working(pending: 2))
 
-        sandbox.model.apply(.transcribed(key: "k", transcript: Transcript(text: "t"), output: salida))
+        await sandbox.model.apply(.transcribed(key: "k", transcript: Transcript(text: "t"), output: salida))
         #expect(sandbox.model.status == .watching)
 
-        sandbox.model.apply(.idle(scanned: 7))
+        await sandbox.model.apply(.idle(scanned: 7))
         #expect(sandbox.model.status == .watching)
         #expect(sandbox.model.scanned == 7)
     }
 
     @Test("un problema se queda a la vista: un ciclo tranquilo no lo tapa")
-    func problemaPersistente() throws {
+    func problemaPersistente() async throws {
         let sandbox = try Sandbox()
 
-        sandbox.model.apply(.failed(key: "k", reason: "audio corrupto"))
+        await sandbox.model.apply(.failed(key: "k", reason: "audio corrupto"))
         guard case .problem = sandbox.model.status else {
             Issue.record("esperaba .problem, hay \(sandbox.model.status)")
             return
         }
 
-        sandbox.model.apply(.idle(scanned: 3))
+        await sandbox.model.apply(.idle(scanned: 3))
         guard case .problem = sandbox.model.status else {
             Issue.record("el idle tapo el problema")
             return
         }
 
-        sandbox.model.apply(.passStarted(pending: 1))
-        sandbox.model.apply(.transcribed(key: "k", transcript: Transcript(text: "t"), output: salida))
+        await sandbox.model.apply(.passStarted(pending: 1))
+        await sandbox.model.apply(.transcribed(key: "k", transcript: Transcript(text: "t"), output: salida))
         #expect(sandbox.model.status == .watching)
     }
 
     @Test("el detalle de una grabacion sale del store")
-    func detalle() throws {
+    func detalle() async throws {
         let sandbox = try Sandbox()
         try sandbox.save("2026-08-31/10-00-00", text: "el contenido")
 
-        #expect(try sandbox.model.transcript(for: "2026-08-31/10-00-00")?.text == "el contenido")
-        #expect(try sandbox.model.transcript(for: "no/existe") == nil)
+        #expect(try await sandbox.model.transcript(for: "2026-08-31/10-00-00")?.text == "el contenido")
+        #expect(try await sandbox.model.transcript(for: "no/existe") == nil)
     }
 }
 
@@ -126,17 +126,17 @@ nonisolated private final class ReprocessSpy: @unchecked Sendable {
 @Suite("Correcciones y reprocesado desde el modelo")
 struct LibraryCorrectionTests {
     @Test("una correccion de hablantes persiste y pasa a ser la vigente")
-    func correccion() throws {
+    func correccion() async throws {
         let sandbox = try Sandbox()
         try sandbox.save("2026-08-31/13-00-00", text: "hola")
-        let original = try #require(try sandbox.model.transcript(for: "2026-08-31/13-00-00"))
+        let original = try #require(try await sandbox.model.transcript(for: "2026-08-31/13-00-00"))
 
         let corregida = Transcript(segments: [
             TranscriptSegment(start: 0, end: 1, speaker: "Ruben", text: original.text)
         ])
-        try sandbox.model.applyCorrection(corregida, to: "2026-08-31/13-00-00")
+        try await sandbox.model.applyCorrection(corregida, to: "2026-08-31/13-00-00")
 
-        #expect(try sandbox.model.transcript(for: "2026-08-31/13-00-00") == corregida)
+        #expect(try await sandbox.model.transcript(for: "2026-08-31/13-00-00") == corregida)
     }
 
     @Test("reprocesar guarda el resultado como transcripcion vigente y pasa los hablantes pedidos")
@@ -152,7 +152,7 @@ struct LibraryCorrectionTests {
         try await sandbox.model.reprocess(recording, speakers: 2)
 
         #expect(spy.received == [2])
-        #expect(try sandbox.model.transcript(for: recording.key)?.text == "reprocesada")
+        #expect(try await sandbox.model.transcript(for: recording.key)?.text == "reprocesada")
         #expect(sandbox.model.reprocessing.isEmpty)
     }
 
@@ -167,7 +167,7 @@ struct LibraryCorrectionTests {
         await #expect(throws: TranscriptionError.self) {
             try await sandbox.model.reprocess(recording, speakers: nil)
         }
-        #expect(try sandbox.model.transcript(for: recording.key)?.text == "original")
+        #expect(try await sandbox.model.transcript(for: recording.key)?.text == "original")
         #expect(sandbox.model.reprocessing.isEmpty)
     }
 }
@@ -183,33 +183,33 @@ struct LibraryStatusTests {
     }
 
     @Test("lo escaneado aparece como pendiente en la biblioteca")
-    func escaneado() throws {
+    func escaneado() async throws {
         let sandbox = try Sandbox()
         let recording = try makeRecording(sandbox, "2026-08-31/09-00-00")
 
-        sandbox.model.apply(.scanned(recordings: [recording]))
+        await sandbox.model.apply(.scanned(recordings: [recording]))
 
         #expect(try sandbox.store.recordings().first?.status == .pending)
     }
 
     @Test("al empezar a transcribir pasa a procesando")
-    func procesando() throws {
+    func procesando() async throws {
         let sandbox = try Sandbox()
         let recording = try makeRecording(sandbox, "2026-08-31/09-00-00")
-        sandbox.model.apply(.scanned(recordings: [recording]))
+        await sandbox.model.apply(.scanned(recordings: [recording]))
 
-        sandbox.model.apply(.transcribing(key: recording.key))
+        await sandbox.model.apply(.transcribing(key: recording.key))
 
         #expect(try sandbox.store.recordings().first?.status == .processing)
     }
 
     @Test("un fallo del pipeline queda anotado con su motivo")
-    func fallo() throws {
+    func fallo() async throws {
         let sandbox = try Sandbox()
         let recording = try makeRecording(sandbox, "2026-08-31/09-00-00")
-        sandbox.model.apply(.scanned(recordings: [recording]))
+        await sandbox.model.apply(.scanned(recordings: [recording]))
 
-        sandbox.model.apply(.failed(key: recording.key, reason: "se rompio"))
+        await sandbox.model.apply(.failed(key: recording.key, reason: "se rompio"))
 
         let fila = try #require(try sandbox.store.recordings().first)
         #expect(fila.status == .failed)
@@ -218,40 +218,40 @@ struct LibraryStatusTests {
     }
 
     @Test("cuando el sink guarda, un transcribing rezagado no la devuelve a procesando")
-    func hechoNoRetrocede() throws {
+    func hechoNoRetrocede() async throws {
         let sandbox = try Sandbox()
         let recording = try makeRecording(sandbox, "2026-08-31/09-00-00")
-        sandbox.model.apply(.scanned(recordings: [recording]))
+        await sandbox.model.apply(.scanned(recordings: [recording]))
         try sandbox.store.save(recording, Transcript(text: "lista"), backend: "falso")
 
-        sandbox.model.apply(.transcribing(key: recording.key))
+        await sandbox.model.apply(.transcribing(key: recording.key))
 
         #expect(try sandbox.store.recordings().first?.status == .done)
     }
 
     @Test("borrar desde el modelo esconde la fila y el siguiente escaneo no la devuelve")
-    func borrar() throws {
+    func borrar() async throws {
         let sandbox = try Sandbox()
         let recording = try makeRecording(sandbox, "2026-08-31/09-00-00")
         try sandbox.store.save(recording, Transcript(text: "t"), backend: "falso")
 
-        try sandbox.model.discard(recording.key)
+        try await sandbox.model.discard(recording.key)
         #expect(try sandbox.store.recordings().isEmpty)
 
-        sandbox.model.apply(.scanned(recordings: [recording]))
+        await sandbox.model.apply(.scanned(recordings: [recording]))
         #expect(try sandbox.store.recordings().isEmpty)
     }
 
     @Test("quitar el audio desde el modelo conserva la transcripcion")
-    func quitarAudio() throws {
+    func quitarAudio() async throws {
         let sandbox = try Sandbox()
         let recording = try makeRecording(sandbox, "2026-08-31/09-00-00")
         try sandbox.store.save(recording, Transcript(text: "t"), backend: "falso")
 
-        try sandbox.model.removeAudio(recording.key)
+        try await sandbox.model.removeAudio(recording.key)
 
         let fila = try #require(try sandbox.store.recordings().first)
         #expect(fila.audio == .sourceOnly)
-        #expect(try sandbox.model.transcript(for: recording.key)?.text == "t")
+        #expect(try await sandbox.model.transcript(for: recording.key)?.text == "t")
     }
 }

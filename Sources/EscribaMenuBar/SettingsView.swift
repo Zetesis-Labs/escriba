@@ -110,10 +110,7 @@ private struct FoldersTab: View {
                 ForEach($settings.watchedFolders) { $folder in
                     HStack {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(
-                                folder.style == .justPressRecord
-                                    ? "Just Press Record"
-                                    : URL(fileURLWithPath: folder.path).lastPathComponent)
+                            Text(folder.displayName)
                             Text(abbreviated(folder.path))
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
@@ -148,8 +145,18 @@ private struct FoldersTab: View {
                 else { return }
                 settings.watchedFolders.append(WatchedFolder(path: path))
             }
+
+            Button("Anadir Notas de Voz") {
+                settings.watchedFolders.append(
+                    WatchedFolder(path: voiceMemosPath, style: .voiceMemos))
+            }
+            .disabled(settings.watchedFolders.contains { $0.path == voiceMemosPath })
         }
         .formStyle(.grouped)
+    }
+
+    private var voiceMemosPath: String {
+        voiceMemosRoot().path(percentEncoded: false)
     }
 }
 

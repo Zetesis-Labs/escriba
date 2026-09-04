@@ -84,7 +84,7 @@ final class AppRuntime {
             let (stream, continuation) = AsyncStream.makeStream(of: PipelineEvent.self)
             events = Task { [settings] in
                 for await event in stream {
-                    model.apply(event)
+                    await model.apply(event)
                     if settings.notifyEveryNote || event.isProblem {
                         Notifier.notify(event)
                     }
@@ -122,14 +122,9 @@ final class AppRuntime {
 
             for folder in settings.watchedFolders {
                 let folderRoot = URL(fileURLWithPath: folder.path)
-                var isDirectory: ObjCBool = false
-                guard FileManager.default.fileExists(
-                    atPath: folder.path, isDirectory: &isDirectory), isDirectory.boolValue
-                else {
-                    Log.error(
-                        "no encuentro \(folder.path); si existe, falta el Acceso total al disco")
-                    Notifier.problem(
-                        title: "Carpeta vigilada inaccesible", detail: folder.path)
+                if let problem = FileSystem.accessProblem(root: folderRoot) {
+                    Log.error("\(problem)")
+                    Notifier.problem(title: "Carpeta vigilada inaccesible", detail: folder.path)
                     continue
                 }
 
@@ -138,9 +133,19 @@ final class AppRuntime {
                     diarize: diarize,
                     speakerCount: folder.speakers ?? settings.diarization.speakerCount)
 
-                if folder.style == .justPressRecord {
+                switch folder.style {
+                case .justPressRecord:
                     result.append((justPressRecordSource(root: folderRoot), backend))
                     continue
+                case .voiceMemos:
+                    result.append((
+                        namespaced(
+                            voiceMemosSource(root: folderRoot, expectedSpeakers: folder.speakers),
+                            prefix: "Notas de Voz"),
+                        backend))
+                    continue
+                case .any:
+                    break
                 }
 
                 var prefix = folderRoot.lastPathComponent

@@ -15,6 +15,10 @@ public struct StoredRecording: Sendable, Equatable, Identifiable {
     public let transcript: TranscriptSummary?
 
     public var id: String { key }
+
+    public var title: String {
+        sourceURL.deletingPathExtension().lastPathComponent
+    }
 }
 
 public enum AudioAvailability: String, Sendable, Equatable {
@@ -92,19 +96,31 @@ public final class Store: Sendable {
 
     public func addTranscript(
         _ transcript: Transcript, for key: String, backend: String
-    ) throws {
-        try writer.write { db in
-            guard
-                var row = try RecordingRow.filter(RecordingRow.Columns.key == key).fetchOne(db),
-                let recordingId = row.id
-            else { throw StoreError.unknownRecording(key) }
-            try Self.insert(transcript, recordingId: recordingId, backend: backend, in: db)
-            if row.status != RecordingStatus.discarded.rawValue {
-                row.status = RecordingStatus.done.rawValue
-                row.lastError = nil
-            }
-            try row.update(db)
+    ) async throws {
+        try await writer.write { db in
+            try Self.attach(transcript, to: key, backend: backend, in: db)
         }
+    }
+
+    func attachTranscript(_ transcript: Transcript, for key: String, backend: String) throws {
+        try writer.write { db in
+            try Self.attach(transcript, to: key, backend: backend, in: db)
+        }
+    }
+
+    private static func attach(
+        _ transcript: Transcript, to key: String, backend: String, in db: Database
+    ) throws {
+        guard
+            var row = try RecordingRow.filter(RecordingRow.Columns.key == key).fetchOne(db),
+            let recordingId = row.id
+        else { throw StoreError.unknownRecording(key) }
+        try Self.insert(transcript, recordingId: recordingId, backend: backend, in: db)
+        if row.status != RecordingStatus.discarded.rawValue {
+            row.status = RecordingStatus.done.rawValue
+            row.lastError = nil
+        }
+        try row.update(db)
     }
 
     private static func insert(
@@ -138,9 +154,9 @@ public final class Store: Sendable {
         }
     }
 
-    public func register(_ recordings: [Recording]) throws {
+    public func register(_ recordings: [Recording]) async throws {
         guard !recordings.isEmpty else { return }
-        try writer.write { db in
+        try await writer.write { db in
             for recording in recordings {
                 let exists = try RecordingRow
                     .filter(RecordingRow.Columns.key == recording.key)
@@ -159,8 +175,8 @@ public final class Store: Sendable {
         }
     }
 
-    public func markProcessing(_ key: String) throws {
-        try writer.write { db in
+    public func markProcessing(_ key: String) async throws {
+        try await writer.write { db in
             try db.execute(
                 sql: "UPDATE recording SET status = ? WHERE key = ? AND status NOT IN (?, ?)",
                 arguments: [
@@ -170,8 +186,8 @@ public final class Store: Sendable {
         }
     }
 
-    public func markFailed(_ key: String, error: String) throws {
-        try writer.write { db in
+    public func markFailed(_ key: String, error: String) async throws {
+        try await writer.write { db in
             try db.execute(
                 sql: "UPDATE recording SET status = ?, lastError = ? WHERE key = ? AND status <> ?",
                 arguments: [
@@ -189,9 +205,9 @@ public final class Store: Sendable {
         }
     }
 
-    public func discard(key: String) throws {
+    public func discard(key: String) async throws {
         let root = root
-        try writer.write { db in
+        try await writer.write { db in
             guard var row = try RecordingRow.filter(RecordingRow.Columns.key == key).fetchOne(db),
                   let recordingId = row.id
             else { return }
@@ -205,9 +221,9 @@ public final class Store: Sendable {
         }
     }
 
-    public func removeAudio(key: String) throws {
+    public func removeAudio(key: String) async throws {
         let root = root
-        try writer.write { db in
+        try await writer.write { db in
             guard var row = try RecordingRow.filter(RecordingRow.Columns.key == key).fetchOne(db)
             else { return }
             Self.deleteAudioCopy(row, root: root)
@@ -273,8 +289,8 @@ public final class Store: Sendable {
         }
     }
 
-    public func transcript(for key: String) throws -> Transcript? {
-        try writer.read { db in
+    public func transcript(for key: String) async throws -> Transcript? {
+        try await writer.read { db in
             guard
                 let recording = try RecordingRow.filter(RecordingRow.Columns.key == key).fetchOne(db),
                 let recordingId = recording.id,
@@ -312,6 +328,7 @@ public final class Store: Sendable {
         let root = root
         return ValueObservation
             .tracking { db in try fetchRecordings(db, root: root) }
+            .removeDuplicates()
             .values(in: writer, scheduling: .task)
     }
 
@@ -342,36 +359,32 @@ public final class Store: Sendable {
 }
 
 private func fetchRecordings(_ db: Database, root: URL) throws -> [StoredRecording] {
-    try RecordingRow
+    let summaries = try latestSummaries(db)
+    return try RecordingRow
         .filter(RecordingRow.Columns.status != RecordingStatus.discarded.rawValue)
         .order(RecordingRow.Columns.startedAt.desc)
         .fetchAll(db)
-        .map { try $0.stored(in: root, transcript: latestSummary(for: $0, in: db)) }
+        .map { $0.stored(in: root, transcript: $0.id.flatMap { summaries[$0] }) }
 }
 
-private func latestSummary(
-    for row: RecordingRow, in db: Database
-) throws -> TranscriptSummary? {
-    guard let recordingId = row.id,
-          let latest = try TranscriptRow
-              .filter(TranscriptRow.Columns.recordingId == recordingId)
-              .order(TranscriptRow.Columns.id.desc)
-              .fetchOne(db),
-          let transcriptId = latest.id
-    else { return nil }
-
-    let segments = try Int.fetchOne(
-        db, sql: "SELECT COUNT(*) FROM segment WHERE transcriptId = ?",
-        arguments: [transcriptId]) ?? 0
-    let speakers = try Int.fetchOne(
+private func latestSummaries(_ db: Database) throws -> [Int64: TranscriptSummary] {
+    try Row.fetchAll(
         db,
         sql: """
-            SELECT COUNT(DISTINCT speaker) FROM segment
-            WHERE transcriptId = ? AND speaker IS NOT NULL
-            """,
-        arguments: [transcriptId]) ?? 0
-    return TranscriptSummary(
-        backend: latest.backend, isSegmented: segments > 0, speakerCount: speakers)
+            SELECT t.recordingId AS recordingId, t.backend AS backend,
+                   COUNT(s.id) AS segments, COUNT(DISTINCT s.speaker) AS speakers
+            FROM transcript t
+            JOIN (SELECT recordingId, MAX(id) AS id FROM transcript GROUP BY recordingId) ultima
+              ON ultima.id = t.id
+            LEFT JOIN segment s ON s.transcriptId = t.id
+            GROUP BY t.id
+            """
+    ).reduce(into: [:]) { summaries, row in
+        summaries[row["recordingId"]] = TranscriptSummary(
+            backend: row["backend"],
+            isSegmented: row["segments"] as Int > 0,
+            speakerCount: row["speakers"])
+    }
 }
 
 public enum StoreError: Error, CustomStringConvertible {

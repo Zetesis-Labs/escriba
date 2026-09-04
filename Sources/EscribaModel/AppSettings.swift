@@ -4,6 +4,7 @@ import Observation
 public struct WatchedFolder: Codable, Sendable, Equatable, Identifiable {
     public enum Style: String, Codable, Sendable {
         case justPressRecord
+        case voiceMemos
         case any
     }
 
@@ -29,6 +30,49 @@ public struct WatchedFolder: Codable, Sendable, Equatable, Identifiable {
         speakers = try container.decodeIfPresent(Int.self, forKey: .speakers)
         style = try container.decodeIfPresent(Style.self, forKey: .style) ?? .any
     }
+}
+
+extension WatchedFolder {
+    public var displayName: String {
+        switch style {
+        case .justPressRecord: "Just Press Record"
+        case .voiceMemos: "Notas de Voz"
+        case .any: URL(fileURLWithPath: path).lastPathComponent
+        }
+    }
+
+    fileprivate var pathComponents: [String] {
+        URL(fileURLWithPath: path).standardizedFileURL.pathComponents
+    }
+}
+
+public func folder(for sourcePath: String, among folders: [WatchedFolder]) -> WatchedFolder? {
+    let components = URL(fileURLWithPath: sourcePath).standardizedFileURL.pathComponents
+
+    return folders
+        .filter { components.starts(with: $0.pathComponents) }
+        .max { $0.pathComponents.count < $1.pathComponents.count }
+}
+
+public func seededWithVoiceMemos(
+    _ folders: [WatchedFolder], root: URL?, alreadySeeded: Bool
+) -> [WatchedFolder] {
+    guard !alreadySeeded, let path = root?.path(percentEncoded: false),
+        !folders.contains(where: { $0.path == path })
+    else { return folders }
+
+    return folders + [WatchedFolder(path: path, style: .voiceMemos)]
+}
+
+public func voiceMemosRoot(
+    home: URL = FileManager.default.homeDirectoryForCurrentUser
+) -> URL {
+    home.appending(path: "Library/Group Containers/group.com.apple.VoiceMemos.shared/Recordings")
+}
+
+public func liveVoiceMemosRoot() -> URL? {
+    let root = voiceMemosRoot()
+    return FileManager.default.fileExists(atPath: root.path(percentEncoded: false)) ? root : nil
 }
 
 public func defaultRecorderRoot(
@@ -99,7 +143,11 @@ public final class AppSettings {
 
     @ObservationIgnored private let defaults: UserDefaults
 
-    public init(defaults: UserDefaults = .standard, recorderRoot: URL? = liveRecorderRoot()) {
+    public init(
+        defaults: UserDefaults = .standard,
+        recorderRoot: URL? = liveRecorderRoot(),
+        voiceMemos: URL? = liveVoiceMemosRoot()
+    ) {
         self.defaults = defaults
         language = defaults.string(forKey: Keys.language) ?? "es"
         diarization = Diarization(
@@ -109,16 +157,18 @@ public final class AppSettings {
         txtFolderPath = defaults.string(forKey: Keys.txtFolder)
             ?? FileManager.default.homeDirectoryForCurrentUser
                 .appending(path: "Documents/Transcripciones JPR").path(percentEncoded: false)
-        if let stored = defaults.data(forKey: Keys.watchedFolders)
-            .flatMap({ try? JSONDecoder().decode([WatchedFolder].self, from: $0) }) {
-            watchedFolders = stored
-        } else {
-            let seeded = recorderRoot.map {
+        let stored = defaults.data(forKey: Keys.watchedFolders)
+            .flatMap { try? JSONDecoder().decode([WatchedFolder].self, from: $0) }
+            ?? recorderRoot.map {
                 [WatchedFolder(path: $0.path(percentEncoded: false), style: .justPressRecord)]
             } ?? []
-            watchedFolders = seeded
-            defaults.set(try? JSONEncoder().encode(seeded), forKey: Keys.watchedFolders)
-        }
+
+        watchedFolders = seededWithVoiceMemos(
+            stored,
+            root: voiceMemos,
+            alreadySeeded: defaults.bool(forKey: Keys.voiceMemosSeeded))
+        if voiceMemos != nil { defaults.set(true, forKey: Keys.voiceMemosSeeded) }
+        defaults.set(try? JSONEncoder().encode(watchedFolders), forKey: Keys.watchedFolders)
     }
 
     public var languageCode: String? {
@@ -146,5 +196,6 @@ public final class AppSettings {
         static let writeTxt = "writeTxt"
         static let txtFolder = "txtFolder"
         static let watchedFolders = "watchedFolders"
+        static let voiceMemosSeeded = "voiceMemosSeeded"
     }
 }

@@ -44,7 +44,7 @@ struct KaraokeView: View {
     let onSeek: (TimeInterval) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        LazyVStack(alignment: .leading, spacing: 14) {
             if transcript.isSegmented {
                 ForEach(Array(transcript.segments.enumerated()), id: \.offset) { index, segment in
                     turn(segment, at: index)
@@ -65,7 +65,7 @@ struct KaraokeView: View {
                     .foregroundStyle(.secondary)
             }
 
-            if segment.words.isEmpty {
+            if segment.words.isEmpty || position?.segment != index {
                 Text(segment.text)
                     .padding(.horizontal, 2)
                     .background(
@@ -78,7 +78,7 @@ struct KaraokeView: View {
                         Text(word.text.trimmingCharacters(in: .whitespaces))
                             .padding(.horizontal, 2)
                             .background(
-                                isCurrent(index, wordIndex)
+                                position?.word == wordIndex
                                     ? Color.accentColor.opacity(0.35) : .clear,
                                 in: RoundedRectangle(cornerRadius: 3))
                             .onTapGesture { onSeek(word.start) }
@@ -91,39 +91,56 @@ struct KaraokeView: View {
     private func speakerBefore(_ index: Int) -> String? {
         index > 0 ? transcript.segments[index - 1].speaker : nil
     }
-
-    private func isCurrent(_ segment: Int, _ word: Int) -> Bool {
-        position == PlaybackPosition(segment: segment, word: word)
-    }
 }
 
 struct FlowLayout: Layout {
+    struct Cache {
+        var width: CGFloat = .nan
+        var sizes: [CGSize] = []
+        var frames: [CGRect] = []
+        var total: CGSize = .zero
+    }
+
     var spacing: CGFloat = 6
 
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        arrange(subviews, width: proposal.width ?? .infinity).size
+    func makeCache(subviews: Subviews) -> Cache {
+        Cache()
+    }
+
+    func updateCache(_ cache: inout Cache, subviews: Subviews) {
+        cache = Cache()
+    }
+
+    func sizeThatFits(
+        proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache
+    ) -> CGSize {
+        arrange(subviews, width: proposal.width ?? .infinity, cache: &cache)
+        return cache.total
     }
 
     func placeSubviews(
-        in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()
+        in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache
     ) {
-        for (frame, subview) in zip(arrange(subviews, width: bounds.width).frames, subviews) {
+        arrange(subviews, width: bounds.width, cache: &cache)
+        for (frame, subview) in zip(cache.frames, subviews) {
             subview.place(
                 at: CGPoint(x: bounds.minX + frame.minX, y: bounds.minY + frame.minY),
                 proposal: ProposedViewSize(frame.size))
         }
     }
 
-    private func arrange(
-        _ subviews: Subviews, width: CGFloat
-    ) -> (frames: [CGRect], size: CGSize) {
+    private func arrange(_ subviews: Subviews, width: CGFloat, cache: inout Cache) {
+        guard cache.width != width || cache.frames.count != subviews.count else { return }
+        if cache.sizes.count != subviews.count {
+            cache.sizes = subviews.map { $0.sizeThatFits(.unspecified) }
+        }
+
         var frames: [CGRect] = []
         var x: CGFloat = 0
         var y: CGFloat = 0
         var rowHeight: CGFloat = 0
 
-        for subview in subviews {
-            let size = subview.sizeThatFits(.unspecified)
+        for size in cache.sizes {
             if x > 0, x + size.width > width {
                 x = 0
                 y += rowHeight + spacing
@@ -134,7 +151,8 @@ struct FlowLayout: Layout {
             rowHeight = max(rowHeight, size.height)
         }
 
-        let usedWidth = width.isFinite ? width : x
-        return (frames, CGSize(width: usedWidth, height: y + rowHeight))
+        cache.width = width
+        cache.frames = frames
+        cache.total = CGSize(width: width.isFinite ? width : x, height: y + rowHeight)
     }
 }

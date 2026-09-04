@@ -37,6 +37,14 @@ public func folderSource(
         scan: { try FileSystem.scanAudio(root: root) })
 }
 
+public func voiceMemosSource(root: URL, expectedSpeakers: Int? = nil) -> RecordingSource {
+    RecordingSource(
+        name: "Notas de Voz",
+        locations: [root],
+        expectedSpeakers: expectedSpeakers,
+        scan: { try FileSystem.scanVoiceMemos(root: root) })
+}
+
 public func namespaced(_ source: RecordingSource, prefix: String) -> RecordingSource {
     RecordingSource(
         name: source.name,
