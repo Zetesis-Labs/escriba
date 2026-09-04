@@ -9,6 +9,14 @@ seguimiento. Sin objetivo de comercializar: simplicidad de utilidad propia
 antes que generalidad (nada de onboarding, distribución ni features
 especulativas).
 
+Hay un plan de comercialización evaluado y **aparcado** en
+`comercializacion.md` (2026-09-04): venta directa con Developer ID, fuera de la
+Mac App Store, que queda descartada porque el sandbox se lleva por delante la
+fuente Notas de Voz, el CLI y el LaunchAgent. **No está en marcha.** Mientras no
+se decida arrancarlo, manda la regla de arriba y nada de lo que ese documento
+describe se implementa. Sirve para no repetir el análisis (licencias de los
+pesos incluidas), no como hoja de ruta.
+
 ## Comandos
 
 ```bash

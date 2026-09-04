@@ -164,7 +164,7 @@ canales metio a los dos hablantes en el mismo. En estereo normal separa bien.
 
 | Backend | Como | Diarizacion |
 |---|---|---|
-| `whisperkit` (por defecto) | CoreML sobre el Neural Engine, sin apps de terceros | SpeakerKit (pyannote v4) |
+| `whisperkit` (por defecto) | CoreML sobre el Neural Engine, sin apps de terceros | SpeakerKit (segmenter y embedder pyannote v3, clusterer v4) |
 | `macwhisper` | CLI `mw`, necesita la app de MacWhisper viva | `--speakers` |
 
     escriba download                      # trae el modelo (una vez)
