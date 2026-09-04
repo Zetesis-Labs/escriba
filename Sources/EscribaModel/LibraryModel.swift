@@ -5,6 +5,7 @@ import EscribaStore
 import Observation
 
 public typealias Reprocessor = @Sendable (URL, Int?) async throws -> Transcript
+public typealias TranscriptWriter = @Sendable (String, Transcript) throws -> Void
 
 @Observable
 public final class LibraryModel {
@@ -15,11 +16,15 @@ public final class LibraryModel {
 
     private let store: Store
     @ObservationIgnored private let reprocess: Reprocessor?
+    @ObservationIgnored private let writeText: TranscriptWriter?
     @ObservationIgnored private var observation: Task<Void, Never>?
 
-    public init(store: Store, reprocess: Reprocessor? = nil) {
+    public init(
+        store: Store, reprocess: Reprocessor? = nil, writeText: TranscriptWriter? = nil
+    ) {
         self.store = store
         self.reprocess = reprocess
+        self.writeText = writeText
     }
 
     deinit {
@@ -78,6 +83,16 @@ public final class LibraryModel {
 
     public func applyCorrection(_ corrected: Transcript, to key: String) async throws {
         try await store.addTranscript(corrected, for: key, backend: "correccion")
+        refreshText(corrected, for: key)
+    }
+
+    private func refreshText(_ transcript: Transcript, for key: String) {
+        guard let writeText else { return }
+        do {
+            try writeText(key, transcript)
+        } catch {
+            Log.error("la transcripcion de \(key) se guardo, pero su .txt no: \(error)")
+        }
     }
 
     public func discard(_ key: String) async throws {
@@ -97,6 +112,7 @@ public final class LibraryModel {
 
         let transcript = try await reprocess(recording.audioURL, speakers)
         try await store.addTranscript(transcript, for: recording.key, backend: "reprocesado")
+        refreshText(transcript, for: recording.key)
     }
 }
 

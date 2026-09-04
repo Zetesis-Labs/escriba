@@ -76,6 +76,14 @@ ad-hoc y puede caducar.
   de MacWhisper.
 - **WhisperKit es el backend por defecto** (decidido 2026-08-31). MacWhisper
   queda como contraste vía `--backend macwhisper`; no depender de él.
+- **La diarización se elige a mano** (decidido por Rubén 2026-09-04): el ajuste
+  viene en `off` y el pipeline no diariza lo que entra. Se pide por grabación
+  («Detectar hablantes») o por carpeta en Ajustes. No proponer activarla por
+  defecto.
+- **El `.txt` sigue a la biblioteca**: reprocesar o corregir hablantes reescribe
+  el fichero (`TranscriptWriter` inyectado en `LibraryModel`, misma
+  `writeSidecarText` que el sink). Si el fichero y la biblioteca discrepan, es
+  un bug.
 - **El daemon es concurrencia estructurada** (decidido por Rubén 2026-08-31,
   tras proponerse conservar el hilo): Task cancelable + actor `WakeSignal`;
   la pasada bloqueante va en su cola GCD puenteada con una continuation —

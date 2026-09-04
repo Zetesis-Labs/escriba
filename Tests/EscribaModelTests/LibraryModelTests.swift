@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 import Testing
 
 @testable import EscribaModel
@@ -11,12 +12,12 @@ private struct Sandbox {
     let store: Store
     let model: LibraryModel
 
-    init(reprocess: Reprocessor? = nil) throws {
+    init(reprocess: Reprocessor? = nil, writeText: TranscriptWriter? = nil) throws {
         base = URL(fileURLWithPath: NSTemporaryDirectory())
             .appending(path: "jpr-app-tests-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
         store = try Store(root: base.appending(path: "library"))
-        model = LibraryModel(store: store, reprocess: reprocess)
+        model = LibraryModel(store: store, reprocess: reprocess, writeText: writeText)
     }
 
     func save(_ key: String, text: String = "hola") throws {
@@ -253,5 +254,75 @@ struct LibraryStatusTests {
         let fila = try #require(try sandbox.store.recordings().first)
         #expect(fila.audio == .sourceOnly)
         #expect(try await sandbox.model.transcript(for: recording.key)?.text == "t")
+    }
+}
+
+
+private nonisolated final class Escrituras: Sendable {
+    private let anotadas = Mutex<[(key: String, transcript: Transcript)]>([])
+
+    func anota(_ key: String, _ transcript: Transcript) {
+        anotadas.withLock { $0.append((key, transcript)) }
+    }
+
+    var todas: [(key: String, transcript: Transcript)] { anotadas.withLock { $0 } }
+}
+
+private struct FalloDeDisco: Error {}
+
+private nonisolated let diarizada = Transcript(segments: [
+    TranscriptSegment(start: 0, end: 1, speaker: "Ruben", text: "Hola."),
+    TranscriptSegment(start: 1, end: 2, speaker: "Ana", text: "Buenas."),
+])
+
+@Suite("El .txt sigue a lo que dice la biblioteca")
+struct SidecarRefreshTests {
+    @Test("al reprocesar con hablantes, el .txt se reescribe con la version diarizada")
+    func reprocesado() async throws {
+        let escrituras = Escrituras()
+        let sandbox = try Sandbox(
+            reprocess: { _, _ in diarizada },
+            writeText: { key, transcript in escrituras.anota(key, transcript) })
+        try sandbox.save("2026-08-31/10-00-00", text: "sin hablantes")
+        let fila = try #require(try sandbox.store.recordings().first)
+
+        try await sandbox.model.reprocess(fila, speakers: 2)
+
+        #expect(escrituras.todas.map(\.key) == ["2026-08-31/10-00-00"])
+        #expect(escrituras.todas.first?.transcript == diarizada)
+    }
+
+    @Test("al renombrar o fusionar hablantes, el .txt tambien se reescribe")
+    func correccion() async throws {
+        let escrituras = Escrituras()
+        let sandbox = try Sandbox(
+            writeText: { key, transcript in escrituras.anota(key, transcript) })
+        try sandbox.save("2026-08-31/10-00-00")
+
+        let renombrada = diarizada.renaming("Speaker 1", to: "Ruben")
+        try await sandbox.model.applyCorrection(renombrada, to: "2026-08-31/10-00-00")
+
+        #expect(escrituras.todas.first?.transcript == renombrada)
+    }
+
+    @Test("si el .txt no se puede escribir, la transcripcion no se pierde")
+    func discoQueFalla() async throws {
+        let sandbox = try Sandbox(writeText: { _, _ in throw FalloDeDisco() })
+        try sandbox.save("2026-08-31/10-00-00")
+
+        try await sandbox.model.applyCorrection(diarizada, to: "2026-08-31/10-00-00")
+
+        #expect(try await sandbox.store.transcript(for: "2026-08-31/10-00-00") == diarizada)
+    }
+
+    @Test("sin .txt configurado, reprocesar sigue funcionando")
+    func sinSidecar() async throws {
+        let sandbox = try Sandbox(reprocess: { _, _ in diarizada })
+        try sandbox.save("2026-08-31/10-00-00")
+        let fila = try #require(try sandbox.store.recordings().first)
+
+        try await sandbox.model.reprocess(fila, speakers: nil)
+
+        #expect(try await sandbox.store.transcript(for: "2026-08-31/10-00-00") == diarizada)
     }
 }

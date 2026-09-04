@@ -6,6 +6,13 @@ import EscribaStore
 import EscribaWhisper
 import Observation
 
+private func textWriter(into folder: URL?) -> TranscriptWriter? {
+    guard let folder else { return nil }
+    return { key, transcript in
+        try writeSidecarText(outputRoot: folder, key: key, transcript: transcript)
+    }
+}
+
 @Observable
 final class AppRuntime {
     private(set) var model: LibraryModel?
@@ -68,9 +75,12 @@ final class AppRuntime {
             let store = try Store(root: Paths.defaultLibrary)
             let engine = WhisperKitEngine(language: settings.languageCode)
 
-            let model = LibraryModel(store: store, reprocess: { [engine] url, count in
-                try await engine.backend(diarize: true, speakerCount: count).transcribe(url)
-            })
+            let model = LibraryModel(
+                store: store,
+                reprocess: { [engine] url, count in
+                    try await engine.backend(diarize: true, speakerCount: count).transcribe(url)
+                },
+                writeText: textWriter(into: settings.txtFolder))
             model.startObserving()
             self.model = model
 
