@@ -16,7 +16,9 @@ para no repetir el análisis.
 **El núcleo viaja**: el mismo motor debe poder correr en un Mac, en un pod
 de Linux o en un runtime WebAssembly (WASI), cambiando solo el host que lo
 conecta. `EscribaCore`, `EscribaEngine` y `EscribaNotion` compilan a
-`wasm32-unknown-wasi` y a Linux, y el CI lo comprueba en cada PR.
+`wasm32-unknown-wasi` y a Linux, y el CI lo comprueba en cada PR. El
+escritorio en Windows y Linux es un requisito apuntado, sin fecha:
+`docs/requisito-multiplataforma.md`.
 
 ## Comandos
 
