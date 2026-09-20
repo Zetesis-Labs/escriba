@@ -25,6 +25,7 @@ struct LibraryWindow: View {
     let model: LibraryModel?
     let problem: String?
     let folders: [WatchedFolder]
+    let connectors: [Connector]
     let txtFolder: URL?
 
     @State private var selected: String?
@@ -37,6 +38,9 @@ struct LibraryWindow: View {
                 List(model.recordings, selection: $selected) { recording in
                     RecordingRowView(recording: recording, origin: origin(recording))
                         .contextMenu {
+                            PublishMenu(model: model, recording: recording, connectors: connectors) {
+                                actionError = $0
+                            }
                             Button("Quitar la copia de audio…") {
                                 pendingAction = .removeAudio(recording)
                             }
@@ -54,6 +58,7 @@ struct LibraryWindow: View {
                         model: model,
                         recording: recording,
                         origin: origin(recording),
+                        connectors: connectors,
                         txtFolder: txtFolder,
                         onAction: { pendingAction = $0 })
                 } else {
@@ -145,6 +150,39 @@ struct LibraryWindow: View {
     }
 }
 
+struct PublishMenu: View {
+    let model: LibraryModel
+    let recording: StoredRecording
+    let connectors: [Connector]
+    let onError: (String) -> Void
+
+    var body: some View {
+        let live = connectors.filter { model.canPublish(to: $0.key) }
+        if !live.isEmpty {
+            ForEach(live) { connector in
+                let publication = recording.publication(in: connector.key)
+                Button(
+                    publication?.isPublished == true
+                        ? "Actualizar en \(connector.name)" : "Publicar en \(connector.name)"
+                ) {
+                    Task {
+                        do {
+                            try await model.publish(recording, to: connector.key)
+                        } catch {
+                            onError("\(error)")
+                        }
+                    }
+                }
+                .disabled(model.isPublishing(recording.key, to: connector.key))
+                if let page = publication?.url {
+                    Button("Abrir en \(connector.name)") { NSWorkspace.shared.open(page) }
+                }
+            }
+            Divider()
+        }
+    }
+}
+
 struct RecordingRowView: View {
     let recording: StoredRecording
     let origin: WatchedFolder?
@@ -160,6 +198,7 @@ struct RecordingRowView: View {
                 originTag
                 transcriptTag
                 audioTag
+                notionTag
                 Spacer(minLength: 4)
                 Text(recording.key)
                     .font(.caption2)
@@ -209,6 +248,20 @@ struct RecordingRowView: View {
         }
     }
 
+    @ViewBuilder private var notionTag: some View {
+        let published = recording.publications.filter(\.isPublished)
+        let failed = recording.publications.filter { $0.error != nil }
+        if !published.isEmpty {
+            tag(
+                "square.and.arrow.up.badge.checkmark",
+                text: published.count > 1 ? "\(published.count)" : nil,
+                help: "Publicada en \(published.count) conector(es)")
+        }
+        if let problem = failed.first?.error {
+            tag("square.and.arrow.up.trianglebadge.exclamationmark", help: "No se publicó: \(problem)")
+        }
+    }
+
     private func tag(_ symbol: String, text: String? = nil, help: String) -> some View {
         HStack(spacing: 3) {
             Image(systemName: symbol)
@@ -248,6 +301,7 @@ struct TranscriptDetail: View {
     let model: LibraryModel
     let recording: StoredRecording
     let origin: WatchedFolder?
+    let connectors: [Connector]
     let txtFolder: URL?
     let onAction: (RowAction) -> Void
 
@@ -325,6 +379,9 @@ struct TranscriptDetail: View {
             Button("Copiar el JSON") { copyJSON() }
                 .disabled(transcript == nil)
             Divider()
+            PublishMenu(model: model, recording: recording, connectors: connectors) {
+                actionError = $0
+            }
             Button("Quitar la copia de audio…") { onAction(.removeAudio(recording)) }
                 .disabled(recording.audio != .libraryCopy)
             Divider()

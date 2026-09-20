@@ -10,39 +10,64 @@ let package = Package(
     ],
     targets: [
         .target(name: "EscribaCore"),
-        .target(name: "EscribaKit", dependencies: ["EscribaCore"]),
+        .target(name: "EscribaEngine", dependencies: ["EscribaCore"]),
+        .systemLibrary(name: "CSQLite", providers: [.apt(["libsqlite3-dev"])]),
+        .target(
+            name: "EscribaSystemKit",
+            dependencies: [
+                "EscribaCore", "EscribaEngine",
+                .target(name: "CSQLite", condition: .when(platforms: [.linux])),
+            ]),
         .target(
             name: "EscribaWhisper",
             dependencies: [
-                "EscribaCore", "EscribaKit",
+                "EscribaCore", "EscribaEngine", "EscribaSystemKit",
                 .product(name: "WhisperKit", package: "argmax-oss-swift"),
                 .product(name: "SpeakerKit", package: "argmax-oss-swift"),
             ]),
         .target(
             name: "EscribaStore",
             dependencies: [
-                "EscribaCore", "EscribaKit",
+                "EscribaCore", "EscribaEngine", "EscribaSystemKit",
                 .product(name: "GRDB", package: "GRDB.swift"),
             ]),
+        .target(name: "EscribaNotion", dependencies: ["EscribaCore", "EscribaEngine"]),
         .target(
             name: "EscribaModel",
-            dependencies: ["EscribaCore", "EscribaKit", "EscribaStore"],
+            dependencies: [
+                "EscribaCore", "EscribaEngine", "EscribaSystemKit", "EscribaStore", "EscribaNotion",
+            ],
             swiftSettings: [.defaultIsolation(MainActor.self)]),
+        .executableTarget(
+            name: "escriba-wasm-probe", dependencies: ["EscribaCore", "EscribaEngine", "EscribaNotion"]),
         .executableTarget(
             name: "escriba",
-            dependencies: ["EscribaKit", "EscribaCore", "EscribaWhisper", "EscribaStore"]),
+            dependencies: [
+                "EscribaCore", "EscribaEngine", "EscribaSystemKit", "EscribaWhisper", "EscribaStore",
+            ]),
         .executableTarget(
             name: "EscribaMenuBar",
-            dependencies: ["EscribaKit", "EscribaCore", "EscribaWhisper", "EscribaStore", "EscribaModel"],
+            dependencies: [
+                "EscribaCore", "EscribaEngine", "EscribaSystemKit", "EscribaWhisper", "EscribaStore",
+                "EscribaModel", "EscribaNotion",
+            ],
             swiftSettings: [.defaultIsolation(MainActor.self)]),
         .testTarget(name: "EscribaCoreTests", dependencies: ["EscribaCore"]),
-        .testTarget(name: "EscribaKitTests", dependencies: ["EscribaKit", "EscribaCore"]),
+        .testTarget(name: "EscribaEngineTests", dependencies: ["EscribaEngine", "EscribaCore"]),
         .testTarget(
-            name: "EscribaWhisperTests", dependencies: ["EscribaWhisper", "EscribaCore", "EscribaKit"]),
-        .testTarget(name: "EscribaStoreTests", dependencies: ["EscribaStore", "EscribaCore", "EscribaKit"]),
+            name: "EscribaSystemKitTests",
+            dependencies: ["EscribaSystemKit", "EscribaEngine", "EscribaCore"]),
+        .testTarget(
+            name: "EscribaWhisperTests",
+            dependencies: ["EscribaWhisper", "EscribaCore", "EscribaEngine", "EscribaSystemKit"]),
+        .testTarget(
+            name: "EscribaNotionTests", dependencies: ["EscribaNotion", "EscribaCore", "EscribaEngine"]),
+        .testTarget(
+            name: "EscribaStoreTests",
+            dependencies: ["EscribaStore", "EscribaCore", "EscribaEngine", "EscribaSystemKit"]),
         .testTarget(
             name: "EscribaModelTests",
-            dependencies: ["EscribaModel", "EscribaStore", "EscribaCore"],
+            dependencies: ["EscribaModel", "EscribaStore", "EscribaCore", "EscribaNotion"],
             swiftSettings: [.defaultIsolation(MainActor.self)]),
     ]
 )

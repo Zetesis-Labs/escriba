@@ -2,7 +2,8 @@ import Foundation
 import Testing
 
 @testable import EscribaCore
-@testable import EscribaKit
+@testable import EscribaEngine
+@testable import EscribaSystemKit
 @testable import EscribaStore
 
 private struct Sandbox {
@@ -159,7 +160,7 @@ struct StoreTests {
         let sandbox = try Sandbox()
         let recording = try sandbox.recording("2026-08-29/10-00-00")
 
-        let salida = try sandbox.store.sink(backend: "falso")(recording, conversacion)
+        let salida = try await sandbox.store.sink(backend: "falso")(recording, conversacion)
         let copia = try sandbox.store.recordings().first?.audioURL
 
         #expect(salida == copia)

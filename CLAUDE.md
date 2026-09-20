@@ -4,18 +4,19 @@ Transcriptor automático de notas de voz, en Swift, camino de ser una app propia
 con biblioteca de grabaciones. El `README.md` explica el dominio (iCloud,
 asentamiento, ledger, backends); esto son las reglas para tocar el código.
 
-**Alcance**: utilidad personal de Rubén — transcriptor automático + UI de
-seguimiento. Sin objetivo de comercializar: simplicidad de utilidad propia
-antes que generalidad (nada de onboarding, distribución ni features
-especulativas).
+**Alcance (cambiado por Rubén el 2026-09-20)**: Escriba es un **producto
+OSS**. Cualquiera se lo baja de GitHub, pega el token de su integración
+(Notion hoy; otros destinos mañana) y tiene su ingester apuntado a sus
+páginas. Diseñar para un desconocido que se baja el binario: onboarding
+claro, nada que exija leer el código, y verificar de punta a punta contra
+el servicio real antes de decir «hecho». Sigue sin haber venta: el plan
+comercial de `comercializacion.md` (2026-09-04) queda aparcado y solo sirve
+para no repetir el análisis.
 
-Hay un plan de comercialización evaluado y **aparcado** en
-`comercializacion.md` (2026-09-04): venta directa con Developer ID, fuera de la
-Mac App Store, que queda descartada porque el sandbox se lleva por delante la
-fuente Notas de Voz, el CLI y el LaunchAgent. **No está en marcha.** Mientras no
-se decida arrancarlo, manda la regla de arriba y nada de lo que ese documento
-describe se implementa. Sirve para no repetir el análisis (licencias de los
-pesos incluidas), no como hoja de ruta.
+**El núcleo viaja**: el mismo motor debe poder correr en un Mac, en un pod
+de Linux o en un runtime WebAssembly (WASI), cambiando solo el host que lo
+conecta. `EscribaCore`, `EscribaEngine` y `EscribaNotion` compilan a
+`wasm32-unknown-wasi` y a Linux, y el CI lo comprueba en cada PR.
 
 ## Comandos
 
@@ -24,7 +25,19 @@ swift build                 # CLI + app
 swift test                  # swift-testing; --filter NO casa con nombres de @Suite
 ./scripts/build-app.sh      # .build/app/Escriba.app
 ./scripts/install-app.sh    # a /Applications
+
+# Portabilidad (lo mismo que hace el CI)
+docker run --rm -v "$PWD":/src -w /src swift:6.3-noble bash -c \
+  "apt-get update -qq && apt-get install -y -qq libsqlite3-dev && swift build --target EscribaSystemKit"
+swift build --swift-sdk swift-6.3.3-RELEASE_wasm --product escriba-wasm-probe   # toolchain swift.org 6.3.3
+node scripts/run-wasi.mjs .build/wasm32-unknown-wasip1/debug/escriba-wasm-probe.wasm
+
+# Prueba en vivo del conector (crea y regenera una página real)
+ESCRIBA_NOTION_TOKEN=ntn_… [ESCRIBA_NOTION_AUDIO=fichero.m4a] swift test --filter EnVivoTests
 ```
+
+El toolchain de Xcode no sirve para WASI: el SDK wasm exige la misma versión
+de swift.org (hoy 6.3.3, en `~/Library/Developer/Toolchains`).
 
 La app se firma con la identidad del Llavero que contenga «Escriba»
 (hoy `Zetesis - Escriba`, autofirmada, confiada vía `add-trusted-cert
@@ -34,23 +47,33 @@ ad-hoc y puede caducar.
 
 ## Arquitectura: núcleo funcional, cáscara imperativa
 
-| Target | Qué | I/O | Dependencias |
+| Target | Qué | Corre en | Dependencias |
 |---|---|---|---|
-| `EscribaCore` | Modelo (`Transcript`, `Recording`), parseo, decisiones | ninguno | ninguna |
-| `EscribaKit` | FSEvents, ledger, procesos, orquestación (`Pipeline`) | sí | ninguna |
-| `EscribaWhisper` | Backend WhisperKit + SpeakerKit | sí | argmax-oss-swift |
-| `EscribaStore` | Biblioteca SQLite + copia del audio | sí | GRDB |
-| `escriba` | CLI | | |
-| `EscribaMenuBar` | App de barra de menús | | aislamiento MainActor por defecto |
+| `EscribaCore` | Modelo (`Transcript`, `Recording`), parseo, decisiones puras | macOS, Linux, WASI | ninguna |
+| `EscribaEngine` | Puertos (`TranscriptionBackend`, `RecordingSource`, `Sink`, `LedgerPort`, `FolderWatcher`, `ReadinessProbe`), `Pipeline`, `Daemon`, `Log`. Orquestación que solo habla con puertos | macOS, Linux, WASI | ninguna |
+| `EscribaNotion` | Conector Notion: esquema y mapeo, plantilla del cuerpo, cliente API sobre un transporte HTTP propio, publicación, sink | macOS, Linux, WASI | ninguna (URLSession solo fuera de WASI) |
+| `EscribaSystemKit` | Host de sistema: FSEvents (macOS) o sondeo (Linux), stat/iCloud/materialización, flock, `offloaded`, ledger SQLite, migración legacy | macOS, Linux | SQLite del sistema (`CSQLite` en Linux) |
+| `EscribaWhisper` | Backend WhisperKit + SpeakerKit | Apple | argmax-oss-swift |
+| `EscribaStore` | Biblioteca SQLite + copia del audio + rastro de publicaciones | macOS, Linux | GRDB |
+| `EscribaModel` | Modelos observables de la UI (biblioteca, conectores, ajustes), token en Llavero | macOS | |
+| `escriba` | CLI | macOS | |
+| `EscribaMenuBar` | App: ventana única con Biblioteca / Conectores / Ajustes | macOS | aislamiento MainActor por defecto |
+| `escriba-wasm-probe` | Sonda que ejercita Core+Engine+Notion; la ejecuta el CI en un runtime WASI | WASI | |
 
 - **Los puertos son structs de funciones**, no protocolos ni herencia:
-  `TranscriptionBackend`, `RecordingSource`, `Sink`. Una implementación nueva
-  es una función `make(...)` que devuelve el struct.
+  `TranscriptionBackend`, `RecordingSource`, `Sink`, `LedgerPort`,
+  `NotionClient`, `NotionTransport`. Una implementación nueva es una función
+  `make(...)` que devuelve el struct.
+- **Nada de Dispatch, CoreServices, `Process`, `URLSession` ni CoreFoundation
+  en `EscribaCore`, `EscribaEngine` o `EscribaNotion`**: si lo necesitas, es
+  un puerto y su implementación va a `EscribaSystemKit` (o al host que
+  toque). Comprobación: `swift build --swift-sdk <sdk wasm> --target
+  EscribaEngine`; el job `wasi` del CI falla si se rompe.
 - **Toda decisión va en `EscribaCore` como función pura y con test.** La cáscara
   solo ejecuta. Si un bloque pide un comentario, extráelo a una función con
   nombre.
-- **Cada dependencia externa vive en su propio target.** `EscribaCore` y `EscribaKit`
-  no importan nada.
+- **Cada dependencia externa vive en su propio target.** `EscribaCore`,
+  `EscribaEngine` y `EscribaNotion` no importan nada.
 - **Tests primero**, con swift-testing (`@Suite`/`@Test`/`#expect`), nunca
   XCTest. Los nombres de test describen el comportamiento en castellano.
 
@@ -74,8 +97,22 @@ ad-hoc y puede caducar.
 - **La app se descarga sus modelos** a
   `~/Library/Application Support/escriba/models`; nunca reutiliza los
   de MacWhisper.
-- **WhisperKit es el backend por defecto** (decidido 2026-08-31). MacWhisper
-  queda como contraste vía `--backend macwhisper`; no depender de él.
+- **WhisperKit es el único backend** (por defecto desde 2026-08-31; el
+  contraste MacWhisper/`mw` se borró el 2026-09-20). Nada del repo lanza
+  procesos externos (`Shell`/`Process` se fueron con él): transcribir es un
+  puerto que provee el host, y en un runtime WASI sería `wasi:nn`.
+- **Conectores, en plural** (Rubén, 2026-09-20): lista de N conectores, cada
+  uno con su token (Llavero, cuenta = id del conector), su base, su mapeo
+  columna-por-dato, su plantilla del cuerpo (`/comandos`) e interruptor. El
+  rastro de publicación es por conector (tabla `publication`). Reprocesar o
+  corregir **regenera** la página en cada conector donde estaba (mismo
+  enlace). Un fallo del conector nunca tumba el pipeline: se anota y se
+  reintenta desde la fila.
+- **Token del usuario, no OAuth**: para un binario que cada uno se baja, OAuth
+  obligaría a un backend con `client_secret`. Cada usuario crea su conexión
+  «Token de acceso» en Notion y le comparte las bases.
+- **La ventana de Ajustes no existe**: todo vive en la ventana principal
+  (barra lateral Biblioteca / Conectores / Ajustes).
 - **La diarización se elige a mano** (decidido por Rubén 2026-09-04): el ajuste
   viene en `off` y el pipeline no diariza lo que entra. Se pide por grabación
   («Detectar hablantes») o por carpeta en Ajustes. No proponer activarla por
@@ -122,9 +159,18 @@ Directriz (2026-08-31): usar lo último del lenguaje, cada cosa donde paga.
   modelo, y la carpeta existe desde el primer byte: un modelo está completo
   solo si tiene los tres `.mlmodelc` con `coremldata.bin`.
 - Los métodos de WhisperKit son `open func`, no `public func` (grep engañoso).
-- `mw` imprime `Transcribing X.m4a...` antes del JSON.
 - Grabaciones multicanal: los canales se suman a mono y la diarización se
   degrada. Pendiente diarizar por canal.
+- Notion: `blocks/{id}/children` pagina de 100 en 100 — leer sin seguir
+  `next_cursor` deja bloques viejos al regenerar. Reescribir una página larga
+  cuesta ~1 petición por bloque; 429 se reintenta con `Retry-After`; un corte
+  de red se reintenta solo en peticiones repetibles (crear página, nunca).
+- El clasificador de Claude Code bloquea subir notas de voz reales a Notion
+  desde una sesión: para probar `/audio` en vivo, audio sintético (`say` +
+  `afconvert`).
+- `JSONSerialization` devuelve booleanos como `NSNumber` en Darwin y como
+  `Bool` en Linux/WASI: `jsonValue(from:)` lo trata con `#if
+  canImport(ObjectiveC)`.
 - `isolated deinit` con el aislamiento por defecto del target compila en
   debug pero **release exige el `@MainActor` explícito en la clase**.
 - El modelo se descarga solo tras 5 min sin trabajo (`IdleUnloader`); el RSS

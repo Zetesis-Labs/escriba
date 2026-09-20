@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import EscribaNotion
 
 public struct WatchedFolder: Codable, Sendable, Equatable, Identifiable {
     public enum Style: String, Codable, Sendable {
@@ -140,6 +141,9 @@ public final class AppSettings {
             defaults.set(try? JSONEncoder().encode(watchedFolders), forKey: Keys.watchedFolders)
         }
     }
+    public var connectors: [Connector] {
+        didSet { defaults.set(try? JSONEncoder().encode(connectors), forKey: Keys.connectors) }
+    }
 
     @ObservationIgnored private let defaults: UserDefaults
 
@@ -163,6 +167,8 @@ public final class AppSettings {
                 [WatchedFolder(path: $0.path(percentEncoded: false), style: .justPressRecord)]
             } ?? []
 
+        connectors = defaults.data(forKey: Keys.connectors)
+            .flatMap { try? JSONDecoder().decode([Connector].self, from: $0) } ?? []
         watchedFolders = seededWithVoiceMemos(
             stored,
             root: voiceMemos,
@@ -177,6 +183,17 @@ public final class AppSettings {
 
     public var txtFolder: URL? {
         writeTxt ? URL(fileURLWithPath: txtFolderPath) : nil
+    }
+
+    public var liveConnectors: [Connector] { connectors.filter(\.isLive) }
+
+    public func connector(_ id: UUID) -> Connector? {
+        connectors.first { $0.id == id }
+    }
+
+    public func update(_ connector: Connector) {
+        guard let index = connectors.firstIndex(where: { $0.id == connector.id }) else { return }
+        connectors[index] = connector
     }
 
     public static func adoptLegacyDefaults(
@@ -201,5 +218,6 @@ public final class AppSettings {
         static let txtFolder = "txtFolder"
         static let watchedFolders = "watchedFolders"
         static let voiceMemosSeeded = "voiceMemosSeeded"
+        static let connectors = "connectors"
     }
 }

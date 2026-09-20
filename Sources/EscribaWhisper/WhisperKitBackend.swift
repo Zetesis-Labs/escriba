@@ -1,6 +1,7 @@
 import Foundation
 import EscribaCore
-import EscribaKit
+import EscribaEngine
+import EscribaSystemKit
 import SpeakerKit
 import WhisperKit
 

@@ -1,6 +1,7 @@
 import Foundation
 import EscribaCore
-import EscribaKit
+import EscribaEngine
+import EscribaSystemKit
 import EscribaStore
 import Observation
 
@@ -11,21 +12,31 @@ public typealias TranscriptWriter = @Sendable (String, Transcript) throws -> Voi
 public final class LibraryModel {
     public private(set) var recordings: [StoredRecording] = []
     public private(set) var reprocessing: Set<String> = []
+    public private(set) var publishing: Set<String> = []
     public var status: WatcherStatus = .starting
     public private(set) var scanned = 0
 
     private let store: Store
     @ObservationIgnored private let reprocess: Reprocessor?
     @ObservationIgnored private let writeText: TranscriptWriter?
+    @ObservationIgnored private let publishers: [String: Sink]
     @ObservationIgnored private var observation: Task<Void, Never>?
 
     public init(
-        store: Store, reprocess: Reprocessor? = nil, writeText: TranscriptWriter? = nil
+        store: Store,
+        reprocess: Reprocessor? = nil,
+        writeText: TranscriptWriter? = nil,
+        publishers: [String: Sink] = [:]
     ) {
         self.store = store
         self.reprocess = reprocess
         self.writeText = writeText
+        self.publishers = publishers
     }
+
+    public var publishingConnectors: [String] { Array(publishers.keys) }
+
+    public func canPublish(to connector: String) -> Bool { publishers[connector] != nil }
 
     deinit {
         observation?.cancel()
@@ -84,6 +95,39 @@ public final class LibraryModel {
     public func applyCorrection(_ corrected: Transcript, to key: String) async throws {
         try await store.addTranscript(corrected, for: key, backend: "correccion")
         refreshText(corrected, for: key)
+        await republish(corrected, for: key)
+    }
+
+    public func publish(_ recording: StoredRecording, to connector: String) async throws {
+        guard publishers[connector] != nil else { throw LibraryModelError.connectorUnavailable }
+        guard let transcript = try await store.transcript(for: recording.key) else {
+            throw LibraryModelError.nothingToPublish
+        }
+        await send(transcript, for: recording.key, to: connector)
+    }
+
+    private func republish(_ transcript: Transcript, for key: String) async {
+        guard let stored = try? store.recording(for: key) else { return }
+        for publication in stored.publications where publication.isPublished {
+            await send(transcript, for: key, to: publication.connector)
+        }
+    }
+
+    private func send(_ transcript: Transcript, for key: String, to connector: String) async {
+        guard let publish = publishers[connector], let stored = try? store.recording(for: key)
+        else { return }
+        let ticket = "\(connector)/\(key)"
+        guard !publishing.contains(ticket) else { return }
+
+        publishing.insert(ticket)
+        defer { publishing.remove(ticket) }
+
+        _ = try? await publish(
+            Recording(url: stored.sourceURL, startedAt: stored.startedAt, key: key), transcript)
+    }
+
+    public func isPublishing(_ key: String, to connector: String) -> Bool {
+        publishing.contains("\(connector)/\(key)")
     }
 
     private func refreshText(_ transcript: Transcript, for key: String) {
@@ -113,15 +157,20 @@ public final class LibraryModel {
         let transcript = try await reprocess(recording.audioURL, speakers)
         try await store.addTranscript(transcript, for: recording.key, backend: "reprocesado")
         refreshText(transcript, for: recording.key)
+        await republish(transcript, for: recording.key)
     }
 }
 
 public enum LibraryModelError: Error, CustomStringConvertible {
     case reprocessUnavailable
+    case connectorUnavailable
+    case nothingToPublish
 
     public var description: String {
         switch self {
         case .reprocessUnavailable: "esta app no tiene motor de reprocesado configurado"
+        case .connectorUnavailable: "ese conector no esta activo en Ajustes"
+        case .nothingToPublish: "esta grabacion aun no tiene transcripcion"
         }
     }
 }

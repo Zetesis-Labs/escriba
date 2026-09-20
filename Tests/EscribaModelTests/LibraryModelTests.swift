@@ -4,7 +4,8 @@ import Testing
 
 @testable import EscribaModel
 @testable import EscribaCore
-import EscribaKit
+import EscribaEngine
+import EscribaSystemKit
 @testable import EscribaStore
 
 private struct Sandbox {

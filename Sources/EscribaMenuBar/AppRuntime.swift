@@ -1,7 +1,9 @@
 import Foundation
 import EscribaModel
 import EscribaCore
-import EscribaKit
+import EscribaEngine
+import EscribaSystemKit
+import EscribaNotion
 import EscribaStore
 import EscribaWhisper
 import Observation
@@ -17,7 +19,9 @@ private func textWriter(into folder: URL?) -> TranscriptWriter? {
 final class AppRuntime {
     private(set) var model: LibraryModel?
     private(set) var startupProblem: String?
+    var section: MainSection = .library
     let settings: AppSettings
+    let connectors: ConnectorsModel
 
     @ObservationIgnored private var controllers: [DaemonController] = []
     @ObservationIgnored private var instanceLock: InstanceLock?
@@ -39,6 +43,7 @@ final class AppRuntime {
         LegacyMigration.run()
         AppSettings.adoptLegacyDefaults(from: UserDefaults(suiteName: "dev.ruben.jpr-transcribe"))
         settings = AppSettings()
+        connectors = ConnectorsModel(settings: settings)
         Notifier.requestAuthorization()
         start()
         watchSettings()
@@ -80,7 +85,8 @@ final class AppRuntime {
                 reprocess: { [engine] url, count in
                     try await engine.backend(diarize: true, speakerCount: count).transcribe(url)
                 },
-                writeText: textWriter(into: settings.txtFolder))
+                writeText: textWriter(into: settings.txtFolder),
+                publishers: publishers(for: store))
             model.startObserving()
             self.model = model
 
@@ -191,10 +197,53 @@ final class AppRuntime {
 
     private func sink(for store: Store) -> Sink {
         let librarySink = store.sink(backend: WhisperKitBackend.name)
-        guard settings.writeTxt else { return librarySink }
+        let extras = Array(publishers(for: store).values)
+
+        guard settings.writeTxt else {
+            return sinks(primary: librarySink, all: extras)
+        }
         return sinks(
             primary: sidecarTextSink(outputRoot: URL(fileURLWithPath: settings.txtFolderPath)),
-            also: librarySink)
+            all: [librarySink] + extras)
+    }
+
+    private func publishers(for store: Store) -> [String: Sink] {
+        var publishers: [String: Sink] = [:]
+        for connector in settings.liveConnectors {
+            guard let export = connector.notion,
+                let token = keychainTokenStore(account: connector.key).read(), !token.isEmpty
+            else { continue }
+            publishers[connector.key] = notionSink(
+                export: export,
+                client: makeNotionClient(token: token),
+                journal: journal(for: store, connector: connector.key))
+        }
+        return publishers
+    }
+
+    private func journal(for store: Store, connector: String) -> NotionJournal {
+        NotionJournal(
+            known: { key in
+                guard let publication = (try? store.recording(for: key))??.publication(in: connector),
+                    let pageId = publication.pageId
+                else { return nil }
+                return NotionPageRef(id: pageId, url: publication.url)
+            },
+            published: { key, page, moment in
+                do {
+                    try store.markPublished(
+                        key: key, connector: connector, pageId: page.id, url: page.url, at: moment)
+                } catch {
+                    Log.error("no se pudo anotar la publicacion de \(key): \(error)")
+                }
+            },
+            failed: { key, problem in
+                do {
+                    try store.markPublishFailed(key: key, connector: connector, error: problem)
+                } catch {
+                    Log.error("no se pudo anotar el fallo al publicar \(key): \(error)")
+                }
+            })
     }
 
     private func stopPipelines() {
@@ -215,6 +264,15 @@ final class AppRuntime {
                     settings.txtFolderPath,
                     settings.watchedFolders
                         .map { "\($0.path):\($0.speakers ?? 0)" }.joined(separator: ","),
+                    settings.connectors.map { connector in
+                        let export = connector.notion.map { export in
+                            ([export.source.id, "\(export.template.hashValue)"]
+                                + export.mapping.assigned.map { "\($0.key.rawValue)=\($0.value)" }
+                                    .sorted())
+                                .joined(separator: ",")
+                        } ?? ""
+                        return "\(connector.key):\(connector.enabled):\(export)"
+                    }.joined(separator: ";"),
                 ].joined(separator: "|")
             }
 

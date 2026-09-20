@@ -1,6 +1,7 @@
 import Foundation
 import EscribaCore
-import EscribaKit
+import EscribaEngine
+import EscribaSystemKit
 import EscribaStore
 import EscribaWhisper
 
@@ -21,10 +22,8 @@ struct Options {
     var library = defaultLibrary
     var language = "es"
     var diarize = false
-    var backend = "whisperkit"
     var source = "jpr"
     var speakerCount: Int?
-    var model: String? = MacWhisperBackend.defaultModel
 }
 
 func fail(_ message: String) -> Never {
@@ -52,7 +51,6 @@ func parseOptions() -> Options {
         case "--library": options.library = URL(fileURLWithPath: value("--library"))
         case "--language": options.language = value("--language")
         case "--speakers": options.diarize = true
-        case "--backend": options.backend = value("--backend")
         case "--source": options.source = value("--source")
         case "--speakers-count":
             guard let count = Int(value("--speakers-count")), count > 0 else {
@@ -60,7 +58,6 @@ func parseOptions() -> Options {
             }
             options.speakerCount = count
             options.diarize = true
-        case "--model": options.model = value("--model")
         case "-v", "--verbose": Log.verbose = true
         case "watch", "once", "status", "download": options.command = argument
         case "-h", "--help":
@@ -78,10 +75,8 @@ func parseOptions() -> Options {
                   --state <ruta>     fichero SQLite del ledger
                   --library <ruta>   biblioteca: SQLite con las transcripciones y copia del audio
                   --language <cod>   idioma ISO 639-1 (por defecto: es)
-                  --model <id>       modelo de MacWhisper (engine:model-id)
                   --speakers         detecta hablantes (diarizacion)
                   --speakers-count N si sabes cuantos hablan, fijalo
-                  --backend <nombre> whisperkit (por defecto) o macwhisper
                   --source <nombre>  jpr (por defecto) o folder (cualquier audio)
                   -v, --verbose      log detallado
                 """)
@@ -91,9 +86,6 @@ func parseOptions() -> Options {
     }
 
     if options.command.isEmpty { fail("falta el comando: watch, once, status o download") }
-    guard ["macwhisper", "whisperkit"].contains(options.backend) else {
-        fail("backend desconocido: \(options.backend). Usa macwhisper o whisperkit")
-    }
     guard ["jpr", "folder"].contains(options.source) else {
         fail("fuente desconocida: \(options.source). Usa jpr o folder")
     }
@@ -111,16 +103,8 @@ func makeSource(_ options: Options) -> RecordingSource {
 }
 
 func makeBackend(_ options: Options) -> TranscriptionBackend {
-    switch options.backend {
-    case "whisperkit":
-        WhisperKitBackend.make(
-            language: options.language, diarize: options.diarize,
-            speakerCount: options.speakerCount)
-    case "macwhisper":
-        MacWhisperBackend.make(
-            language: options.language, model: options.model, diarize: options.diarize)
-    default: fail("backend desconocido: \(options.backend)")
-    }
+    WhisperKitBackend.make(
+        language: options.language, diarize: options.diarize, speakerCount: options.speakerCount)
 }
 
 if options.command == "download" {
@@ -155,11 +139,6 @@ do {
         print("grabaciones en disco : \(recordings.count)")
         print("transcritas          : \(counts["done"] ?? 0)")
         print("fallidas             : \(counts["failed"] ?? 0)")
-        print("MacWhisper corriendo : \(MacWhisperBackend.isRunning() ? "si" : "no")")
-
-        let modelo = options.model ?? "(el seleccionado en la app)"
-        let disponible = (try? MacWhisperBackend.verifyModelAvailable(options.model)) != nil
-        print("modelo               : \(modelo)\(disponible ? "" : "  ← NO INSTALADO")")
         let wkFolder = WhisperKitBackend.installedModelFolder()
         print("whisperkit           : \(wkFolder == nil ? "modelo NO descargado (escriba download)" : "listo")")
         print("salida               : \(options.output.path(percentEncoded: false))")
@@ -192,7 +171,7 @@ do {
     if options.command == "once" {
         try await pipeline.runOnce()
     } else {
-        DaemonController(pipeline: pipeline).runBlocking()
+        runUntilTerminated(DaemonController(pipeline: pipeline))
     }
     _ = consume instanceLock
 } catch {

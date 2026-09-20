@@ -71,29 +71,9 @@ public struct Transcript: Sendable, Equatable {
     }
 
     public var rendered: String {
-        guard !speakers.isEmpty else { return text }
-
-        var turns: [String] = []
-        var speaker: String??
-        var buffer: [String] = []
-
-        func flush() {
-            guard !buffer.isEmpty else { return }
-            let body = buffer.joined(separator: " ")
-            turns.append((speaker ?? nil).map { "\($0): \(body)" } ?? body)
-            buffer = []
-        }
-
-        for segment in segments {
-            if speaker == nil || speaker! != segment.speaker {
-                flush()
-                speaker = segment.speaker
-            }
-            buffer.append(segment.text)
-        }
-        flush()
-
-        return turns.joined(separator: "\n")
+        turns
+            .map { turn in turn.speaker.map { "\($0): \(turn.text)" } ?? turn.text }
+            .joined(separator: "\n")
     }
 
     public var speakers: [String] {

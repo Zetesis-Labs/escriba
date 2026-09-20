@@ -32,7 +32,9 @@ struct RecordingRow: Codable, FetchableRecord, MutablePersistableRecord {
         id = inserted.rowID
     }
 
-    func stored(in root: URL, transcript: TranscriptSummary? = nil) -> StoredRecording {
+    func stored(
+        in root: URL, transcript: TranscriptSummary? = nil, publications: [Publication] = []
+    ) -> StoredRecording {
         let copy = audioPath.isEmpty ? nil : root.appending(path: audioPath)
         let files = FileManager.default
         let audio: AudioAvailability =
@@ -53,7 +55,8 @@ struct RecordingRow: Codable, FetchableRecord, MutablePersistableRecord {
             status: RecordingStatus(rawValue: status) ?? .done,
             lastError: lastError,
             audio: audio,
-            transcript: transcript)
+            transcript: transcript,
+            publications: publications)
     }
 }
 
@@ -107,6 +110,36 @@ struct SegmentRow: Codable, FetchableRecord, PersistableRecord {
     }
 }
 
+struct PublicationRow: Codable, FetchableRecord, MutablePersistableRecord {
+    static let databaseTableName = "publication"
+
+    var id: Int64?
+    var recordingId: Int64
+    var connector: String
+    var pageId: String?
+    var url: String?
+    var syncedAt: Date?
+    var error: String?
+
+    enum Columns {
+        static let recordingId = Column(CodingKeys.recordingId)
+        static let connector = Column(CodingKeys.connector)
+    }
+
+    mutating func didInsert(_ inserted: InsertionSuccess) {
+        id = inserted.rowID
+    }
+
+    var publication: Publication {
+        Publication(
+            connector: connector,
+            pageId: pageId,
+            url: url.flatMap(URL.init(string:)),
+            syncedAt: syncedAt,
+            error: error)
+    }
+}
+
 func makeMigrator() -> DatabaseMigrator {
     var migrator = DatabaseMigrator()
     migrator.registerMigration("v1") { db in
@@ -140,6 +173,32 @@ func makeMigrator() -> DatabaseMigrator {
         try db.alter(table: "recording") { t in
             t.add(column: "status", .text).notNull().defaults(to: "done")
             t.add(column: "lastError", .text)
+        }
+    }
+    migrator.registerMigration("v3-notion") { db in
+        try db.alter(table: "recording") { t in
+            t.add(column: "notionPageId", .text)
+            t.add(column: "notionURL", .text)
+            t.add(column: "notionSyncedAt", .datetime)
+            t.add(column: "notionError", .text)
+        }
+    }
+    migrator.registerMigration("v4-conectores") { db in
+        try db.create(table: "publication") { t in
+            t.autoIncrementedPrimaryKey("id")
+            t.belongsTo("recording", onDelete: .cascade).notNull()
+            t.column("connector", .text).notNull()
+            t.column("pageId", .text)
+            t.column("url", .text)
+            t.column("syncedAt", .datetime)
+            t.column("error", .text)
+            t.uniqueKey(["recordingId", "connector"])
+        }
+        try db.alter(table: "recording") { t in
+            t.drop(column: "notionPageId")
+            t.drop(column: "notionURL")
+            t.drop(column: "notionSyncedAt")
+            t.drop(column: "notionError")
         }
     }
     return migrator

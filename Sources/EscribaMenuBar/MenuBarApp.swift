@@ -10,25 +10,16 @@ struct EscribaApp: App {
             MenuContent(runtime: runtime)
         }
 
-        Window("Biblioteca", id: "library") {
-            LibraryWindow(
-                model: runtime.model,
-                problem: runtime.startupProblem,
-                folders: runtime.settings.watchedFolders,
-                txtFolder: runtime.settings.txtFolder)
+        Window("Escriba", id: "main") {
+            MainWindow(runtime: runtime)
         }
         .defaultLaunchBehavior(.suppressed)
-
-        Settings {
-            SettingsView(settings: runtime.settings)
-        }
     }
 }
 
 struct MenuContent: View {
     let runtime: AppRuntime
     @Environment(\.openWindow) private var openWindow
-    @Environment(\.openSettings) private var openSettings
 
     var body: some View {
         Text(runtime.statusLabel)
@@ -36,17 +27,12 @@ struct MenuContent: View {
         if let model = runtime.model {
             Text("\(model.recordings.count) en la biblioteca")
             Divider()
-            Button("Abrir biblioteca") {
-                openWindow(id: "library")
-                NSApp.activate()
-            }
+            Button("Abrir biblioteca") { show(.library) }
             Button("Buscar grabaciones ahora") { runtime.wake() }
         }
 
-        Button("Ajustes…") {
-            openSettings()
-            NSApp.activate()
-        }
+        Button("Conectores…") { show(.connectors) }
+        Button("Ajustes…") { show(.settings) }
 
         Divider()
         Button("Abrir carpeta de transcripciones") {
@@ -55,5 +41,11 @@ struct MenuContent: View {
         Button("Ver registro") { NSWorkspace.shared.open(Paths.logFile) }
         Divider()
         Button("Salir") { NSApp.terminate(nil) }
+    }
+
+    private func show(_ section: MainSection) {
+        runtime.section = section
+        openWindow(id: "main")
+        NSApp.activate()
     }
 }

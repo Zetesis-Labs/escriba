@@ -1,7 +1,8 @@
 import Foundation
 import GRDB
 import EscribaCore
-import EscribaKit
+import EscribaEngine
+import EscribaSystemKit
 
 public struct StoredRecording: Sendable, Equatable, Identifiable {
     public let key: String
@@ -13,12 +14,59 @@ public struct StoredRecording: Sendable, Equatable, Identifiable {
     public let lastError: String?
     public let audio: AudioAvailability
     public let transcript: TranscriptSummary?
+    public let publications: [Publication]
+
+    public init(
+        key: String,
+        sourceURL: URL,
+        audioURL: URL,
+        startedAt: Date,
+        importedAt: Date,
+        status: RecordingStatus,
+        lastError: String?,
+        audio: AudioAvailability,
+        transcript: TranscriptSummary?,
+        publications: [Publication] = []
+    ) {
+        self.key = key
+        self.sourceURL = sourceURL
+        self.audioURL = audioURL
+        self.startedAt = startedAt
+        self.importedAt = importedAt
+        self.status = status
+        self.lastError = lastError
+        self.audio = audio
+        self.transcript = transcript
+        self.publications = publications
+    }
 
     public var id: String { key }
+
+    public func publication(in connector: String) -> Publication? {
+        publications.first { $0.connector == connector }
+    }
 
     public var title: String {
         sourceURL.deletingPathExtension().lastPathComponent
     }
+}
+
+public struct Publication: Sendable, Equatable {
+    public let connector: String
+    public let pageId: String?
+    public let url: URL?
+    public let syncedAt: Date?
+    public let error: String?
+
+    public init(connector: String, pageId: String?, url: URL?, syncedAt: Date?, error: String?) {
+        self.connector = connector
+        self.pageId = pageId
+        self.url = url
+        self.syncedAt = syncedAt
+        self.error = error
+    }
+
+    public var isPublished: Bool { pageId != nil }
 }
 
 public enum AudioAvailability: String, Sendable, Equatable {
@@ -276,6 +324,53 @@ public final class Store: Sendable {
         }
     }
 
+    public func recording(for key: String) throws -> StoredRecording? {
+        let root = root
+        return try writer.read { db in
+            let summaries = try latestSummaries(db)
+            guard let row = try RecordingRow.filter(RecordingRow.Columns.key == key).fetchOne(db),
+                let id = row.id
+            else { return nil }
+            return row.stored(
+                in: root, transcript: summaries[id], publications: try publications(db)[id] ?? [])
+        }
+    }
+
+    public func markPublished(
+        key: String, connector: String, pageId: String, url: URL?, at moment: Date
+    ) throws {
+        try upsertPublication(key: key, connector: connector) { row in
+            row.pageId = pageId
+            row.url = url?.absoluteString
+            row.syncedAt = moment
+            row.error = nil
+        }
+    }
+
+    public func markPublishFailed(key: String, connector: String, error: String) throws {
+        try upsertPublication(key: key, connector: connector) { row in
+            row.error = String(error.prefix(2000))
+        }
+    }
+
+    private func upsertPublication(
+        key: String, connector: String, _ change: (inout PublicationRow) -> Void
+    ) throws {
+        try writer.write { db in
+            guard let recording = try RecordingRow.filter(RecordingRow.Columns.key == key).fetchOne(db),
+                let recordingId = recording.id
+            else { return }
+
+            var row = try PublicationRow
+                .filter(PublicationRow.Columns.recordingId == recordingId)
+                .filter(PublicationRow.Columns.connector == connector)
+                .fetchOne(db)
+                ?? PublicationRow(recordingId: recordingId, connector: connector)
+            change(&row)
+            try row.save(db)
+        }
+    }
+
     public func recordings() throws -> [StoredRecording] {
         let root = root
         return try writer.read { db in try fetchRecordings(db, root: root) }
@@ -360,11 +455,22 @@ public final class Store: Sendable {
 
 private func fetchRecordings(_ db: Database, root: URL) throws -> [StoredRecording] {
     let summaries = try latestSummaries(db)
+    let published = try publications(db)
     return try RecordingRow
         .filter(RecordingRow.Columns.status != RecordingStatus.discarded.rawValue)
         .order(RecordingRow.Columns.startedAt.desc)
         .fetchAll(db)
-        .map { $0.stored(in: root, transcript: $0.id.flatMap { summaries[$0] }) }
+        .map { row in
+            row.stored(
+                in: root,
+                transcript: row.id.flatMap { summaries[$0] },
+                publications: row.id.flatMap { published[$0] } ?? [])
+        }
+}
+
+private func publications(_ db: Database) throws -> [Int64: [Publication]] {
+    Dictionary(grouping: try PublicationRow.fetchAll(db), by: \.recordingId)
+        .mapValues { $0.map(\.publication) }
 }
 
 private func latestSummaries(_ db: Database) throws -> [Int64: TranscriptSummary] {

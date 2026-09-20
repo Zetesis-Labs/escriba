@@ -44,9 +44,6 @@ las trampas y como se manejan:
 - **Ritmo adaptativo.** Si algo quedo esperando a asentarse, el siguiente ciclo
   es a los 10 s, no a los 5 minutos. Sin esto una grabacion recien llegada se
   quedaba parada hasta la siguiente reconciliacion.
-- **MacWhisper debe estar vivo** (solo con `--backend macwhisper`). `mw` es un
-  cliente delgado que habla por socket con la app; si no corre, se lanza en
-  background (`open -gj`) y se espera. El backend por defecto no necesita nada.
 - **Reintentos acotados.** Un fallo se reintenta pasados 10 minutos, hasta 5 veces,
   y queda registrado con su motivo en `status`.
 - **Una sola instancia a la vez.** Un `flock` sobre
@@ -126,14 +123,16 @@ a la vez apuntando a la misma carpeta).
 
 ## El backend de transcripcion es un puerto
 
-`Pipeline` no conoce MacWhisper. Recibe un `TranscriptionBackend`, que es una
-struct de funciones —`transcribe` y `preflight`— igual que `Sink`. MacWhisper es
-una implementacion (`MacWhisperBackend.make(...)`), no el unico camino posible.
+`Pipeline` no conoce ningun motor. Recibe un `TranscriptionBackend`, que es una
+struct de funciones —`transcribe` y `preflight`— igual que `Sink`. WhisperKit es
+una implementacion (`WhisperKitBackend.make(...)`), no el unico camino posible:
+el mismo puerto vale para whisper.cpp en Linux o para `wasi:nn` en un runtime
+WebAssembly. Nunca se lanza un proceso externo: transcribir es un puerto que
+provee el host.
 
-Se invoca a `mw` con `--format json`, asi que cada transcripcion llega como un
-`Transcript` con segmentos, tiempos de inicio y fin, tiempos por palabra y, si la
-diarizacion esta activa, el hablante de cada segmento. El texto plano sigue
-disponible en `transcript.text`.
+Cada transcripcion llega como un `Transcript` con segmentos, tiempos de inicio
+y fin, tiempos por palabra y, si la diarizacion esta activa, el hablante de cada
+segmento. El texto plano sigue disponible en `transcript.text`.
 
     escriba once --speakers    # detecta hablantes en esta pasada
 
@@ -164,14 +163,15 @@ canales metio a los dos hablantes en el mismo. En estereo normal separa bien.
 
 | Backend | Como | Diarizacion |
 |---|---|---|
-| `whisperkit` (por defecto) | CoreML sobre el Neural Engine, sin apps de terceros | SpeakerKit (segmenter y embedder pyannote v3, clusterer v4) |
-| `macwhisper` | CLI `mw`, necesita la app de MacWhisper viva | `--speakers` |
+| `whisperkit` (el unico hoy) | CoreML sobre el Neural Engine, sin apps de terceros | SpeakerKit (segmenter y embedder pyannote v3, clusterer v4) |
+
+El backend MacWhisper (CLI `mw`) se retiro el 2026-09-20: era un contraste de
+laboratorio y exigia lanzar procesos, que no existen en WASI.
 
     escriba download                      # trae el modelo (una vez)
     escriba once                          # transcribe con WhisperKit
     escriba once --speakers
     escriba once --speakers-count 2
-    escriba once --backend macwhisper     # contraste con MacWhisper
 
 Sin acotar, pyannote puede abrir un interlocutor de mas. Medido sobre una
 llamada real de 76 s a dos voces, acierta 10 de 11 turnos y se inventa un tercer
@@ -193,13 +193,13 @@ sabes cuantos hablaban. Cada diarizacion registra en el log cuantos hablantes
 salieron y a que distancia estan, que es lo que permite decidir.
 
 WhisperKit guarda su modelo en `~/Library/Application Support/escriba/models`
-y se lo descarga el solo: no depende de que MacWhisper lo haya bajado antes, o
-no arrancaria en un Mac limpio. SpeakerKit hace lo propio con los suyos.
+y se lo descarga el solo, para arrancar en un Mac limpio. SpeakerKit hace lo
+propio con los suyos.
 
-Medido sobre 26 grabaciones reales, la divergencia entre ambos backends es del
-**6,45%** y es sobre todo de estilo: MacWhisper segmenta fino y conserva las
-dudas del habla, WhisperKit agrupa en frases y las limpia. Ninguno gana al otro
-de forma consistente.
+Cuando se eligio WhisperKit (2026-08-31) se midio contra MacWhisper sobre 26
+grabaciones reales: **6,45%** de divergencia, sobre todo de estilo (MacWhisper
+segmentaba fino y conservaba las dudas del habla; WhisperKit agrupa en frases y
+las limpia). Ninguno ganaba de forma consistente.
 
 Cuando hay diarizacion, la salida agrupa por interlocutor:
 
@@ -218,9 +218,7 @@ El modelo esta **fijado explicitamente** (`WhisperKitBackend.defaultVariant`):
     openai_whisper-large-v3-v20240930   (Large v3 Turbo)
 
 Se clava a proposito para que la calidad sea reproducible y no dependa de
-ninguna seleccion externa. Con `--backend macwhisper` rige el mismo criterio
-(`MacWhisperBackend.defaultModel` fija el equivalente `whisperkit:` de `mw`;
-cambiarlo puntualmente: `escriba --model <id> once --backend macwhisper`).
+ninguna seleccion externa.
 
 Al arrancar se comprueba que el modelo esta instalado; si no lo esta, la app
 avisa con una notificacion y `status` lo marca como `NO descargado`.
@@ -265,12 +263,41 @@ del demonio aunque la ventana estuviera cerrada cuando ocurrio.
 El `Ledger` (que decide que esta pendiente, con reintentos y backoff) sigue
 aparte a proposito: son dos preguntas distintas.
 
+## Conectores: de la biblioteca a Notion
+
+Cada conector es un destino con su propio token, su base de datos, su mapeo y
+su plantilla. En **Conectores** se pega el token de una conexion de Notion de
+tipo «Token de acceso» (Ajustes de Notion → Conexiones), se pulsa «Conectar» y
+aparecen las bases que esa conexion tenga compartidas. Elegida una, la app lee
+sus columnas y propone donde va cada dato (titulo, fecha, hablantes, duracion,
+clave, origen); cada dato puede ir a una columna, al cuerpo de la pagina, a
+los dos o a ninguno. El cuerpo se compone con bloques: texto libre o `/` para
+`/transcripcion` (por hablante, con tiempos o solo texto), `/audio` (sube el
+fichero, reproducible en Notion), `/fecha`, `/hablantes`, `/duracion`,
+`/origen`, `/titulo`, `/encabezado`.
+
+Con «Publicar cada transcripcion nueva» activo, cada nota entra sola. Corregir
+o fusionar hablantes, o reprocesar, **regenera** la pagina en cada conector
+donde ya estaba, con el mismo enlace. Si Notion falla, la transcripcion no se
+pierde: el error queda en la fila y se reintenta desde su menu.
+
+## El nucleo viaja
+
+El motor no sabe en que maquina corre. `EscribaCore`, `EscribaEngine` y
+`EscribaNotion` compilan tal cual a Linux y a `wasm32-unknown-wasi`; el CI lo
+comprueba en cada cambio y ejecuta una sonda en un runtime WASI. Lo que cambia
+por host son los puertos: quien vigila la carpeta, quien guarda el ledger, quien
+habla HTTP y, sobre todo, quien transcribe (CoreML en Apple; whisper.cpp o
+`wasi:nn` en otros sitios).
+
 ## Estructura
 
 | Modulo | Que hay |
 |---|---|
 | `EscribaCore` | Nucleo puro: parseo de rutas, clasificacion de estado, seleccion de pendientes, ritmo del bucle, modelo `Transcript`. Sin I/O, cubierto por tests. |
-| `EscribaKit` | Cascara: FSEvents, stat y materializacion, ledger SQLite, backend MacWhisper, orquestacion. Sin dependencias. |
+| `EscribaEngine` | Motor portable: puertos, `Pipeline`, demonio, log. Compila a Linux y a WebAssembly (WASI). Sin dependencias. |
+| `EscribaNotion` | Conector Notion: mapeo de columnas, plantilla del cuerpo con `/comandos`, subida de audio, publicacion que regenera sin duplicar. Portable. |
+| `EscribaSystemKit` | Host de sistema (macOS y Linux): FSEvents o sondeo, stat e iCloud, flock, ledger SQLite. |
 | `EscribaWhisper` | Backend WhisperKit + SpeakerKit (argmax-oss-swift). |
 | `EscribaStore` | Biblioteca: SQLite con GRDB y copia del audio. |
 | `escriba` | CLI. |
