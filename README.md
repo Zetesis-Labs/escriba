@@ -1,5 +1,7 @@
 # escriba
 
+<p align="center"><img src="Resources/AppIcon.png" width="160" alt="Escriba"></p>
+
 Transcribe automaticamente las notas de voz de **Just Press Record** con
 **WhisperKit** (CoreML sobre el Neural Engine, todo local). No toca la app ni
 cambia como grabas: tu sigues pulsando el boton en el iPhone, el Watch o el
