@@ -36,18 +36,10 @@ jobs:
   wasi:
     name: WASI · el nucleo viaja
     runs-on: ubuntu-latest
+    container: swift:6.3-noble
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-      - name: Toolchain de swift.org
-        run: |
-          curl -fsSL https://download.swift.org/swiftly/linux/swiftly-$(uname -m).tar.gz | tar -xz
-          ./swiftly init --quiet-shell-followup --assume-yes --skip-install
-          . "$HOME/.local/share/swiftly/env.sh"
-          swiftly install "$SWIFT_VERSION" --use
-          echo "$HOME/.local/share/swiftly/bin" >> "$GITHUB_PATH"
+      - run: apt-get update -qq && apt-get install -y -qq curl xz-utils
       - name: SDK de WebAssembly
         run: swift sdk install "$WASM_SDK_URL" --checksum "$WASM_SDK_CHECKSUM"
       - name: Compilar motor y conector a wasm32-unknown-wasi
@@ -55,5 +47,9 @@ jobs:
           swift build --swift-sdk swift-6.3.3-RELEASE_wasm --target EscribaEngine
           swift build --swift-sdk swift-6.3.3-RELEASE_wasm --target EscribaNotion
           swift build --swift-sdk swift-6.3.3-RELEASE_wasm --product escriba-wasm-probe
-      - name: Ejecutar la sonda en un runtime WASI
-        run: node scripts/run-wasi.mjs .build/wasm32-unknown-wasip1/debug/escriba-wasm-probe.wasm
+      - name: Runtime WASI
+        run: |
+          curl -sSf https://wasmtime.dev/install.sh | bash
+          echo "$HOME/.wasmtime/bin" >> "$GITHUB_PATH"
+      - name: Ejecutar la sonda
+        run: wasmtime run .build/wasm32-unknown-wasip1/debug/escriba-wasm-probe.wasm

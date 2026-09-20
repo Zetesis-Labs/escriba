@@ -32,11 +32,16 @@ struct EnVivoTests {
         let grabacion = Recording(
             url: audio ?? URL(fileURLWithPath: "/Notas/\(clave).m4a"), startedAt: .now, key: clave)
         let esperados = ficha.count + 120
-        let larga = Transcript(segments: (0..<120).map { i in
-            TranscriptSegment(
-                start: Double(i * 7), end: Double(i * 7 + 6), speaker: i % 2 == 0 ? "Rubén" : "Aritz",
-                text: "Turno \(i) de la verificación en vivo de Escriba contra Notion.")
-        })
+        var segmentos: [TranscriptSegment] = []
+        for turno in 0..<120 {
+            let inicio = Double(turno * 7)
+            let hablante = turno % 2 == 0 ? "Rubén" : "Aritz"
+            segmentos.append(
+                TranscriptSegment(
+                    start: inicio, end: inicio + 6, speaker: hablante,
+                    text: "Turno \(turno) de la verificación en vivo de Escriba contra Notion."))
+        }
+        let larga = Transcript(segments: segmentos)
 
         let primera = try await publish(grabacion, larga, as: export, using: client)
         print("CREADA:", primera.id, primera.url?.absoluteString ?? "sin url")
