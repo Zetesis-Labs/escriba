@@ -23,8 +23,8 @@
 	<key>EscribaDefaultRoot</key>
 	<string>Library/Mobile Documents/iCloud~com~openplanetsoftware~just-press-record/Documents</string>
 	<key>LSUIElement</key>
-	<true/>
+	<false/>
 	<key>NSHumanReadableCopyright</key>
-	<string>Uso personal</string>
+	<string>Escriba — código abierto</string>
 </dict>
 </plist>

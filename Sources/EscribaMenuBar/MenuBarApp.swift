@@ -13,7 +13,8 @@ struct EscribaApp: App {
         Window("Escriba", id: "main") {
             MainWindow(runtime: runtime)
         }
-        .defaultLaunchBehavior(.suppressed)
+        .defaultLaunchBehavior(.presented)
+        .restorationBehavior(.automatic)
     }
 }
 
