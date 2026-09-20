@@ -18,7 +18,10 @@ de Linux o en un runtime WebAssembly (WASI), cambiando solo el host que lo
 conecta. `EscribaCore`, `EscribaEngine` y `EscribaNotion` compilan a
 `wasm32-unknown-wasi` y a Linux, y el CI lo comprueba en cada PR. El
 escritorio en Windows y Linux está descartado por ahora; el análisis queda en
-`docs/requisito-multiplataforma.md`.
+`docs/requisito-multiplataforma.md`. El núcleo como componente WebAssembly en
+Kubernetes es un spike aprobado: la prueba de `wasi:http` está en
+`spikes/wasi-http` y los criterios de salida en
+`docs/requisito-nucleo-wasm-kubernetes.md`.
 
 ## Comandos
 
