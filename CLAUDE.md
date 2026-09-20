@@ -17,7 +17,7 @@ para no repetir el análisis.
 de Linux o en un runtime WebAssembly (WASI), cambiando solo el host que lo
 conecta. `EscribaCore`, `EscribaEngine` y `EscribaNotion` compilan a
 `wasm32-unknown-wasi` y a Linux, y el CI lo comprueba en cada PR. El
-escritorio en Windows y Linux es un requisito apuntado, sin fecha:
+escritorio en Windows y Linux está descartado por ahora; el análisis queda en
 `docs/requisito-multiplataforma.md`.
 
 ## Comandos

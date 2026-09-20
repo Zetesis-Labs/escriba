@@ -1,6 +1,6 @@
 # Requisito funcional: Escriba de escritorio en Windows y Linux
 
-Estado: **requisito apuntado, sin fecha** (Rubén, 2026-09-20). No es un
+Estado: **descartado por ahora** (Rubén, 2026-09-20, tras la investigación de UIs). No es un
 compromiso de implementación; es la definición de qué significaría «hecho»
 y de qué piezas faltan, para no volver a hacer el análisis.
 
