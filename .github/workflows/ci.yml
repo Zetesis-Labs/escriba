@@ -13,13 +13,21 @@ env:
 
 jobs:
   macos:
-    name: macOS · build y tests
+    name: macOS · build, tests y app con Swift 6.4
     runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
+      - name: Toolchain de swift.org
+        run: |
+          curl -fsSL -o swift.pkg "https://download.swift.org/swift-${SWIFT_VERSION}-release/xcode/swift-${SWIFT_VERSION}-RELEASE/swift-${SWIFT_VERSION}-RELEASE-osx.pkg"
+          sudo installer -pkg swift.pkg -target /
+          TOOLCHAIN=$(ls -d /Library/Developer/Toolchains/swift-${SWIFT_VERSION}-RELEASE.xctoolchain)
+          echo "TOOLCHAINS=$(plutil -extract CFBundleIdentifier raw "$TOOLCHAIN/Info.plist")" >> "$GITHUB_ENV"
       - run: swift --version
       - run: swift build
       - run: swift test
+      - name: Empaquetar la app
+        run: ./scripts/build-app.sh
 
   linux:
     name: Linux · targets portables y de sistema

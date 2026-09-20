@@ -21,9 +21,10 @@ conecta. `EscribaCore`, `EscribaEngine` y `EscribaNotion` compilan a
 ## Comandos
 
 ```bash
+export TOOLCHAINS=org.swift.640202609131a   # Swift 6.4 de swift.org; sin esto, el 6.2 de Xcode
 swift build                 # CLI + app
 swift test                  # swift-testing; --filter NO casa con nombres de @Suite
-./scripts/build-app.sh      # .build/app/Escriba.app
+./scripts/build-app.sh      # .build/app/Escriba.app (elige el toolchain 6.4 solo si esta instalado)
 ./scripts/install-app.sh    # a /Applications
 
 # Portabilidad (lo mismo que hace el CI)
@@ -40,8 +41,13 @@ Desde Swift 6.4 SwiftPM construye con Swift Build y los productos salen en
 `.build/out/Products/<config>-<plataforma>/`: nunca hardcodear la ruta, usar
 `--show-bin-path`.
 
-El toolchain de Xcode no sirve para WASI: el SDK wasm exige la misma versión
-de swift.org (hoy 6.4.0, en `~/Library/Developer/Toolchains`; con `TOOLCHAINS=org.swift.640202609131a` o llamando a su `usr/bin/swift`). Xcode 26.0 trae Swift 6.2: la app y `swift test` en macOS se compilan con él, así que el código no puede usar API exclusiva de 6.4 sin `#if compiler(>=6.4)`.
+**El toolchain del proyecto es el 6.4 de swift.org**, también para la app y
+los tests de macOS (el CI lo instala en el runner). Xcode 26.0 trae Swift
+6.2 y sirve de respaldo, así que si se usa sintaxis de 6.4 hay que asumir
+que con Xcode a secas no compila. Lo que NO se puede usar es API de 6.4 que
+exija runtime nuevo (p. ej. `withTaskCancellationShield`, SE-0504): el
+mínimo es macOS 26.0 y el stdlib es el del sistema. El SDK wasm exige el
+toolchain swift.org de su misma versión.
 
 La app se firma con la identidad del Llavero que contenga «Escriba»
 (hoy `Zetesis - Escriba`, autofirmada, confiada vía `add-trusted-cert

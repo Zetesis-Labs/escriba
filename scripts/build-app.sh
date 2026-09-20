@@ -6,13 +6,21 @@ APP_NAME="Escriba"
 BUILD_DIR="$PROJECT/.build/app"
 APP="$BUILD_DIR/$APP_NAME.app"
 
-echo "compilando en release..."
+# Toolchain de swift.org (6.4) si esta instalado; si no, el de Xcode.
+if [ -z "${TOOLCHAINS:-}" ]; then
+  SWIFT_ORG=$(ls -d "$HOME"/Library/Developer/Toolchains/swift-6.4*.xctoolchain /Library/Developer/Toolchains/swift-6.4*.xctoolchain 2>/dev/null | head -1 || true)
+  if [ -n "$SWIFT_ORG" ]; then
+    export TOOLCHAINS=$(plutil -extract CFBundleIdentifier raw "$SWIFT_ORG/Info.plist")
+  fi
+fi
+echo "compilando en release con $(swift --version 2>&1 | head -1)..."
 (cd "$PROJECT" && swift build -c release --product EscribaMenuBar)
+BIN=$(cd "$PROJECT" && swift build -c release --product EscribaMenuBar --show-bin-path)
 
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
-cp "$PROJECT/.build/release/EscribaMenuBar" "$APP/Contents/MacOS/EscribaMenuBar"
+cp "$BIN/EscribaMenuBar" "$APP/Contents/MacOS/EscribaMenuBar"
 cp "$PROJECT/Resources/Info.plist" "$APP/Contents/Info.plist"
 
 IDENTITY=$(security find-identity -v -p codesigning 2>/dev/null | grep -o '"[^"]*Escriba[^"]*"' | head -1 | tr -d '"' || true)
