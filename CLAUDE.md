@@ -27,17 +27,21 @@ swift test                  # swift-testing; --filter NO casa con nombres de @Su
 ./scripts/install-app.sh    # a /Applications
 
 # Portabilidad (lo mismo que hace el CI)
-docker run --rm -v "$PWD":/src -w /src swift:6.3-noble bash -c \
+docker run --rm -v "$PWD":/src -w /src swift:6.4-noble bash -c \
   "apt-get update -qq && apt-get install -y -qq libsqlite3-dev && swift build --target EscribaSystemKit"
-swift build --swift-sdk swift-6.3.3-RELEASE_wasm --product escriba-wasm-probe   # toolchain swift.org 6.3.3
-node scripts/run-wasi.mjs .build/wasm32-unknown-wasip1/debug/escriba-wasm-probe.wasm
+swift build --swift-sdk swift-6.4.0-RELEASE_wasm --product escriba-wasm-probe   # toolchain swift.org 6.4
+node scripts/run-wasi.mjs "$(swift build --swift-sdk swift-6.4.0-RELEASE_wasm --product escriba-wasm-probe --show-bin-path)/escriba-wasm-probe.wasm"
 
 # Prueba en vivo del conector (crea y regenera una página real)
 ESCRIBA_NOTION_TOKEN=ntn_… [ESCRIBA_NOTION_AUDIO=fichero.m4a] swift test --filter EnVivoTests
 ```
 
+Desde Swift 6.4 SwiftPM construye con Swift Build y los productos salen en
+`.build/out/Products/<config>-<plataforma>/`: nunca hardcodear la ruta, usar
+`--show-bin-path`.
+
 El toolchain de Xcode no sirve para WASI: el SDK wasm exige la misma versión
-de swift.org (hoy 6.3.3, en `~/Library/Developer/Toolchains`).
+de swift.org (hoy 6.4.0, en `~/Library/Developer/Toolchains`; con `TOOLCHAINS=org.swift.640202609131a` o llamando a su `usr/bin/swift`). Xcode 26.0 trae Swift 6.2: la app y `swift test` en macOS se compilan con él, así que el código no puede usar API exclusiva de 6.4 sin `#if compiler(>=6.4)`.
 
 La app se firma con la identidad del Llavero que contenga «Escriba»
 (hoy `Zetesis - Escriba`, autofirmada, confiada vía `add-trusted-cert
