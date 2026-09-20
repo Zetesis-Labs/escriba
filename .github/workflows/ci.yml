@@ -49,6 +49,7 @@ jobs:
           swift build --swift-sdk swift-6.3.3-RELEASE_wasm --product escriba-wasm-probe
       - name: Runtime WASI
         run: |
+          touch "$HOME/.profile"
           curl -sSf https://wasmtime.dev/install.sh | bash
           echo "$HOME/.wasmtime/bin" >> "$GITHUB_PATH"
       - name: Ejecutar la sonda
