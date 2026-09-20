@@ -46,46 +46,76 @@ conectores cambia.
 El backend whisper.cpp es el mismo que necesita el pod de Linux
 (Kubernetes): se paga una vez y sirve a los dos.
 
-## La interfaz: decisión abierta
+## La interfaz: Swift nativo también fuera de Apple
 
-SwiftUI no sale de Apple. Dos caminos:
+Investigado el 2026-09-20 (Rubén descartó la UI web en Tauri: la interfaz
+tiene que ser Swift). Estado real de cada opción:
 
-1. **Swift de punta a punta** con SwiftCrossUI (declarativo, backends GTK
-   y WinUI). Coherente con el repo, pero la librería está en alfa y el
-   backend de Windows va por detrás. Riesgo: reescribir la UI dos veces.
-2. **Núcleo como proceso local + UI web en Tauri.** El binario Swift de
-   Linux/Windows (el mismo que iría a Kubernetes) va **dentro del bundle
-   de Tauri como sidecar** (`externalBin`, mecanismo oficial): Tauri lo
-   arranca, lo supervisa y lo cierra. La UI habla con él por HTTP o
-   WebSocket en localhost (o JSON por stdio) con la misma API que usaría
-   cualquier otro host. Un solo instalable, nada que el usuario tenga que
-   lanzar aparte.
+| Opción | Plataformas | Estado a 2026-09-20 | Veredicto |
+|---|---|---|---|
+| **SwiftCrossUI** (moreSwift) | Linux (GTK 4), Windows (WinUI 3), macOS (AppKit), iOS, Android | v0.9.0 del 2026-08-19, una release al mes, último push 2026-09-18, 1.752 estrellas, MIT. Catálogo de vistas: `NavigationSplitView`, `NavigationStack`, `List`, `Table`, `TextEditor`, `TextField`, `Menu`, `CommandMenu`, `Window`/`WindowGroup`, alertas, diálogos de abrir/guardar fichero, `WebView`. Backend AppKit «todas las funciones»; GTK y WinUI «la mayoría» | **La única vía viable** para Linux y Windows con un solo código |
+| **Adwaita for Swift** (Aparoksha) | Linux GNOME (y macOS con GTK de Homebrew) | Activo (commit 2026-09-04), un solo tag 0.1.0, app Memorize en Flathub. El backend WinUI que anunció en 2024 **ya no existe** en la organización | Solo Linux; descartado por no cubrir Windows |
+| **Swift/WinRT + WinUI 3** (The Browser Company, hoy Atlassian) | Windows | v0.1.396 (2026-03), push 2026-09-10; Dia para Windows en Swift sale en otoño de 2026. Es la base de las bindings `swift-winui` que usa SwiftCrossUI | Producción real, pero imperativo y solo Windows: una tercera UI |
+| Tokamak, VertexGUI, Slint | varias | Tokamak busca mantenedores; VertexGUI (Skia) marginal; Slint no tiene bindings Swift (la PoC se abandonó) | Descartados |
 
-   Con el sidecar, técnicamente Tauri también podría envolver el Mac (el
-   sidecar sería el núcleo con WhisperKit), pero eso reabriría la decisión
-   cerrada «Swift nativo, no Tauri» del Mac. Hoy: SwiftUI en el Mac, Tauri
-   fuera. Mantener dos interfaces tiene coste; se revisará cuando la web
-   exista.
+**Lo que hay que saber de SwiftCrossUI antes de apostar:**
 
-Recomendación registrada: la 2.
+- El backend de Windows va clavado al **Windows App SDK 1.5 preview 1**
+  (febrero de 2024); la subida a WinUI estable es la issue #204, abierta.
+  El runtime se instala solo si se empaqueta con Swift Bundler
+  (swift-windowsappsdk 0.1.1, PR #494). Hay 25 issues abiertas que
+  mencionan WinUI; en el código quedan huecos (estilos de picker, gestos,
+  factor de escala de la ventana).
+- El backend GTK exige GTK 4 en el sistema. En Linux es lo normal; en
+  AppImage hay que arrastrarlo, en Flatpak lo da la plataforma.
+- `swift-tools-version` 5.10 con `StrictConcurrency` activado; compila con
+  el toolchain 6.4. Hay que verificar que observa modelos `@Observable`
+  (Observation existe en Linux) o si exige su propio sistema de estado.
+- No trae reproductor de audio: los controles se montan con `Slider` y
+  botones sobre un puerto de reproducción portable (AVFoundation, GStreamer,
+  Media Foundation).
+- Empaquetado con **Swift Bundler** (mismo autor): `.app`, AppImage, RPM,
+  deb genérico, MSI vía WiX. Activo (commits 2026-09-17, arreglo para
+  Swift 6.4) aunque sus tags de GitHub estén en 2022: se usa `main`.
+- Swift 6.4 en Windows arm64 tiene un bug abierto en el instalador MSI
+  (FoundationXML, swiftlang/swift#92379). x64 va bien.
+
+**Recomendación registrada**: SwiftCrossUI. Dos formas de usarlo:
+
+1. **Una sola interfaz** para los tres sistemas con el backend AppKit en el
+   Mac. Máximo reuso, pero se pierde lo específico de SwiftUI que ya usa la
+   app (`MenuBarExtra`, restauración de ventanas, Liquid Glass) y el Mac
+   pasa a depender de un framework en 0.x.
+2. **SwiftUI en el Mac, SwiftCrossUI fuera**, compartiendo `EscribaModel`.
+   Dos interfaces, pero el Mac no arriesga nada y los modelos son uno.
+
+Empezar por la 2 y decidir la 1 con una app real en la mano. Primer paso:
+un spike con la pantalla de Conectores en SwiftCrossUI, en el Mac con
+GTK de Homebrew y en una VM Linux, para medir cuánto de `EscribaModel`
+se reutiliza tal cual y si la observación funciona.
 
 ## Orden propuesto cuando se aborde
 
 1. Puerto de PCM + whisper.cpp + sherpa-onnx en Linux (desbloquea el pod y
    el escritorio Linux a la vez). Verificar en un Linux real, no solo en
    Docker.
-2. API local del núcleo (la que consumirá la UI web y, en el futuro, el
-   móvil).
-3. UI web + Tauri + sidecar en Linux. Empaquetado AppImage/Flatpak.
-4. Windows: toolchain, libsecret → Credential Manager, ffmpeg o Media
-   Foundation, MSIX y firma (sin firma SmartScreen bloquea al usuario).
+2. Spike de SwiftCrossUI con Conectores (Mac con GTK 4 y VM Linux):
+   reuso de `EscribaModel`, observación, aspecto.
+3. Interfaz completa en SwiftCrossUI para Linux (GTK 4). Empaquetado con
+   Swift Bundler: AppImage y Flatpak.
+4. Windows: toolchain 6.4 x64, backend WinUI (runtime 1.5 preview vía
+   Swift Bundler), Credential Manager, ffmpeg o Media Foundation, MSI con
+   WiX y firma (sin firma SmartScreen bloquea al usuario).
 
 ## Verificar antes de empezar
 
 - GRDB compila en Linux (comprobado); en Windows no está comprobado.
 - Rendimiento real de whisper en CPU sin Neural Engine: cambia la
   experiencia respecto al Mac y condiciona qué modelo va por defecto.
-- Tamaño del instalable con el runtime de Swift y ffmpeg dentro.
+- Tamaño del instalable con el runtime de Swift, GTK o el Windows App
+  Runtime y ffmpeg dentro.
+- SwiftCrossUI + `@Observable`: si no observa Observation, `EscribaModel`
+  necesita una capa de adaptación.
 
 ## Relación con otras decisiones
 
