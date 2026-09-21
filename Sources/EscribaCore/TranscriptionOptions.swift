@@ -23,3 +23,8 @@ public struct TranscriptionOptions: Sendable, Equatable, Codable, Hashable {
         return parts.joined(separator: " · ")
     }
 }
+
+public func spokenLanguage(_ options: TranscriptionOptions?, fallback: String?) -> String? {
+    guard let options else { return fallback }
+    return options.language
+}

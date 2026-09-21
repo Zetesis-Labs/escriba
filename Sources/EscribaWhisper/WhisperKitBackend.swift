@@ -171,7 +171,7 @@ public final class WhisperKitEngine: Sendable {
                     try engine.preflight()
                     return try await engine.transcript(
                         for: source.path(percentEncoded: false),
-                        language: options?.language, diarize: diarize, speakerCount: speakerCount)
+                        options: options, diarize: diarize, speakerCount: speakerCount)
                 }
             },
             preflight: { () throws(TranscriptionError) in
@@ -202,13 +202,14 @@ private actor Engine {
     }
 
     func transcript(
-        for path: String, language override: String?? = nil, diarize: Bool, speakerCount: Int?
+        for path: String, options: TranscriptionOptions?, diarize: Bool, speakerCount: Int?
     ) async throws -> Transcript {
         let unloader = idleUnloader()
         await unloader.cancel()
         do {
             let transcript = try await perform(
-                path, language: override ?? language, diarize: diarize, speakerCount: speakerCount)
+                path, language: spokenLanguage(options, fallback: language), diarize: diarize,
+                speakerCount: speakerCount)
             await unloader.touch()
             return transcript
         } catch {
