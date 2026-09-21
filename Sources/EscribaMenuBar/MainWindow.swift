@@ -16,6 +16,10 @@ enum MainSection: String, CaseIterable, Identifiable {
         }
     }
 
+    static func initial(from environment: [String: String]) -> MainSection {
+        environment["ESCRIBA_SECTION"].flatMap(MainSection.init(rawValue:)) ?? .library
+    }
+
     var symbol: String {
         switch self {
         case .library: "waveform"

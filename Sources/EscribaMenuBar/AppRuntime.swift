@@ -19,7 +19,7 @@ private func textWriter(into folder: URL?) -> TranscriptWriter? {
 final class AppRuntime {
     private(set) var model: LibraryModel?
     private(set) var startupProblem: String?
-    var section: MainSection = .library
+    var section = MainSection.initial(from: ProcessInfo.processInfo.environment)
     let settings: AppSettings
     let connectors: ConnectorsModel
 

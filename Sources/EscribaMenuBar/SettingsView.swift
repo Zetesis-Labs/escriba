@@ -265,7 +265,7 @@ struct ConnectorsPane: View {
     @State private var selected: UUID?
 
     var body: some View {
-        HSplitView {
+        ListDetailLayout(listWidth: 230) {
             VStack(spacing: 0) {
                 List(connectors.connectors, selection: $selected) { connector in
                     HStack {
@@ -303,17 +303,14 @@ struct ConnectorsPane: View {
                 .buttonStyle(.borderless)
                 .padding(6)
             }
-            .frame(minWidth: 200, idealWidth: 230, maxWidth: 280)
-
+        } detail: {
             if let selected, connectors.connectors.contains(where: { $0.id == selected }) {
                 NotionEditor(notion: connectors.editor(for: selected))
-                    .frame(maxWidth: .infinity)
             } else {
                 ContentUnavailableView(
                     "Sin conector elegido",
                     systemImage: "square.and.arrow.up",
                     description: Text("Añade uno con + o elige uno de la lista."))
-                .frame(maxWidth: .infinity)
             }
         }
         .navigationTitle("Conectores")

@@ -28,7 +28,7 @@ struct LibraryWindow: View {
 
     var body: some View {
         if let model {
-            NavigationSplitView {
+            ListDetailLayout {
                 List(model.recordings, selection: $selected) { recording in
                     RecordingRowView(recording: recording, origin: origin(recording))
                         .contextMenu {
@@ -44,7 +44,7 @@ struct LibraryWindow: View {
                             }
                         }
                 }
-                .navigationSplitViewColumnWidth(min: 240, ideal: 290)
+                .listStyle(.inset)
             } detail: {
                 if let selected,
                     let recording = model.recordings.first(where: { $0.key == selected }) {
@@ -258,7 +258,7 @@ struct RecordingRowView: View {
     private func tag(_ symbol: String, text: String? = nil, help: String) -> some View {
         HStack(spacing: 3) {
             Image(systemName: symbol)
-            if let text { Text(text) }
+            if let text { Text(text).lineLimit(1).truncationMode(.tail) }
         }
         .font(.caption)
         .foregroundStyle(.secondary)
