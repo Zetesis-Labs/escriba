@@ -70,7 +70,7 @@ ad-hoc y puede caducar.
 | `EscribaSystemKit` | Host de sistema: FSEvents (macOS) o sondeo (Linux), stat/iCloud/materialización, flock, `offloaded`, ledger SQLite, migración legacy | macOS, Linux | SQLite del sistema (`CSQLite` en Linux) |
 | `EscribaWhisper` | Backend WhisperKit + SpeakerKit | Apple | argmax-oss-swift |
 | `EscribaStore` | Biblioteca SQLite + copia del audio + rastro de publicaciones | macOS, Linux | GRDB |
-| `EscribaModel` | Modelos observables de la UI (biblioteca, conectores, ajustes), token en Llavero | macOS | |
+| `EscribaModel` | Modelos observables de la UI (biblioteca, conectores, ajustes), token en fichero 0600 | macOS | |
 | `escriba` | CLI | macOS | |
 | `EscribaMenuBar` | App: ventana única con Biblioteca / Conectores / Ajustes | macOS | aislamiento MainActor por defecto |
 | `escriba-wasm-probe` | Sonda que ejercita Core+Engine+Notion; la ejecuta el CI en un runtime WASI | WASI | |
@@ -117,7 +117,11 @@ ad-hoc y puede caducar.
   procesos externos (`Shell`/`Process` se fueron con él): transcribir es un
   puerto que provee el host, y en un runtime WASI sería `wasi:nn`.
 - **Conectores, en plural** (Rubén, 2026-09-20): lista de N conectores, cada
-  uno con su token (Llavero, cuenta = id del conector), su base, su mapeo
+  uno con su token (fichero `~/Library/Application Support/escriba/secrets/<id>.token`
+  con permisos 0600; **ya no en el Llavero**: pedía la contraseña en cada
+  reinstalación aunque la firma fuera estable, y el fichero además vale en
+  Linux; el token antiguo del Llavero se migra en la primera lectura y se
+  retira de allí), su base, su mapeo
   columna-por-dato, su plantilla del cuerpo (`/comandos`) e interruptor. El
   rastro de publicación es por conector (tabla `publication`). Reprocesar o
   corregir **regenera** la página en cada conector donde estaba (mismo

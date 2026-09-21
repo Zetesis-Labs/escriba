@@ -33,14 +33,14 @@ public final class NotionModel {
     public init(
         connector id: UUID,
         settings: AppSettings,
-        tokens: TokenStore = keychainTokenStore(),
+        tokens: TokenStore? = nil,
         client make: @escaping @Sendable (String) -> NotionClient = { makeNotionClient(token: $0) }
     ) {
         self.id = id
         self.settings = settings
-        self.tokens = tokens
+        self.tokens = tokens ?? defaultTokenStore(account: id.uuidString)
         self.make = make
-        savedToken = tokens.read() ?? ""
+        savedToken = self.tokens.read() ?? ""
         token = savedToken
         draft = settings.connector(id)
     }

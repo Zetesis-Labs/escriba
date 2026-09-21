@@ -209,7 +209,7 @@ final class AppRuntime {
         var publishers: [String: Sink] = [:]
         for connector in settings.liveConnectors {
             guard let export = connector.notion,
-                let token = keychainTokenStore(account: connector.key).read(), !token.isEmpty
+                let token = defaultTokenStore(account: connector.key).read(), !token.isEmpty
             else { continue }
             publishers[connector.key] = notionSink(
                 export: export,

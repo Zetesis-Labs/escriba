@@ -21,6 +21,59 @@ nonisolated public struct TokenStore: Sendable {
     }
 }
 
+nonisolated public func defaultTokenStore(account: String) -> TokenStore {
+    migratingTokenStore(
+        primary: fileTokenStore(account: account),
+        legacy: keychainTokenStore(account: account))
+}
+
+nonisolated public func fileTokenStore(
+    directory: URL = defaultSecretsDirectory, account: String
+) -> TokenStore {
+    let file = directory.appending(path: "\(account).token")
+    return TokenStore(
+        read: {
+            guard let data = FileManager.default.contents(atPath: file.path(percentEncoded: false))
+            else { return nil }
+            let token = String(decoding: data, as: UTF8.self)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return token.isEmpty ? nil : token
+        },
+        write: { value in
+            let files = FileManager.default
+            guard let value, !value.isEmpty else {
+                try? files.removeItem(at: file)
+                return
+            }
+            try? files.createDirectory(
+                at: directory, withIntermediateDirectories: true,
+                attributes: [.posixPermissions: 0o700])
+            files.createFile(
+                atPath: file.path(percentEncoded: false), contents: Data(value.utf8),
+                attributes: [.posixPermissions: 0o600])
+        })
+}
+
+nonisolated public var defaultSecretsDirectory: URL {
+    FileManager.default.homeDirectoryForCurrentUser
+        .appending(path: "Library/Application Support/escriba/secrets")
+}
+
+nonisolated public func migratingTokenStore(primary: TokenStore, legacy: TokenStore) -> TokenStore {
+    TokenStore(
+        read: {
+            if let current = primary.read() { return current }
+            guard let inherited = legacy.read() else { return nil }
+            primary.write(inherited)
+            legacy.write(nil)
+            return inherited
+        },
+        write: { value in
+            primary.write(value)
+            legacy.write(nil)
+        })
+}
+
 nonisolated public func keychainTokenStore(
     service: String = "dev.ruben.escriba.notion", account: String = "token"
 ) -> TokenStore {

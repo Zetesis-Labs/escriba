@@ -46,7 +46,7 @@ struct LibraryWindow: View {
                         }
                 }
                 .listStyle(.inset)
-                .onAppear {
+                .onChange(of: model.recordings.isEmpty, initial: true) {
                     if MainSection.selectsFirstItem, selected == nil {
                         selected = model.recordings.first?.key
                     }

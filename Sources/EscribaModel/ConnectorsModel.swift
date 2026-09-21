@@ -11,7 +11,7 @@ public final class ConnectorsModel {
 
     public init(
         settings: AppSettings,
-        tokens: @escaping @Sendable (UUID) -> TokenStore = { keychainTokenStore(account: $0.uuidString) },
+        tokens: @escaping @Sendable (UUID) -> TokenStore = { defaultTokenStore(account: $0.uuidString) },
         client make: @escaping @Sendable (String) -> NotionClient = { makeNotionClient(token: $0) }
     ) {
         self.settings = settings
