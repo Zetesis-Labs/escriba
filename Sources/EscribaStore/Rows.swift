@@ -222,5 +222,12 @@ func makeMigrator() -> DatabaseMigrator {
             t.add(column: "currentTranscriptId", .integer)
         }
     }
+    migrator.registerMigration("v5b-criterios-conocidos") { db in
+        let columns = try db.columns(in: "transcript").map(\.name)
+        guard !columns.contains("optionsKnown") else { return }
+        try db.alter(table: "transcript") { t in
+            t.add(column: "optionsKnown", .boolean).notNull().defaults(to: false)
+        }
+    }
     return migrator
 }

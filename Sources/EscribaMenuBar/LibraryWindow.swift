@@ -489,6 +489,7 @@ struct TranscriptDetail: View {
                 .disabled(recording.audio == .missing)
         } label: {
             Label(currentVersionLabel, systemImage: "clock.arrow.circlepath")
+                .labelStyle(.titleAndIcon)
         }
         .disabled(versions.isEmpty || model.reprocessing.contains(recording.key))
     }

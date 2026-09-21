@@ -110,6 +110,22 @@ struct VersionesTests {
         #expect(versiones[0].label == "v1 · idioma automático · sin hablantes")
     }
 
+    @Test("una biblioteca que corrio la v5 sin la marca de criterios la recibe al abrirse de nuevo")
+    func migracionIntermedia() async throws {
+        let sandbox = try Sandbox()
+        try sandbox.store.save(try sandbox.recording("a"), Transcript(text: "v1"), backend: "wk", options: es)
+        try await sandbox.store.writer.write { db in
+            try db.execute(sql: "ALTER TABLE transcript DROP COLUMN optionsKnown")
+            try db.execute(sql: "DELETE FROM grdb_migrations WHERE identifier = 'v5b-criterios-conocidos'")
+        }
+
+        let reabierto = try Store(root: sandbox.base.appending(path: "library"))
+
+        let versiones = try await reabierto.versions(for: "a")
+        #expect(versiones.count == 1)
+        #expect(try await reabierto.transcript(for: "a")?.text == "v1")
+    }
+
     @Test("una version guardada sin criterios (de antes) se lista con criterios desconocidos")
     func sinCriterios() async throws {
         let sandbox = try Sandbox()
