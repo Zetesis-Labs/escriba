@@ -16,12 +16,14 @@ public enum SummaryAvailability: Sendable, Equatable {
 public enum SummaryError: Error, Equatable, CustomStringConvertible {
     case unavailable(String)
     case nothingToSummarize
+    case empty
     case failed(String)
 
     public var description: String {
         switch self {
         case .unavailable(let reason): "el modelo de lenguaje no esta disponible: \(reason)"
         case .nothingToSummarize: "no hay texto que resumir"
+        case .empty: "el modelo no devolvio ningun resumen"
         case .failed(let detail): "no se pudo resumir: \(detail)"
         }
     }
@@ -58,22 +60,42 @@ public struct Summarizer: Sendable {
     }
 }
 
+public let maxReduceRounds = 3
+
 extension Summarizer {
     public func digest(of text: String, language: String?) async throws(SummaryError) -> Digest {
         if case .unavailable(let reason) = availability() { throw .unavailable(reason) }
         let chunks = digestChunks(of: text, maxCharacters: capacity)
         guard !chunks.isEmpty else { throw .nothingToSummarize }
-
         guard chunks.count > 1 else {
-            return normalizedDigest(try await run(digestRequest(text: chunks[0], language: language)))
+            return try await answer(digestRequest(text: chunks[0], language: language))
         }
 
+        var partials = try await summaries(of: chunks) { digestRequest(text: $0, language: language) }
+        for _ in 0...maxReduceRounds {
+            let joined = digestChunks(of: partials.joined(separator: "\n"), maxCharacters: capacity)
+            guard joined.count > 1 else {
+                return try await answer(reduceRequest(partials: joined, language: language))
+            }
+            partials = try await summaries(of: joined) { reduceRequest(partials: [$0], language: language) }
+        }
+        throw .failed("la transcripcion es demasiado larga para \(name)")
+    }
+
+    private func summaries(
+        of chunks: [String], _ request: (String) -> DigestRequest
+    ) async throws(SummaryError) -> [String] {
         var partials: [String] = []
         for chunk in chunks {
-            let partial = normalizedDigest(try await run(digestRequest(text: chunk, language: language)))
-            partials.append(partial.rendered)
+            partials.append(try await answer(request(chunk)).rendered)
         }
-        return normalizedDigest(try await run(reduceRequest(partials: partials, language: language)))
+        return partials
+    }
+
+    private func answer(_ request: DigestRequest) async throws(SummaryError) -> Digest {
+        let digest = normalizedDigest(try await run(request))
+        guard !digest.isEmpty else { throw .empty }
+        return digest
     }
 }
 

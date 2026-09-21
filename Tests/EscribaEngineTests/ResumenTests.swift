@@ -16,6 +16,12 @@ private func summarizer(
     }
 }
 
+private func texto(_ request: DigestRequest) -> String {
+    request.prompt
+        .replacingOccurrences(of: DigestPrompt.request(text: ""), with: "")
+        .replacingOccurrences(of: DigestPrompt.reduce(partials: []), with: "")
+}
+
 @Suite("Resumir una transcripcion")
 struct ResumenTests {
     @Test("un texto que cabe se resume de una vez y sale normalizado")
@@ -36,19 +42,60 @@ struct ResumenTests {
     @Test("un texto largo se resume por trozos y luego se unen los parciales")
     func mapaYReduccion() async throws {
         let peticiones = Trace<DigestRequest>()
-        let resumidor = summarizer(capacity: 40, into: peticiones) { request in
+        let resumidor = summarizer(capacity: 200, into: peticiones) { request in
             request.prompt.contains("parciales")
                 ? Digest(title: "Todo junto", summary: "Union", tags: ["final"])
-                : Digest(title: "Trozo", summary: "Parte", tags: ["parcial"])
+                : Digest(title: "T", summary: "P", tags: ["x"])
         }
         let largo = (1...6).map { "Párrafo \($0) con bastante texto dentro." }.joined(separator: "\n")
 
         let digest = try await resumidor.digest(of: largo, language: nil)
 
         #expect(digest.title == "Todo junto")
-        #expect(peticiones.count > 2)
-        #expect(peticiones.values.last!.prompt.contains("Título: Trozo"))
+        #expect(peticiones.count == 3)
+        #expect(peticiones.values.last!.prompt.contains("Título: T"))
         #expect(peticiones.values.dropLast().allSatisfy { !$0.prompt.contains("parciales") })
+    }
+
+    @Test("cuando los parciales tampoco caben de una vez, se reducen por rondas")
+    func reduccionEnCascada() async throws {
+        let peticiones = Trace<DigestRequest>()
+        let resumidor = summarizer(capacity: 200, into: peticiones) { request in
+            request.prompt.contains("parciales")
+                ? Digest(title: "Todo junto", summary: "Union", tags: ["final"])
+                : Digest(title: "T", summary: "P", tags: ["x"])
+        }
+        let larguisimo = (1...40).map { "Párrafo \($0) con bastante texto dentro." }
+            .joined(separator: "\n")
+
+        let digest = try await resumidor.digest(of: larguisimo, language: "es")
+
+        #expect(digest.title == "Todo junto")
+        #expect(peticiones.values.filter { $0.prompt.contains("parciales") }.count > 1)
+        #expect(peticiones.values.allSatisfy { texto($0).count <= 200 })
+    }
+
+    @Test("si ni reduciendo cabe, se dice que la grabacion es demasiado larga en vez de colgarse")
+    func reduccionQueNoConverge() async {
+        let resumidor = summarizer(capacity: 60) { _ in
+            Digest(
+                title: String(repeating: "t", count: 50), summary: String(repeating: "r", count: 50),
+                tags: [])
+        }
+        let larguisimo = (1...30).map { "Párrafo \($0) con texto suficiente." }.joined(separator: "\n")
+
+        await #expect(throws: SummaryError.self) {
+            try await resumidor.digest(of: larguisimo, language: "es")
+        }
+    }
+
+    @Test("un resumen vacio se trata como fallo, no se guarda como si fuera bueno")
+    func resumenVacio() async {
+        let resumidor = summarizer { _ in Digest(title: "  ", summary: "", tags: ["algo"]) }
+
+        await #expect(throws: SummaryError.empty) {
+            try await resumidor.digest(of: "Hola", language: "es")
+        }
     }
 
     @Test("si el modelo no esta disponible no se llama y se dice por que")

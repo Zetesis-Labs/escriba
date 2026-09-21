@@ -197,6 +197,9 @@ final class AppRuntime {
         let summarizer = AppleIntelligence.summarizer()
         if let problem = summarizer.availability().problem {
             Log.error("los resumenes estan activados pero \(problem)")
+            Notifier.problem(
+                title: "No se pueden generar resumenes",
+                detail: "\(problem). Las notas se transcribiran igual.")
         }
         return summarizer
     }

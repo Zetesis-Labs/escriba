@@ -41,9 +41,110 @@ private final class Publicador: Sendable {
     var registro: [String] { enviados.withLock { $0 } }
 }
 
+private final class Puerta: Sendable {
+    private let esperando = Mutex<[CheckedContinuation<Void, Never>]>([])
+
+    func esperar() async {
+        await withCheckedContinuation { continuation in
+            esperando.withLock { $0.append(continuation) }
+        }
+    }
+
+    func abrir() {
+        for continuation in esperando.withLock({ let todas = $0; $0 = []; return todas }) {
+            continuation.resume()
+        }
+    }
+}
+
 @MainActor
 @Suite("Resumir desde la biblioteca")
 struct ResumirDesdeLaBibliotecaTests {
+    @Test("dos peticiones a la vez no resumen dos veces la misma grabacion")
+    func unaCadaVez() async throws {
+        let (base, store) = try sandbox()
+        let guardada = try store.save(
+            try grabacion(in: base, key: "a"), Transcript(text: "Hola"), backend: "wk")
+        let puerta = Puerta()
+        let llamadas = Mutex(0)
+        let modelo = LibraryModel(store: store, digester: { _ in
+            llamadas.withLock { $0 += 1 }
+            await puerta.esperar()
+            return resumen
+        })
+
+        let primera = Task { try await modelo.summarize(guardada) }
+        while llamadas.withLock({ $0 }) == 0 { await Task.yield() }
+
+        await #expect(throws: LibraryModelError.alreadySummarizing) {
+            try await modelo.summarize(guardada)
+        }
+        puerta.abrir()
+        _ = try await primera.value
+
+        #expect(llamadas.withLock { $0 } == 1)
+        #expect(!modelo.isSummarizing("a"))
+    }
+
+    @Test("publicar por primera vez ya lleva el resumen, no solo republicar")
+    func primeraPublicacionLlevaResumen() async throws {
+        let (base, store) = try sandbox()
+        let publicador = Publicador()
+        let guardada = try store.save(
+            try grabacion(in: base, key: "a"), Transcript(text: "Hola"), backend: "wk",
+            digest: resumen)
+        let modelo = LibraryModel(store: store, publishers: ["c1": publicador.sink])
+
+        try await modelo.publish(guardada, to: "c1")
+
+        #expect(publicador.registro == ["a: Backups"])
+    }
+
+    @Test("elegir otra version republica con el resumen de esa version")
+    func elegirVersionLlevaSuResumen() async throws {
+        let (base, store) = try sandbox()
+        let publicador = Publicador()
+        try store.save(
+            try grabacion(in: base, key: "a"), Transcript(text: "v1"), backend: "wk",
+            digest: resumen)
+        try await store.addTranscript(Transcript(text: "v2"), for: "a", backend: "wk")
+        try store.markPublished(
+            key: "a", connector: "c1", pageId: "pg", url: nil, at: Date(timeIntervalSince1970: 1))
+        let modelo = LibraryModel(store: store, publishers: ["c1": publicador.sink])
+        let primera = try #require(try await store.versions(for: "a").first)
+
+        try await modelo.choose(version: primera.id, for: "a")
+
+        #expect(publicador.registro == ["a: Backups"])
+    }
+
+    @Test("quitar el resumen republica sin el, para que el conector no lo conserve")
+    func quitarResumenRepublica() async throws {
+        let (base, store) = try sandbox()
+        let publicador = Publicador()
+        try store.save(
+            try grabacion(in: base, key: "a"), Transcript(text: "Hola"), backend: "wk",
+            digest: resumen)
+        try store.markPublished(
+            key: "a", connector: "c1", pageId: "pg", url: nil, at: Date(timeIntervalSince1970: 1))
+        let modelo = LibraryModel(store: store, publishers: ["c1": publicador.sink])
+
+        try await modelo.forgetSummary("a")
+
+        #expect(publicador.registro == ["a: sin resumen"])
+    }
+
+    @Test("una grabacion sin transcripcion todavia no se puede resumir")
+    func sinTranscripcion() async throws {
+        let (base, store) = try sandbox()
+        try await store.register([try grabacion(in: base, key: "a")])
+        let stored = try #require(try store.recording(for: "a"))
+        let modelo = LibraryModel(store: store, digester: { _ in resumen })
+
+        await #expect(throws: LibraryModelError.nothingToSummarize) {
+            try await modelo.summarize(stored)
+        }
+    }
     @Test("resumir a mano guarda el resumen y republica donde ya estaba")
     func resumirRepublica() async throws {
         let (base, store) = try sandbox()

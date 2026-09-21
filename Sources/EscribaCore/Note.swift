@@ -1,5 +1,3 @@
-import Foundation
-
 public struct Note: Sendable, Equatable {
     public let recording: Recording
     public let transcript: Transcript

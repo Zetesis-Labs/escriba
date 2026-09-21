@@ -77,6 +77,32 @@ struct ResumenGuardadoTests {
         }
     }
 
+    @Test("el resumen se escribe en la version que se pidio, aunque entre otra por medio")
+    func ancladoASuVersion() async throws {
+        let sandbox = try Sandbox()
+        let grabacion = try sandbox.recording("a")
+        try sandbox.store.save(grabacion, Transcript(text: "v1"), backend: "wk")
+        let primera = try #require(try await sandbox.store.currentVersion(for: "a"))
+        try await sandbox.store.addTranscript(Transcript(text: "v2"), for: "a", backend: "wk")
+
+        try await sandbox.store.setDigest(resumen, for: "a", version: primera)
+
+        #expect(try await sandbox.store.digest(for: "a") == nil)
+        try await sandbox.store.choose(version: primera, for: "a")
+        #expect(try await sandbox.store.digest(for: "a") == resumen)
+    }
+
+    @Test("una grabacion registrada pero sin transcribir lo dice con su propio error")
+    func sinTranscripcion() async throws {
+        let sandbox = try Sandbox()
+        try await sandbox.store.register([try sandbox.recording("a")])
+
+        let fallo = await #expect(throws: StoreError.self) {
+            try await sandbox.store.setDigest(resumen, for: "a")
+        }
+        #expect("\(fallo!)".contains("aun no tiene transcripcion"))
+    }
+
     @Test("el sink guarda el resumen que traiga la nota")
     func sinkConResumen() async throws {
         let sandbox = try Sandbox()

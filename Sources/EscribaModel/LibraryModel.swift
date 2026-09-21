@@ -124,22 +124,25 @@ public final class LibraryModel {
     @discardableResult
     public func summarize(_ recording: StoredRecording) async throws -> Digest {
         guard let digester else { throw LibraryModelError.summaryUnavailable }
-        guard let transcript = try await store.transcript(for: recording.key) else {
-            throw LibraryModelError.nothingToSummarize
-        }
         guard !summarizing.contains(recording.key) else { throw LibraryModelError.alreadySummarizing }
 
         summarizing.insert(recording.key)
         defer { summarizing.remove(recording.key) }
 
+        guard let transcript = try await store.transcript(for: recording.key),
+            let version = try await store.currentVersion(for: recording.key)
+        else { throw LibraryModelError.nothingToSummarize }
+
         let digest = try await digester(transcript)
-        try await store.setDigest(digest, for: recording.key)
-        await republish(transcript, digest: digest, for: recording.key)
+        try await store.setDigest(digest, for: recording.key, version: version)
+        await republish(transcript, digest: digest, for: recording.key, version: version)
         return digest
     }
 
     public func forgetSummary(_ key: String) async throws {
         try await store.setDigest(nil, for: key)
+        guard let transcript = try await store.transcript(for: key) else { return }
+        await republish(transcript, digest: nil, for: key)
     }
 
     public func digest(for key: String) async throws -> Digest? {
@@ -156,7 +159,10 @@ public final class LibraryModel {
             to: connector)
     }
 
-    private func republish(_ transcript: Transcript, digest: Digest?, for key: String) async {
+    private func republish(
+        _ transcript: Transcript, digest: Digest?, for key: String, version: Int64? = nil
+    ) async {
+        guard await isCurrent(version, for: key) else { return }
         let publications: [Publication]
         do {
             publications = try store.recording(for: key)?.publications ?? []
@@ -171,6 +177,12 @@ public final class LibraryModel {
                 report("no se pudo republicar \(key) en \(publication.connector)", error)
             }
         }
+    }
+
+    private func isCurrent(_ version: Int64?, for key: String) async -> Bool {
+        guard let version else { return true }
+        guard let current = try? await store.currentVersion(for: key) else { return false }
+        return current == version
     }
 
     private func send(
@@ -237,7 +249,7 @@ public final class LibraryModel {
         do {
             return try await digester(transcript)
         } catch {
-            Log.error("\(key) se transcribio, pero no se pudo resumir: \(error)")
+            report("\(key) se transcribio, pero no se pudo resumir", error)
             return nil
         }
     }

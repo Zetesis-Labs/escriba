@@ -1,6 +1,7 @@
 import Foundation
 import GRDB
 import EscribaCore
+import EscribaEngine
 
 public enum RecordingStatus: String, Sendable, Codable, CaseIterable {
     case pending
@@ -171,7 +172,12 @@ func encodedTags(_ tags: [String]) -> String {
 
 func decodedTags(_ raw: String?) -> [String] {
     guard let data = raw.map({ Data($0.utf8) }) else { return [] }
-    return (try? JSONDecoder().decode([String].self, from: data)) ?? []
+    do {
+        return try JSONDecoder().decode([String].self, from: data)
+    } catch {
+        Log.error("las etiquetas guardadas no se pudieron leer: \(error)")
+        return []
+    }
 }
 
 func makeMigrator() -> DatabaseMigrator {

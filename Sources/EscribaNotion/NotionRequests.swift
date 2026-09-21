@@ -92,13 +92,12 @@ private func value(
     case (.source, _):
         return .object(["rich_text": richText(page.source)])
     case (.summary, _):
-        guard let summary = page.summary, !summary.isEmpty else { return nil }
-        return .object(["rich_text": richText(summary)])
+        guard let summary = page.summary, !summary.isEmpty else { return .object(["rich_text": .array([])]) }
+        return .object(["rich_text": richText(String(summary.prefix(notionTextLimit)))])
     case (.tags, "multi_select"):
-        guard !page.tags.isEmpty else { return nil }
         return .object(["multi_select": .array(page.tags.map { .object(["name": .string($0)]) })])
     case (.tags, _):
-        guard !page.tags.isEmpty else { return nil }
+        guard !page.tags.isEmpty else { return .object(["rich_text": .array([])]) }
         return .object(["rich_text": richText(page.tags.joined(separator: ", "))])
     }
 }

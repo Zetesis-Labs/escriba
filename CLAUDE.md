@@ -144,12 +144,23 @@ ad-hoc y puede caducar.
   petición, ambas decididas en `EscribaCore`) y devuelve un `Digest`. El
   troceado de transcripciones largas y la reducción de los parciales son del
   motor, no del adaptador: el adaptador solo declara su `capacity` y ejecuta
-  una petición. Hoy hay uno (`EscribaIntelligence`, FoundationModels en el
+  una petición. La reducción es **en cascada** (los parciales se vuelven a
+  trocear y reducir mientras no quepan en una sola petición, con tope de
+  `maxReduceRounds`): unir todos los parciales de golpe se salía de la ventana
+  justo en las grabaciones largas, que son las que motivan trocear.
+  Un `Digest` vacío es un fallo (`SummaryError.empty`), no un resumen: si no,
+  un modelo que no responde se guarda igual que uno que sí. Hoy hay uno (`EscribaIntelligence`, FoundationModels en el
   propio Mac); el de una cuenta compatible con OpenAI entra por el mismo hueco.
   El resumen viene **apagado** por defecto.
 - **El resumen es de la versión, no de la grabación**: se guarda en la fila de
   `transcript`, así elegir otra versión trae su resumen. Corregir hablantes lo
-  arrastra; reprocesar genera uno nuevo.
+  arrastra; reprocesar genera uno nuevo. Resumir a mano ancla el resultado a la
+  versión que se leyó (`setDigest(_:for:version:)`) y no republica si mientras
+  tanto la vigente ha cambiado.
+- **Quitar el resumen también republica**, y Notion recibe las columnas
+  **vacías** (`rich_text: []`, `multi_select: []`), no ausentes: una propiedad
+  que no se manda conserva el valor anterior, y biblioteca y destino quedarían
+  discrepando en silencio.
 - **La diarización se elige a mano** (decidido por Rubén 2026-09-04): el ajuste
   viene en `off` y el pipeline no diariza lo que entra. Se pide por grabación
   («Detectar hablantes») o por carpeta en Ajustes. No proponer activarla por

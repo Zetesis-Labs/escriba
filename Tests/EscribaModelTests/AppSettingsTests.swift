@@ -19,6 +19,7 @@ struct AppSettingsTests {
         #expect(settings.language == "es")
         #expect(settings.diarization == .off)
         #expect(settings.notifyEveryNote)
+        #expect(!settings.summarize)
         #expect(settings.writeTxt)
         #expect(settings.txtFolderPath.hasSuffix("Transcripciones JPR"))
         #expect(settings.watchedFolders.isEmpty)
@@ -43,6 +44,7 @@ struct AppSettingsTests {
         settings.language = "en"
         settings.diarization = .fixed(2)
         settings.notifyEveryNote = false
+        settings.summarize = true
         settings.writeTxt = false
         settings.txtFolderPath = "/tmp/salida"
         settings.watchedFolders = [WatchedFolder(path: "/tmp/llamadas", speakers: 2)]
@@ -51,6 +53,7 @@ struct AppSettingsTests {
         #expect(reloaded.language == "en")
         #expect(reloaded.diarization == .fixed(2))
         #expect(reloaded.notifyEveryNote == false)
+        #expect(reloaded.summarize)
         #expect(reloaded.writeTxt == false)
         #expect(reloaded.txtFolderPath == "/tmp/salida")
         #expect(reloaded.watchedFolders == [WatchedFolder(path: "/tmp/llamadas", speakers: 2)])

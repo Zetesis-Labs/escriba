@@ -233,8 +233,9 @@ El idioma tambien esta fijo (`--language es`). Fijarlo da mejor precision que
 Por defecto escribe `~/Documents/Transcripciones JPR/YYYY-MM-DD/HH-MM-SS.txt`.
 
 El destino es un punto de extension: `Sink` es un simple
-`(Recording, Transcript) throws -> URL`. Cambiar de destino es escribir otra
-funcion y pasarla al `Pipeline`; `sinks(primary:also:)` encadena varios y
+`(Note) throws -> URL`, donde una `Note` es la grabacion, su transcripcion y,
+si lo hay, su resumen. Cambiar de destino es escribir otra funcion y pasarla
+al `Pipeline`; `sinks(primary:also:)` encadena varios y
 devuelve la URL del primario. El `.txt` escribe `transcript.rendered` (agrupado
 por hablante si los hay) y sigue existiendo como red de seguridad al lado de la
 biblioteca.

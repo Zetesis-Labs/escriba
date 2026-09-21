@@ -9,6 +9,7 @@ struct DigestTests {
         let crudas = ["#Kubernetes", " backups ", "kubernetes", "", "Talos Linux", "MinIO", "wasm", "spike", "extra"]
 
         #expect(normalizedTags(crudas, limit: 6) == ["kubernetes", "backups", "talos linux", "minio", "wasm", "spike"])
+        #expect(normalizedTags(crudas).count == digestTagLimit)
         #expect(normalizedTags([]).isEmpty)
     }
 
@@ -27,10 +28,34 @@ struct DigestTests {
         #expect(largo.title.hasSuffix("…"))
     }
 
+    @Test("una etiqueta con comas se parte, porque Notion no las admite en un multi_select")
+    func etiquetasSinComas() {
+        #expect(normalizedTags(["backups, minio", "talos"]) == ["backups minio", "talos"])
+    }
+
+    @Test("un titulo de una sola palabra interminable se corta, no se queda en puntos suspensivos")
+    func tituloSinEspacios() {
+        let titulo = normalizedDigest(
+            Digest(title: String(repeating: "a", count: 200), summary: "x", tags: [])
+        ).title
+
+        #expect(titulo.count == digestTitleLimit)
+        #expect(titulo.hasSuffix("…"))
+    }
+
     @Test("un digest sin titulo ni resumen se considera vacio")
     func vacio() {
         #expect(Digest(title: " ", summary: "", tags: []).isEmpty)
         #expect(!Digest(title: "Algo", summary: "", tags: []).isEmpty)
+    }
+
+    @Test("el texto que se manda a reducir omite las lineas que no tienen nada")
+    func renderizado() {
+        #expect(Digest(title: "", summary: "", tags: []).rendered == "")
+        #expect(Digest(title: "", summary: "", tags: ["uno", "dos"]).rendered == "Etiquetas: uno, dos")
+        #expect(
+            Digest(title: "T", summary: "R", tags: ["x"]).rendered
+                == "Título: T\nResumen: R\nEtiquetas: x")
     }
 
     @Test("un texto corto va entero en un solo trozo")

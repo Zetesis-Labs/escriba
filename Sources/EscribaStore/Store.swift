@@ -201,11 +201,15 @@ public final class Store: Sendable {
         }
     }
 
-    public func setDigest(_ digest: Digest?, for key: String) async throws {
+    public func setDigest(_ digest: Digest?, for key: String, version: Int64? = nil) async throws {
         try await writer.write { db in
-            guard var row = try Self.currentTranscript(of: key, in: db) else {
+            guard let recordingId = try Self.recordingId(of: key, in: db) else {
                 throw StoreError.unknownRecording(key)
             }
+            guard var row = try Self.transcript(version, of: recordingId, in: db) else {
+                throw StoreError.nothingToSummarize(key)
+            }
+            if let version, row.id != version { throw StoreError.unknownVersion(version, key) }
             row.carry(digest)
             try row.update(db)
         }
@@ -215,16 +219,31 @@ public final class Store: Sendable {
         try await writer.read { db in try Self.currentTranscript(of: key, in: db)?.digest }
     }
 
+    public func currentVersion(for key: String) async throws -> Int64? {
+        try await writer.read { db in try Self.currentTranscript(of: key, in: db)?.id }
+    }
+
     private static func currentTranscript(of key: String, in db: Database) throws -> TranscriptRow? {
-        guard
-            let recording = try RecordingRow.filter(RecordingRow.Columns.key == key).fetchOne(db),
-            let recordingId = recording.id
-        else { return nil }
+        guard let recordingId = try recordingId(of: key, in: db) else { return nil }
+        return try transcript(nil, of: recordingId, in: db)
+    }
+
+    private static func recordingId(of key: String, in db: Database) throws -> Int64? {
+        try RecordingRow.filter(RecordingRow.Columns.key == key).fetchOne(db)?.id
+    }
+
+    private static func transcript(
+        _ version: Int64?, of recordingId: Int64, in db: Database
+    ) throws -> TranscriptRow? {
         var query = TranscriptRow.filter(TranscriptRow.Columns.recordingId == recordingId)
-        if let current = recording.currentTranscriptId {
-            query = query.filter(TranscriptRow.Columns.id == current)
+        if let wanted = try version ?? currentPointer(of: recordingId, in: db) {
+            query = query.filter(TranscriptRow.Columns.id == wanted)
         }
         return try query.order(TranscriptRow.Columns.id.desc).fetchOne(db)
+    }
+
+    private static func currentPointer(of recordingId: Int64, in db: Database) throws -> Int64? {
+        try RecordingRow.fetchOne(db, key: recordingId)?.currentTranscriptId
     }
 
     func attachTranscript(_ transcript: Transcript, for key: String, backend: String) throws {
@@ -655,12 +674,14 @@ public enum StoreError: Error, CustomStringConvertible {
     case missingRowID
     case unknownRecording(String)
     case unknownVersion(Int64, String)
+    case nothingToSummarize(String)
 
     public var description: String {
         switch self {
         case .missingRowID: "SQLite no devolvio el id de la fila insertada"
         case .unknownRecording(let key): "no hay ninguna grabacion con clave \(key)"
         case .unknownVersion(let id, let key): "la version \(id) no es de la grabacion \(key)"
+        case .nothingToSummarize(let key): "la grabacion \(key) aun no tiene transcripcion"
         }
     }
 }

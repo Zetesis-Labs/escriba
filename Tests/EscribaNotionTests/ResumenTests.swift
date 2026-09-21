@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 import Testing
 import EscribaCore
 
@@ -69,8 +70,8 @@ struct ResumenEnNotionTests {
         #expect(cuerpo["properties"]?["Temas"]?["multi_select"]?[1]?["name"]?.text == "minio")
     }
 
-    @Test("sin resumen, sus columnas no se escriben en vez de vaciarse con texto falso")
-    func sinResumenNoEscribe() {
+    @Test("sin resumen, sus columnas se vacian para que Notion no conserve el anterior")
+    func sinResumenVacia() {
         let fuente = base([
             NotionProperty(name: "Nombre", type: "title"),
             NotionProperty(name: "Resumen", type: "rich_text"),
@@ -80,8 +81,8 @@ struct ResumenEnNotionTests {
         let cuerpo = createPageBody(
             pagina, in: fuente, mapping: suggestedMapping(for: fuente), timeZone: .gmt)
 
-        #expect(cuerpo["properties"]?["Resumen"] == nil)
-        #expect(cuerpo["properties"]?["Temas"] == nil)
+        #expect(cuerpo["properties"]?["Resumen"]?["rich_text"]?.count == 0)
+        #expect(cuerpo["properties"]?["Temas"]?["multi_select"]?.count == 0)
     }
 
     @Test("una base sin columna de temas guarda las etiquetas como texto")
@@ -97,6 +98,54 @@ struct ResumenEnNotionTests {
         let cuerpo = createPageBody(pagina, in: fuente, mapping: mapeo, timeZone: .gmt)
 
         #expect(cuerpo["properties"]?["Temas"]?["rich_text"]?[0]?["text"]?["content"]?.text == "backups, minio")
+    }
+
+    @Test("un resumen larguisimo se acota al limite de Notion en vez de tumbar la pagina")
+    func resumenAcotado() {
+        let largo = Digest(
+            title: "Largo", summary: String(repeating: "a", count: notionTextLimit + 500), tags: [])
+        let fuente = base([
+            NotionProperty(name: "Nombre", type: "title"),
+            NotionProperty(name: "Resumen", type: "rich_text"),
+        ])
+        let pagina = notionPage(for: grabacion(), transcript: Transcript(text: "x"), digest: largo)
+
+        let cuerpo = createPageBody(
+            pagina, in: fuente, mapping: suggestedMapping(for: fuente), timeZone: .gmt)
+
+        #expect(cuerpo["properties"]?["Resumen"]?["rich_text"]?[0]?["text"]?["content"]?.text?.count == notionTextLimit)
+    }
+
+    @Test("publicar una nota con resumen manda sus columnas y su bloque a Notion")
+    func publicaConResumen() async throws {
+        let creado = Mutex<JSONValue?>(nil)
+        let cliente = NotionClient(
+            dataSources: { [] },
+            createPage: { body in
+                creado.withLock { $0 = body }
+                return NotionPageRef(id: "pg", url: nil)
+            },
+            updatePage: { _, _ in }, appendBlocks: { _, _ in }, childBlocks: { _ in [] },
+            deleteBlock: { _ in }, findPage: { _, _ in nil })
+        let fuente = base([
+            NotionProperty(name: "Nombre", type: "title"),
+            NotionProperty(name: "Resumen", type: "rich_text"),
+            NotionProperty(name: "Temas", type: "multi_select"),
+        ])
+        let export = NotionExport(
+            source: fuente, mapping: suggestedMapping(for: fuente),
+            template: BodyTemplate([.summary, .transcript(.plain)]))
+        let nota = Note(
+            recording: grabacion(), transcript: Transcript(text: "Cuerpo"), digest: resumen)
+
+        let pagina = try await publish(nota, as: export, using: cliente)
+
+        #expect(pagina.id == "pg")
+        let cuerpo = try #require(creado.withLock { $0 })
+        #expect(cuerpo["properties"]?["Nombre"]?["title"]?[0]?["text"]?["content"]?.text == "Backups de cortes")
+        #expect(cuerpo["properties"]?["Resumen"]?["rich_text"]?[0]?["text"]?["content"]?.text == "Se revisa el restore.")
+        #expect(cuerpo["properties"]?["Temas"]?["multi_select"]?[0]?["name"]?.text == "backups")
+        #expect(cuerpo["children"]?[0]?["paragraph"]?["rich_text"]?[0]?["text"]?["content"]?.text == "Se revisa el restore.")
     }
 
     @Test("los comandos /resumen y /etiquetas estan en el menu")

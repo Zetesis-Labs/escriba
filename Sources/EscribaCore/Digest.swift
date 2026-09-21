@@ -17,16 +17,15 @@ public struct Digest: Sendable, Equatable, Codable {
     }
 }
 
-public let digestTagLimit = 6
+public let digestTagLimit = 5
 public let digestTitleLimit = 80
 
 public func normalizedTags(_ raw: [String], limit: Int = digestTagLimit) -> [String] {
     var seen: Set<String> = []
     return raw
         .map { tag in
-            tag.trimmingCharacters(in: .whitespacesAndNewlines)
-                .drop { $0 == "#" }
-                .split(whereSeparator: \.isWhitespace)
+            tag.drop { $0 == "#" || $0.isWhitespace }
+                .split { $0.isWhitespace || $0 == "," }
                 .joined(separator: " ")
                 .lowercased()
         }
@@ -56,6 +55,9 @@ private func normalizedTitle(_ raw: String) -> String {
         length = next
         taken.append(word)
     }
+    guard let first = words.first else { return "" }
+    guard !taken.isEmpty else { return String(first.prefix(digestTitleLimit - 1)) + "…" }
+
     let joined = taken.joined(separator: " ")
     let trimmed = joined.hasSuffix(".") ? String(joined.dropLast()) : joined
     return taken.count < words.count ? trimmed + "…" : trimmed
@@ -136,7 +138,7 @@ public enum DigestPrompt {
             y devuelve un título, un resumen y unas etiquetas. \(idiom) \
             El título es breve y concreto, sin comillas. El resumen es fiel al contenido, \
             de tres a seis frases, sin inventar nada que no esté en el texto. \
-            Las etiquetas son de dos a seis temas cortos, en minúsculas.
+            Las etiquetas son de dos a cinco temas cortos, en minúsculas.
             """
     }
 
