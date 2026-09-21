@@ -12,7 +12,9 @@ private final class Spy: Sendable {
 }
 
 private actor ManualClock {
-    private var waiter: CheckedContinuation<Void, any Error>?
+    private var waiters: [Int: CheckedContinuation<Void, any Error>] = [:]
+    private var doomed: Set<Int> = []
+    private var next = 0
     private(set) var started = 0
     private(set) var cancelled = 0
 
@@ -21,30 +23,42 @@ private actor ManualClock {
     }
 
     private func sleep() async throws {
+        let id = next
+        next += 1
         started += 1
         try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { continuation in
-                waiter = continuation
+            if doomed.contains(id) {
+                cancelled += 1
+                throw CancellationError()
+            }
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+                register(continuation, for: id)
             }
         } onCancel: {
-            Task { await self.interrupt() }
+            Task { await self.interrupt(id) }
         }
     }
 
-    private func interrupt() {
-        guard let waiter else { return }
-        self.waiter = nil
-        cancelled += 1
-        waiter.resume(throwing: CancellationError())
+    private func register(_ continuation: CheckedContinuation<Void, any Error>, for id: Int) {
+        waiters[id] = continuation
+    }
+
+    private func interrupt(_ id: Int) {
+        if let waiter = waiters.removeValue(forKey: id) {
+            cancelled += 1
+            waiter.resume(throwing: CancellationError())
+        } else {
+            doomed.insert(id)
+        }
     }
 
     func elapse() {
-        guard let waiter else { return }
-        self.waiter = nil
-        waiter.resume()
+        let all = waiters
+        waiters = [:]
+        all.values.forEach { $0.resume() }
     }
 
-    var isSleeping: Bool { waiter != nil }
+    var isSleeping: Bool { !waiters.isEmpty }
 }
 
 private func settle() async throws {
