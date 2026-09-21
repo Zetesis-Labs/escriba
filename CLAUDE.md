@@ -18,7 +18,11 @@ de Linux o en un runtime WebAssembly (WASI), cambiando solo el host que lo
 conecta. `EscribaCore`, `EscribaEngine` y `EscribaNotion` compilan a
 `wasm32-unknown-wasi` y a Linux, y el CI lo comprueba en cada PR. El
 escritorio en Windows y Linux está descartado por ahora; el análisis queda en
-`docs/requisito-multiplataforma.md`. El núcleo como componente WebAssembly en
+`docs/requisito-multiplataforma.md`. Si se retoma, la decisión ya está tomada:
+SwiftUI en el Mac y **SwiftCrossUI** fuera, compartiendo `EscribaModel` (observa
+`@Observable`, verificado el 2026-09-22). **Tauri con sidecar está descartado
+por decisión de producto (la interfaz es Swift), no por CoreML**: el sidecar
+sería Swift y usaría el Neural Engine igual. No reabrirlo sin que Rubén lo pida. El núcleo como componente WebAssembly en
 Kubernetes es un spike aprobado: la prueba de `wasi:http` está en
 `spikes/wasi-http` y los criterios de salida en
 `docs/requisito-nucleo-wasm-kubernetes.md`.
