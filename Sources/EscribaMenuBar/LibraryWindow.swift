@@ -3,12 +3,6 @@ import EscribaCore
 import EscribaStore
 import SwiftUI
 
-private func librarySummary(_ model: LibraryModel) -> String {
-    let sinTranscribir = model.recordings.count(where: { $0.status != .done })
-    let total = "\(model.recordings.count) en la biblioteca"
-    return sinTranscribir == 0 ? total : "\(total), \(sinTranscribir) sin transcribir"
-}
-
 enum RowAction: Identifiable {
     case removeAudio(StoredRecording)
     case discard(StoredRecording)
@@ -65,7 +59,7 @@ struct LibraryWindow: View {
                     ContentUnavailableView(
                         "Elige una grabacion",
                         systemImage: "waveform",
-                        description: Text(librarySummary(model)))
+                        description: Text(librarySummary(of: model.recordings.map(\.status))))
                 }
             }
             .navigationTitle("Biblioteca")
@@ -126,12 +120,11 @@ struct LibraryWindow: View {
     private func dialogMessage(_ action: RowAction) -> String {
         switch action {
         case .removeAudio(let recording):
-            FileManager.default.fileExists(
-                atPath: recording.sourceURL.path(percentEncoded: false))
-                ? "Se borra la copia de la biblioteca; el original en su carpeta se conserva y las transcripciones se quedan."
-                : "El original ya no existe: sin la copia, el audio se pierde del todo. Las transcripciones se quedan."
+            RowActionText.removeAudio(
+                originalExists: FileManager.default.fileExists(
+                    atPath: recording.sourceURL.path(percentEncoded: false)))
         case .discard:
-            "Desaparecen la fila, sus transcripciones y la copia de audio. El fichero original en su carpeta no se toca, pero la grabacion no volvera a aparecer en la biblioteca."
+            RowActionText.discard
         }
     }
 

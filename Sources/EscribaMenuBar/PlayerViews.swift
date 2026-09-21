@@ -14,7 +14,7 @@ struct PlayerBar: View {
             }
             .buttonStyle(.plain)
 
-            Text(timestamp(player.currentTime))
+            Text(clockStamp(player.currentTime))
                 .monospacedDigit()
                 .foregroundStyle(.secondary)
 
@@ -24,7 +24,7 @@ struct PlayerBar: View {
                     set: { player.seek(to: $0, thenPlay: player.isPlaying) }),
                 in: 0...max(player.duration, 0.01))
 
-            Text(timestamp(player.duration))
+            Text(clockStamp(player.duration))
                 .monospacedDigit()
                 .foregroundStyle(.secondary)
         }
@@ -32,10 +32,6 @@ struct PlayerBar: View {
         .padding(.vertical, 8)
     }
 
-    private func timestamp(_ time: TimeInterval) -> String {
-        let whole = Int(time.rounded(.down))
-        return String(format: "%d:%02d", whole / 60, whole % 60)
-    }
 }
 
 struct KaraokeView: View {
@@ -59,7 +55,7 @@ struct KaraokeView: View {
     @ViewBuilder
     private func turn(_ segment: TranscriptSegment, at index: Int) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            if let speaker = segment.speaker, speaker != speakerBefore(index) {
+            if let speaker = segment.speaker, transcript.startsNewSpeaker(at: index) {
                 Text(speaker)
                     .font(.caption.bold())
                     .foregroundStyle(.secondary)
@@ -88,9 +84,6 @@ struct KaraokeView: View {
         }
     }
 
-    private func speakerBefore(_ index: Int) -> String? {
-        index > 0 ? transcript.segments[index - 1].speaker : nil
-    }
 }
 
 struct FlowLayout: Layout {

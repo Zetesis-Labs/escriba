@@ -1,4 +1,5 @@
 import Foundation
+import EscribaEngine
 import Observation
 import EscribaNotion
 
@@ -137,12 +138,10 @@ public final class AppSettings {
         didSet { defaults.set(txtFolderPath, forKey: Keys.txtFolder) }
     }
     public var watchedFolders: [WatchedFolder] {
-        didSet {
-            defaults.set(try? JSONEncoder().encode(watchedFolders), forKey: Keys.watchedFolders)
-        }
+        didSet { persist(watchedFolders, forKey: Keys.watchedFolders) }
     }
     public var connectors: [Connector] {
-        didSet { defaults.set(try? JSONEncoder().encode(connectors), forKey: Keys.connectors) }
+        didSet { persist(connectors, forKey: Keys.connectors) }
     }
 
     @ObservationIgnored private let defaults: UserDefaults
@@ -174,7 +173,15 @@ public final class AppSettings {
             root: voiceMemos,
             alreadySeeded: defaults.bool(forKey: Keys.voiceMemosSeeded))
         if voiceMemos != nil { defaults.set(true, forKey: Keys.voiceMemosSeeded) }
-        defaults.set(try? JSONEncoder().encode(watchedFolders), forKey: Keys.watchedFolders)
+        persist(watchedFolders, forKey: Keys.watchedFolders)
+    }
+
+    private func persist(_ value: some Encodable, forKey key: String) {
+        do {
+            defaults.set(try JSONEncoder().encode(value), forKey: key)
+        } catch {
+            Log.error("no se pudo guardar el ajuste \(key): \(error)")
+        }
     }
 
     public var languageCode: String? {

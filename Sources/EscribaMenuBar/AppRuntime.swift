@@ -224,7 +224,7 @@ final class AppRuntime {
     private func journal(for store: Store, connector: String) -> NotionJournal {
         NotionJournal(
             known: { key in
-                guard let publication = (try? store.recording(for: key))??.publication(in: connector),
+                guard let publication = try store.recording(for: key)?.publication(in: connector),
                     let pageId = publication.pageId
                 else { return nil }
                 return NotionPageRef(id: pageId, url: publication.url)

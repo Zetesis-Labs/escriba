@@ -1,12 +1,13 @@
 #if os(macOS)
 import CoreServices
 import Foundation
+import Synchronization
 
-public final class DirectoryWatcher: @unchecked Sendable {
+public final class DirectoryWatcher: Sendable {
     private let root: URL
     private let onRelevantChange: @Sendable () -> Void
     private let queue = DispatchQueue(label: "dev.ruben.escriba.fsevents")
-    private var stream: FSEventStreamRef?
+    private let stream = Mutex<FSEventStreamRef?>(nil)
 
     public init(root: URL, onRelevantChange: @escaping @Sendable () -> Void) {
         self.root = root
@@ -14,6 +15,17 @@ public final class DirectoryWatcher: @unchecked Sendable {
     }
 
     public func start() {
+        let previous = stream.withLock { current -> FSEventStreamRef? in
+            guard let created = createStream() else { return nil }
+            FSEventStreamSetDispatchQueue(created, queue)
+            FSEventStreamStart(created)
+            defer { current = created }
+            return current
+        }
+        previous.map(release)
+    }
+
+    private func createStream() -> FSEventStreamRef? {
         var context = FSEventStreamContext(
             version: 0,
             info: Unmanaged.passUnretained(self).toOpaque(),
@@ -33,7 +45,7 @@ public final class DirectoryWatcher: @unchecked Sendable {
             }
         }
 
-        guard let stream = FSEventStreamCreate(
+        return FSEventStreamCreate(
             kCFAllocatorDefault,
             callback,
             &context,
@@ -42,19 +54,21 @@ public final class DirectoryWatcher: @unchecked Sendable {
             1.0,
             FSEventStreamCreateFlags(
                 kFSEventStreamCreateFlagFileEvents | kFSEventStreamCreateFlagNoDefer)
-        ) else { return }
-
-        self.stream = stream
-        FSEventStreamSetDispatchQueue(stream, queue)
-        FSEventStreamStart(stream)
+        )
     }
 
     public func stop() {
-        guard let stream else { return }
+        let current = stream.withLock { current in
+            defer { current = nil }
+            return current
+        }
+        current.map(release)
+    }
+
+    private func release(_ stream: FSEventStreamRef) {
         FSEventStreamStop(stream)
         FSEventStreamInvalidate(stream)
         FSEventStreamRelease(stream)
-        self.stream = nil
     }
 }
 #endif

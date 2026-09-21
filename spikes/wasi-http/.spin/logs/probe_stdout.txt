@@ -1,0 +1,2 @@
+GET https://api.notion.com/v1/users/me -> 401
+GET https://www.swift.org/ -> 200

@@ -103,27 +103,42 @@ public final class LibraryModel {
         guard let transcript = try await store.transcript(for: recording.key) else {
             throw LibraryModelError.nothingToPublish
         }
-        await send(transcript, for: recording.key, to: connector)
+        try await send(transcript, for: recording.key, to: connector)
     }
 
     private func republish(_ transcript: Transcript, for key: String) async {
-        guard let stored = try? store.recording(for: key) else { return }
-        for publication in stored.publications where publication.isPublished {
-            await send(transcript, for: key, to: publication.connector)
+        let publications: [Publication]
+        do {
+            publications = try store.recording(for: key)?.publications ?? []
+        } catch {
+            report("no se pudo saber donde estaba publicada \(key)", error)
+            return
+        }
+        for publication in publications where publication.isPublished {
+            do {
+                try await send(transcript, for: key, to: publication.connector)
+            } catch {
+                report("no se pudo republicar \(key) en \(publication.connector)", error)
+            }
         }
     }
 
-    private func send(_ transcript: Transcript, for key: String, to connector: String) async {
-        guard let publish = publishers[connector], let stored = try? store.recording(for: key)
-        else { return }
+    private func send(_ transcript: Transcript, for key: String, to connector: String) async throws {
+        guard let publish = publishers[connector] else { throw LibraryModelError.connectorUnavailable }
+        guard let stored = try store.recording(for: key) else { throw LibraryModelError.unknownRecording }
         let ticket = "\(connector)/\(key)"
         guard !publishing.contains(ticket) else { return }
 
         publishing.insert(ticket)
         defer { publishing.remove(ticket) }
 
-        _ = try? await publish(
+        _ = try await publish(
             Recording(url: stored.sourceURL, startedAt: stored.startedAt, key: key), transcript)
+    }
+
+    private func report(_ what: String, _ error: Error) {
+        Log.error("\(what): \(error)")
+        status = .problem("\(what): \(error)")
     }
 
     public func isPublishing(_ key: String, to connector: String) -> Bool {
@@ -165,12 +180,14 @@ public enum LibraryModelError: Error, CustomStringConvertible {
     case reprocessUnavailable
     case connectorUnavailable
     case nothingToPublish
+    case unknownRecording
 
     public var description: String {
         switch self {
         case .reprocessUnavailable: "esta app no tiene motor de reprocesado configurado"
         case .connectorUnavailable: "ese conector no esta activo en Ajustes"
         case .nothingToPublish: "esta grabacion aun no tiene transcripcion"
+        case .unknownRecording: "esta grabacion ya no esta en la biblioteca"
         }
     }
 }

@@ -19,39 +19,6 @@ private func waitUntil(
     }
 }
 
-@Suite("Senal de despertar")
-struct WakeSignalTests {
-    @Test("una senal previa despierta el siguiente wait al instante")
-    func senalPrevia() async {
-        let waker = WakeSignal()
-        await waker.signal()
-
-        let start = Date()
-        let woken = await waker.wait(upTo: 5)
-
-        #expect(woken)
-        #expect(Date().timeIntervalSince(start) < 1)
-    }
-
-    @Test("sin senal, el plazo vence y devuelve false")
-    func vencimiento() async {
-        let waker = WakeSignal()
-        #expect(await waker.wait(upTo: 0.05) == false)
-    }
-
-    @Test("una senal en mitad de la espera despierta con true, sin agotar el plazo")
-    func senalDurante() async throws {
-        let waker = WakeSignal()
-        let start = Date()
-        async let woken = waker.wait(upTo: 10)
-        try await Task.sleep(for: .milliseconds(50))
-        await waker.signal()
-
-        #expect(await woken)
-        #expect(Date().timeIntervalSince(start) < 5)
-    }
-}
-
 private final class Counter: Sendable {
     private let count = Mutex(0)
 

@@ -1,7 +1,8 @@
 import Foundation
+import Synchronization
 import EscribaCore
 
-public final class DaemonController: @unchecked Sendable {
+public final class DaemonController: Sendable {
     public static let reconcileInterval: TimeInterval = 300
     public static let retryInterval: TimeInterval = 10
     public static let debounce: TimeInterval = 3
@@ -12,8 +13,12 @@ public final class DaemonController: @unchecked Sendable {
     private let debounce: TimeInterval
     private let watch: FolderWatcher
     private let waker = WakeSignal()
-    private var loop: Task<Void, Never>?
-    private var watches: [FolderWatch] = []
+    private let running = Mutex<Running?>(nil)
+
+    private struct Running: Sendable {
+        let loop: Task<Void, Never>
+        let watches: [FolderWatch]
+    }
 
     public init(
         pipeline: Pipeline,
@@ -30,7 +35,7 @@ public final class DaemonController: @unchecked Sendable {
     }
 
     public func start() {
-        watches = pipeline.source.locations.map { location in
+        let watches = pipeline.source.locations.map { location in
             watch(location) { [waker] in
                 Log.debug("evento de fichero")
                 Task { await waker.signal() }
@@ -44,7 +49,12 @@ public final class DaemonController: @unchecked Sendable {
             "vigilando \(paths) [\(pipeline.source.name)] (reconciliacion cada \(Int(reconcileInterval))s)"
         )
 
-        loop = Task { await run() }
+        let loop = Task { await run() }
+        let previous = running.withLock { current in
+            defer { current = Running(loop: loop, watches: watches) }
+            return current
+        }
+        previous.map(release)
     }
 
     public func wake() {
@@ -52,10 +62,16 @@ public final class DaemonController: @unchecked Sendable {
     }
 
     public func stop() {
-        loop?.cancel()
-        loop = nil
-        watches.forEach { $0.stop() }
-        watches = []
+        let current = running.withLock { current in
+            defer { current = nil }
+            return current
+        }
+        current.map(release)
+    }
+
+    private func release(_ running: Running) {
+        running.loop.cancel()
+        running.watches.forEach { $0.stop() }
     }
 
     private func run() async {

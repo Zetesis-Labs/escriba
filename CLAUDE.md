@@ -188,5 +188,14 @@ Directriz (2026-08-31): usar lo último del lenguaje, cada cosa donde paga.
   canImport(ObjectiveC)`.
 - `isolated deinit` con el aislamiento por defecto del target compila en
   debug pero **release exige el `@MainActor` explícito en la clase**.
+- Un valor no `Sendable` (`OpaquePointer` de SQLite, `FSEventStreamRef`) puede
+  vivir dentro de un `Mutex`, pero no puede quedar referenciado fuera del
+  `withLock`: se crea, se arranca y se guarda dentro del mismo bloque, y solo
+  sale el valor anterior para liberarlo. Así `Ledger`, `DirectoryWatcher` y
+  `DaemonController` son `Sendable` sin `@unchecked`.
+- `EscribaEngineTests` prueba `Pipeline` y `Daemon` contra puertos falsos
+  (`Fakes.swift`: `MemoryLedger`, `source(_:)`, `FakeWatcher`); los tests de
+  `EscribaSystemKitTests` son la integración con el host real. Un
+  comportamiento nuevo del motor se prueba primero en Engine.
 - El modelo se descarga solo tras 5 min sin trabajo (`IdleUnloader`); el RSS
   no vuelve del todo (malloc retiene páginas), pero los objetos se liberan.

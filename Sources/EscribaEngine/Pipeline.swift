@@ -59,12 +59,20 @@ public struct Pipeline: Sendable {
                 break
             } catch {
                 Log.error("fallo procesando \(recording.key): \(error)")
-                try? ledger.markFailed(recording.key, recording.url, "\(error)")
+                recordFailure(of: recording, error)
                 onEvent?(.failed(key: recording.key, reason: "\(error)"))
             }
         }
 
         return PassOutcome(processed: processed, deferred: deferred)
+    }
+
+    private func recordFailure(of recording: Recording, _ error: Error) {
+        do {
+            try ledger.markFailed(recording.key, recording.url, "\(error)")
+        } catch let ledgerError {
+            Log.error("el ledger no pudo anotar el fallo de \(recording.key): \(ledgerError)")
+        }
     }
 
     private func process(_ recording: Recording) async throws -> Bool {

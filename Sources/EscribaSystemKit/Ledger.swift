@@ -26,7 +26,7 @@ public struct LedgerFailure: Sendable {
     public let error: String
 }
 
-public final class Ledger: @unchecked Sendable {
+public final class Ledger: Sendable {
     public static let maxAttempts = 5
     public static let retryBackoff: TimeInterval = 600
 
@@ -37,8 +37,7 @@ public final class Ledger: @unchecked Sendable {
             markFailed: { key, source, error in try self.markFailed(key: key, source: source, error: error) })
     }
 
-    private let db: OpaquePointer
-    private let lock = Mutex(())
+    private let connection: Mutex<OpaquePointer>
 
     public init(path: URL) throws {
         try FileManager.default.createDirectory(
@@ -48,7 +47,7 @@ public final class Ledger: @unchecked Sendable {
         guard sqlite3_open(path.path(percentEncoded: false), &handle) == SQLITE_OK,
               let handle
         else { throw LedgerError.cannotOpen(path.path(percentEncoded: false)) }
-        db = handle
+        connection = Mutex(handle)
 
         try execute("PRAGMA journal_mode=WAL")
         try execute("""
@@ -64,10 +63,10 @@ public final class Ledger: @unchecked Sendable {
             """)
     }
 
-    deinit { sqlite3_close(db) }
+    deinit { connection.withLock { sqlite3_close($0) } }
 
     public func settledKeys(now: Date = Date()) throws -> Set<String> {
-        try lock.withLock { _ in
+        try connection.withLock { db in
             let sql = """
                 SELECT key FROM transcriptions
                 WHERE status = 'done'
@@ -76,7 +75,7 @@ public final class Ledger: @unchecked Sendable {
                 """
             var statement: OpaquePointer?
             guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
-                throw LedgerError.query(lastMessage)
+                throw LedgerError.query(lastMessage(db))
             }
             defer { sqlite3_finalize(statement) }
 
@@ -129,12 +128,12 @@ public final class Ledger: @unchecked Sendable {
     }
 
     public func counts() throws -> [String: Int] {
-        try lock.withLock { _ in
+        try connection.withLock { db in
             var statement: OpaquePointer?
             guard sqlite3_prepare_v2(
                 db, "SELECT status, COUNT(*) FROM transcriptions GROUP BY status", -1, &statement,
                 nil) == SQLITE_OK
-            else { throw LedgerError.query(lastMessage) }
+            else { throw LedgerError.query(lastMessage(db)) }
             defer { sqlite3_finalize(statement) }
 
             var result: [String: Int] = [:]
@@ -148,14 +147,14 @@ public final class Ledger: @unchecked Sendable {
     }
 
     public func failures() throws -> [LedgerFailure] {
-        try lock.withLock { _ in
+        try connection.withLock { db in
             let sql = """
                 SELECT key, attempts, COALESCE(last_error, '') FROM transcriptions
                 WHERE status = 'failed' ORDER BY updated_at DESC
                 """
             var statement: OpaquePointer?
             guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
-                throw LedgerError.query(lastMessage)
+                throw LedgerError.query(lastMessage(db))
             }
             defer { sqlite3_finalize(statement) }
 
@@ -175,14 +174,14 @@ public final class Ledger: @unchecked Sendable {
     }
 
     public func doneRecords() throws -> [LedgerRecord] {
-        try lock.withLock { _ in
+        try connection.withLock { db in
             let sql = """
                 SELECT key, source_path, output_path FROM transcriptions
                 WHERE status = 'done' ORDER BY key
                 """
             var statement: OpaquePointer?
             guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
-                throw LedgerError.query(lastMessage)
+                throw LedgerError.query(lastMessage(db))
             }
             defer { sqlite3_finalize(statement) }
 
@@ -202,15 +201,15 @@ public final class Ledger: @unchecked Sendable {
     }
 
     private func write(_ sql: String, bindings: (OpaquePointer) -> Void) throws {
-        try lock.withLock { _ in
+        try connection.withLock { db in
             var statement: OpaquePointer?
             guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK, let statement
-            else { throw LedgerError.query(lastMessage) }
+            else { throw LedgerError.query(lastMessage(db)) }
             defer { sqlite3_finalize(statement) }
 
             bindings(statement)
             guard sqlite3_step(statement) == SQLITE_DONE else {
-                throw LedgerError.query(lastMessage)
+                throw LedgerError.query(lastMessage(db))
             }
         }
     }
@@ -220,12 +219,14 @@ public final class Ledger: @unchecked Sendable {
     }
 
     private func execute(_ sql: String) throws {
-        guard sqlite3_exec(db, sql, nil, nil, nil) == SQLITE_OK else {
-            throw LedgerError.query(lastMessage)
+        try connection.withLock { db in
+            guard sqlite3_exec(db, sql, nil, nil, nil) == SQLITE_OK else {
+                throw LedgerError.query(lastMessage(db))
+            }
         }
     }
 
-    private var lastMessage: String {
+    private func lastMessage(_ db: OpaquePointer) -> String {
         String(cString: sqlite3_errmsg(db))
     }
 }

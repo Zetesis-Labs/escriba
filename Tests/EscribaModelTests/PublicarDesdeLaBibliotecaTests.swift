@@ -23,6 +23,8 @@ private nonisolated func grabacion(in base: URL, key: String) throws -> Recordin
     return Recording(url: url, startedAt: Date(timeIntervalSince1970: 1_000_000), key: key)
 }
 
+private enum FakeError: Error { case caido }
+
 private final class Publicador: Sendable {
     let enviados = Mutex<[String]>([])
 
@@ -64,6 +66,38 @@ struct PublicarDesdeLaBibliotecaTests {
             try await modelo.publish(guardada, to: "c1")
         }
         #expect(!modelo.canPublish(to: "c1"))
+    }
+
+    @Test("si el conector falla al publicar a mano, el error llega al que pulso el boton")
+    func publicarFalla() async throws {
+        let (base, store) = try sandbox()
+        let guardada = try store.save(
+            try grabacion(in: base, key: "a"), Transcript(text: "Hola"), backend: "wk")
+        let roto: Sink = { _, _ in throw FakeError.caido }
+        let modelo = LibraryModel(store: store, publishers: ["c1": roto])
+
+        await #expect(throws: FakeError.self) {
+            try await modelo.publish(guardada, to: "c1")
+        }
+        #expect(!modelo.isPublishing("a", to: "c1"))
+    }
+
+    @Test("si republicar tras una correccion falla, la biblioteca lo cuenta en su estado")
+    func republicarFalla() async throws {
+        let (base, store) = try sandbox()
+        _ = try store.save(try grabacion(in: base, key: "a"), Transcript(text: "Hola"), backend: "wk")
+        try store.markPublished(key: "a", connector: "c1", pageId: "pg-1", url: nil, at: .now)
+        let roto: Sink = { _, _ in throw FakeError.caido }
+        let modelo = LibraryModel(store: store, publishers: ["c1": roto])
+
+        try await modelo.applyCorrection(Transcript(text: "Hola corregido"), to: "a")
+
+        guard case .problem(let detalle) = modelo.status else {
+            Issue.record("el estado deberia ser un problema, es \(modelo.status)")
+            return
+        }
+        #expect(detalle.contains("c1"))
+        #expect(detalle.contains("caido"))
     }
 
     @Test("corregir hablantes reescribe la pagina que ya existia en Notion")

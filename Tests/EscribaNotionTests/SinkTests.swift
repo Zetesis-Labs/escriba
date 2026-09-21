@@ -17,6 +17,8 @@ private func exportacion() -> NotionExport {
     return NotionExport(source: fuente, mapping: suggestedMapping(for: fuente))
 }
 
+private enum DiarioError: Error { case roto }
+
 private final class Diario: Sendable {
     let anotado = Mutex<[String]>([])
 
@@ -71,6 +73,27 @@ struct NotionSinkTests {
 
         #expect(salida == grabacion.url)
         #expect(diario.registro == ["error(a, Notion rechaza el token. Revísalo en Ajustes.)"])
+    }
+
+    @Test("si no puede saber si la pagina ya existia, no publica (evitaria duplicarla) y lo anota")
+    func diarioIlegible() async throws {
+        let diario = Diario()
+        let creadas = Mutex(0)
+        var journal = diario.journal
+        journal.known = { _ in throw DiarioError.roto }
+        let sink = notionSink(
+            export: exportacion(),
+            client: client { _ in
+                creadas.withLock { $0 += 1 }
+                return NotionPageRef(id: "pg-1", url: nil)
+            },
+            journal: journal)
+
+        let salida = try await sink(grabacion, Transcript(text: "Hola"))
+
+        #expect(salida == grabacion.url)
+        #expect(creadas.withLock { $0 } == 0)
+        #expect(diario.registro.first?.hasPrefix("error(a, no se pudo consultar si ya estaba publicado") == true)
     }
 
     @Test("combinado con los demas sinks, el de Notion nunca rompe la cadena")

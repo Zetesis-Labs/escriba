@@ -4,12 +4,12 @@ import EscribaCore
 import EscribaEngine
 
 public struct NotionJournal: Sendable {
-    public var known: @Sendable (String) -> NotionPageRef?
+    public var known: @Sendable (String) throws -> NotionPageRef?
     public var published: @Sendable (String, NotionPageRef, Date) -> Void
     public var failed: @Sendable (String, String) -> Void
 
     public init(
-        known: @escaping @Sendable (String) -> NotionPageRef? = { _ in nil },
+        known: @escaping @Sendable (String) throws -> NotionPageRef? = { _ in nil },
         published: @escaping @Sendable (String, NotionPageRef, Date) -> Void,
         failed: @escaping @Sendable (String, String) -> Void
     ) {
@@ -29,10 +29,19 @@ public func notionSink(
     now: @escaping @Sendable () -> Date = Date.init
 ) -> Sink {
     { recording, transcript in
+        let known: NotionPageRef?
+        do {
+            known = try journal.known(recording.key)
+        } catch {
+            let problem = "no se pudo consultar si ya estaba publicado: \(error)"
+            journal.failed(recording.key, problem)
+            Log.error("\(recording.key) no se publico en Notion: \(problem)")
+            return recording.url
+        }
         do {
             let page = try await publish(
                 recording, transcript, as: export, using: client,
-                known: journal.known(recording.key), timeZone: timeZone)
+                known: known, timeZone: timeZone)
             journal.published(recording.key, page, now())
             Log.info("\(recording.key) publicado en Notion")
             return page.url ?? recording.url
