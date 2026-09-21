@@ -160,20 +160,30 @@ public final class AppSettings {
         txtFolderPath = defaults.string(forKey: Keys.txtFolder)
             ?? FileManager.default.homeDirectoryForCurrentUser
                 .appending(path: "Documents/Transcripciones JPR").path(percentEncoded: false)
-        let stored = defaults.data(forKey: Keys.watchedFolders)
-            .flatMap { try? JSONDecoder().decode([WatchedFolder].self, from: $0) }
+        let stored = Self.restore([WatchedFolder].self, from: defaults, key: Keys.watchedFolders)
             ?? recorderRoot.map {
                 [WatchedFolder(path: $0.path(percentEncoded: false), style: .justPressRecord)]
             } ?? []
 
-        connectors = defaults.data(forKey: Keys.connectors)
-            .flatMap { try? JSONDecoder().decode([Connector].self, from: $0) } ?? []
+        connectors = Self.restore([Connector].self, from: defaults, key: Keys.connectors) ?? []
         watchedFolders = seededWithVoiceMemos(
             stored,
             root: voiceMemos,
             alreadySeeded: defaults.bool(forKey: Keys.voiceMemosSeeded))
         if voiceMemos != nil { defaults.set(true, forKey: Keys.voiceMemosSeeded) }
         persist(watchedFolders, forKey: Keys.watchedFolders)
+    }
+
+    private static func restore<Value: Decodable>(
+        _ type: Value.Type, from defaults: UserDefaults, key: String
+    ) -> Value? {
+        guard let data = defaults.data(forKey: key) else { return nil }
+        do {
+            return try JSONDecoder().decode(type, from: data)
+        } catch {
+            Log.error("el ajuste \(key) guardado no se pudo leer y se ignora: \(error)")
+            return nil
+        }
     }
 
     private func persist(_ value: some Encodable, forKey key: String) {
