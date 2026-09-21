@@ -87,6 +87,12 @@ struct LibraryModelTests {
             return
         }
 
+        await sandbox.model.apply(.transcribed(key: "otra", transcript: Transcript(text: "t"), output: salida))
+        guard case .problem = sandbox.model.status else {
+            Issue.record("una transcripcion ajena no debe borrar el problema, hay \(sandbox.model.status)")
+            return
+        }
+
         await sandbox.model.apply(.idle(scanned: 3))
         guard case .problem = sandbox.model.status else {
             Issue.record("el idle tapo el problema")

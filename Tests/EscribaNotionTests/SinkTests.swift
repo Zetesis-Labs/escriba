@@ -61,17 +61,17 @@ struct NotionSinkTests {
         #expect(diario.registro == ["ok(a, pg-1)"])
     }
 
-    @Test("si Notion falla el pipeline sigue y el fallo queda anotado para reintentar")
-    func fallaSinTumbar() async throws {
+    @Test("si Notion falla, lo anota para reintentar y propaga el error a quien publico")
+    func fallaYLoDice() async throws {
         let diario = Diario()
         let sink = notionSink(
             export: exportacion(),
             client: client { _ throws(NotionError) in throw NotionError.unauthorized },
             journal: diario.journal)
 
-        let salida = try await sink(grabacion, Transcript(text: "Hola"))
-
-        #expect(salida == grabacion.url)
+        await #expect(throws: NotionError.self) {
+            try await sink(grabacion, Transcript(text: "Hola"))
+        }
         #expect(diario.registro == ["error(a, Notion rechaza el token. Revísalo en Ajustes.)"])
     }
 
@@ -89,22 +89,22 @@ struct NotionSinkTests {
             },
             journal: journal)
 
-        let salida = try await sink(grabacion, Transcript(text: "Hola"))
-
-        #expect(salida == grabacion.url)
+        await #expect(throws: DiarioError.self) {
+            try await sink(grabacion, Transcript(text: "Hola"))
+        }
         #expect(creadas.withLock { $0 } == 0)
         #expect(diario.registro.first?.hasPrefix("error(a, no se pudo consultar si ya estaba publicado") == true)
     }
 
-    @Test("combinado con los demas sinks, el de Notion nunca rompe la cadena")
+    @Test("en el pipeline va envuelto en forgiving: el fallo queda anotado y la cadena sigue")
     func noRompeLaCadena() async throws {
         let diario = Diario()
         let combinado = sinks(
             primary: { recording, _ in recording.url },
-            also: notionSink(
+            also: forgiving(notionSink(
                 export: exportacion(),
                 client: client { _ throws(NotionError) in throw NotionError.rateLimited },
-                journal: diario.journal))
+                journal: diario.journal)))
 
         let salida = try await combinado(grabacion, Transcript(text: "Hola"))
 

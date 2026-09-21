@@ -121,8 +121,11 @@ ad-hoc y puede caducar.
   columna-por-dato, su plantilla del cuerpo (`/comandos`) e interruptor. El
   rastro de publicación es por conector (tabla `publication`). Reprocesar o
   corregir **regenera** la página en cada conector donde estaba (mismo
-  enlace). Un fallo del conector nunca tumba el pipeline: se anota y se
-  reintenta desde la fila.
+  enlace). Un fallo del conector nunca tumba el pipeline: `notionSink`
+  lo anota en el diario **y lo lanza**, y es `forgiving(_:)` (en la
+  composición de sinks del pipeline, `AppRuntime.sink(for:)`) quien lo traga
+  para que la pasada siga. «Publicar» a mano usa el sink sin envolver, así
+  el error llega al usuario.
 - **Token del usuario, no OAuth**: para un binario que cada uno se baja, OAuth
   obligaría a un backend con `client_secret`. Cada usuario crea su conexión
   «Token de acceso» en Notion y le comparte las bases.

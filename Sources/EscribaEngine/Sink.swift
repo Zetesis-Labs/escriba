@@ -31,3 +31,14 @@ public func sinks(primary: @escaping Sink, all secondaries: [Sink]) -> Sink {
         return output
     }
 }
+
+public func forgiving(_ sink: @escaping Sink) -> Sink {
+    { recording, transcript in
+        do {
+            return try await sink(recording, transcript)
+        } catch {
+            Log.error("\(recording.key): un destino fallo y se deja para reintentar: \(error)")
+            return recording.url
+        }
+    }
+}

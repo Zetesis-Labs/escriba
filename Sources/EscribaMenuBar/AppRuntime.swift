@@ -197,7 +197,7 @@ final class AppRuntime {
 
     private func sink(for store: Store) -> Sink {
         let librarySink = store.sink(backend: WhisperKitBackend.name)
-        let extras = Array(publishers(for: store).values)
+        let extras = publishers(for: store).values.map(forgiving)
 
         guard settings.writeTxt else {
             return sinks(primary: librarySink, all: extras)

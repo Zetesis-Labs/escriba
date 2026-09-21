@@ -39,4 +39,17 @@ struct SinkTests {
             try await combinado(grabacion, Transcript(text: "hola"))
         }
     }
+
+    @Test("forgiving se traga el fallo del sink, devuelve la URL de la grabacion y deja seguir la cadena")
+    func forgivingNoRompe() async throws {
+        let trace = Trace<String>()
+        let roto: Sink = { _, _ in throw TranscriptionError.failed("sin red") }
+        let combinado = sinks(primary: namedSink("txt", into: trace), also: forgiving(roto), namedSink("otro", into: trace))
+
+        let salida = try await combinado(grabacion, Transcript(text: "hola"))
+
+        #expect(salida == URL(fileURLWithPath: "/tmp/txt"))
+        #expect(trace.values == ["txt", "otro"])
+        #expect(try await forgiving(roto)(grabacion, Transcript(text: "hola")) == grabacion.url)
+    }
 }

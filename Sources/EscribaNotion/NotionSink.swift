@@ -36,7 +36,7 @@ public func notionSink(
             let problem = "no se pudo consultar si ya estaba publicado: \(error)"
             journal.failed(recording.key, problem)
             Log.error("\(recording.key) no se publico en Notion: \(problem)")
-            return recording.url
+            throw error
         }
         do {
             let page = try await publish(
@@ -48,7 +48,7 @@ public func notionSink(
         } catch let error as NotionError {
             journal.failed(recording.key, error.message)
             Log.error("\(recording.key) no se publico en Notion: \(error.message)")
-            return recording.url
+            throw error
         }
     }
 }
