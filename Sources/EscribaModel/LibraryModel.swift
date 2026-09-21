@@ -8,17 +8,20 @@ import Observation
 public typealias Reprocessor = @Sendable (URL, TranscriptionOptions) async throws -> Transcript
 public typealias TranscriptWriter = @Sendable (String, Transcript) throws -> Void
 public typealias Unpublisher = @Sendable (String) async throws -> Void
+public typealias Digester = @Sendable (Transcript) async throws -> Digest
 
 @Observable
 public final class LibraryModel {
     public private(set) var recordings: [StoredRecording] = []
     public private(set) var reprocessing: Set<String> = []
+    public private(set) var summarizing: Set<String> = []
     public private(set) var publishing: Set<String> = []
     public var status: WatcherStatus = .starting
     public private(set) var scanned = 0
 
     private let store: Store
     @ObservationIgnored private let reprocess: Reprocessor?
+    @ObservationIgnored private let digester: Digester?
     @ObservationIgnored private let writeText: TranscriptWriter?
     @ObservationIgnored private let publishers: [String: Sink]
     @ObservationIgnored private let unpublishers: [String: Unpublisher]
@@ -27,12 +30,14 @@ public final class LibraryModel {
     public init(
         store: Store,
         reprocess: Reprocessor? = nil,
+        digester: Digester? = nil,
         writeText: TranscriptWriter? = nil,
         publishers: [String: Sink] = [:],
         unpublishers: [String: Unpublisher] = [:]
     ) {
         self.store = store
         self.reprocess = reprocess
+        self.digester = digester
         self.writeText = writeText
         self.publishers = publishers
         self.unpublishers = unpublishers
@@ -106,9 +111,39 @@ public final class LibraryModel {
     }
 
     public func applyCorrection(_ corrected: Transcript, to key: String) async throws {
-        try await store.addTranscript(corrected, for: key, backend: "correccion")
+        let digest = try await store.digest(for: key)
+        try await store.addTranscript(corrected, for: key, backend: "correccion", digest: digest)
         refreshText(corrected, for: key)
-        await republish(corrected, for: key)
+        await republish(corrected, digest: digest, for: key)
+    }
+
+    public var canSummarize: Bool { digester != nil }
+
+    public func isSummarizing(_ key: String) -> Bool { summarizing.contains(key) }
+
+    @discardableResult
+    public func summarize(_ recording: StoredRecording) async throws -> Digest {
+        guard let digester else { throw LibraryModelError.summaryUnavailable }
+        guard let transcript = try await store.transcript(for: recording.key) else {
+            throw LibraryModelError.nothingToSummarize
+        }
+        guard !summarizing.contains(recording.key) else { throw LibraryModelError.alreadySummarizing }
+
+        summarizing.insert(recording.key)
+        defer { summarizing.remove(recording.key) }
+
+        let digest = try await digester(transcript)
+        try await store.setDigest(digest, for: recording.key)
+        await republish(transcript, digest: digest, for: recording.key)
+        return digest
+    }
+
+    public func forgetSummary(_ key: String) async throws {
+        try await store.setDigest(nil, for: key)
+    }
+
+    public func digest(for key: String) async throws -> Digest? {
+        try await store.digest(for: key)
     }
 
     public func publish(_ recording: StoredRecording, to connector: String) async throws {
@@ -116,10 +151,12 @@ public final class LibraryModel {
         guard let transcript = try await store.transcript(for: recording.key) else {
             throw LibraryModelError.nothingToPublish
         }
-        try await send(transcript, for: recording.key, to: connector)
+        try await send(
+            transcript, digest: try await store.digest(for: recording.key), for: recording.key,
+            to: connector)
     }
 
-    private func republish(_ transcript: Transcript, for key: String) async {
+    private func republish(_ transcript: Transcript, digest: Digest?, for key: String) async {
         let publications: [Publication]
         do {
             publications = try store.recording(for: key)?.publications ?? []
@@ -129,14 +166,16 @@ public final class LibraryModel {
         }
         for publication in publications where publication.isPublished {
             do {
-                try await send(transcript, for: key, to: publication.connector)
+                try await send(transcript, digest: digest, for: key, to: publication.connector)
             } catch {
                 report("no se pudo republicar \(key) en \(publication.connector)", error)
             }
         }
     }
 
-    private func send(_ transcript: Transcript, for key: String, to connector: String) async throws {
+    private func send(
+        _ transcript: Transcript, digest: Digest?, for key: String, to connector: String
+    ) async throws {
         guard let publish = publishers[connector] else { throw LibraryModelError.connectorUnavailable }
         guard let stored = try store.recording(for: key) else { throw LibraryModelError.unknownRecording }
         let ticket = "\(connector)/\(key)"
@@ -146,7 +185,10 @@ public final class LibraryModel {
         defer { publishing.remove(ticket) }
 
         _ = try await publish(
-            Recording(url: stored.sourceURL, startedAt: stored.startedAt, key: key), transcript)
+            Note(
+                recording: Recording(url: stored.sourceURL, startedAt: stored.startedAt, key: key),
+                transcript: transcript,
+                digest: digest))
     }
 
     private func report(_ what: String, _ error: Error) {
@@ -183,10 +225,21 @@ public final class LibraryModel {
         defer { reprocessing.remove(recording.key) }
 
         let transcript = try await reprocess(recording.audioURL, options)
+        let digest = await summarized(transcript, for: recording.key)
         try await store.addTranscript(
-            transcript, for: recording.key, backend: "reprocesado", options: options)
+            transcript, for: recording.key, backend: "reprocesado", options: options, digest: digest)
         refreshText(transcript, for: recording.key)
-        await republish(transcript, for: recording.key)
+        await republish(transcript, digest: digest, for: recording.key)
+    }
+
+    private func summarized(_ transcript: Transcript, for key: String) async -> Digest? {
+        guard let digester else { return nil }
+        do {
+            return try await digester(transcript)
+        } catch {
+            Log.error("\(key) se transcribio, pero no se pudo resumir: \(error)")
+            return nil
+        }
     }
 
     public func versions(for key: String) async throws -> [TranscriptVersion] {
@@ -197,12 +250,15 @@ public final class LibraryModel {
         try await store.choose(version: version, for: key)
         guard let transcript = try await store.transcript(for: key) else { return }
         refreshText(transcript, for: key)
-        await republish(transcript, for: key)
+        await republish(transcript, digest: try await store.digest(for: key), for: key)
     }
 }
 
 public enum LibraryModelError: Error, CustomStringConvertible {
     case reprocessUnavailable
+    case summaryUnavailable
+    case nothingToSummarize
+    case alreadySummarizing
     case connectorUnavailable
     case nothingToPublish
     case unknownRecording
@@ -211,6 +267,9 @@ public enum LibraryModelError: Error, CustomStringConvertible {
     public var description: String {
         switch self {
         case .reprocessUnavailable: "esta app no tiene motor de reprocesado configurado"
+        case .summaryUnavailable: "los resumenes automaticos estan apagados en Ajustes"
+        case .nothingToSummarize: "esta grabacion aun no tiene transcripcion que resumir"
+        case .alreadySummarizing: "ya se esta resumiendo esta grabacion"
         case .connectorUnavailable: "ese conector no esta activo en Ajustes"
         case .nothingToPublish: "esta grabacion aun no tiene transcripcion"
         case .unknownRecording: "esta grabacion ya no esta en la biblioteca"

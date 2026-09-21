@@ -91,6 +91,15 @@ private func value(
         return .object(["url": .string(URL(fileURLWithPath: page.source).absoluteString)])
     case (.source, _):
         return .object(["rich_text": richText(page.source)])
+    case (.summary, _):
+        guard let summary = page.summary, !summary.isEmpty else { return nil }
+        return .object(["rich_text": richText(summary)])
+    case (.tags, "multi_select"):
+        guard !page.tags.isEmpty else { return nil }
+        return .object(["multi_select": .array(page.tags.map { .object(["name": .string($0)]) })])
+    case (.tags, _):
+        guard !page.tags.isEmpty else { return nil }
+        return .object(["rich_text": richText(page.tags.joined(separator: ", "))])
     }
 }
 

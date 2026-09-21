@@ -103,7 +103,7 @@ struct PipelineTests {
         let pipeline = Pipeline(
             source: source([recording("a")]), ledger: ledger.port,
             backend: backend { _ in Transcript(text: "x") },
-            sink: { _, _ in throw FakeError.sinkBroken })
+            sink: { _ in throw FakeError.sinkBroken })
 
         let outcome = try await pipeline.runOnce()
 

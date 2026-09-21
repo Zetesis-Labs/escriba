@@ -28,7 +28,8 @@ public func notionSink(
     timeZone: TimeZone = .current,
     now: @escaping @Sendable () -> Date = Date.init
 ) -> Sink {
-    { recording, transcript in
+    { note in
+        let recording = note.recording
         let known: NotionPageRef?
         do {
             known = try journal.known(recording.key)
@@ -40,8 +41,7 @@ public func notionSink(
         }
         do {
             let page = try await publish(
-                recording, transcript, as: export, using: client,
-                known: known, timeZone: timeZone)
+                note, as: export, using: client, known: known, timeZone: timeZone)
             journal.published(recording.key, page, now())
             Log.info("\(recording.key) publicado en Notion")
             return page.url ?? recording.url

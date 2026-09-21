@@ -73,10 +73,24 @@ struct TranscriptRow: Codable, FetchableRecord, MutablePersistableRecord {
     var diarize: Bool
     var speakerCount: Int?
     var optionsKnown: Bool
+    var digestTitle: String?
+    var digestSummary: String?
+    var digestTags: String?
 
     enum Columns {
         static let id = Column(CodingKeys.id)
         static let recordingId = Column(CodingKeys.recordingId)
+    }
+
+    var digest: Digest? {
+        guard let digestTitle, let digestSummary else { return nil }
+        return Digest(title: digestTitle, summary: digestSummary, tags: decodedTags(digestTags))
+    }
+
+    mutating func carry(_ digest: Digest?) {
+        digestTitle = digest?.title
+        digestSummary = digest?.summary
+        digestTags = digest.map { encodedTags($0.tags) }
     }
 
     var options: TranscriptionOptions? {
@@ -148,6 +162,16 @@ struct PublicationRow: Codable, FetchableRecord, MutablePersistableRecord {
             syncedAt: syncedAt,
             error: error)
     }
+}
+
+func encodedTags(_ tags: [String]) -> String {
+    guard let data = try? JSONEncoder().encode(tags) else { return "[]" }
+    return String(decoding: data, as: UTF8.self)
+}
+
+func decodedTags(_ raw: String?) -> [String] {
+    guard let data = raw.map({ Data($0.utf8) }) else { return [] }
+    return (try? JSONDecoder().decode([String].self, from: data)) ?? []
 }
 
 func makeMigrator() -> DatabaseMigrator {
@@ -227,6 +251,13 @@ func makeMigrator() -> DatabaseMigrator {
         guard !columns.contains("optionsKnown") else { return }
         try db.alter(table: "transcript") { t in
             t.add(column: "optionsKnown", .boolean).notNull().defaults(to: false)
+        }
+    }
+    migrator.registerMigration("v6-resumen") { db in
+        try db.alter(table: "transcript") { t in
+            t.add(column: "digestTitle", .text)
+            t.add(column: "digestSummary", .text)
+            t.add(column: "digestTags", .text)
         }
     }
     return migrator

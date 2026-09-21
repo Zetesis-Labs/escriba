@@ -2,6 +2,7 @@ import Foundation
 import EscribaCore
 import EscribaEngine
 import EscribaSystemKit
+import EscribaIntelligence
 import EscribaStore
 import EscribaWhisper
 
@@ -24,6 +25,7 @@ struct Options {
     var diarize = false
     var source = "jpr"
     var speakerCount: Int?
+    var summarize = false
 }
 
 func fail(_ message: String) -> Never {
@@ -51,6 +53,7 @@ func parseOptions() -> Options {
         case "--library": options.library = URL(fileURLWithPath: value("--library"))
         case "--language": options.language = value("--language")
         case "--speakers": options.diarize = true
+        case "--resumir": options.summarize = true
         case "--source": options.source = value("--source")
         case "--speakers-count":
             guard let count = Int(value("--speakers-count")), count > 0 else {
@@ -76,6 +79,7 @@ func parseOptions() -> Options {
                   --library <ruta>   biblioteca: SQLite con las transcripciones y copia del audio
                   --language <cod>   idioma ISO 639-1 (por defecto: es)
                   --speakers         detecta hablantes (diarizacion)
+                  --resumir          titulo, resumen y etiquetas con el modelo del sistema
                   --speakers-count N si sabes cuantos hablan, fijalo
                   --source <nombre>  jpr (por defecto) o folder (cualquier audio)
                   -v, --verbose      log detallado
@@ -100,6 +104,13 @@ func makeSource(_ options: Options) -> RecordingSource {
     case "folder": folderSource(name: "carpeta", root: options.root)
     default: justPressRecordSource(root: options.root)
     }
+}
+
+func makeEnricher(_ options: Options) -> Enricher? {
+    guard options.summarize else { return nil }
+    let summarizer = AppleIntelligence.summarizer()
+    if let problem = summarizer.availability().problem { fail("no se puede resumir: \(problem)") }
+    return enricher(summarizer, language: options.language == "auto" ? nil : options.language)
 }
 
 func makeBackend(_ options: Options) -> TranscriptionBackend {
@@ -165,7 +176,8 @@ do {
         backend: backend,
         sink: sinks(
             primary: sidecarTextSink(outputRoot: options.output),
-            also: library.sink(backend: backend.name))
+            also: library.sink(backend: backend.name)),
+        enrich: makeEnricher(options)
     )
 
     if options.command == "once" {

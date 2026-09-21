@@ -9,6 +9,7 @@ public struct Pipeline: Sendable {
     public let backend: TranscriptionBackend
     public let sink: Sink
     public let readiness: ReadinessProbe
+    public let enrich: Enricher?
     public let onEvent: EventHandler?
 
     public init(
@@ -17,6 +18,7 @@ public struct Pipeline: Sendable {
         backend: TranscriptionBackend,
         sink: @escaping Sink,
         readiness: @escaping ReadinessProbe = { _ in .ready },
+        enrich: Enricher? = nil,
         onEvent: EventHandler? = nil
     ) {
         self.source = source
@@ -24,6 +26,7 @@ public struct Pipeline: Sendable {
         self.backend = backend
         self.sink = sink
         self.readiness = readiness
+        self.enrich = enrich
         self.onEvent = onEvent
     }
 
@@ -98,7 +101,9 @@ public struct Pipeline: Sendable {
             return false
         }
 
-        let output = try await sink(recording, transcript)
+        let note = Note(
+            recording: recording, transcript: transcript, digest: await enrich?(transcript))
+        let output = try await sink(note)
         try ledger.markDone(recording.key, recording.url, output)
         onEvent?(.transcribed(key: recording.key, transcript: transcript, output: output))
 

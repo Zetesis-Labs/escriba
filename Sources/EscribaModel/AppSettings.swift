@@ -132,6 +132,9 @@ public final class AppSettings {
     public var notifyEveryNote: Bool {
         didSet { defaults.set(notifyEveryNote, forKey: Keys.notifyEveryNote) }
     }
+    public var summarize: Bool {
+        didSet { defaults.set(summarize, forKey: Keys.summarize) }
+    }
     public var writeTxt: Bool {
         didSet { defaults.set(writeTxt, forKey: Keys.writeTxt) }
     }
@@ -157,6 +160,7 @@ public final class AppSettings {
         diarization = Diarization(
             storageValue: defaults.object(forKey: Keys.diarization) as? Int ?? -1)
         notifyEveryNote = defaults.object(forKey: Keys.notifyEveryNote) as? Bool ?? true
+        summarize = defaults.object(forKey: Keys.summarize) as? Bool ?? false
         writeTxt = defaults.object(forKey: Keys.writeTxt) as? Bool ?? true
         txtFolderPath = defaults.string(forKey: Keys.txtFolder)
             ?? FileManager.default.homeDirectoryForCurrentUser
@@ -245,6 +249,7 @@ public final class AppSettings {
         static let language = "language"
         static let diarization = "diarization"
         static let notifyEveryNote = "notifyEveryNote"
+        static let summarize = "summarize"
         static let writeTxt = "writeTxt"
         static let txtFolder = "txtFolder"
         static let watchedFolders = "watchedFolders"

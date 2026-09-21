@@ -7,6 +7,8 @@ public enum NotionField: String, CaseIterable, Sendable, Codable {
     case duration
     case key
     case source
+    case summary
+    case tags
 
     public var label: String {
         switch self {
@@ -16,6 +18,8 @@ public enum NotionField: String, CaseIterable, Sendable, Codable {
         case .duration: "Duración (segundos)"
         case .key: "Clave de la grabación"
         case .source: "Fichero de origen"
+        case .summary: "Resumen"
+        case .tags: "Etiquetas"
         }
     }
 
@@ -27,6 +31,8 @@ public enum NotionField: String, CaseIterable, Sendable, Codable {
         case .duration: ["number", "rich_text"]
         case .key: ["rich_text"]
         case .source: ["url", "rich_text"]
+        case .summary: ["rich_text"]
+        case .tags: ["multi_select", "rich_text"]
         }
     }
 
@@ -38,6 +44,8 @@ public enum NotionField: String, CaseIterable, Sendable, Codable {
         case .duration: ["duracion", "duration", "segundo", "length", "largo"]
         case .key: ["clave", "key", "id", "identificador"]
         case .source: ["origen", "source", "fichero", "archivo", "ruta", "audio"]
+        case .summary: ["resumen", "summary", "sintesis", "abstract"]
+        case .tags: ["etiqueta", "tag", "tema", "categoria", "topic"]
         }
     }
 }

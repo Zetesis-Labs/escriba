@@ -118,7 +118,8 @@ struct PlantillaTests {
             template: BodyTemplate([.audio, .transcript(.speakers)]))
         let grabacion = Recording(url: URL(fileURLWithPath: "/Notas/a.m4a"), startedAt: .now, key: "a")
 
-        _ = try await publish(grabacion, diarizada, as: export, using: client)
+        _ = try await publish(
+            Note(recording: grabacion, transcript: diarizada), as: export, using: client)
 
         #expect(registro.withLock { $0 } == ["subir:a.m4a", "crear:audio"])
     }

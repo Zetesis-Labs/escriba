@@ -1,3 +1,5 @@
+import EscribaEngine
+import EscribaIntelligence
 import EscribaModel
 import EscribaNotion
 import EscribaWhisper
@@ -64,6 +66,8 @@ private struct GeneralTab: View {
 private struct TranscriptionTab: View {
     @Bindable var settings: AppSettings
 
+    private var summaries: SummaryAvailability { AppleIntelligence.availability() }
+
     var body: some View {
         Form {
             Picker("Idioma", selection: $settings.language) {
@@ -82,6 +86,24 @@ private struct TranscriptionTab: View {
             Text("Detectar hablantes cuesta unos segundos mas por nota.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+
+            Section("Titulo, resumen y etiquetas") {
+                Toggle("Resumir cada nota con el modelo del sistema", isOn: $settings.summarize)
+                if let problem = summaries.problem {
+                    Label(
+                        "Ahora mismo no se puede resumir: \(problem).",
+                        systemImage: "exclamationmark.triangle"
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                } else {
+                    Text(
+                        "Apple Intelligence resume en el propio Mac: nada del audio ni del texto sale de aqui."
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
+            }
 
             Section("Copia en texto plano") {
                 Toggle("Escribir tambien un .txt", isOn: $settings.writeTxt)
@@ -532,6 +554,7 @@ private struct TemplateEditor: View {
     private func symbol(for block: TemplateBlock) -> String {
         switch block {
         case .text: "text.alignleft"
+        case .summary: "text.badge.star"
         case .heading: "textformat.size"
         case .transcript: "text.quote"
         case .audio: "waveform"

@@ -30,6 +30,7 @@ struct EnVivoTests {
         let audio = entorno["ESCRIBA_NOTION_AUDIO"].map { URL(fileURLWithPath: $0) }
         let ficha: [TemplateBlock] = [
             .heading("Ficha"), .field(.date), .field(.speakers), .field(.duration),
+            .field(.tags), .summary,
         ] + (audio == nil ? [] : [.audio])
         let export = NotionExport(
             source: base, mapping: mapeo, template: BodyTemplate(ficha + [.transcript(.timestamps)]))
@@ -49,8 +50,13 @@ struct EnVivoTests {
                     text: "Turno \(turno) de la verificación en vivo de Escriba contra Notion."))
         }
         let larga = Transcript(segments: segmentos)
+        let resumen = Digest(
+            title: "Verificación en vivo de Escriba",
+            summary: "Rubén y Aritz se turnan para comprobar que la publicación en Notion funciona.",
+            tags: ["verificación", "notion"])
+        let nota = Note(recording: grabacion, transcript: larga, digest: resumen)
 
-        let primera = try await publish(grabacion, larga, as: export, using: client)
+        let primera = try await publish(nota, as: export, using: client)
         print("CREADA:", primera.id, primera.url?.absoluteString ?? "sin url")
         #expect(primera.url != nil)
         #expect(try await client.childBlocks(primera.id).count == esperados)
@@ -59,7 +65,8 @@ struct EnVivoTests {
         var regenerada = export
         regenerada.template = BodyTemplate(ficha + [.transcript(.speakers)])
         let segunda = try await publish(
-            grabacion, corregida, as: regenerada, using: client, known: primera)
+            Note(recording: grabacion, transcript: corregida, digest: resumen), as: regenerada,
+            using: client, known: primera)
         #expect(segunda.id == primera.id)
         #expect(try await client.childBlocks(segunda.id).count == esperados)
         print("REESCRITA:", segunda.id)

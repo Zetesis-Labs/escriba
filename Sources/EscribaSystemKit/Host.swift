@@ -10,6 +10,7 @@ extension Pipeline {
         sink: @escaping Sink,
         settleSeconds: TimeInterval = 15,
         materializeTimeout: TimeInterval = 300,
+        enrich: Enricher? = nil,
         onEvent: EventHandler? = nil
     ) {
         self.init(
@@ -18,6 +19,7 @@ extension Pipeline {
             backend: backend,
             sink: sink,
             readiness: fileReadiness(settleSeconds: settleSeconds, materializeTimeout: materializeTimeout),
+            enrich: enrich,
             onEvent: onEvent)
     }
 }

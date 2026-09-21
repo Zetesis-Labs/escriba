@@ -217,6 +217,7 @@ struct RecordingRowView: View {
                 Spacer(minLength: 4)
                 StatusChip(status: recording.status)
             }
+            summaryLine
             HStack(spacing: 10) {
                 originTag
                 transcriptTag
@@ -244,6 +245,18 @@ struct RecordingRowView: View {
         case .justPressRecord: "record.circle"
         case .voiceMemos: "waveform"
         case .any: "folder"
+        }
+    }
+
+    @ViewBuilder private var summaryLine: some View {
+        if let digest = recording.digest {
+            HStack(spacing: 6) {
+                Image(systemName: "sparkles")
+                Text(digest.title).lineLimit(1).truncationMode(.tail)
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .help(digest.summary)
         }
     }
 
@@ -293,6 +306,47 @@ struct RecordingRowView: View {
         .font(.caption)
         .foregroundStyle(.secondary)
         .help(help)
+    }
+}
+
+struct SummaryCard: View {
+    let digest: Digest?
+    let busy: Bool
+    let canSummarize: Bool
+    let onSummarize: () -> Void
+
+    var body: some View {
+        if busy {
+            HStack(spacing: 8) {
+                ProgressView().controlSize(.small)
+                Text("Resumiendo…").foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        } else if let digest {
+            VStack(alignment: .leading, spacing: 8) {
+                Label(digest.title, systemImage: "sparkles")
+                    .font(.headline)
+                Text(digest.summary)
+                    .textSelection(.enabled)
+                if !digest.tags.isEmpty {
+                    HStack(spacing: 6) {
+                        ForEach(digest.tags, id: \.self) { tag in
+                            Text(tag)
+                                .font(.caption)
+                                .padding(.horizontal, 7)
+                                .padding(.vertical, 2)
+                                .background(.quaternary, in: Capsule())
+                        }
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(12)
+            .background(.quinary, in: RoundedRectangle(cornerRadius: 10))
+        } else if canSummarize {
+            Button("Resumir con el modelo del sistema", systemImage: "sparkles", action: onSummarize)
+                .buttonStyle(.bordered)
+        }
     }
 }
 
@@ -360,7 +414,7 @@ struct TranscriptDetail: View {
                     .padding()
             }
         }
-        .navigationTitle(recording.title)
+        .navigationTitle(recording.headline)
         .navigationSubtitle(subtitle)
         .task(id: recording.key) {
             await reload()
@@ -416,6 +470,12 @@ struct TranscriptDetail: View {
                 .disabled(txtTarget == .unavailable)
             Button("Copiar la transcripcion") { copyToPasteboard(transcript?.rendered) }
                 .disabled(transcript == nil)
+            Button(recording.digest == nil ? "Resumir con el modelo del sistema" : "Rehacer el resumen") {
+                summarize()
+            }
+            .disabled(!model.canSummarize || transcript == nil || model.isSummarizing(recording.key))
+            Button("Quitar el resumen") { forgetSummary() }
+                .disabled(recording.digest == nil)
             Button("Copiar el JSON") { copyJSON() }
                 .disabled(transcript == nil)
             Divider()
@@ -569,6 +629,26 @@ struct TranscriptDetail: View {
         renameTarget = nil
     }
 
+    private func summarize() {
+        Task {
+            do {
+                try await model.summarize(recording)
+            } catch {
+                actionError = "\(error)"
+            }
+        }
+    }
+
+    private func forgetSummary() {
+        Task {
+            do {
+                try await model.forgetSummary(recording.key)
+            } catch {
+                actionError = "\(error)"
+            }
+        }
+    }
+
     private func reprocess(_ options: TranscriptionOptions) {
         Task {
             do {
@@ -590,10 +670,17 @@ struct TranscriptDetail: View {
         if let failure {
             Text("No se pudo leer: \(failure)")
         } else if let transcript {
-            KaraokeView(
-                transcript: transcript,
-                position: transcript.position(at: player.currentTime),
-                onSeek: { player.seek(to: $0) })
+            VStack(alignment: .leading, spacing: 14) {
+                SummaryCard(
+                    digest: recording.digest,
+                    busy: model.isSummarizing(recording.key),
+                    canSummarize: model.canSummarize,
+                    onSummarize: summarize)
+                KaraokeView(
+                    transcript: transcript,
+                    position: transcript.position(at: player.currentTime),
+                    onSeek: { player.seek(to: $0) })
+            }
         } else {
             statusPlaceholder
         }

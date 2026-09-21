@@ -54,9 +54,9 @@ private func backend(
 }
 
 private func capturingSink(into spy: Spy<String>, output: URL) -> Sink {
-    { recording, transcript in
-        spy.append(transcript.text)
-        return output.appending(path: "\(recording.key).txt")
+    { note in
+        spy.append(note.transcript.text)
+        return output.appending(path: "\(note.recording.key).txt")
     }
 }
 

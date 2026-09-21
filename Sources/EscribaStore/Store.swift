@@ -49,6 +49,13 @@ public struct StoredRecording: Sendable, Equatable, Identifiable {
     public var title: String {
         sourceURL.deletingPathExtension().lastPathComponent
     }
+
+    public var digest: Digest? { transcript?.digest }
+
+    public var headline: String {
+        guard let title = digest?.title, !title.isEmpty else { return self.title }
+        return title
+    }
 }
 
 public struct Publication: Sendable, Equatable {
@@ -106,15 +113,18 @@ public struct TranscriptSummary: Sendable, Equatable {
     public let speakerCount: Int
     public let version: Int
     public let versionCount: Int
+    public let digest: Digest?
 
     public init(
-        backend: String, isSegmented: Bool, speakerCount: Int, version: Int = 1, versionCount: Int = 1
+        backend: String, isSegmented: Bool, speakerCount: Int, version: Int = 1,
+        versionCount: Int = 1, digest: Digest? = nil
     ) {
         self.backend = backend
         self.isSegmented = isSegmented
         self.speakerCount = speakerCount
         self.version = version
         self.versionCount = versionCount
+        self.digest = digest
     }
 }
 
@@ -135,7 +145,7 @@ public final class Store: Sendable {
     @discardableResult
     public func save(
         _ recording: Recording, _ transcript: Transcript, backend: String,
-        options: TranscriptionOptions? = nil
+        options: TranscriptionOptions? = nil, digest: Digest? = nil
     ) throws -> StoredRecording {
         let audioPath = "audio/\(recording.key).\(recording.url.pathExtension)"
         try copyAudio(from: recording.url, to: root.appending(path: audioPath))
@@ -165,7 +175,9 @@ public final class Store: Sendable {
             }
             guard let recordingId = row.id else { throw StoreError.missingRowID }
 
-            try Self.insert(transcript, recordingId: recordingId, backend: backend, options: options, in: db)
+            try Self.insert(
+                transcript, recordingId: recordingId, backend: backend, options: options,
+                digest: digest, in: db)
             let count = try TranscriptRow.filter(TranscriptRow.Columns.recordingId == recordingId).fetchCount(db)
             return row.stored(
                 in: root,
@@ -174,22 +186,50 @@ public final class Store: Sendable {
                     isSegmented: transcript.isSegmented,
                     speakerCount: transcript.speakers.count,
                     version: count,
-                    versionCount: count))
+                    versionCount: count,
+                    digest: digest))
         }
     }
 
     public func addTranscript(
         _ transcript: Transcript, for key: String, backend: String,
-        options: TranscriptionOptions? = nil
+        options: TranscriptionOptions? = nil, digest: Digest? = nil
     ) async throws {
         try await writer.write { db in
-            try Self.attach(transcript, to: key, backend: backend, options: options, in: db)
+            try Self.attach(
+                transcript, to: key, backend: backend, options: options, digest: digest, in: db)
         }
+    }
+
+    public func setDigest(_ digest: Digest?, for key: String) async throws {
+        try await writer.write { db in
+            guard var row = try Self.currentTranscript(of: key, in: db) else {
+                throw StoreError.unknownRecording(key)
+            }
+            row.carry(digest)
+            try row.update(db)
+        }
+    }
+
+    public func digest(for key: String) async throws -> Digest? {
+        try await writer.read { db in try Self.currentTranscript(of: key, in: db)?.digest }
+    }
+
+    private static func currentTranscript(of key: String, in db: Database) throws -> TranscriptRow? {
+        guard
+            let recording = try RecordingRow.filter(RecordingRow.Columns.key == key).fetchOne(db),
+            let recordingId = recording.id
+        else { return nil }
+        var query = TranscriptRow.filter(TranscriptRow.Columns.recordingId == recordingId)
+        if let current = recording.currentTranscriptId {
+            query = query.filter(TranscriptRow.Columns.id == current)
+        }
+        return try query.order(TranscriptRow.Columns.id.desc).fetchOne(db)
     }
 
     func attachTranscript(_ transcript: Transcript, for key: String, backend: String) throws {
         try writer.write { db in
-            try Self.attach(transcript, to: key, backend: backend, options: nil, in: db)
+            try Self.attach(transcript, to: key, backend: backend, options: nil, digest: nil, in: db)
         }
     }
 
@@ -232,13 +272,15 @@ public final class Store: Sendable {
 
     private static func attach(
         _ transcript: Transcript, to key: String, backend: String,
-        options: TranscriptionOptions?, in db: Database
+        options: TranscriptionOptions?, digest: Digest?, in db: Database
     ) throws {
         guard
             var row = try RecordingRow.filter(RecordingRow.Columns.key == key).fetchOne(db),
             let recordingId = row.id
         else { throw StoreError.unknownRecording(key) }
-        try Self.insert(transcript, recordingId: recordingId, backend: backend, options: options, in: db)
+        try Self.insert(
+            transcript, recordingId: recordingId, backend: backend, options: options, digest: digest,
+            in: db)
         row.currentTranscriptId = nil
         if row.status != RecordingStatus.discarded.rawValue {
             row.status = RecordingStatus.done.rawValue
@@ -249,12 +291,14 @@ public final class Store: Sendable {
 
     private static func insert(
         _ transcript: Transcript, recordingId: Int64, backend: String,
-        options: TranscriptionOptions?, in db: Database
+        options: TranscriptionOptions?, digest: Digest?, in db: Database
     ) throws {
         var row = TranscriptRow(
             recordingId: recordingId, backend: backend, createdAt: Date(), text: transcript.text,
             language: options?.language, diarize: options?.diarize ?? false,
-            speakerCount: options?.speakerCount, optionsKnown: options != nil)
+            speakerCount: options?.speakerCount, optionsKnown: options != nil,
+            digestTitle: digest?.title, digestSummary: digest?.summary,
+            digestTags: digest.map { encodedTags($0.tags) })
         try row.insert(db)
         guard let transcriptId = row.id else { throw StoreError.missingRowID }
 
@@ -276,8 +320,11 @@ public final class Store: Sendable {
     }
 
     public func sink(backend: String, options: TranscriptionOptions? = nil) -> Sink {
-        { recording, transcript in
-            try self.save(recording, transcript, backend: backend, options: options).audioURL
+        { note in
+            try self.save(
+                note.recording, note.transcript, backend: backend, options: options,
+                digest: note.digest
+            ).audioURL
         }
     }
 
@@ -399,7 +446,9 @@ public final class Store: Sendable {
                 lastError: nil)
             try row.insert(db)
             guard let recordingId = row.id else { throw StoreError.missingRowID }
-            try Self.insert(transcript, recordingId: recordingId, backend: backend, options: nil, in: db)
+            try Self.insert(
+                transcript, recordingId: recordingId, backend: backend, options: nil, digest: nil,
+                in: db)
         }
     }
 
@@ -572,6 +621,8 @@ private func latestSummaries(_ db: Database) throws -> [Int64: TranscriptSummary
         db,
         sql: """
             SELECT t.recordingId AS recordingId, t.backend AS backend,
+                   t.digestTitle AS digestTitle, t.digestSummary AS digestSummary,
+                   t.digestTags AS digestTags,
                    COUNT(s.id) AS segments, COUNT(DISTINCT s.speaker) AS speakers,
                    (SELECT COUNT(*) FROM transcript v WHERE v.recordingId = r.id AND v.id <= t.id) AS version,
                    (SELECT COUNT(*) FROM transcript v WHERE v.recordingId = r.id) AS versionCount
@@ -589,8 +640,15 @@ private func latestSummaries(_ db: Database) throws -> [Int64: TranscriptSummary
             isSegmented: row["segments"] as Int > 0,
             speakerCount: row["speakers"],
             version: row["version"],
-            versionCount: row["versionCount"])
+            versionCount: row["versionCount"],
+            digest: digest(in: row))
     }
+}
+
+private func digest(in row: Row) -> Digest? {
+    guard let title: String = row["digestTitle"], let summary: String = row["digestSummary"]
+    else { return nil }
+    return Digest(title: title, summary: summary, tags: decodedTags(row["digestTags"]))
 }
 
 public enum StoreError: Error, CustomStringConvertible {

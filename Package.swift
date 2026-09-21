@@ -32,6 +32,7 @@ let package = Package(
                 .product(name: "GRDB", package: "GRDB.swift"),
             ]),
         .target(name: "EscribaNotion", dependencies: ["EscribaCore", "EscribaEngine"]),
+        .target(name: "EscribaIntelligence", dependencies: ["EscribaCore", "EscribaEngine"]),
         .target(
             name: "EscribaModel",
             dependencies: [
@@ -44,12 +45,13 @@ let package = Package(
             name: "escriba",
             dependencies: [
                 "EscribaCore", "EscribaEngine", "EscribaSystemKit", "EscribaWhisper", "EscribaStore",
+                "EscribaIntelligence",
             ]),
         .executableTarget(
             name: "EscribaMenuBar",
             dependencies: [
                 "EscribaCore", "EscribaEngine", "EscribaSystemKit", "EscribaWhisper", "EscribaStore",
-                "EscribaModel", "EscribaNotion",
+                "EscribaModel", "EscribaNotion", "EscribaIntelligence",
             ],
             swiftSettings: [.defaultIsolation(MainActor.self)]),
         .testTarget(name: "EscribaCoreTests", dependencies: ["EscribaCore"]),
@@ -62,6 +64,9 @@ let package = Package(
             dependencies: ["EscribaWhisper", "EscribaCore", "EscribaEngine", "EscribaSystemKit"]),
         .testTarget(
             name: "EscribaNotionTests", dependencies: ["EscribaNotion", "EscribaCore", "EscribaEngine"]),
+        .testTarget(
+            name: "EscribaIntelligenceTests",
+            dependencies: ["EscribaIntelligence", "EscribaCore", "EscribaEngine"]),
         .testTarget(
             name: "EscribaStoreTests",
             dependencies: ["EscribaStore", "EscribaCore", "EscribaEngine", "EscribaSystemKit"]),

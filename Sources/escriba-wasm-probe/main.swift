@@ -19,6 +19,13 @@ print("pendientes:", pending.map(\.key).joined(separator: ", "))
 print("siguiente pasada:", nextWakeInterval(
     after: PassOutcome(processed: 0, deferred: 1), retryInterval: 10, reconcileInterval: 300), "s")
 
+let resumen = Digest(
+    title: "El nucleo viaja",
+    summary: "Ruben y Aritz comprueban que el motor corre en WebAssembly.",
+    tags: ["wasi", "nucleo"])
+let trozos = digestChunks(of: transcript.rendered, maxCharacters: 30)
+print("trozos para resumir:", trozos.count, "| etiquetas:", normalizedTags(["#WASI", "wasi", "Nucleo"]).joined(separator: ", "))
+
 let base = NotionDataSource(
     id: "ds-wasi", databaseTitle: "Notas", title: "Notas",
     properties: [
@@ -27,8 +34,8 @@ let base = NotionDataSource(
     ])
 let export = NotionExport(
     source: base, mapping: suggestedMapping(for: base),
-    template: BodyTemplate([.field(.speakers), .transcript(.timestamps)]))
-let page = notionPage(for: recordings[0], transcript: transcript)
+    template: BodyTemplate([.field(.speakers), .summary, .field(.tags), .transcript(.timestamps)]))
+let page = notionPage(for: Note(recording: recordings[0], transcript: transcript, digest: resumen))
 let body = createPageBody(
     page.replacing(blocks: render(export.template, for: page, transcript: transcript, audio: nil)),
     in: export.source, mapping: export.mapping, timeZone: TimeZone(identifier: "UTC")!)

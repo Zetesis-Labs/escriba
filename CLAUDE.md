@@ -69,6 +69,7 @@ ad-hoc y puede caducar.
 | `EscribaNotion` | Conector Notion: esquema y mapeo, plantilla del cuerpo, cliente API sobre un transporte HTTP propio, publicación, sink | macOS, Linux, WASI | ninguna (URLSession solo fuera de WASI) |
 | `EscribaSystemKit` | Host de sistema: FSEvents (macOS) o sondeo (Linux), stat/iCloud/materialización, flock, `offloaded`, ledger SQLite, migración legacy | macOS, Linux | SQLite del sistema (`CSQLite` en Linux) |
 | `EscribaWhisper` | Backend WhisperKit + SpeakerKit | Apple | argmax-oss-swift |
+| `EscribaIntelligence` | Adaptador del puerto `Summarizer` con FoundationModels (titulo, resumen, etiquetas) | Apple | ninguna |
 | `EscribaStore` | Biblioteca SQLite + copia del audio + rastro de publicaciones | macOS, Linux | GRDB |
 | `EscribaModel` | Modelos observables de la UI (biblioteca, conectores, ajustes), token en fichero 0600 | macOS | |
 | `escriba` | CLI | macOS | |
@@ -77,8 +78,11 @@ ad-hoc y puede caducar.
 
 - **Los puertos son structs de funciones**, no protocolos ni herencia:
   `TranscriptionBackend`, `RecordingSource`, `Sink`, `LedgerPort`,
-  `NotionClient`, `NotionTransport`. Una implementación nueva es una función
-  `make(...)` que devuelve el struct.
+  `NotionClient`, `NotionTransport`, `Summarizer`. Una implementación nueva es
+  una función `make(...)` que devuelve el struct.
+- **Un destino recibe una `Note`** (`Recording` + `Transcript` + `Digest?`), no
+  una transcripción suelta: así el resumen llega a la biblioteca y a Notion sin
+  que el pipeline conozca a ninguno de los dos.
 - **Nada de Dispatch, CoreServices, `Process`, `URLSession` ni CoreFoundation
   en `EscribaCore`, `EscribaEngine` o `EscribaNotion`**: si lo necesitas, es
   un puerto y su implementación va a `EscribaSystemKit` (o al host que
@@ -135,6 +139,17 @@ ad-hoc y puede caducar.
   «Token de acceso» en Notion y le comparte las bases.
 - **La ventana de Ajustes no existe**: todo vive en la ventana principal
   (barra lateral Biblioteca / Conectores / Ajustes).
+- **Resumir es un puerto, no una dependencia** (Rubén, 2026-09-21): `Summarizer`
+  vive en `EscribaEngine` y recibe una `DigestRequest` (instrucciones +
+  petición, ambas decididas en `EscribaCore`) y devuelve un `Digest`. El
+  troceado de transcripciones largas y la reducción de los parciales son del
+  motor, no del adaptador: el adaptador solo declara su `capacity` y ejecuta
+  una petición. Hoy hay uno (`EscribaIntelligence`, FoundationModels en el
+  propio Mac); el de una cuenta compatible con OpenAI entra por el mismo hueco.
+  El resumen viene **apagado** por defecto.
+- **El resumen es de la versión, no de la grabación**: se guarda en la fila de
+  `transcript`, así elegir otra versión trae su resumen. Corregir hablantes lo
+  arrastra; reprocesar genera uno nuevo.
 - **La diarización se elige a mano** (decidido por Rubén 2026-09-04): el ajuste
   viene en `off` y el pipeline no diariza lo que entra. Se pide por grabación
   («Detectar hablantes») o por carpeta en Ajustes. No proponer activarla por
@@ -206,3 +221,13 @@ Directriz (2026-08-31): usar lo último del lenguaje, cada cosa donde paga.
   comportamiento nuevo del motor se prueba primero en Engine.
 - El modelo se descarga solo tras 5 min sin trabajo (`IdleUnloader`); el RSS
   no vuelve del todo (malloc retiene páginas), pero los objetos se liberan.
+- `SystemLanguageModel.availability` puede decir `.modelNotReady` aunque Apple
+  Intelligence esté activado: los pesos se bajan aparte y tardan. En el Mac de
+  Rubén está así (2026-09-21), por eso el ajuste de resúmenes se puede activar
+  igualmente y la interfaz explica por qué no resume todavía.
+- La ventana del modelo de Apple es pequeña (~4k tokens contando instrucciones
+  y salida): `AppleIntelligence.capacity` son 3500 caracteres por petición y lo
+  que no cabe se trocea y se reduce.
+- Un closure que se pasa a un puerto con `throws(SummaryError)` necesita la
+  anotación explícita (`{ request throws(SummaryError) in`): sin ella el
+  compilador infiere `any Error` y no compila.

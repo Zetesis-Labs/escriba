@@ -40,7 +40,24 @@ public struct NotionPage: Equatable, Sendable {
     public let speakers: [String]
     public let duration: TimeInterval?
     public let source: String
+    public let summary: String?
+    public let tags: [String]
     public let blocks: [NotionBlock]
+
+    init(
+        title: String, key: String, startedAt: Date, speakers: [String], duration: TimeInterval?,
+        source: String, summary: String? = nil, tags: [String] = [], blocks: [NotionBlock]
+    ) {
+        self.title = title
+        self.key = key
+        self.startedAt = startedAt
+        self.speakers = speakers
+        self.duration = duration
+        self.source = source
+        self.summary = summary
+        self.tags = tags
+        self.blocks = blocks
+    }
 }
 
 public enum NotionBodyStyle: String, CaseIterable, Sendable, Codable {
@@ -61,21 +78,33 @@ extension NotionPage {
     public func replacing(blocks: [NotionBlock]) -> NotionPage {
         NotionPage(
             title: title, key: key, startedAt: startedAt, speakers: speakers, duration: duration,
-            source: source, blocks: blocks)
+            source: source, summary: summary, tags: tags, blocks: blocks)
     }
 }
 
 public func notionPage(
-    for recording: Recording, transcript: Transcript, style: NotionBodyStyle = .speakers
+    for recording: Recording, transcript: Transcript, digest: Digest? = nil,
+    style: NotionBodyStyle = .speakers
 ) -> NotionPage {
     NotionPage(
-        title: notionTitle(key: recording.key, text: transcript.text),
+        title: pageTitle(digest: digest, key: recording.key, text: transcript.text),
         key: recording.key,
         startedAt: recording.startedAt,
         speakers: transcript.speakers,
         duration: transcript.duration,
         source: recording.url.path(percentEncoded: false),
+        summary: digest?.summary,
+        tags: digest?.tags ?? [],
         blocks: notionBlocks(for: transcript, style: style))
+}
+
+public func notionPage(for note: Note, style: NotionBodyStyle = .speakers) -> NotionPage {
+    notionPage(for: note.recording, transcript: note.transcript, digest: note.digest, style: style)
+}
+
+func pageTitle(digest: Digest?, key: String, text: String) -> String {
+    guard let title = digest?.title, !title.isEmpty else { return notionTitle(key: key, text: text) }
+    return title
 }
 
 public func notionBlocks(for transcript: Transcript, style: NotionBodyStyle) -> [NotionBlock] {

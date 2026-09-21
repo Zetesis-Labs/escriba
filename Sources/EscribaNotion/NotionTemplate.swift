@@ -5,6 +5,7 @@ public enum TemplateBlock: Equatable, Sendable, Codable, Hashable {
     case text(String)
     case heading(String)
     case transcript(NotionBodyStyle)
+    case summary
     case audio
     case field(NotionField)
 
@@ -18,6 +19,7 @@ public enum TemplateBlock: Equatable, Sendable, Codable, Hashable {
         case .text(let text): text
         case .heading(let text): text
         case .transcript(let style): "Transcripción · \(style.label.lowercased())"
+        case .summary: "Resumen"
         case .audio: "Audio"
         case .field(let field): field.label
         }
@@ -48,6 +50,8 @@ public let slashCommands: [SlashCommand] = [
     SlashCommand(command: "/transcripcion", block: .transcript(.speakers), help: "Un párrafo por hablante"),
     SlashCommand(command: "/transcripcion-tiempos", block: .transcript(.timestamps), help: "Con marca de tiempo"),
     SlashCommand(command: "/transcripcion-texto", block: .transcript(.plain), help: "Solo el texto"),
+    SlashCommand(command: "/resumen", block: .summary, help: "El resumen generado por el modelo"),
+    SlashCommand(command: "/etiquetas", block: .field(.tags), help: "Las etiquetas del resumen"),
     SlashCommand(command: "/audio", block: .audio, help: "El fichero de audio, reproducible"),
     SlashCommand(command: "/encabezado", block: .heading("Encabezado"), help: "Un encabezado"),
     SlashCommand(command: "/titulo", block: .field(.title), help: "El título de la grabación"),
@@ -80,6 +84,9 @@ public func render(
             return [NotionBlock(kind: .heading, runs: [NotionRun(text: text, bold: false)])]
         case .transcript(let style):
             return notionBlocks(for: transcript, style: style)
+        case .summary:
+            guard let summary = page.summary, !summary.isEmpty else { return [] }
+            return notionBlocks(for: Transcript(text: summary), style: .plain)
         case .audio:
             return audio.map { [NotionBlock(kind: .audio(uploadId: $0), runs: [])] } ?? []
         case .field(let field):
@@ -98,6 +105,8 @@ func fieldValue(_ field: NotionField, of page: NotionPage, timeZone: TimeZone) -
     case .duration: page.duration.map(clock)
     case .key: page.key
     case .source: page.source
+    case .summary: page.summary.flatMap { $0.isEmpty ? nil : $0 }
+    case .tags: page.tags.isEmpty ? nil : page.tags.joined(separator: ", ")
     }
 }
 

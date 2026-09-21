@@ -3,10 +3,18 @@ import EscribaModel
 import EscribaCore
 import EscribaEngine
 import EscribaSystemKit
+import EscribaIntelligence
 import EscribaNotion
 import EscribaStore
 import EscribaWhisper
 import Observation
+
+private func digester(_ summarizer: Summarizer?, language: String?) -> Digester? {
+    guard let summarizer else { return nil }
+    return { transcript in
+        try await summarizer.digest(of: transcript.rendered, language: language)
+    }
+}
 
 private func textWriter(into folder: URL?) -> TranscriptWriter? {
     guard let folder else { return nil }
@@ -79,12 +87,14 @@ final class AppRuntime {
         do {
             let store = try Store(root: Paths.defaultLibrary)
             let engine = WhisperKitEngine(language: settings.languageCode)
+            let summarizer = liveSummarizer()
 
             let model = LibraryModel(
                 store: store,
                 reprocess: { [engine] url, options in
                     try await engine.backend(options: options).transcribe(url)
                 },
+                digester: digester(summarizer, language: settings.languageCode),
                 writeText: textWriter(into: settings.txtFolder),
                 publishers: publishers(for: store),
                 unpublishers: unpublishers())
@@ -116,6 +126,7 @@ final class AppRuntime {
                     ledger: ledger,
                     backend: backend,
                     sink: sink(for: store, options: options),
+                    enrich: summarizer.map { enricher($0, language: settings.languageCode) },
                     onEvent: { continuation.yield($0) }
                 )
                 let controller = DaemonController(pipeline: pipeline)
@@ -179,6 +190,15 @@ final class AppRuntime {
             }
             return result
         }
+    }
+
+    private func liveSummarizer() -> Summarizer? {
+        guard settings.summarize else { return nil }
+        let summarizer = AppleIntelligence.summarizer()
+        if let problem = summarizer.availability().problem {
+            Log.error("los resumenes estan activados pero \(problem)")
+        }
+        return summarizer
     }
 
     private func reconcileLibrary(store: Store, ledger: Ledger) {
@@ -272,6 +292,7 @@ final class AppRuntime {
                     "\(settings.diarization.storageValue)",
                     "\(settings.writeTxt)",
                     settings.txtFolderPath,
+                    "\(settings.summarize)",
                     settings.watchedFolders
                         .map { "\($0.path):\($0.speakers ?? 0)" }.joined(separator: ","),
                     settings.connectors.map { connector in

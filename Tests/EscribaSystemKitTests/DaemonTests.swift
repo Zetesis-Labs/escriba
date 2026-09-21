@@ -41,7 +41,7 @@ private struct Sandbox {
             ledger: try Ledger(path: base.appending(path: "ledger.db")),
             backend: TranscriptionBackend(
                 name: "falso", transcribe: { _ in Transcript(text: "") }),
-            sink: { _, _ in base },
+            sink: { _ in base },
             onEvent: { [passes] event in
                 if case .idle = event { passes.bump() }
             }

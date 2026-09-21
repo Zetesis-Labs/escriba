@@ -7,8 +7,12 @@ import Testing
 private let grabacion = Recording(
     url: URL(fileURLWithPath: "/tmp/a.m4a"), startedAt: Date(), key: "2026-08-29/10-00-00")
 
+private func nota(_ text: String) -> Note {
+    Note(recording: grabacion, transcript: Transcript(text: text))
+}
+
 private func namedSink(_ name: String, into trace: Trace<String>) -> Sink {
-    { _, _ in
+    { _ in
         trace.append(name)
         return URL(fileURLWithPath: "/tmp/\(name)")
     }
@@ -23,7 +27,7 @@ struct SinkTests {
             primary: namedSink("txt", into: trace), also: namedSink("store", into: trace),
             namedSink("otro", into: trace))
 
-        let salida = try await combinado(grabacion, Transcript(text: "hola"))
+        let salida = try await combinado(nota("hola"))
 
         #expect(trace.values == ["txt", "store", "otro"])
         #expect(salida == URL(fileURLWithPath: "/tmp/txt"))
@@ -32,24 +36,24 @@ struct SinkTests {
     @Test("un fallo en cualquiera se propaga")
     func falloSePropaga() async {
         let trace = Trace<String>()
-        let roto: Sink = { _, _ in throw TranscriptionError.failed("disco lleno") }
+        let roto: Sink = { _ in throw TranscriptionError.failed("disco lleno") }
         let combinado = sinks(primary: namedSink("txt", into: trace), also: roto)
 
         await #expect(throws: TranscriptionError.self) {
-            try await combinado(grabacion, Transcript(text: "hola"))
+            try await combinado(nota("hola"))
         }
     }
 
     @Test("forgiving se traga el fallo del sink, devuelve la URL de la grabacion y deja seguir la cadena")
     func forgivingNoRompe() async throws {
         let trace = Trace<String>()
-        let roto: Sink = { _, _ in throw TranscriptionError.failed("sin red") }
+        let roto: Sink = { _ in throw TranscriptionError.failed("sin red") }
         let combinado = sinks(primary: namedSink("txt", into: trace), also: forgiving(roto), namedSink("otro", into: trace))
 
-        let salida = try await combinado(grabacion, Transcript(text: "hola"))
+        let salida = try await combinado(nota("hola"))
 
         #expect(salida == URL(fileURLWithPath: "/tmp/txt"))
         #expect(trace.values == ["txt", "otro"])
-        #expect(try await forgiving(roto)(grabacion, Transcript(text: "hola")) == grabacion.url)
+        #expect(try await forgiving(roto)(nota("hola")) == grabacion.url)
     }
 }

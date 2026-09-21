@@ -55,7 +55,7 @@ struct NotionSinkTests {
             client: client { _ in NotionPageRef(id: "pg-1", url: URL(string: "https://n/1")) },
             journal: diario.journal, now: { momento })
 
-        let salida = try await sink(grabacion, Transcript(text: "Hola"))
+        let salida = try await sink(Note(recording: grabacion, transcript: Transcript(text: "Hola")))
 
         #expect(salida == URL(string: "https://n/1"))
         #expect(diario.registro == ["ok(a, pg-1)"])
@@ -70,7 +70,7 @@ struct NotionSinkTests {
             journal: diario.journal)
 
         await #expect(throws: NotionError.self) {
-            try await sink(grabacion, Transcript(text: "Hola"))
+            try await sink(Note(recording: grabacion, transcript: Transcript(text: "Hola")))
         }
         #expect(diario.registro == ["error(a, Notion rechaza el token. Revísalo en Ajustes.)"])
     }
@@ -90,7 +90,7 @@ struct NotionSinkTests {
             journal: journal)
 
         await #expect(throws: DiarioError.self) {
-            try await sink(grabacion, Transcript(text: "Hola"))
+            try await sink(Note(recording: grabacion, transcript: Transcript(text: "Hola")))
         }
         #expect(creadas.withLock { $0 } == 0)
         #expect(diario.registro.first?.hasPrefix("error(a, no se pudo consultar si ya estaba publicado") == true)
@@ -100,13 +100,14 @@ struct NotionSinkTests {
     func noRompeLaCadena() async throws {
         let diario = Diario()
         let combinado = sinks(
-            primary: { recording, _ in recording.url },
+            primary: { note in note.recording.url },
             also: forgiving(notionSink(
                 export: exportacion(),
                 client: client { _ throws(NotionError) in throw NotionError.rateLimited },
                 journal: diario.journal)))
 
-        let salida = try await combinado(grabacion, Transcript(text: "Hola"))
+        let salida = try await combinado(
+            Note(recording: grabacion, transcript: Transcript(text: "Hola")))
 
         #expect(salida == grabacion.url)
         #expect(diario.registro.first?.hasPrefix("error(a,") == true)

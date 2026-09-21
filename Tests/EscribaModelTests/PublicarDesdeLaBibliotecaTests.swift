@@ -39,8 +39,8 @@ private final class Publicador: Sendable {
     let enviados = Mutex<[String]>([])
 
     var sink: Sink {
-        { recording, transcript in
-            self.enviados.withLock { $0.append("\(recording.key): \(transcript.rendered)") }
+        { note in
+            self.enviados.withLock { $0.append("\(note.recording.key): \(note.transcript.rendered)") }
             return URL(string: "https://notion.so/pg")!
         }
     }
@@ -83,7 +83,7 @@ struct PublicarDesdeLaBibliotecaTests {
         let (base, store) = try sandbox()
         let guardada = try store.save(
             try grabacion(in: base, key: "a"), Transcript(text: "Hola"), backend: "wk")
-        let roto: Sink = { _, _ in throw FakeError.caido }
+        let roto: Sink = { _ in throw FakeError.caido }
         let modelo = LibraryModel(store: store, publishers: ["c1": roto])
 
         await #expect(throws: FakeError.self) {
@@ -97,7 +97,7 @@ struct PublicarDesdeLaBibliotecaTests {
         let (base, store) = try sandbox()
         _ = try store.save(try grabacion(in: base, key: "a"), Transcript(text: "Hola"), backend: "wk")
         try store.markPublished(key: "a", connector: "c1", pageId: "pg-1", url: nil, at: .now)
-        let roto: Sink = { _, _ in throw FakeError.caido }
+        let roto: Sink = { _ in throw FakeError.caido }
         let modelo = LibraryModel(store: store, publishers: ["c1": roto])
 
         try await modelo.applyCorrection(Transcript(text: "Hola corregido"), to: "a")

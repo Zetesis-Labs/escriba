@@ -265,6 +265,31 @@ del demonio aunque la ventana estuviera cerrada cuando ocurrio.
 El `Ledger` (que decide que esta pendiente, con reintentos y backoff) sigue
 aparte a proposito: son dos preguntas distintas.
 
+## Titulo, resumen y etiquetas
+
+Con «Resumir cada nota con el modelo del sistema» (Ajustes → Transcripcion),
+cada nota transcrita pasa por el modelo de lenguaje del propio Mac
+(FoundationModels, Apple Intelligence) y sale con titulo, resumen de unas pocas
+frases y un punado de etiquetas. **Nada sale del Mac**: el modelo corre en el
+dispositivo. Requiere Apple Intelligence activo y su modelo descargado; si no
+lo esta, Ajustes lo dice y el resumen no se intenta.
+
+El resumen viaja con la version de la transcripcion que lo genero: si eliges
+otra version, vuelve el resumen de aquella. Se puede pedir a mano desde el
+detalle de una grabacion («Resumir con el modelo del sistema»), rehacerlo o
+quitarlo, y lo que cambie se republica en los conectores donde ya estuviera.
+El titulo del resumen es el que se usa en la biblioteca y como titulo de la
+pagina en Notion; las etiquetas van a una columna `multi_select` si la base la
+tiene.
+
+Resumir es un puerto (`Summarizer`), no una dependencia: hoy lo implementa
+`EscribaIntelligence` con el modelo de Apple, y manana lo puede implementar una
+cuenta compatible con OpenAI sin tocar ni el motor ni la biblioteca.
+
+Desde terminal:
+
+    escriba once --resumir
+
 ## Conectores: de la biblioteca a Notion
 
 Cada conector es un destino con su propio token, su base de datos, su mapeo y
@@ -276,7 +301,7 @@ clave, origen); cada dato puede ir a una columna, al cuerpo de la pagina, a
 los dos o a ninguno. El cuerpo se compone con bloques: texto libre o `/` para
 `/transcripcion` (por hablante, con tiempos o solo texto), `/audio` (sube el
 fichero, reproducible en Notion), `/fecha`, `/hablantes`, `/duracion`,
-`/origen`, `/titulo`, `/encabezado`.
+`/origen`, `/titulo`, `/encabezado`, `/resumen` y `/etiquetas`.
 
 Con «Publicar cada transcripcion nueva» activo, cada nota entra sola. Corregir
 o fusionar hablantes, o reprocesar, **regenera** la pagina en cada conector
@@ -298,6 +323,7 @@ habla HTTP y, sobre todo, quien transcribe (CoreML en Apple; whisper.cpp o
 |---|---|
 | `EscribaCore` | Nucleo puro: parseo de rutas, clasificacion de estado, seleccion de pendientes, ritmo del bucle, modelo `Transcript`. Sin I/O, cubierto por tests. |
 | `EscribaEngine` | Motor portable: puertos, `Pipeline`, demonio, log. Compila a Linux y a WebAssembly (WASI). Sin dependencias. |
+| `EscribaIntelligence` | Adaptador del puerto `Summarizer` con FoundationModels: titulo, resumen y etiquetas en el propio Mac. |
 | `EscribaNotion` | Conector Notion: mapeo de columnas, plantilla del cuerpo con `/comandos`, subida de audio, publicacion que regenera sin duplicar. Portable. |
 | `EscribaSystemKit` | Host de sistema (macOS y Linux): FSEvents o sondeo, stat e iCloud, flock, ledger SQLite. |
 | `EscribaWhisper` | Backend WhisperKit + SpeakerKit (argmax-oss-swift). |

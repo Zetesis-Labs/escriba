@@ -22,13 +22,14 @@ public struct NotionExport: Equatable, Sendable, Codable {
 }
 
 public func publish(
-    _ recording: Recording, _ transcript: Transcript, as export: NotionExport,
+    _ note: Note, as export: NotionExport,
     using client: NotionClient, known: NotionPageRef? = nil, timeZone: TimeZone = .current
 ) async throws(NotionError) -> NotionPageRef {
     let upload: String? =
-        if export.template.needsAudio { try await client.uploadFile(recording.url) } else { nil }
-    let page = notionPage(for: recording, transcript: transcript)
-    let blocks = render(export.template, for: page, transcript: transcript, audio: upload, timeZone: timeZone)
+        if export.template.needsAudio { try await client.uploadFile(note.recording.url) } else { nil }
+    let page = notionPage(for: note)
+    let blocks = render(
+        export.template, for: page, transcript: note.transcript, audio: upload, timeZone: timeZone)
     return try await publish(
         page.replacing(blocks: blocks), as: export, using: client, known: known, timeZone: timeZone)
 }

@@ -70,9 +70,9 @@ func backend(
 }
 
 func sink(into trace: Trace<String>) -> Sink {
-    { recording, transcript in
-        trace.append(transcript.text)
-        return URL(fileURLWithPath: "/salida/\(recording.key).txt")
+    { note in
+        trace.append(note.transcript.text)
+        return URL(fileURLWithPath: "/salida/\(note.recording.key).txt")
     }
 }
 

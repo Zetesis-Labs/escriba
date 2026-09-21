@@ -49,7 +49,7 @@ private struct Sandbox {
                 name: "falso",
                 transcribe: { _ throws(TranscriptionError) in Transcript(text: "texto") },
                 preflight: {}),
-            sink: { _, _ in URL(fileURLWithPath: "/tmp/x.txt") },
+            sink: { _ in URL(fileURLWithPath: "/tmp/x.txt") },
             settleSeconds: 0,
             onEvent: { events.append($0) })
     }

@@ -1,11 +1,11 @@
 import Foundation
 import EscribaCore
 
-public typealias Sink = @Sendable (Recording, Transcript) async throws -> URL
+public typealias Sink = @Sendable (Note) async throws -> URL
 
 public func sidecarTextSink(outputRoot: URL) -> Sink {
-    { recording, transcript in
-        try writeSidecarText(outputRoot: outputRoot, key: recording.key, transcript: transcript)
+    { note in
+        try writeSidecarText(outputRoot: outputRoot, key: note.recording.key, transcript: note.transcript)
     }
 }
 
@@ -25,20 +25,20 @@ public func sinks(primary: @escaping Sink, also secondaries: Sink...) -> Sink {
 }
 
 public func sinks(primary: @escaping Sink, all secondaries: [Sink]) -> Sink {
-    { recording, transcript in
-        let output = try await primary(recording, transcript)
-        for sink in secondaries { _ = try await sink(recording, transcript) }
+    { note in
+        let output = try await primary(note)
+        for sink in secondaries { _ = try await sink(note) }
         return output
     }
 }
 
 public func forgiving(_ sink: @escaping Sink) -> Sink {
-    { recording, transcript in
+    { note in
         do {
-            return try await sink(recording, transcript)
+            return try await sink(note)
         } catch {
-            Log.error("\(recording.key): un destino fallo y se deja para reintentar: \(error)")
-            return recording.url
+            Log.error("\(note.recording.key): un destino fallo y se deja para reintentar: \(error)")
+            return note.recording.url
         }
     }
 }

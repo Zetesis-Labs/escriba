@@ -160,7 +160,8 @@ struct StoreTests {
         let sandbox = try Sandbox()
         let recording = try sandbox.recording("2026-08-29/10-00-00")
 
-        let salida = try await sandbox.store.sink(backend: "falso")(recording, conversacion)
+        let salida = try await sandbox.store.sink(backend: "falso")(
+            Note(recording: recording, transcript: conversacion))
         let copia = try sandbox.store.recordings().first?.audioURL
 
         #expect(salida == copia)
