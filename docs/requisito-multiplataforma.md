@@ -1,8 +1,13 @@
 # Requisito funcional: Escriba de escritorio en Windows y Linux
 
-Estado: **descartado por ahora** (Rubén, 2026-09-20, tras la investigación de UIs). No es un
-compromiso de implementación; es la definición de qué significaría «hecho»
-y de qué piezas faltan, para no volver a hacer el análisis.
+Estado: **descartado por ahora** (Rubén, 2026-09-20, tras la investigación de UIs;
+confirmado el 2026-09-22 al revisar Tauri). No es un compromiso de
+implementación; es la definición de qué significaría «hecho» y de qué piezas
+faltan, para no volver a hacer el análisis.
+
+Decisión vigente: **SwiftUI en el Mac y SwiftCrossUI en Linux y Windows**,
+compartiendo `EscribaModel`. Tauri queda descartado por decisión de producto
+(la interfaz es Swift), **no** por CoreML: ver la revisión del 2026-09-22.
 
 ## Qué tiene que poder hacer el usuario
 
@@ -46,6 +51,48 @@ conectores cambia.
 El backend whisper.cpp es el mismo que necesita el pod de Linux
 (Kubernetes): se paga una vez y sirve a los dos.
 
+## Tauri con sidecar: revisado el 2026-09-22
+
+Rubén señaló que la objeción original no se sostenía: el sidecar sería un
+binario Swift, así que **CoreML no es un obstáculo**. Es cierto. Lo que decide
+qué acelerador se usa es lo que enlaza el sidecar, no quién dibuja la ventana.
+Queda documentado cómo sería, para no repetir el análisis si algún día cambia
+la prioridad.
+
+**Forma.** Un ejecutable nuevo (núcleo + servidor HTTP local) que es el único
+que toca disco, modelos y Notion; en el Mac enlaza WhisperKit y SpeakerKit, y
+fuera whisper.cpp y sherpa-onnx. La interfaz es web dentro de Tauri y solo
+llama a ese servidor. Es el mismo binario que iría al pod de Kubernetes.
+
+**Mecánica.** Tauri lo empaqueta con `externalBin`, que exige el binario
+nombrado con el triple de destino (`escribad-aarch64-apple-darwin`). Se lanza
+con el plugin de shell desde Rust o desde el JavaScript, y los argumentos
+permitidos se declaran en el fichero de capacidades.
+
+**Transporte recomendado**: HTTP más eventos (SSE) en `127.0.0.1`, no JSON por
+stdio. La misma API sirve luego para un cliente móvil y para el pod. Puerto
+efímero y credencial que Tauri pasa por entorno al arrancar el sidecar: sin
+eso, cualquier página abierta en el equipo puede hablar con la biblioteca.
+
+**Lo que cuesta.**
+
+- Firmar y notarizar con `externalBin` en el Mac es un problema conocido
+  (tauri-apps/tauri#11992): hay apps que notarizan bien hasta que añaden el
+  sidecar. Se resuelve con identidad, runtime endurecido y entitlements, pero
+  es donde se va el tiempo.
+- El Acceso total al disco: hoy hace falta para leer Notas de Voz en iCloud.
+  Con Tauri lo pediría el paquete y quien lee sería el proceso hijo. macOS
+  suele atribuir el permiso al proceso responsable (el padre), pero **hay que
+  verificarlo**, no darlo por hecho.
+- Se tira la interfaz de SwiftUI que ya existe (biblioteca, reproductor
+  sincronizado, editor de conectores y de plantilla, ajustes) y `EscribaModel`
+  deja de ser un modelo observable para convertirse en una API con eventos.
+
+**La pregunta que de verdad decide** no es Tauri sí o no, sino **si Escriba
+quiere una API local**. Si la respuesta es sí, el daemon se paga solo (móvil y
+pod) y Tauri es solo una forma de ponerle ventana. Si es no, se estaría
+rehaciendo la interfaz del Mac para ganar Linux y Windows.
+
 ## La interfaz: Swift nativo también fuera de Apple
 
 Investigado el 2026-09-20 (Rubén descartó la UI web en Tauri: la interfaz
@@ -69,8 +116,9 @@ tiene que ser Swift). Estado real de cada opción:
 - El backend GTK exige GTK 4 en el sistema. En Linux es lo normal; en
   AppImage hay que arrastrarlo, en Flatpak lo da la plataforma.
 - `swift-tools-version` 5.10 con `StrictConcurrency` activado; compila con
-  el toolchain 6.4. Hay que verificar que observa modelos `@Observable`
-  (Observation existe en Linux) o si exige su propio sistema de estado.
+  el toolchain 6.4. Observa `@Observable` de Swift: **verificado el
+  2026-09-22** (ver más abajo), así que `EscribaModel` no necesita capa de
+  adaptación por el sistema de estado.
 - No trae reproductor de audio: los controles se montan con `Slider` y
   botones sobre un puerto de reproducción portable (AVFoundation, GStreamer,
   Media Foundation).
@@ -79,6 +127,26 @@ tiene que ser Swift). Estado real de cada opción:
   Swift 6.4) aunque sus tags de GitHub estén en 2022: se usa `main`.
 - Swift 6.4 en Windows arm64 tiene un bug abierto en el instalador MSI
   (FoundationXML, swiftlang/swift#92379). x64 va bien.
+
+**Comprobado el 2026-09-22** (lo que faltaba por verificar):
+
+- **SwiftCrossUI observa `@Observable` de Swift** (PR #526; también admite
+  `@Perceptible` para sistemas viejos). Era la duda que bloqueaba compartir
+  `EscribaModel`: no hace falta capa de adaptación por el sistema de estado.
+- Backends disponibles: Gtk (Linux, y Mac o Windows con GTK 4 instalado),
+  WinUI (Windows), AppKit (macOS), UIKit (iOS y tvOS) y Android. El backend se
+  elige solo según el sistema.
+- Lo que el backend GTK 4 ofrece hoy y usaría Escriba: navegación con barra
+  lateral y detalle, listas con selección, tablas, campos y editor de texto,
+  botones, interruptores, selectores, deslizadores, menús y menús de comandos,
+  hojas modales, alertas, diálogos de fichero, imágenes, tooltips y vista web.
+  En Linux hay además recarga en caliente.
+- Como son widgets GTK reales, se heredan aspecto del escritorio,
+  accesibilidad y métodos de entrada; una webview no da eso.
+- **Sigue sin haber nada de audio**: el reproductor con texto sincronizado hay
+  que construirlo sobre un puerto propio (GStreamer, Media Foundation).
+- Última versión 0.9.0 (agosto de 2026), ritmo de una release al mes y
+  actividad continua; las releases recientes rellenan huecos por backend.
 
 **Recomendación registrada**: SwiftCrossUI. Dos formas de usarlo:
 
@@ -94,13 +162,31 @@ un spike con la pantalla de Conectores en SwiftCrossUI, en el Mac con
 GTK de Homebrew y en una VM Linux, para medir cuánto de `EscribaModel`
 se reutiliza tal cual y si la observación funciona.
 
+## Cuánto se comparte de verdad (auditoría del 2026-09-22)
+
+`EscribaModel` es la pieza que las dos interfaces compartirían. De sus nueve
+ficheros, **solo dos atan a Apple**:
+
+| Fichero | Atadura | Qué hacer |
+|---|---|---|
+| `PlayerModel.swift` | `AVFoundation` | sacar la reproducción a un puerto (ya previsto) |
+| `NotionAccount.swift` | `Security` | el Llavero solo queda como migración: `#if canImport(Security)` |
+
+El resto es Foundation, Observation, Synchronization y targets propios. Por
+tanto compartir el modelo es trabajo acotado, no una reescritura.
+
 ## Orden propuesto cuando se aborde
 
+0. **`EscribaModel` compilando en Linux y en el CI** (un día): sacar el
+   reproductor a un puerto y poner el Llavero tras `#if canImport(Security)`.
+   Útil se elija lo que se elija, y mide el reuso real en vez de estimarlo.
 1. Puerto de PCM + whisper.cpp + sherpa-onnx en Linux (desbloquea el pod y
    el escritorio Linux a la vez). Verificar en un Linux real, no solo en
    Docker.
-2. Spike de SwiftCrossUI con Conectores (Mac con GTK 4 y VM Linux):
-   reuso de `EscribaModel`, observación, aspecto.
+2. Spike de SwiftCrossUI con Conectores (Mac con GTK 4 y VM Linux). Criterios
+   de salida: la observación de `@Observable` funciona a través del backend
+   GTK; un formulario denso resulta presentable; y queda medido qué porcentaje
+   del código de esa pantalla es específico de cada interfaz.
 3. Interfaz completa en SwiftCrossUI para Linux (GTK 4). Empaquetado con
    Swift Bundler: AppImage y Flatpak.
 4. Windows: toolchain 6.4 x64, backend WinUI (runtime 1.5 preview vía
@@ -114,8 +200,9 @@ se reutiliza tal cual y si la observación funciona.
   experiencia respecto al Mac y condiciona qué modelo va por defecto.
 - Tamaño del instalable con el runtime de Swift, GTK o el Windows App
   Runtime y ffmpeg dentro.
-- SwiftCrossUI + `@Observable`: si no observa Observation, `EscribaModel`
-  necesita una capa de adaptación.
+- ~~SwiftCrossUI + `@Observable`~~: verificado el 2026-09-22, los observa
+  (PR #526 de swift-cross-ui). Queda por ver el comportamiento con el
+  aislamiento `MainActor` por defecto de `EscribaModel` en Linux.
 
 ## Relación con otras decisiones
 
