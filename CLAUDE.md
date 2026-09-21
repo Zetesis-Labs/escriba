@@ -236,9 +236,22 @@ Directriz (2026-08-31): usar lo último del lenguaje, cada cosa donde paga.
   Intelligence esté activado: los pesos se bajan aparte y tardan. En el Mac de
   Rubén está así (2026-09-21), por eso el ajuste de resúmenes se puede activar
   igualmente y la interfaz explica por qué no resume todavía.
-- La ventana del modelo de Apple es pequeña (~4k tokens contando instrucciones
+- La ventana del modelo de Apple es pequeña (8192 tokens contando instrucciones
   y salida): `AppleIntelligence.capacity` son 3500 caracteres por petición y lo
   que no cabe se trocea y se reduce.
+- **Sin `maximumResponseTokens` el modelo se desboca**: con una entrada de 3300
+  caracteres se pasó 4 minutos generando hasta reventar la ventana
+  («Content contains 8193 tokens»). El tope está en
+  `AppleIntelligence.responseTokens`. Ojo al calibrarlo: si corta antes de
+  cerrar la estructura, falla con «GeneratedContent does not contain a property
+  'tags'», así que el tope tiene que dar para el resumen **entero** (900 tokens
+  con resúmenes de hasta 600 caracteres).
+- **Reprocesar guarda la versión antes de resumir.** El resumen va en su propia
+  tarea (`summarizing`), porque en una nota de 45 minutos tarda ~80 s y antes
+  dejaba la transcripción sin guardar todo ese rato: parecía colgado.
+- `Tests/EscribaIntelligenceTests/EnVivoTests.swift` resume de verdad con el
+  modelo del sistema si le pasas `ESCRIBA_RESUMEN_TEXTO=<fichero>`; sin esa
+  variable se salta, como el test en vivo de Notion.
 - Un closure que se pasa a un puerto con `throws(SummaryError)` necesita la
   anotación explícita (`{ request throws(SummaryError) in`): sin ella el
   compilador infiere `any Error` y no compila.

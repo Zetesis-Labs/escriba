@@ -137,7 +137,8 @@ public enum DigestPrompt {
             Eres un asistente que lee la transcripción de una nota de voz o de una reunión \
             y devuelve un título, un resumen y unas etiquetas. \(idiom) \
             El título es breve y concreto, sin comillas. El resumen es fiel al contenido, \
-            de tres a seis frases, sin inventar nada que no esté en el texto. \
+            de tres a cinco frases y nunca más de 600 caracteres, sin inventar nada que no \
+            esté en el texto. \
             Las etiquetas son de dos a cinco temas cortos, en minúsculas.
             """
     }

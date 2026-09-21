@@ -26,6 +26,7 @@ public final class LibraryModel {
     @ObservationIgnored private let publishers: [String: Sink]
     @ObservationIgnored private let unpublishers: [String: Unpublisher]
     @ObservationIgnored private var observation: Task<Void, Never>?
+    @ObservationIgnored private var summaries: Task<Void, Never>?
 
     public init(
         store: Store,
@@ -58,6 +59,7 @@ public final class LibraryModel {
 
     deinit {
         observation?.cancel()
+        summaries?.cancel()
     }
 
     public func startObserving() {
@@ -129,13 +131,17 @@ public final class LibraryModel {
         summarizing.insert(recording.key)
         defer { summarizing.remove(recording.key) }
 
-        guard let transcript = try await store.transcript(for: recording.key),
-            let version = try await store.currentVersion(for: recording.key)
+        return try await generate(with: digester, for: recording.key)
+    }
+
+    private func generate(with digester: Digester, for key: String) async throws -> Digest {
+        guard let transcript = try await store.transcript(for: key),
+            let version = try await store.currentVersion(for: key)
         else { throw LibraryModelError.nothingToSummarize }
 
         let digest = try await digester(transcript)
-        try await store.setDigest(digest, for: recording.key, version: version)
-        await republish(transcript, digest: digest, for: recording.key, version: version)
+        try await store.setDigest(digest, for: key, version: version)
+        await republish(transcript, digest: digest, for: key, version: version)
         return digest
     }
 
@@ -237,20 +243,30 @@ public final class LibraryModel {
         defer { reprocessing.remove(recording.key) }
 
         let transcript = try await reprocess(recording.audioURL, options)
-        let digest = await summarized(transcript, for: recording.key)
         try await store.addTranscript(
-            transcript, for: recording.key, backend: "reprocesado", options: options, digest: digest)
+            transcript, for: recording.key, backend: "reprocesado", options: options)
         refreshText(transcript, for: recording.key)
-        await republish(transcript, digest: digest, for: recording.key)
+
+        guard digester != nil else {
+            await republish(transcript, digest: nil, for: recording.key)
+            return
+        }
+        summarizeApart(recording.key)
     }
 
-    private func summarized(_ transcript: Transcript, for key: String) async -> Digest? {
-        guard let digester else { return nil }
-        do {
-            return try await digester(transcript)
-        } catch {
-            report("\(key) se transcribio, pero no se pudo resumir", error)
-            return nil
+    private func summarizeApart(_ key: String) {
+        guard let digester, !summarizing.contains(key) else { return }
+        summarizing.insert(key)
+        summaries = Task { [weak self] in
+            guard let self else { return }
+            defer { summarizing.remove(key) }
+            do {
+                _ = try await generate(with: digester, for: key)
+            } catch {
+                report("\(key) se transcribio, pero no se pudo resumir", error)
+                guard let transcript = try? await store.transcript(for: key) else { return }
+                await republish(transcript, digest: nil, for: key)
+            }
         }
     }
 

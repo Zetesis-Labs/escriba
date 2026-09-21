@@ -42,25 +42,45 @@ private final class Publicador: Sendable {
 }
 
 private final class Puerta: Sendable {
-    private let esperando = Mutex<[CheckedContinuation<Void, Never>]>([])
+    private struct Estado {
+        var abierta = false
+        var esperando: [CheckedContinuation<Void, Never>] = []
+    }
+
+    private let estado = Mutex(Estado())
+    private let entradas = Mutex(0)
+
+    var visitas: Int { entradas.withLock { $0 } }
 
     func esperar() async {
+        entradas.withLock { $0 += 1 }
+        let abierta = estado.withLock { $0.abierta }
+        guard !abierta else { return }
         await withCheckedContinuation { continuation in
-            esperando.withLock { $0.append(continuation) }
+            let sigueCerrada = estado.withLock { estado -> Bool in
+                guard !estado.abierta else { return false }
+                estado.esperando.append(continuation)
+                return true
+            }
+            if !sigueCerrada { continuation.resume() }
         }
     }
 
     func abrir() {
-        for continuation in esperando.withLock({ let todas = $0; $0 = []; return todas }) {
-            continuation.resume()
+        let pendientes = estado.withLock { estado -> [CheckedContinuation<Void, Never>] in
+            estado.abierta = true
+            let todas = estado.esperando
+            estado.esperando = []
+            return todas
         }
+        for continuation in pendientes { continuation.resume() }
     }
 }
 
 @MainActor
 @Suite("Resumir desde la biblioteca")
 struct ResumirDesdeLaBibliotecaTests {
-    @Test("dos peticiones a la vez no resumen dos veces la misma grabacion")
+    @Test("dos peticiones a la vez no resumen dos veces la misma grabacion", .timeLimit(.minutes(1)))
     func unaCadaVez() async throws {
         let (base, store) = try sandbox()
         let guardada = try store.save(
@@ -74,7 +94,7 @@ struct ResumirDesdeLaBibliotecaTests {
         })
 
         let primera = Task { try await modelo.summarize(guardada) }
-        while llamadas.withLock({ $0 }) == 0 { await Task.yield() }
+        while puerta.visitas == 0 { await Task.yield() }
 
         await #expect(throws: LibraryModelError.alreadySummarizing) {
             try await modelo.summarize(guardada)
@@ -189,7 +209,36 @@ struct ResumirDesdeLaBibliotecaTests {
         #expect(!modelo.isSummarizing("a"))
     }
 
-    @Test("reprocesar resume la version nueva, y si el resumen falla la version se guarda igual")
+    @Test(
+        "reprocesar guarda la version nueva antes de ponerse a resumir, no despues",
+        .timeLimit(.minutes(1)))
+    func laVersionNoEsperaAlResumen() async throws {
+        let (base, store) = try sandbox()
+        let guardada = try store.save(
+            try grabacion(in: base, key: "a"), Transcript(text: "v1"), backend: "wk")
+        let puerta = Puerta()
+        let modelo = LibraryModel(
+            store: store, reprocess: { _, _ in Transcript(text: "v2") },
+            digester: { _ in
+                await puerta.esperar()
+                return resumen
+            })
+
+        try await modelo.reprocess(guardada, options: TranscriptionOptions(language: "es"))
+
+        #expect(try await store.transcript(for: "a")?.text == "v2")
+        #expect(!modelo.reprocessing.contains("a"))
+        #expect(modelo.isSummarizing("a"))
+
+        while puerta.visitas == 0 { await Task.yield() }
+        puerta.abrir()
+        while modelo.isSummarizing("a") { await Task.yield() }
+        #expect(try await store.digest(for: "a") == resumen)
+    }
+
+    @Test(
+        "reprocesar resume la version nueva, y si el resumen falla la version se guarda igual",
+        .timeLimit(.minutes(1)))
     func reprocesarResume() async throws {
         let (base, store) = try sandbox()
         let guardada = try store.save(
@@ -198,6 +247,7 @@ struct ResumirDesdeLaBibliotecaTests {
             store: store, reprocess: { _, _ in Transcript(text: "v2") }, digester: { _ in resumen })
 
         try await modelo.reprocess(guardada, options: TranscriptionOptions(language: "es"))
+        while try await store.digest(for: "a") == nil { await Task.yield() }
 
         #expect(try await store.transcript(for: "a")?.text == "v2")
         #expect(try await store.digest(for: "a") == resumen)
@@ -206,6 +256,7 @@ struct ResumirDesdeLaBibliotecaTests {
             store: store, reprocess: { _, _ in Transcript(text: "v3") },
             digester: { _ in throw FakeError.sinModelo })
         try await roto.reprocess(guardada, options: TranscriptionOptions(language: "es"))
+        while roto.isSummarizing("a") { await Task.yield() }
 
         #expect(try await store.transcript(for: "a")?.text == "v3")
         #expect(try await store.digest(for: "a") == nil)
