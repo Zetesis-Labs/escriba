@@ -400,6 +400,21 @@ private struct NotionEditor: View {
             }
         }
         .formStyle(.grouped)
+        .safeAreaInset(edge: .bottom) {
+            HStack {
+                if notion.isDirty {
+                    Text("Cambios sin guardar").font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button("Descartar") { notion.discard() }
+                    .disabled(!notion.isDirty)
+                Button("Guardar") { notion.save() }
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(!notion.isDirty)
+            }
+            .padding(10)
+            .background(.bar)
+        }
     }
 
     private var chosen: Binding<String?> {

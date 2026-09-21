@@ -150,16 +150,20 @@ struct LibraryCorrectionTests {
     @Test("reprocesar guarda el resultado como transcripcion vigente y pasa los hablantes pedidos")
     func reprocesa() async throws {
         let spy = ReprocessSpy()
-        let sandbox = try Sandbox(reprocess: { _, count in
-            spy.note(count)
+        let sandbox = try Sandbox(reprocess: { _, options in
+            spy.note(options.speakerCount)
             return Transcript(text: "reprocesada")
         })
         try sandbox.save("2026-08-31/13-00-00", text: "original")
         let recording = try #require(try sandbox.store.recordings().first)
 
-        try await sandbox.model.reprocess(recording, speakers: 2)
+        try await sandbox.model.reprocess(
+            recording, options: TranscriptionOptions(language: "es", diarize: true, speakerCount: 2))
 
         #expect(spy.received == [2])
+        let versiones = try await sandbox.model.versions(for: recording.key)
+        #expect(versiones.map(\.number) == [1, 2])
+        #expect(versiones.last?.options?.speakerCount == 2)
         #expect(try await sandbox.model.transcript(for: recording.key)?.text == "reprocesada")
         #expect(sandbox.model.reprocessing.isEmpty)
     }
@@ -173,7 +177,7 @@ struct LibraryCorrectionTests {
         let recording = try #require(try sandbox.store.recordings().first)
 
         await #expect(throws: TranscriptionError.self) {
-            try await sandbox.model.reprocess(recording, speakers: nil)
+            try await sandbox.model.reprocess(recording, options: .automatic)
         }
         #expect(try await sandbox.model.transcript(for: recording.key)?.text == "original")
         #expect(sandbox.model.reprocessing.isEmpty)
@@ -293,7 +297,7 @@ struct SidecarRefreshTests {
         try sandbox.save("2026-08-31/10-00-00", text: "sin hablantes")
         let fila = try #require(try sandbox.store.recordings().first)
 
-        try await sandbox.model.reprocess(fila, speakers: 2)
+        try await sandbox.model.reprocess(fila, options: TranscriptionOptions(diarize: true, speakerCount: 2))
 
         #expect(escrituras.todas.map(\.key) == ["2026-08-31/10-00-00"])
         #expect(escrituras.todas.first?.transcript == diarizada)
@@ -328,7 +332,7 @@ struct SidecarRefreshTests {
         try sandbox.save("2026-08-31/10-00-00")
         let fila = try #require(try sandbox.store.recordings().first)
 
-        try await sandbox.model.reprocess(fila, speakers: nil)
+        try await sandbox.model.reprocess(fila, options: .automatic)
 
         #expect(try await sandbox.store.transcript(for: "2026-08-31/10-00-00") == diarizada)
     }

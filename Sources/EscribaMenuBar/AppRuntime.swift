@@ -82,8 +82,8 @@ final class AppRuntime {
 
             let model = LibraryModel(
                 store: store,
-                reprocess: { [engine] url, count in
-                    try await engine.backend(diarize: true, speakerCount: count).transcribe(url)
+                reprocess: { [engine] url, options in
+                    try await engine.backend(options: options).transcribe(url)
                 },
                 writeText: textWriter(into: settings.txtFolder),
                 publishers: publishers(for: store))
@@ -109,12 +109,12 @@ final class AppRuntime {
 
             let ledger = try Ledger(path: Paths.defaultState)
             reconcileLibrary(store: store, ledger: ledger)
-            controllers = sources(engine: engine).map { source, backend in
+            controllers = sources(engine: engine).map { source, backend, options in
                 let pipeline = Pipeline(
                     source: source,
                     ledger: ledger,
                     backend: backend,
-                    sink: sink(for: store),
+                    sink: sink(for: store, options: options),
                     onEvent: { continuation.yield($0) }
                 )
                 let controller = DaemonController(pipeline: pipeline)
@@ -132,8 +132,8 @@ final class AppRuntime {
             Notifier.problem(title: "No se pudo arrancar", detail: "\(error)")
         }
 
-        func sources(engine: WhisperKitEngine) -> [(RecordingSource, TranscriptionBackend)] {
-            var result: [(RecordingSource, TranscriptionBackend)] = []
+        func sources(engine: WhisperKitEngine) -> [(RecordingSource, TranscriptionBackend, TranscriptionOptions)] {
+            var result: [(RecordingSource, TranscriptionBackend, TranscriptionOptions)] = []
             var prefixes: Set<String> = []
 
             for folder in settings.watchedFolders {
@@ -144,21 +144,19 @@ final class AppRuntime {
                     continue
                 }
 
-                let diarize = folder.speakers != nil || settings.diarization != .off
-                let backend = engine.backend(
-                    diarize: diarize,
-                    speakerCount: folder.speakers ?? settings.diarization.speakerCount)
+                let options = settings.transcriptionOptions(for: folder)
+                let backend = engine.backend(options: options)
 
                 switch folder.style {
                 case .justPressRecord:
-                    result.append((justPressRecordSource(root: folderRoot), backend))
+                    result.append((justPressRecordSource(root: folderRoot), backend, options))
                     continue
                 case .voiceMemos:
                     result.append((
                         namespaced(
                             voiceMemosSource(root: folderRoot, expectedSpeakers: folder.speakers),
                             prefix: "Notas de Voz"),
-                        backend))
+                        backend, options))
                     continue
                 case .any:
                     break
@@ -175,7 +173,7 @@ final class AppRuntime {
                         folderSource(
                             name: prefix, root: folderRoot, expectedSpeakers: folder.speakers),
                         prefix: prefix),
-                    backend
+                    backend, options
                 ))
             }
             return result
@@ -195,8 +193,8 @@ final class AppRuntime {
         }
     }
 
-    private func sink(for store: Store) -> Sink {
-        let librarySink = store.sink(backend: WhisperKitBackend.name)
+    private func sink(for store: Store, options: TranscriptionOptions) -> Sink {
+        let librarySink = store.sink(backend: WhisperKitBackend.name, options: options)
         let extras = publishers(for: store).values.map(forgiving)
 
         guard settings.writeTxt else {

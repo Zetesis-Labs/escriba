@@ -114,6 +114,7 @@ struct ConectoresTests {
         #expect(editor.apply(command: "/audio", replacing: 0))
         editor.insert(.text("Notas"), at: 1)
         editor.moveBlocks(from: [2], to: 0)
+        editor.save()
 
         #expect(ajustes.connector(conector.id)?.notion?.template.blocks == [
             .transcript(.speakers), .audio, .text("Notas"),

@@ -100,6 +100,22 @@ struct PublicarDesdeLaBibliotecaTests {
         #expect(detalle.contains("caido"))
     }
 
+    @Test("volver a una version anterior republica esa version en los conectores donde estaba")
+    func elegirVersionRepublica() async throws {
+        let (base, store) = try sandbox()
+        let publicador = Publicador()
+        _ = try store.save(try grabacion(in: base, key: "a"), Transcript(text: "v1"), backend: "wk")
+        try await store.addTranscript(Transcript(text: "v2"), for: "a", backend: "reprocesado")
+        try store.markPublished(key: "a", connector: "c1", pageId: "pg-1", url: nil, at: .now)
+        let modelo = LibraryModel(store: store, publishers: ["c1": publicador.sink])
+        let primera = try #require(try await modelo.versions(for: "a").first)
+
+        try await modelo.choose(version: primera.id, for: "a")
+
+        #expect(publicador.registro == ["a: v1"])
+        #expect(try await modelo.transcript(for: "a")?.text == "v1")
+    }
+
     @Test("corregir hablantes reescribe la pagina que ya existia en Notion")
     func republicaLoPublicado() async throws {
         let (base, store) = try sandbox()

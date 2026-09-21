@@ -1,4 +1,5 @@
 import Foundation
+import EscribaCore
 import EscribaEngine
 import Observation
 import EscribaNotion
@@ -196,6 +197,19 @@ public final class AppSettings {
 
     public var languageCode: String? {
         language == "auto" ? nil : language
+    }
+
+    public var transcriptionDefaults: TranscriptionOptions {
+        TranscriptionOptions(
+            language: languageCode, diarize: diarization != .off,
+            speakerCount: diarization.speakerCount)
+    }
+
+    public func transcriptionOptions(for folder: WatchedFolder) -> TranscriptionOptions {
+        TranscriptionOptions(
+            language: languageCode,
+            diarize: folder.speakers != nil || diarization != .off,
+            speakerCount: folder.speakers ?? diarization.speakerCount)
     }
 
     public var txtFolder: URL? {

@@ -21,6 +21,7 @@ public final class NotionModel {
 
     public let id: UUID
     public var token: String
+    public private(set) var draft: Connector?
     public private(set) var sources: [NotionDataSource] = []
     public private(set) var phase: Phase = .idle
 
@@ -39,24 +40,43 @@ public final class NotionModel {
         self.tokens = tokens
         self.make = make
         token = tokens.read() ?? ""
+        draft = settings.connector(id)
     }
 
     public var connector: Connector? { settings.connector(id) }
 
+    public var isDirty: Bool {
+        draft != connector || token != (tokens.read() ?? "")
+    }
+
     public var isConnected: Bool { !token.isEmpty && !sources.isEmpty }
 
-    public var export: NotionExport? { connector?.notion }
+    public var export: NotionExport? { draft?.notion }
 
     public var selected: NotionDataSource? { export?.source }
 
     public var name: String {
-        get { connector?.name ?? "" }
+        get { draft?.name ?? "" }
         set { edit { $0.name = newValue } }
     }
 
     public var publishes: Bool {
-        get { connector?.enabled ?? false }
+        get { draft?.enabled ?? false }
         set { edit { $0.enabled = newValue } }
+    }
+
+    public func save() {
+        guard let draft else { return }
+        let trimmed = token.trimmingCharacters(in: .whitespacesAndNewlines)
+        tokens.write(trimmed.isEmpty ? nil : trimmed)
+        token = trimmed
+        settings.update(draft)
+    }
+
+    public func discard() {
+        draft = connector
+        token = tokens.read() ?? ""
+        phase = .idle
     }
 
     public var template: BodyTemplate {
@@ -105,9 +125,9 @@ public final class NotionModel {
     }
 
     private func edit(_ change: (inout Connector) -> Void) {
-        guard var connector else { return }
-        change(&connector)
-        settings.update(connector)
+        guard var draft else { return }
+        change(&draft)
+        self.draft = draft
     }
 
     public func connect() async {
@@ -118,7 +138,6 @@ public final class NotionModel {
         do {
             let found = try await make(token).dataSources()
             sources = found
-            tokens.write(token)
             self.token = token
             phase = found.isEmpty
                 ? .failed("La integración no tiene acceso a ninguna base. Compártele una desde Notion.")
@@ -161,6 +180,7 @@ public final class NotionModel {
             $0.notion = nil
             $0.enabled = false
         }
+        if let draft { settings.update(draft) }
     }
 
     private func refreshSelection(among found: [NotionDataSource]) {

@@ -20,6 +20,10 @@ enum MainSection: String, CaseIterable, Identifiable {
         environment["ESCRIBA_SECTION"].flatMap(MainSection.init(rawValue:)) ?? .library
     }
 
+    static var selectsFirstItem: Bool {
+        ProcessInfo.processInfo.environment["ESCRIBA_SELECT_FIRST"] == "1"
+    }
+
     var symbol: String {
         switch self {
         case .library: "waveform"
@@ -46,7 +50,8 @@ struct MainWindow: View {
                     problem: runtime.startupProblem,
                     folders: runtime.settings.watchedFolders,
                     connectors: runtime.settings.connectors,
-                    txtFolder: runtime.settings.txtFolder)
+                    txtFolder: runtime.settings.txtFolder,
+                    defaultOptions: runtime.settings.transcriptionDefaults)
             case .connectors:
                 ConnectorsPane(connectors: runtime.connectors)
             case .settings:

@@ -21,6 +21,7 @@ struct LibraryWindow: View {
     let folders: [WatchedFolder]
     let connectors: [Connector]
     let txtFolder: URL?
+    let defaultOptions: TranscriptionOptions
 
     @State private var selected: String?
     @State private var pendingAction: RowAction?
@@ -45,6 +46,11 @@ struct LibraryWindow: View {
                         }
                 }
                 .listStyle(.inset)
+                .onAppear {
+                    if MainSection.selectsFirstItem, selected == nil {
+                        selected = model.recordings.first?.key
+                    }
+                }
             } detail: {
                 if let selected,
                     let recording = model.recordings.first(where: { $0.key == selected }) {
@@ -54,6 +60,7 @@ struct LibraryWindow: View {
                         origin: origin(recording),
                         connectors: connectors,
                         txtFolder: txtFolder,
+                        defaultOptions: defaultOptions,
                         onAction: { pendingAction = $0 })
                 } else {
                     ContentUnavailableView(
@@ -296,9 +303,12 @@ struct TranscriptDetail: View {
     let origin: WatchedFolder?
     let connectors: [Connector]
     let txtFolder: URL?
+    let defaultOptions: TranscriptionOptions
     let onAction: (RowAction) -> Void
 
     @State private var transcript: Transcript?
+    @State private var versions: [TranscriptVersion] = []
+    @State private var reprocessOptions: TranscriptionOptions?
     @State private var failure: String?
     @State private var player = PlayerModel()
     @State private var renameTarget: String?
@@ -338,8 +348,22 @@ struct TranscriptDetail: View {
             if model.reprocessing.contains(recording.key) {
                 ToolbarItem { ProgressView().controlSize(.small) }
             }
+            ToolbarItem { versionsMenu }
             ToolbarItem { speakersMenu }
             ToolbarItem { actionsMenu }
+        }
+        .sheet(
+            isPresented: Binding(
+                get: { reprocessOptions != nil },
+                set: { if !$0 { reprocessOptions = nil } })
+        ) {
+            ReprocessSheet(
+                options: reprocessOptions ?? defaultOptions,
+                onRun: { options in
+                    reprocessOptions = nil
+                    reprocess(options)
+                },
+                onCancel: { reprocessOptions = nil })
         }
         .alert(
             "Renombrar hablante",
@@ -439,24 +463,61 @@ struct TranscriptDetail: View {
                     }
                 }
             }
-            Section("Reprocesar") {
-                Group {
-                    Button("Detectar hablantes") { reprocess(nil) }
-                    ForEach(2...4, id: \.self) { count in
-                        Button("Con \(count) hablantes") { reprocess(count) }
-                    }
-                }
+            Button("Reprocesar con otros criterios…") { reprocessOptions = defaultOptions }
                 .disabled(recording.audio == .missing)
-            }
         } label: {
             Label("Hablantes", systemImage: "person.2")
         }
         .disabled(model.reprocessing.contains(recording.key))
     }
 
+    private var versionsMenu: some View {
+        Menu {
+            ForEach(versions) { version in
+                Button {
+                    choose(version)
+                } label: {
+                    if version.isCurrent {
+                        Label(versionTitle(version), systemImage: "checkmark")
+                    } else {
+                        Text(versionTitle(version))
+                    }
+                }
+            }
+            Divider()
+            Button("Reprocesar con otros criterios…") { reprocessOptions = defaultOptions }
+                .disabled(recording.audio == .missing)
+        } label: {
+            Label(currentVersionLabel, systemImage: "clock.arrow.circlepath")
+        }
+        .disabled(versions.isEmpty || model.reprocessing.contains(recording.key))
+    }
+
+    private var currentVersionLabel: String {
+        guard let current = versions.first(where: \.isCurrent) else { return "Versiones" }
+        return "v\(current.number) de \(versions.count)"
+    }
+
+    private func versionTitle(_ version: TranscriptVersion) -> String {
+        "\(version.label) · \(version.backend) · \(version.createdAt.formatted(.dateTime.day().month().hour().minute()))"
+    }
+
+    private func choose(_ version: TranscriptVersion) {
+        guard !version.isCurrent else { return }
+        Task {
+            do {
+                try await model.choose(version: version.id, for: recording.key)
+                await reload()
+            } catch {
+                actionError = "\(error)"
+            }
+        }
+    }
+
     private func reload() async {
         do {
             transcript = try await model.transcript(for: recording.key)
+            versions = try await model.versions(for: recording.key)
             failure = nil
         } catch {
             failure = "\(error)"
@@ -482,10 +543,10 @@ struct TranscriptDetail: View {
         renameTarget = nil
     }
 
-    private func reprocess(_ speakers: Int?) {
+    private func reprocess(_ options: TranscriptionOptions) {
         Task {
             do {
-                try await model.reprocess(recording, speakers: speakers)
+                try await model.reprocess(recording, options: options)
                 await reload()
             } catch {
                 actionError = "\(error)"
@@ -519,7 +580,7 @@ struct TranscriptDetail: View {
                 Label("En cola", systemImage: "clock")
                 Text("Se transcribira automaticamente en la proxima pasada.")
                     .foregroundStyle(.secondary)
-                Button("Transcribir ahora") { reprocess(nil) }
+                Button("Transcribir ahora") { reprocess(defaultOptions) }
                     .disabled(
                         model.reprocessing.contains(recording.key)
                             || recording.audio == .missing)
@@ -539,7 +600,7 @@ struct TranscriptDetail: View {
                         .foregroundStyle(.secondary)
                         .textSelection(.enabled)
                 }
-                Button("Reintentar") { reprocess(nil) }
+                Button("Reintentar") { reprocess(defaultOptions) }
                     .disabled(
                         model.reprocessing.contains(recording.key)
                             || recording.audio == .missing)

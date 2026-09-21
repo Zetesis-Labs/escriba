@@ -346,7 +346,8 @@ struct StoreSummaryTests {
         #expect(filas.count == 2)
         #expect(
             filas.first(where: { $0.key == nueva.key })?.transcript
-                == TranscriptSummary(backend: "reprocesado", isSegmented: true, speakerCount: 2))
+                == TranscriptSummary(
+                    backend: "reprocesado", isSegmented: true, speakerCount: 2, version: 2, versionCount: 2))
         #expect(
             filas.first(where: { $0.key == vieja.key })?.transcript
                 == TranscriptSummary(backend: "importado", isSegmented: false, speakerCount: 0))

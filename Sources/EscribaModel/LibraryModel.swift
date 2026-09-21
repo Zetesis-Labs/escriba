@@ -5,7 +5,7 @@ import EscribaSystemKit
 import EscribaStore
 import Observation
 
-public typealias Reprocessor = @Sendable (URL, Int?) async throws -> Transcript
+public typealias Reprocessor = @Sendable (URL, TranscriptionOptions) async throws -> Transcript
 public typealias TranscriptWriter = @Sendable (String, Transcript) throws -> Void
 
 @Observable
@@ -162,17 +162,29 @@ public final class LibraryModel {
         try await store.removeAudio(key: key)
     }
 
-    public func reprocess(_ recording: StoredRecording, speakers: Int?) async throws {
+    public func reprocess(_ recording: StoredRecording, options: TranscriptionOptions) async throws {
         guard let reprocess else { throw LibraryModelError.reprocessUnavailable }
         guard !reprocessing.contains(recording.key) else { return }
 
         reprocessing.insert(recording.key)
         defer { reprocessing.remove(recording.key) }
 
-        let transcript = try await reprocess(recording.audioURL, speakers)
-        try await store.addTranscript(transcript, for: recording.key, backend: "reprocesado")
+        let transcript = try await reprocess(recording.audioURL, options)
+        try await store.addTranscript(
+            transcript, for: recording.key, backend: "reprocesado", options: options)
         refreshText(transcript, for: recording.key)
         await republish(transcript, for: recording.key)
+    }
+
+    public func versions(for key: String) async throws -> [TranscriptVersion] {
+        try await store.versions(for: key)
+    }
+
+    public func choose(version: Int64, for key: String) async throws {
+        try await store.choose(version: version, for: key)
+        guard let transcript = try await store.transcript(for: key) else { return }
+        refreshText(transcript, for: key)
+        await republish(transcript, for: key)
     }
 }
 

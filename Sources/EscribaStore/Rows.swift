@@ -21,6 +21,7 @@ struct RecordingRow: Codable, FetchableRecord, MutablePersistableRecord {
     var importedAt: Date
     var status: String
     var lastError: String?
+    var currentTranscriptId: Int64?
 
     enum Columns {
         static let key = Column(CodingKeys.key)
@@ -68,10 +69,18 @@ struct TranscriptRow: Codable, FetchableRecord, MutablePersistableRecord {
     var backend: String
     var createdAt: Date
     var text: String
+    var language: String?
+    var diarize: Bool
+    var speakerCount: Int?
 
     enum Columns {
         static let id = Column(CodingKeys.id)
         static let recordingId = Column(CodingKeys.recordingId)
+    }
+
+    var options: TranscriptionOptions? {
+        guard language != nil || diarize else { return nil }
+        return TranscriptionOptions(language: language, diarize: diarize, speakerCount: speakerCount)
     }
 
     mutating func didInsert(_ inserted: InsertionSuccess) {
@@ -199,6 +208,16 @@ func makeMigrator() -> DatabaseMigrator {
             t.drop(column: "notionURL")
             t.drop(column: "notionSyncedAt")
             t.drop(column: "notionError")
+        }
+    }
+    migrator.registerMigration("v5-versiones") { db in
+        try db.alter(table: "transcript") { t in
+            t.add(column: "language", .text)
+            t.add(column: "diarize", .boolean).notNull().defaults(to: false)
+            t.add(column: "speakerCount", .integer)
+        }
+        try db.alter(table: "recording") { t in
+            t.add(column: "currentTranscriptId", .integer)
         }
     }
     return migrator

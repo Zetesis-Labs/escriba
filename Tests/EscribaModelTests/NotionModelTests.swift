@@ -57,14 +57,43 @@ struct NotionModelTests {
         #expect(modelo.phase == .idle)
     }
 
-    @Test("el token se guarda solo si Notion lo acepta")
+    @Test("conectar comprueba el token pero no lo guarda: se guarda al pulsar Guardar")
     func tokenGuardado() async {
         let llavero = TokenStore.inMemory()
         let modelo = NotionModel(connector: conector, settings: ajustes(), tokens: llavero, client: client { [notas()] })
         modelo.token = "ntn_bueno"
 
         await modelo.connect()
+        #expect(llavero.read() == nil)
+        #expect(modelo.isDirty)
+
+        modelo.save()
         #expect(llavero.read() == "ntn_bueno")
+        #expect(!modelo.isDirty)
+    }
+
+    @Test("los cambios quedan en borrador hasta Guardar, y Descartar vuelve a lo guardado")
+    func borrador() {
+        let ajustes = ajustes()
+        let modelo = NotionModel(connector: conector, settings: ajustes, tokens: .inMemory(), client: client { [] })
+
+        modelo.name = "Diario"
+        modelo.choose(notas())
+        #expect(modelo.name == "Diario")
+        #expect(modelo.selected?.id == "ds-1")
+        #expect(ajustes.connector(conector)?.name == "Notion")
+        #expect(ajustes.connector(conector)?.notion == nil)
+        #expect(modelo.isDirty)
+
+        modelo.discard()
+        #expect(modelo.name == "Notion")
+        #expect(modelo.selected == nil)
+        #expect(!modelo.isDirty)
+
+        modelo.name = "Diario"
+        modelo.save()
+        #expect(ajustes.connector(conector)?.name == "Diario")
+        #expect(!modelo.isDirty)
     }
 
     @Test("un token rechazado deja el motivo a la vista y no guarda nada")
@@ -99,6 +128,7 @@ struct NotionModelTests {
             connector: conector, settings: ajustes, tokens: .inMemory("ntn"), client: client { [notas()] })
 
         modelo.choose(notas())
+        modelo.save()
 
         #expect(modelo.selected?.id == "ds-1")
         #expect(modelo.property(for: .title) == "Nombre")
@@ -125,6 +155,7 @@ struct NotionModelTests {
         modelo.choose(notas())
 
         modelo.assign(.date, to: nil)
+        modelo.save()
 
         #expect(modelo.property(for: .date) == nil)
         #expect(ajustes.connector(conector)?.notion?.mapping[.date] == nil)
@@ -155,12 +186,15 @@ struct NotionModelTests {
         let modelo = NotionModel(connector: conector, settings: ajustes, tokens: .inMemory(), client: client { [] })
 
         modelo.publishes = true
+        modelo.save()
         #expect(ajustes.liveConnectors.isEmpty)
 
         modelo.choose(notas())
+        modelo.save()
         #expect(ajustes.liveConnectors.first?.notion?.source.id == "ds-1")
 
         modelo.assign(.title, to: nil)
+        modelo.save()
         #expect(ajustes.liveConnectors.isEmpty)
     }
 

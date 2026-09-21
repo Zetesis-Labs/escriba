@@ -75,15 +75,46 @@ public enum AudioAvailability: String, Sendable, Equatable {
     case missing
 }
 
+public struct TranscriptVersion: Sendable, Equatable, Identifiable {
+    public let id: Int64
+    public let number: Int
+    public let backend: String
+    public let createdAt: Date
+    public let options: TranscriptionOptions?
+    public let isCurrent: Bool
+
+    public init(
+        id: Int64, number: Int, backend: String, createdAt: Date,
+        options: TranscriptionOptions?, isCurrent: Bool
+    ) {
+        self.id = id
+        self.number = number
+        self.backend = backend
+        self.createdAt = createdAt
+        self.options = options
+        self.isCurrent = isCurrent
+    }
+
+    public var label: String {
+        "v\(number) · \(options?.label ?? "criterios desconocidos")"
+    }
+}
+
 public struct TranscriptSummary: Sendable, Equatable {
     public let backend: String
     public let isSegmented: Bool
     public let speakerCount: Int
+    public let version: Int
+    public let versionCount: Int
 
-    public init(backend: String, isSegmented: Bool, speakerCount: Int) {
+    public init(
+        backend: String, isSegmented: Bool, speakerCount: Int, version: Int = 1, versionCount: Int = 1
+    ) {
         self.backend = backend
         self.isSegmented = isSegmented
         self.speakerCount = speakerCount
+        self.version = version
+        self.versionCount = versionCount
     }
 }
 
@@ -103,7 +134,8 @@ public final class Store: Sendable {
 
     @discardableResult
     public func save(
-        _ recording: Recording, _ transcript: Transcript, backend: String
+        _ recording: Recording, _ transcript: Transcript, backend: String,
+        options: TranscriptionOptions? = nil
     ) throws -> StoredRecording {
         let audioPath = "audio/\(recording.key).\(recording.url.pathExtension)"
         try copyAudio(from: recording.url, to: root.appending(path: audioPath))
@@ -124,6 +156,7 @@ public final class Store: Sendable {
                 try row.insert(db)
             } else {
                 row.audioPath = audioPath
+                row.currentTranscriptId = nil
                 if row.status != RecordingStatus.discarded.rawValue {
                     row.status = RecordingStatus.done.rawValue
                     row.lastError = nil
@@ -132,38 +165,81 @@ public final class Store: Sendable {
             }
             guard let recordingId = row.id else { throw StoreError.missingRowID }
 
-            try Self.insert(transcript, recordingId: recordingId, backend: backend, in: db)
+            try Self.insert(transcript, recordingId: recordingId, backend: backend, options: options, in: db)
+            let count = try TranscriptRow.filter(TranscriptRow.Columns.recordingId == recordingId).fetchCount(db)
             return row.stored(
                 in: root,
                 transcript: TranscriptSummary(
                     backend: backend,
                     isSegmented: transcript.isSegmented,
-                    speakerCount: transcript.speakers.count))
+                    speakerCount: transcript.speakers.count,
+                    version: count,
+                    versionCount: count))
         }
     }
 
     public func addTranscript(
-        _ transcript: Transcript, for key: String, backend: String
+        _ transcript: Transcript, for key: String, backend: String,
+        options: TranscriptionOptions? = nil
     ) async throws {
         try await writer.write { db in
-            try Self.attach(transcript, to: key, backend: backend, in: db)
+            try Self.attach(transcript, to: key, backend: backend, options: options, in: db)
         }
     }
 
     func attachTranscript(_ transcript: Transcript, for key: String, backend: String) throws {
         try writer.write { db in
-            try Self.attach(transcript, to: key, backend: backend, in: db)
+            try Self.attach(transcript, to: key, backend: backend, options: nil, in: db)
+        }
+    }
+
+    public func versions(for key: String) async throws -> [TranscriptVersion] {
+        try await writer.read { db in
+            guard
+                let recording = try RecordingRow.filter(RecordingRow.Columns.key == key).fetchOne(db),
+                let recordingId = recording.id
+            else { return [] }
+            let rows = try TranscriptRow
+                .filter(TranscriptRow.Columns.recordingId == recordingId)
+                .order(TranscriptRow.Columns.id)
+                .fetchAll(db)
+            let current = recording.currentTranscriptId ?? rows.last?.id
+            return rows.enumerated().compactMap { index, row in
+                row.id.map {
+                    TranscriptVersion(
+                        id: $0, number: index + 1, backend: row.backend, createdAt: row.createdAt,
+                        options: row.options, isCurrent: $0 == current)
+                }
+            }
+        }
+    }
+
+    public func choose(version id: Int64, for key: String) async throws {
+        try await writer.write { db in
+            guard
+                var row = try RecordingRow.filter(RecordingRow.Columns.key == key).fetchOne(db),
+                let recordingId = row.id
+            else { throw StoreError.unknownRecording(key) }
+            let owned = try TranscriptRow
+                .filter(TranscriptRow.Columns.recordingId == recordingId)
+                .filter(TranscriptRow.Columns.id == id)
+                .fetchCount(db)
+            guard owned == 1 else { throw StoreError.unknownVersion(id, key) }
+            row.currentTranscriptId = id
+            try row.update(db)
         }
     }
 
     private static func attach(
-        _ transcript: Transcript, to key: String, backend: String, in db: Database
+        _ transcript: Transcript, to key: String, backend: String,
+        options: TranscriptionOptions?, in db: Database
     ) throws {
         guard
             var row = try RecordingRow.filter(RecordingRow.Columns.key == key).fetchOne(db),
             let recordingId = row.id
         else { throw StoreError.unknownRecording(key) }
-        try Self.insert(transcript, recordingId: recordingId, backend: backend, in: db)
+        try Self.insert(transcript, recordingId: recordingId, backend: backend, options: options, in: db)
+        row.currentTranscriptId = nil
         if row.status != RecordingStatus.discarded.rawValue {
             row.status = RecordingStatus.done.rawValue
             row.lastError = nil
@@ -172,10 +248,13 @@ public final class Store: Sendable {
     }
 
     private static func insert(
-        _ transcript: Transcript, recordingId: Int64, backend: String, in db: Database
+        _ transcript: Transcript, recordingId: Int64, backend: String,
+        options: TranscriptionOptions?, in db: Database
     ) throws {
         var row = TranscriptRow(
-            recordingId: recordingId, backend: backend, createdAt: Date(), text: transcript.text)
+            recordingId: recordingId, backend: backend, createdAt: Date(), text: transcript.text,
+            language: options?.language, diarize: options?.diarize ?? false,
+            speakerCount: options?.speakerCount)
         try row.insert(db)
         guard let transcriptId = row.id else { throw StoreError.missingRowID }
 
@@ -196,9 +275,9 @@ public final class Store: Sendable {
         }
     }
 
-    public func sink(backend: String) -> Sink {
+    public func sink(backend: String, options: TranscriptionOptions? = nil) -> Sink {
         { recording, transcript in
-            try self.save(recording, transcript, backend: backend).audioURL
+            try self.save(recording, transcript, backend: backend, options: options).audioURL
         }
     }
 
@@ -320,7 +399,7 @@ public final class Store: Sendable {
                 lastError: nil)
             try row.insert(db)
             guard let recordingId = row.id else { throw StoreError.missingRowID }
-            try Self.insert(transcript, recordingId: recordingId, backend: backend, in: db)
+            try Self.insert(transcript, recordingId: recordingId, backend: backend, options: nil, in: db)
         }
     }
 
@@ -384,16 +463,19 @@ public final class Store: Sendable {
         }
     }
 
-    public func transcript(for key: String) async throws -> Transcript? {
+    public func transcript(for key: String, version: Int64? = nil) async throws -> Transcript? {
         try await writer.read { db in
             guard
                 let recording = try RecordingRow.filter(RecordingRow.Columns.key == key).fetchOne(db),
-                let recordingId = recording.id,
-                let latest = try TranscriptRow
-                    .filter(TranscriptRow.Columns.recordingId == recordingId)
-                    .order(TranscriptRow.Columns.id.desc)
-                    .fetchOne(db),
-                let transcriptId = latest.id
+                let recordingId = recording.id
+            else { return nil }
+            var query = TranscriptRow.filter(TranscriptRow.Columns.recordingId == recordingId)
+            if let wanted = version ?? recording.currentTranscriptId {
+                query = query.filter(TranscriptRow.Columns.id == wanted)
+            }
+            guard
+                let chosen = try query.order(TranscriptRow.Columns.id.desc).fetchOne(db),
+                let transcriptId = chosen.id
             else { return nil }
 
             let segments = try SegmentRow
@@ -401,7 +483,7 @@ public final class Store: Sendable {
                 .order(SegmentRow.Columns.position)
                 .fetchAll(db)
             return segments.isEmpty
-                ? Transcript(text: latest.text)
+                ? Transcript(text: chosen.text)
                 : Transcript(segments: segments.map(\.segment))
         }
     }
@@ -478,10 +560,14 @@ private func latestSummaries(_ db: Database) throws -> [Int64: TranscriptSummary
         db,
         sql: """
             SELECT t.recordingId AS recordingId, t.backend AS backend,
-                   COUNT(s.id) AS segments, COUNT(DISTINCT s.speaker) AS speakers
-            FROM transcript t
-            JOIN (SELECT recordingId, MAX(id) AS id FROM transcript GROUP BY recordingId) ultima
-              ON ultima.id = t.id
+                   COUNT(s.id) AS segments, COUNT(DISTINCT s.speaker) AS speakers,
+                   (SELECT COUNT(*) FROM transcript v WHERE v.recordingId = r.id AND v.id <= t.id) AS version,
+                   (SELECT COUNT(*) FROM transcript v WHERE v.recordingId = r.id) AS versionCount
+            FROM recording r
+            JOIN transcript t
+              ON t.id = COALESCE(
+                    r.currentTranscriptId,
+                    (SELECT MAX(id) FROM transcript WHERE recordingId = r.id))
             LEFT JOIN segment s ON s.transcriptId = t.id
             GROUP BY t.id
             """
@@ -489,18 +575,22 @@ private func latestSummaries(_ db: Database) throws -> [Int64: TranscriptSummary
         summaries[row["recordingId"]] = TranscriptSummary(
             backend: row["backend"],
             isSegmented: row["segments"] as Int > 0,
-            speakerCount: row["speakers"])
+            speakerCount: row["speakers"],
+            version: row["version"],
+            versionCount: row["versionCount"])
     }
 }
 
 public enum StoreError: Error, CustomStringConvertible {
     case missingRowID
     case unknownRecording(String)
+    case unknownVersion(Int64, String)
 
     public var description: String {
         switch self {
         case .missingRowID: "SQLite no devolvio el id de la fila insertada"
         case .unknownRecording(let key): "no hay ninguna grabacion con clave \(key)"
+        case .unknownVersion(let id, let key): "la version \(id) no es de la grabacion \(key)"
         }
     }
 }
