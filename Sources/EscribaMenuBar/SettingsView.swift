@@ -282,6 +282,11 @@ struct ConnectorsPane: View {
                     .tag(connector.id)
                 }
                 .listStyle(.inset)
+                .onAppear {
+                    if MainSection.selectsFirstItem, selected == nil {
+                        selected = connectors.connectors.first?.id
+                    }
+                }
                 Divider()
                 HStack(spacing: 0) {
                     Menu {
