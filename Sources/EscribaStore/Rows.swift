@@ -72,6 +72,7 @@ struct TranscriptRow: Codable, FetchableRecord, MutablePersistableRecord {
     var language: String?
     var diarize: Bool
     var speakerCount: Int?
+    var optionsKnown: Bool
 
     enum Columns {
         static let id = Column(CodingKeys.id)
@@ -79,7 +80,7 @@ struct TranscriptRow: Codable, FetchableRecord, MutablePersistableRecord {
     }
 
     var options: TranscriptionOptions? {
-        guard language != nil || diarize else { return nil }
+        guard optionsKnown else { return nil }
         return TranscriptionOptions(language: language, diarize: diarize, speakerCount: speakerCount)
     }
 
@@ -215,6 +216,7 @@ func makeMigrator() -> DatabaseMigrator {
             t.add(column: "language", .text)
             t.add(column: "diarize", .boolean).notNull().defaults(to: false)
             t.add(column: "speakerCount", .integer)
+            t.add(column: "optionsKnown", .boolean).notNull().defaults(to: false)
         }
         try db.alter(table: "recording") { t in
             t.add(column: "currentTranscriptId", .integer)

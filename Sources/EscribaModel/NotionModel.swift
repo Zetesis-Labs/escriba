@@ -22,6 +22,7 @@ public final class NotionModel {
     public let id: UUID
     public var token: String
     public private(set) var draft: Connector?
+    @ObservationIgnored private var savedToken: String
     public private(set) var sources: [NotionDataSource] = []
     public private(set) var phase: Phase = .idle
 
@@ -39,14 +40,15 @@ public final class NotionModel {
         self.settings = settings
         self.tokens = tokens
         self.make = make
-        token = tokens.read() ?? ""
+        savedToken = tokens.read() ?? ""
+        token = savedToken
         draft = settings.connector(id)
     }
 
     public var connector: Connector? { settings.connector(id) }
 
     public var isDirty: Bool {
-        draft != connector || token != (tokens.read() ?? "")
+        draft != connector || token != savedToken
     }
 
     public var isConnected: Bool { !token.isEmpty && !sources.isEmpty }
@@ -69,13 +71,14 @@ public final class NotionModel {
         guard let draft else { return }
         let trimmed = token.trimmingCharacters(in: .whitespacesAndNewlines)
         tokens.write(trimmed.isEmpty ? nil : trimmed)
+        savedToken = trimmed
         token = trimmed
         settings.update(draft)
     }
 
     public func discard() {
         draft = connector
-        token = tokens.read() ?? ""
+        token = savedToken
         phase = .idle
     }
 
@@ -173,6 +176,7 @@ public final class NotionModel {
 
     public func disconnect() {
         tokens.write(nil)
+        savedToken = ""
         token = ""
         sources = []
         phase = .idle
@@ -180,7 +184,11 @@ public final class NotionModel {
             $0.notion = nil
             $0.enabled = false
         }
-        if let draft { settings.update(draft) }
+        if var stored = connector {
+            stored.notion = nil
+            stored.enabled = false
+            settings.update(stored)
+        }
     }
 
     private func refreshSelection(among found: [NotionDataSource]) {

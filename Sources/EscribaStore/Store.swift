@@ -254,7 +254,7 @@ public final class Store: Sendable {
         var row = TranscriptRow(
             recordingId: recordingId, backend: backend, createdAt: Date(), text: transcript.text,
             language: options?.language, diarize: options?.diarize ?? false,
-            speakerCount: options?.speakerCount)
+            speakerCount: options?.speakerCount, optionsKnown: options != nil)
         try row.insert(db)
         guard let transcriptId = row.id else { throw StoreError.missingRowID }
 

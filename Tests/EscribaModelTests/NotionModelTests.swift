@@ -216,6 +216,20 @@ struct NotionModelTests {
         #expect(modelo.selected?.properties.count == 1)
     }
 
+    @Test("desconectar no guarda de rebote otros cambios del borrador")
+    func desconectarNoArrastra() async {
+        let ajustes = ajustes()
+        let modelo = NotionModel(connector: conector, settings: ajustes, tokens: .inMemory("ntn"), client: client { [] })
+        modelo.name = "Sin guardar"
+
+        modelo.disconnect()
+
+        #expect(ajustes.connector(conector)?.name == "Notion")
+        #expect(ajustes.connector(conector)?.notion == nil)
+        #expect(modelo.name == "Sin guardar")
+        #expect(modelo.isDirty)
+    }
+
     @Test("desconectar borra el token, la base y la publicacion automatica")
     func desconecta() async {
         let ajustes = ajustes()

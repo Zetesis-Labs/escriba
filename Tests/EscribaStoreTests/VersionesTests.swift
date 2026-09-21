@@ -99,6 +99,17 @@ struct VersionesTests {
         }
     }
 
+    @Test("reprocesar con todo en automatico guarda criterios, no los deja como desconocidos")
+    func automaticos() async throws {
+        let sandbox = try Sandbox()
+        try sandbox.store.save(try sandbox.recording("a"), Transcript(text: "v1"), backend: "wk", options: .automatic)
+
+        let versiones = try await sandbox.store.versions(for: "a")
+
+        #expect(versiones[0].options == .automatic)
+        #expect(versiones[0].label == "v1 · idioma automático · sin hablantes")
+    }
+
     @Test("una version guardada sin criterios (de antes) se lista con criterios desconocidos")
     func sinCriterios() async throws {
         let sandbox = try Sandbox()
