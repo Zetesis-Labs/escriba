@@ -6,11 +6,13 @@ import SwiftUI
 enum RowAction: Identifiable {
     case removeAudio(StoredRecording)
     case discard(StoredRecording)
+    case unpublish(StoredRecording, Connector)
 
     var id: String {
         switch self {
         case .removeAudio(let recording): "quitar-\(recording.key)"
         case .discard(let recording): "borrar-\(recording.key)"
+        case .unpublish(let recording, let connector): "despublicar-\(recording.key)-\(connector.key)"
         }
     }
 }
@@ -33,7 +35,10 @@ struct LibraryWindow: View {
                 List(model.recordings, selection: $selected) { recording in
                     RecordingRowView(recording: recording, origin: origin(recording))
                         .contextMenu {
-                            PublishMenu(model: model, recording: recording, connectors: connectors) {
+                            PublishMenu(
+                                model: model, recording: recording, connectors: connectors,
+                                onAction: { pendingAction = $0 }
+                            ) {
                                 actionError = $0
                             }
                             Button("Quitar la copia de audio…") {
@@ -104,6 +109,7 @@ struct LibraryWindow: View {
         switch pendingAction {
         case .removeAudio(let recording): "¿Quitar el audio de \(recording.key)?"
         case .discard(let recording): "¿Borrar \(recording.key) de la biblioteca?"
+        case .unpublish(let recording, let connector): "¿Borrar \(recording.key) de \(connector.name)?"
         case nil: ""
         }
     }
@@ -120,6 +126,10 @@ struct LibraryWindow: View {
                 perform { try await model.discard(recording.key) }
                 if selected == recording.key { selected = nil }
             }
+        case .unpublish(let recording, let connector):
+            Button("Borrar de \(connector.name)", role: .destructive) {
+                perform { try await model.unpublish(recording.key, from: connector.key) }
+            }
         }
         Button("Cancelar", role: .cancel) {}
     }
@@ -132,6 +142,8 @@ struct LibraryWindow: View {
                     atPath: recording.sourceURL.path(percentEncoded: false)))
         case .discard:
             RowActionText.discard
+        case .unpublish(_, let connector):
+            RowActionText.unpublish(from: connector.kind.label)
         }
     }
 
@@ -154,31 +166,42 @@ struct PublishMenu: View {
     let model: LibraryModel
     let recording: StoredRecording
     let connectors: [Connector]
+    let onAction: (RowAction) -> Void
     let onError: (String) -> Void
 
     var body: some View {
         let live = connectors.filter { model.canPublish(to: $0.key) }
         if !live.isEmpty {
             ForEach(live) { connector in
-                let publication = recording.publication(in: connector.key)
-                Button(
-                    publication?.isPublished == true
-                        ? "Actualizar en \(connector.name)" : "Publicar en \(connector.name)"
-                ) {
-                    Task {
-                        do {
-                            try await model.publish(recording, to: connector.key)
-                        } catch {
-                            onError("\(error)")
+                let kind = connector.kind.label
+                if let publication = recording.publication(in: connector.key), publication.isPublished {
+                    Menu(connector.name) {
+                        if let page = publication.url {
+                            Button("Abrir en \(kind)") { NSWorkspace.shared.open(page) }
+                        }
+                        Button("Actualizar en \(kind)") { publish(to: connector) }
+                            .disabled(model.isPublishing(recording.key, to: connector.key))
+                        Divider()
+                        Button("Borrar de \(kind)…", role: .destructive) {
+                            onAction(.unpublish(recording, connector))
                         }
                     }
-                }
-                .disabled(model.isPublishing(recording.key, to: connector.key))
-                if let page = publication?.url {
-                    Button("Abrir en \(connector.name)") { NSWorkspace.shared.open(page) }
+                } else {
+                    Button("Publicar en \(connector.name)") { publish(to: connector) }
+                        .disabled(model.isPublishing(recording.key, to: connector.key))
                 }
             }
             Divider()
+        }
+    }
+
+    private func publish(to connector: Connector) {
+        Task {
+            do {
+                try await model.publish(recording, to: connector.key)
+            } catch {
+                onError("\(error)")
+            }
         }
     }
 }
@@ -396,7 +419,9 @@ struct TranscriptDetail: View {
             Button("Copiar el JSON") { copyJSON() }
                 .disabled(transcript == nil)
             Divider()
-            PublishMenu(model: model, recording: recording, connectors: connectors) {
+            PublishMenu(
+                model: model, recording: recording, connectors: connectors, onAction: onAction
+            ) {
                 actionError = $0
             }
             Button("Quitar la copia de audio…") { onAction(.removeAudio(recording)) }

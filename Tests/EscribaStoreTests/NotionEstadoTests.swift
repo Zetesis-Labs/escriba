@@ -85,6 +85,20 @@ struct PublicacionesTests {
         #expect(publicacion.pageId == "pg-1")
     }
 
+    @Test("olvidar la publicacion de un conector deja la fila sin rastro en ese conector y no toca los demas")
+    func olvidar() throws {
+        let sandbox = try Sandbox()
+        try sandbox.store.save(try sandbox.recording("a"), Transcript(text: "x"), backend: "wk")
+        try sandbox.store.markPublished(key: "a", connector: "c1", pageId: "pg-1", url: nil, at: .now)
+        try sandbox.store.markPublished(key: "a", connector: "c2", pageId: "pg-2", url: nil, at: .now)
+
+        try sandbox.store.removePublication(key: "a", connector: "c1")
+
+        let fila = try #require(try sandbox.store.recordings().first)
+        #expect(fila.publication(in: "c1") == nil)
+        #expect(fila.publication(in: "c2")?.pageId == "pg-2")
+    }
+
     @Test("marcar una clave que no existe no revienta ni inventa filas")
     func claveDesconocida() async throws {
         let caja = try Sandbox()

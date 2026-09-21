@@ -25,6 +25,16 @@ private nonisolated func grabacion(in base: URL, key: String) throws -> Recordin
 
 private enum FakeError: Error { case caido }
 
+private final class Archivador: Sendable {
+    let archivadas = Mutex<[String]>([])
+
+    var unpublish: Unpublisher {
+        { pageId in self.archivadas.withLock { $0.append(pageId) } }
+    }
+
+    var registro: [String] { archivadas.withLock { $0 } }
+}
+
 private final class Publicador: Sendable {
     let enviados = Mutex<[String]>([])
 
@@ -114,6 +124,42 @@ struct PublicarDesdeLaBibliotecaTests {
 
         #expect(publicador.registro == ["a: v1"])
         #expect(try await modelo.transcript(for: "a")?.text == "v1")
+    }
+
+    @Test("borrar de un conector archiva su pagina y olvida la publicacion, sin tocar la biblioteca")
+    func borrarDelConector() async throws {
+        let (base, store) = try sandbox()
+        let archivador = Archivador()
+        _ = try store.save(try grabacion(in: base, key: "a"), Transcript(text: "Hola"), backend: "wk")
+        try store.markPublished(key: "a", connector: "c1", pageId: "pg-1", url: nil, at: .now)
+        let modelo = LibraryModel(store: store, unpublishers: ["c1": archivador.unpublish])
+
+        try await modelo.unpublish("a", from: "c1")
+
+        #expect(archivador.registro == ["pg-1"])
+        #expect(try store.recordings().first?.publication(in: "c1") == nil)
+        #expect(try await modelo.transcript(for: "a")?.text == "Hola")
+    }
+
+    @Test("si el conector no puede archivar, la publicacion se conserva y el error llega al usuario")
+    func borrarFalla() async throws {
+        let (base, store) = try sandbox()
+        _ = try store.save(try grabacion(in: base, key: "a"), Transcript(text: "Hola"), backend: "wk")
+        try store.markPublished(key: "a", connector: "c1", pageId: "pg-1", url: nil, at: .now)
+        let roto: Unpublisher = { _ in throw FakeError.caido }
+        let modelo = LibraryModel(store: store, unpublishers: ["c1": roto])
+
+        await #expect(throws: FakeError.self) { try await modelo.unpublish("a", from: "c1") }
+        #expect(try store.recordings().first?.publication(in: "c1")?.pageId == "pg-1")
+    }
+
+    @Test("sin pagina publicada no hay nada que borrar del conector")
+    func nadaQueBorrar() async throws {
+        let (base, store) = try sandbox()
+        _ = try store.save(try grabacion(in: base, key: "a"), Transcript(text: "Hola"), backend: "wk")
+        let modelo = LibraryModel(store: store, unpublishers: ["c1": { _ in }])
+
+        await #expect(throws: LibraryModelError.self) { try await modelo.unpublish("a", from: "c1") }
     }
 
     @Test("corregir hablantes reescribe la pagina que ya existia en Notion")

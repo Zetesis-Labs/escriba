@@ -432,6 +432,18 @@ public final class Store: Sendable {
         }
     }
 
+    public func removePublication(key: String, connector: String) throws {
+        try writer.write { db in
+            guard let recording = try RecordingRow.filter(RecordingRow.Columns.key == key).fetchOne(db),
+                let recordingId = recording.id
+            else { return }
+            try PublicationRow
+                .filter(PublicationRow.Columns.recordingId == recordingId)
+                .filter(PublicationRow.Columns.connector == connector)
+                .deleteAll(db)
+        }
+    }
+
     private func upsertPublication(
         key: String, connector: String, _ change: (inout PublicationRow) -> Void
     ) throws {

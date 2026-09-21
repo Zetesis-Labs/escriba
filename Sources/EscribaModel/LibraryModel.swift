@@ -7,6 +7,7 @@ import Observation
 
 public typealias Reprocessor = @Sendable (URL, TranscriptionOptions) async throws -> Transcript
 public typealias TranscriptWriter = @Sendable (String, Transcript) throws -> Void
+public typealias Unpublisher = @Sendable (String) async throws -> Void
 
 @Observable
 public final class LibraryModel {
@@ -20,18 +21,30 @@ public final class LibraryModel {
     @ObservationIgnored private let reprocess: Reprocessor?
     @ObservationIgnored private let writeText: TranscriptWriter?
     @ObservationIgnored private let publishers: [String: Sink]
+    @ObservationIgnored private let unpublishers: [String: Unpublisher]
     @ObservationIgnored private var observation: Task<Void, Never>?
 
     public init(
         store: Store,
         reprocess: Reprocessor? = nil,
         writeText: TranscriptWriter? = nil,
-        publishers: [String: Sink] = [:]
+        publishers: [String: Sink] = [:],
+        unpublishers: [String: Unpublisher] = [:]
     ) {
         self.store = store
         self.reprocess = reprocess
         self.writeText = writeText
         self.publishers = publishers
+        self.unpublishers = unpublishers
+    }
+
+    public func unpublish(_ key: String, from connector: String) async throws {
+        guard let unpublish = unpublishers[connector] else { throw LibraryModelError.connectorUnavailable }
+        guard let pageId = try store.recording(for: key)?.publication(in: connector)?.pageId else {
+            throw LibraryModelError.nothingToUnpublish
+        }
+        try await unpublish(pageId)
+        try store.removePublication(key: key, connector: connector)
     }
 
     public var publishingConnectors: [String] { Array(publishers.keys) }
@@ -193,6 +206,7 @@ public enum LibraryModelError: Error, CustomStringConvertible {
     case connectorUnavailable
     case nothingToPublish
     case unknownRecording
+    case nothingToUnpublish
 
     public var description: String {
         switch self {
@@ -200,6 +214,7 @@ public enum LibraryModelError: Error, CustomStringConvertible {
         case .connectorUnavailable: "ese conector no esta activo en Ajustes"
         case .nothingToPublish: "esta grabacion aun no tiene transcripcion"
         case .unknownRecording: "esta grabacion ya no esta en la biblioteca"
+        case .nothingToUnpublish: "esta grabacion no esta publicada en ese conector"
         }
     }
 }

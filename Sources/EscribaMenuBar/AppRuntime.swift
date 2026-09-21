@@ -86,7 +86,8 @@ final class AppRuntime {
                     try await engine.backend(options: options).transcribe(url)
                 },
                 writeText: textWriter(into: settings.txtFolder),
-                publishers: publishers(for: store))
+                publishers: publishers(for: store),
+                unpublishers: unpublishers())
             model.startObserving()
             self.model = model
 
@@ -217,6 +218,17 @@ final class AppRuntime {
                 journal: journal(for: store, connector: connector.key))
         }
         return publishers
+    }
+
+    private func unpublishers() -> [String: Unpublisher] {
+        var result: [String: Unpublisher] = [:]
+        for connector in settings.liveConnectors {
+            guard let token = defaultTokenStore(account: connector.key).read(), !token.isEmpty
+            else { continue }
+            let client = makeNotionClient(token: token)
+            result[connector.key] = { pageId in try await unpublish(pageId: pageId, using: client) }
+        }
+        return result
     }
 
     private func journal(for store: Store, connector: String) -> NotionJournal {

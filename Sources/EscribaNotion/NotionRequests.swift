@@ -131,3 +131,7 @@ private func run(_ run: NotionRun) -> JSONValue {
         "annotations": .object(["bold": .bool(run.bold)]),
     ])
 }
+
+public func archivePageBody() -> JSONValue {
+    .object(["archived": .bool(true)])
+}

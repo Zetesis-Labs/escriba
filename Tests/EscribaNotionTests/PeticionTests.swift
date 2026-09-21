@@ -6,6 +6,11 @@ import EscribaCore
 
 @Suite("Cuerpo de las peticiones a Notion")
 struct PeticionTests {
+    @Test("borrar de Notion archiva la pagina: se puede restaurar desde su papelera")
+    func archivar() {
+        #expect(archivePageBody() == .object(["archived": .bool(true)]))
+    }
+
     private let momento = Date(timeIntervalSince1970: 1_758_013_200)
     private let madrid = TimeZone(identifier: "Europe/Madrid")!
 

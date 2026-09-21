@@ -7,6 +7,13 @@ import EscribaCore
 private let entorno = ProcessInfo.processInfo.environment
 private let tokenEnVivo = entorno["ESCRIBA_NOTION_TOKEN"]
 
+extension Optional {
+    fileprivate func asyncFlatMap<T>(_ transform: (Wrapped) async throws -> T?) async rethrows -> T? {
+        guard let self else { return nil }
+        return try await transform(self)
+    }
+}
+
 @Suite("Contra la API real de Notion (solo con ESCRIBA_NOTION_TOKEN)", .enabled(if: tokenEnVivo != nil))
 struct EnVivoTests {
     @Test("listar bases, publicar, republicar sin duplicar y dejar el enlace")
@@ -56,5 +63,12 @@ struct EnVivoTests {
         #expect(segunda.id == primera.id)
         #expect(try await client.childBlocks(segunda.id).count == esperados)
         print("REESCRITA:", segunda.id)
+
+        try await unpublish(pageId: segunda.id, using: client)
+        let buscada = try await findByKeyBody(clave, mapping: mapeo).asyncFlatMap {
+            try await client.findPage(base.id, $0)
+        }
+        #expect(buscada == nil)
+        print("ARCHIVADA:", segunda.id)
     }
 }

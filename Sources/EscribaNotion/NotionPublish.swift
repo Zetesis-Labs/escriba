@@ -90,3 +90,7 @@ private func append(
         try await client.appendBlocks(pageId, appendChildrenBody(batch))
     }
 }
+
+public func unpublish(pageId: String, using client: NotionClient) async throws(NotionError) {
+    try await client.updatePage(pageId, archivePageBody())
+}
