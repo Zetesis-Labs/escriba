@@ -291,23 +291,41 @@ Desde terminal:
 
     escriba once --resumir
 
-## Conectores: de la biblioteca a Notion
+## Conectores: de la biblioteca a Notion o a un bundle OKF
 
-Cada conector es un destino con su propio token, su base de datos, su mapeo y
-su plantilla. En **Conectores** se pega el token de una conexion de Notion de
-tipo «Token de acceso» (Ajustes de Notion → Conexiones), se pulsa «Conectar» y
-aparecen las bases que esa conexion tenga compartidas. Elegida una, la app lee
-sus columnas y propone donde va cada dato (titulo, fecha, hablantes, duracion,
-clave, origen); cada dato puede ir a una columna, al cuerpo de la pagina, a
-los dos o a ninguno. El cuerpo se compone con bloques: texto libre o `/` para
-`/transcripcion` (por hablante, con tiempos o solo texto), `/audio` (sube el
-fichero, reproducible en Notion), `/fecha`, `/hablantes`, `/duracion`,
-`/origen`, `/titulo`, `/encabezado`, `/resumen` y `/etiquetas`.
+Cada conector es un destino, y puede haber tantos como quieras. Hay dos tipos:
 
-Con «Publicar cada transcripcion nueva» activo, cada nota entra sola. Corregir
-o fusionar hablantes, o reprocesar, **regenera** la pagina en cada conector
-donde ya estaba, con el mismo enlace. Si Notion falla, la transcripcion no se
-pierde: el error queda en la fila y se reintenta desde su menu.
+- **Notion.** Se pega el token de una conexión de Notion de tipo «Token de
+  acceso» (Ajustes de Notion → Conexiones), se pulsa «Conectar» y se elige una
+  de las bases que esa conexión tenga compartidas.
+- **OKF.** Se elige una carpeta y Escriba la mantiene como un bundle
+  [Open Knowledge Format](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md)
+  v0.2: un fichero Markdown con frontmatter YAML por documento, un `index.md`
+  en cada carpeta y un `log.md` con las altas, actualizaciones y bajas.
+
+Los dos se configuran igual, como una página:
+
+- **Propiedades.** En Notion, una fila por columna de la base; en OKF, el
+  frontmatter, con las claves que quieras (`type` es obligatorio). Cada valor
+  mezcla texto fijo y datos de la grabación (título, descripción, resumen,
+  etiquetas, fecha, hablantes, duración, clave, audio…), y toma el tipo que
+  toque: lista, número, fecha o texto.
+- **Cuerpo.** Un editor de texto donde se escribe Markdown (`#` para títulos,
+  `-` para viñetas, `**negrita**`) y `/` abre en el cursor un menú para
+  insertar un dato. La transcripción va con hablantes, con tiempos o solo el
+  texto; en Notion el dato Audio sube el fichero.
+- **Así queda.** Debajo, el resultado con una grabación de ejemplo, al momento.
+
+En OKF, además, un conector escribe **N documentos** por grabación, cada uno
+con su ruta (`notas/[Día]-[Título].md`). La plantilla de partida es una nota
+con el resumen que enlaza su transcripción completa, en otro documento.
+
+Con «Publicar cada transcripción nueva» activo, cada nota entra sola. Corregir
+o fusionar hablantes, reprocesar o resumir **regenera** lo publicado en cada
+conector donde ya estaba: la misma página de Notion, o los mismos ficheros del
+bundle (renombrados si cambia el título). Si un destino falla, la
+transcripción no se pierde: el error queda en la fila y se reintenta desde su
+menú.
 
 ## El nucleo viaja
 
@@ -325,7 +343,8 @@ habla HTTP y, sobre todo, quien transcribe (CoreML en Apple; whisper.cpp o
 | `EscribaCore` | Nucleo puro: parseo de rutas, clasificacion de estado, seleccion de pendientes, ritmo del bucle, modelo `Transcript`. Sin I/O, cubierto por tests. |
 | `EscribaEngine` | Motor portable: puertos, `Pipeline`, demonio, log. Compila a Linux y a WebAssembly (WASI). Sin dependencias. |
 | `EscribaIntelligence` | Adaptador del puerto `Summarizer` con FoundationModels: titulo, resumen y etiquetas en el propio Mac. |
-| `EscribaNotion` | Conector Notion: mapeo de columnas, plantilla del cuerpo con `/comandos`, subida de audio, publicacion que regenera sin duplicar. Portable. |
+| `EscribaNotion` | Conector Notion: valor de cada columna según su tipo, cuerpo de texto con datos convertido a bloques, subida de audio, publicación que regenera sin duplicar. Portable. |
+| `EscribaOKF` | Conector a un bundle OKF v0.2: N documentos por grabación con su ruta, frontmatter y cuerpo, índices por carpeta y registro. Portable. |
 | `EscribaSystemKit` | Host de sistema (macOS y Linux): FSEvents o sondeo, stat e iCloud, flock, ledger SQLite. |
 | `EscribaWhisper` | Backend WhisperKit + SpeakerKit (argmax-oss-swift). |
 | `EscribaStore` | Biblioteca: SQLite con GRDB y copia del audio. |
@@ -333,3 +352,7 @@ habla HTTP y, sobre todo, quien transcribe (CoreML en Apple; whisper.cpp o
 | `EscribaMenuBar` | App de barra de menus: estado, notificaciones y acciones. Aislamiento MainActor por defecto. |
 
     swift test
+
+## Licencia
+
+MIT. Ver [LICENSE](LICENSE).
