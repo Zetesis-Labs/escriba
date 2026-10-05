@@ -70,8 +70,8 @@ ad-hoc y puede caducar.
 |---|---|---|---|
 | `EscribaCore` | Modelo (`Transcript`, `Recording`), parseo, decisiones puras | macOS, Linux, WASI | ninguna |
 | `EscribaEngine` | Puertos (`TranscriptionBackend`, `RecordingSource`, `Sink`, `LedgerPort`, `FolderWatcher`, `ReadinessProbe`), `Pipeline`, `Daemon`, `Log`. Orquestación que solo habla con puertos | macOS, Linux, WASI | ninguna |
-| `EscribaNotion` | Conector Notion: esquema y mapeo, plantilla del cuerpo, cliente API sobre un transporte HTTP propio, publicación, sink | macOS, Linux, WASI | ninguna (URLSession solo fuera de WASI) |
-| `EscribaOKF` | Conector a un bundle OKF v0.2 en una carpeta: nota por grabación en `notas/`, transcripción aparte opcional en `transcripciones/`, `index.md` por carpeta y `log.md`. Decisiones puras (`okfPublication`, `okfRemoval`) y sink sobre el puerto `OKFFolder` | macOS, Linux, WASI | ninguna |
+| `EscribaNotion` | Conector Notion: valor de cada columna según su tipo, cuerpo de texto con datos convertido a bloques, cliente API sobre un transporte HTTP propio, publicación, sink | macOS, Linux, WASI | ninguna (URLSession solo fuera de WASI) |
+| `EscribaOKF` | Conector a un bundle OKF v0.2 en una carpeta: N documentos por grabación (ruta, frontmatter y cuerpo con datos), `index.md` por carpeta y `log.md`. Decisiones puras (`okfPublication`, `okfRemoval`) y sink sobre el puerto `OKFFolder` | macOS, Linux, WASI | ninguna |
 | `EscribaSystemKit` | Host de sistema: FSEvents (macOS) o sondeo (Linux), stat/iCloud/materialización, flock, `offloaded`, ledger SQLite, migración legacy | macOS, Linux | SQLite del sistema (`CSQLite` en Linux) |
 | `EscribaWhisper` | Backend WhisperKit + SpeakerKit | Apple | argmax-oss-swift |
 | `EscribaIntelligence` | Adaptador del puerto `Summarizer` con FoundationModels (titulo, resumen, etiquetas) | Apple | ninguna |
@@ -85,9 +85,13 @@ ad-hoc y puede caducar.
   `TranscriptionBackend`, `RecordingSource`, `Sink`, `LedgerPort`,
   `NotionClient`, `NotionTransport`, `Summarizer`, `OKFFolder`. Una implementación nueva es
   una función `make(...)` que devuelve el struct.
-- **La plantilla del cuerpo es de todos los conectores**: `BodyTemplate`,
-  `TemplateBlock`, `NoteField`, `TranscriptStyle` y los `/comandos` viven en
-  `EscribaCore`; cada conector solo decide cómo pinta cada bloque.
+- **Las plantillas son texto con datos, compartidas por los conectores**:
+  `{{titulo}}`, `{{transcripcion}}`, `{{enlace:<id>}}`… (`TemplateToken`,
+  `templatePieces`) y su valor (`NoteValues`) viven en `EscribaCore`; cada
+  conector decide cómo pinta un dato (YAML en OKF, tipo de columna o bloques
+  en Notion). El editor de la app es un `NSTextView` con los datos como
+  pastillas y «/» en el cursor (`TokenEditor.swift`). `BodyTemplate` y el
+  `mapping` antiguos solo existen para leer configuraciones guardadas antes.
 - **Un destino recibe una `Note`** (`Recording` + `Transcript` + `Digest?`), no
   una transcripción suelta: así el resumen llega a la biblioteca y a Notion sin
   que el pipeline conozca a ninguno de los dos.
@@ -133,8 +137,8 @@ ad-hoc y puede caducar.
   con permisos 0600; **ya no en el Llavero**: pedía la contraseña en cada
   reinstalación aunque la firma fuera estable, y el fichero además vale en
   Linux; el token antiguo del Llavero se migra en la primera lectura y se
-  retira de allí), su base, su mapeo
-  columna-por-dato, su plantilla del cuerpo (`/comandos`) e interruptor. El
+  retira de allí), su base, el valor de cada columna y el cuerpo, e
+  interruptor. El
   rastro de publicación es por conector (tabla `publication`). Reprocesar o
   corregir **regenera** la página en cada conector donde estaba (mismo
   enlace). Un fallo del conector nunca tumba el pipeline: `notionSink`
