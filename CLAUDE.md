@@ -6,12 +6,11 @@ asentamiento, ledger, backends); esto son las reglas para tocar el código.
 
 **Alcance (cambiado por Rubén el 2026-09-20)**: Escriba es un **producto
 OSS**. Cualquiera se lo baja de GitHub, pega el token de su integración
-(Notion hoy; otros destinos mañana) y tiene su ingester apuntado a sus
-páginas. Diseñar para un desconocido que se baja el binario: onboarding
-claro, nada que exija leer el código, y verificar de punta a punta contra
-el servicio real antes de decir «hecho». Sigue sin haber venta: el plan
-comercial de `comercializacion.md` (2026-09-04) queda aparcado y solo sirve
-para no repetir el análisis.
+(Notion), o elige una carpeta para un bundle OKF, y tiene su ingester
+apuntado a sus páginas. Diseñar para un desconocido que se baja el binario:
+onboarding claro, nada que exija leer el código, y verificar de punta a
+punta contra el servicio real antes de decir «hecho». Licencia MIT; no hay
+venta.
 
 **El núcleo viaja**: el mismo motor debe poder correr en un Mac, en un pod
 de Linux o en un runtime WebAssembly (WASI), cambiando solo el host que lo
