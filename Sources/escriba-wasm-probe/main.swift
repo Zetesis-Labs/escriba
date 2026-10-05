@@ -2,6 +2,7 @@ import Foundation
 import EscribaCore
 import EscribaEngine
 import EscribaNotion
+import EscribaOKF
 
 let transcript = Transcript(segments: [
     TranscriptSegment(start: 0, end: 2, speaker: "Ruben", text: "Hola desde WASI."),
@@ -40,3 +41,10 @@ let body = createPageBody(
     page.replacing(blocks: render(export.template, for: page, transcript: transcript, audio: nil)),
     in: export.source, mapping: export.mapping, timeZone: TimeZone(identifier: "UTC")!)
 print("bloques para Notion:", body["children"]?.count ?? 0, "| titulo:", body["properties"]?["Nombre"]?["title"]?[0]?["text"]?["content"]?.text ?? "?")
+
+let bundle = okfPublication(
+    Note(recording: recordings[0], transcript: transcript, digest: resumen),
+    as: OKFExport(folder: "/bundle"), in: bundleState(from: [:]), known: nil,
+    producer: "escriba/wasi", now: Date(timeIntervalSince1970: 1_758_013_200),
+    timeZone: TimeZone(identifier: "UTC")!)
+print("ficheros del bundle OKF:", bundle.changes.count, "| nota:", bundle.notePath)

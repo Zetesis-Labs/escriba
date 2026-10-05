@@ -112,6 +112,15 @@ struct NotaTests {
         #expect(cuerpo(nota) == "Solo texto")
     }
 
+    @Test("un encabezado que se queda sin nada debajo no se escribe")
+    func encabezadoVacio() throws {
+        let plana = Note(recording: grabacion, transcript: Transcript(text: "Solo texto"))
+        let ficheros = escritos(publicar(plana, como: exportacion(separada: false)).changes)
+
+        let nota = try #require(ficheros.first { $0.key.hasPrefix("notas/2025") }?.value)
+        #expect(cuerpo(nota) == "# Transcripción\n\nSolo texto")
+    }
+
     @Test("sin resumen el titulo sale del texto, la descripcion de la fecha y no hay etiquetas")
     func sinResumen() throws {
         let plana = Note(recording: grabacion, transcript: Transcript(text: "Llamo para hablar del envio de mañana"))

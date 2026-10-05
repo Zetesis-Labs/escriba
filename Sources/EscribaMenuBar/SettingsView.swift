@@ -3,6 +3,7 @@ import EscribaEngine
 import EscribaIntelligence
 import EscribaModel
 import EscribaNotion
+import EscribaOKF
 import EscribaWhisper
 import ServiceManagement
 import SwiftUI
@@ -263,6 +264,7 @@ private func chooseFolder() -> String? {
     let panel = NSOpenPanel()
     panel.canChooseDirectories = true
     panel.canChooseFiles = false
+    panel.canCreateDirectories = true
     panel.allowsMultipleSelection = false
     guard panel.runModal() == .OK, let url = panel.url else { return nil }
     return url.path(percentEncoded: false)
@@ -297,7 +299,7 @@ struct ConnectorsPane: View {
                             .font(.caption2)
                         VStack(alignment: .leading) {
                             Text(connector.name)
-                            Text(connector.notion?.source.label ?? "Sin base elegida")
+                            Text(subtitle(of: connector))
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
@@ -332,8 +334,11 @@ struct ConnectorsPane: View {
                 .padding(6)
             }
         } detail: {
-            if let selected, connectors.connectors.contains(where: { $0.id == selected }) {
-                NotionEditor(notion: connectors.editor(for: selected))
+            if let connector = connectors.connectors.first(where: { $0.id == selected }) {
+                switch connector.kind {
+                case .notion: NotionEditor(notion: connectors.editor(for: connector.id))
+                case .okf: OKFEditor(okf: connectors.okfEditor(for: connector.id))
+                }
             } else {
                 ContentUnavailableView(
                     "Sin conector elegido",
@@ -342,6 +347,15 @@ struct ConnectorsPane: View {
             }
         }
         .navigationTitle("Conectores")
+    }
+
+    private func subtitle(of connector: Connector) -> String {
+        switch connector.kind {
+        case .notion:
+            connector.notion?.source.label ?? "Sin base elegida"
+        case .okf:
+            connector.okf.flatMap { $0.isUsable ? abbreviated($0.folder) : nil } ?? "Sin carpeta elegida"
+        }
     }
 }
 
@@ -419,7 +433,7 @@ private struct NotionEditor: View {
                 }
 
                 Section {
-                    TemplateEditor(notion: notion)
+                    TemplateEditor(template: $notion.template, standard: .standard)
                 } header: {
                     Text("Cuerpo de la página")
                 } footer: {
@@ -463,47 +477,116 @@ private struct NotionEditor: View {
     private func inBody(_ field: NoteField) -> Binding<Bool> {
         Binding(
             get: { notion.template.blocks.contains(.field(field)) },
-            set: { wanted in
-                let blocks = notion.template.blocks
-                if wanted, !blocks.contains(.field(field)) {
-                    notion.insert(.field(field), at: blocks.firstIndex { !$0.isText } ?? blocks.count)
-                } else if !wanted, let index = blocks.firstIndex(of: .field(field)) {
-                    notion.removeBlock(at: index)
+            set: { notion.template = notion.template.togglingField(field, on: $0) })
+    }
+}
+
+private struct OKFEditor: View {
+    @Bindable var okf: OKFModel
+
+    var body: some View {
+        Form {
+            Section {
+                TextField("Nombre", text: $okf.name)
+                Toggle("Exportar cada transcripción nueva", isOn: $okf.publishes)
+                    .disabled(okf.readiness != nil)
+                if let pending = okf.readiness {
+                    Text(pending).font(.caption).foregroundStyle(.secondary)
+                } else {
+                    Text("Corregir hablantes, reprocesar o resumir reescribe la nota ya exportada.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
-            })
+            }
+
+            Section {
+                HStack {
+                    Text(okf.folder.isEmpty ? "Sin elegir" : abbreviated(okf.folder))
+                        .foregroundStyle(okf.folder.isEmpty ? .secondary : .primary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Spacer()
+                    if !okf.folder.isEmpty {
+                        Button("Mostrar en Finder") {
+                            NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: okf.folder)])
+                        }
+                    }
+                    Button("Elegir…") {
+                        if let folder = chooseFolder() { okf.folder = folder }
+                    }
+                }
+            } header: {
+                Text("Carpeta del bundle")
+            } footer: {
+                Text("Escriba gestiona esta carpeta como un bundle OKF: escribe notas/, transcripciones/, un index.md en cada una y log.md. Si va dentro de un bundle más grande, elige una subcarpeta propia.")
+            }
+
+            Section {
+                Toggle("Transcripción en su propio .md", isOn: $okf.separateTranscript)
+            } footer: {
+                Text(okf.separateTranscript
+                    ? "La nota lleva el resumen y /transcripcion se convierte en un enlace a transcripciones/. Así quien indexe el bundle lee los resúmenes sin cargar transcripciones largas."
+                    : "La transcripción va dentro de la nota, donde esté /transcripcion en la plantilla.")
+            }
+
+            Section {
+                TemplateEditor(template: $okf.template, standard: OKFExport.standardTemplate)
+            } header: {
+                Text("Cuerpo de la nota")
+            } footer: {
+                Text("El título, el resumen y las etiquetas van siempre en el frontmatter. En el cuerpo, escribe texto libre o «/» para insertar un bloque: /resumen, /transcripcion, /hablantes, /fecha, /audio, /encabezado…")
+            }
+        }
+        .formStyle(.grouped)
+        .safeAreaInset(edge: .bottom) {
+            HStack {
+                if okf.isDirty {
+                    Text("Cambios sin guardar").font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button("Descartar") { okf.discard() }
+                    .disabled(!okf.isDirty)
+                Button("Guardar") { okf.save() }
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(!okf.isDirty)
+            }
+            .padding(10)
+            .background(.bar)
+        }
     }
 }
 
 private struct TemplateEditor: View {
-    @Bindable var notion: NotionModel
+    @Binding var template: BodyTemplate
+    let standard: BodyTemplate
     @State private var slashRow: Int?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             List {
-                ForEach(Array(notion.template.blocks.enumerated()), id: \.offset) { index, block in
+                ForEach(Array(template.blocks.enumerated()), id: \.offset) { index, block in
                     row(index, block)
                         .listRowSeparator(.hidden)
                 }
-                .onMove { notion.moveBlocks(from: $0, to: $1) }
-                .onDelete { $0.forEach(notion.removeBlock(at:)) }
+                .onMove { template = template.moving(from: $0, to: $1) }
+                .onDelete { $0.sorted(by: >).forEach { template = template.removing(at: $0) } }
             }
             .listStyle(.plain)
-            .frame(minHeight: CGFloat(max(notion.template.blocks.count, 3)) * 34 + 8)
+            .frame(minHeight: CGFloat(max(template.blocks.count, 3)) * 34 + 8)
             .scrollDisabled(true)
             HStack {
-                Button("Añadir texto") { notion.insert(.text(""), at: notion.template.blocks.count) }
+                Button("Añadir texto") { template = template.inserting(.text(""), at: template.blocks.count) }
                 Menu("Insertar bloque") {
                     ForEach(slashCommands) { command in
                         Button("\(command.command) — \(command.help)") {
-                            notion.insert(command.block, at: notion.template.blocks.count)
+                            template = template.inserting(command.block, at: template.blocks.count)
                         }
                     }
                 }
                 .fixedSize()
                 Spacer()
-                Button("Volver a la plantilla básica") { notion.template = .standard }
-                    .disabled(notion.template == .standard)
+                Button("Volver a la plantilla básica") { template = standard }
+                    .disabled(template == standard)
             }
             .controlSize(.small)
         }
@@ -517,12 +600,15 @@ private struct TemplateEditor: View {
                 TextField("Texto, o / para un bloque", text: textBinding(index, text), axis: .vertical)
                     .textFieldStyle(.roundedBorder)
                     .onSubmit {
-                        guard !notion.apply(command: text, replacing: index) else { return }
-                        notion.insert(.text(""), at: index + 1)
+                        if let applied = template.applying(command: text, at: index) {
+                            template = applied
+                        } else {
+                            template = template.inserting(.text(""), at: index + 1)
+                        }
                     }
                     .popover(isPresented: slashPresented(index), arrowEdge: .bottom) {
                         SlashMenu(typed: text) { command in
-                            _ = notion.apply(command: command.command, replacing: index)
+                            template = template.applying(command: command.command, at: index) ?? template
                             slashRow = nil
                         }
                     }
@@ -533,7 +619,7 @@ private struct TemplateEditor: View {
                     .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
                 Spacer()
             }
-            Button { notion.removeBlock(at: index) } label: { Image(systemName: "xmark.circle") }
+            Button { template = template.removing(at: index) } label: { Image(systemName: "xmark.circle") }
                 .buttonStyle(.borderless)
                 .foregroundStyle(.secondary)
         }
@@ -543,7 +629,7 @@ private struct TemplateEditor: View {
         Binding(
             get: { current },
             set: { text in
-                notion.setText(text, at: index)
+                template = template.settingText(text, at: index)
                 slashRow = text.hasPrefix("/") ? index : (slashRow == index ? nil : slashRow)
             })
     }

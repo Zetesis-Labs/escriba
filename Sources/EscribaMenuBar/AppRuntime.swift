@@ -5,6 +5,7 @@ import EscribaEngine
 import EscribaSystemKit
 import EscribaIntelligence
 import EscribaNotion
+import EscribaOKF
 import EscribaStore
 import EscribaWhisper
 import Observation
@@ -232,13 +233,23 @@ final class AppRuntime {
     private func publishers(for store: Store) -> [String: Sink] {
         var publishers: [String: Sink] = [:]
         for connector in settings.liveConnectors {
-            guard let export = connector.notion,
-                let token = defaultTokenStore(account: connector.key).read(), !token.isEmpty
-            else { continue }
-            publishers[connector.key] = notionSink(
-                export: export,
-                client: makeNotionClient(token: token),
-                journal: journal(for: store, connector: connector.key))
+            switch connector.kind {
+            case .notion:
+                guard let export = connector.notion,
+                    let token = defaultTokenStore(account: connector.key).read(), !token.isEmpty
+                else { continue }
+                publishers[connector.key] = notionSink(
+                    export: export,
+                    client: makeNotionClient(token: token),
+                    journal: journal(for: store, connector: connector.key))
+            case .okf:
+                guard let export = connector.okf, export.isUsable else { continue }
+                let folder = fileFolder(URL(fileURLWithPath: export.folder))
+                publishers[connector.key] = okfSink(
+                    export: export, folder: folder,
+                    journal: okfJournal(for: store, connector: connector.key, root: folder.root),
+                    producer: Self.producer)
+            }
         }
         return publishers
     }
@@ -246,12 +257,43 @@ final class AppRuntime {
     private func unpublishers() -> [String: Unpublisher] {
         var result: [String: Unpublisher] = [:]
         for connector in settings.liveConnectors {
-            guard let token = defaultTokenStore(account: connector.key).read(), !token.isEmpty
-            else { continue }
-            let client = makeNotionClient(token: token)
-            result[connector.key] = { pageId in try await unpublish(pageId: pageId, using: client) }
+            switch connector.kind {
+            case .notion:
+                guard let token = defaultTokenStore(account: connector.key).read(), !token.isEmpty
+                else { continue }
+                let client = makeNotionClient(token: token)
+                result[connector.key] = { pageId in try await unpublish(pageId: pageId, using: client) }
+            case .okf:
+                guard let export = connector.okf, export.isUsable else { continue }
+                let folder = fileFolder(URL(fileURLWithPath: export.folder))
+                result[connector.key] = { notePath in try okfUnpublish(notePath, from: folder) }
+            }
         }
         return result
+    }
+
+    private static let producer =
+        "escriba/\(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev")"
+
+    private func okfJournal(for store: Store, connector: String, root: URL) -> OKFJournal {
+        OKFJournal(
+            known: { key in try store.recording(for: key)?.publication(in: connector)?.pageId },
+            published: { key, notePath, moment in
+                do {
+                    try store.markPublished(
+                        key: key, connector: connector, pageId: notePath,
+                        url: root.appending(path: notePath), at: moment)
+                } catch {
+                    Log.error("no se pudo anotar la exportacion de \(key): \(error)")
+                }
+            },
+            failed: { key, problem in
+                do {
+                    try store.markPublishFailed(key: key, connector: connector, error: problem)
+                } catch {
+                    Log.error("no se pudo anotar el fallo al exportar \(key): \(error)")
+                }
+            })
     }
 
     private func journal(for store: Store, connector: String) -> NotionJournal {
@@ -305,7 +347,10 @@ final class AppRuntime {
                                     .sorted())
                                 .joined(separator: ",")
                         } ?? ""
-                        return "\(connector.key):\(connector.enabled):\(export)"
+                        let okf = connector.okf.map {
+                            "\($0.folder),\($0.separateTranscript),\($0.template.hashValue)"
+                        } ?? ""
+                        return "\(connector.key):\(connector.enabled):\(export):\(okf)"
                     }.joined(separator: ";"),
                 ].joined(separator: "|")
             }

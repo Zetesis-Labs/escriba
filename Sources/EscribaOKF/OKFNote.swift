@@ -64,10 +64,20 @@ func noteDocument(
     let header = frontmatter(
         type: okfNoteType, title: facts.title, description: facts.description, tags: okfTags(facts.tags),
         facts: facts, producer: producer, now: now, timeZone: timeZone)
-    let body = template.blocks
-        .compactMap { markdown($0, facts: facts, transcript: transcript, transcriptLink: transcriptLink, timeZone: timeZone) }
-        .joined(separator: "\n\n")
+    let rendered = template.blocks.map { block in
+        (block, markdown(block, facts: facts, transcript: transcript, transcriptLink: transcriptLink, timeZone: timeZone))
+    }
+    let body = withoutEmptySections(rendered).joined(separator: "\n\n")
     return header + "\n" + body + "\n"
+}
+
+private func withoutEmptySections(_ rendered: [(TemplateBlock, String?)]) -> [String] {
+    rendered.indices.compactMap { index in
+        let (block, text) = rendered[index]
+        guard case .heading = block else { return text }
+        let section = rendered[(index + 1)...].prefix { if case .heading = $0.0 { false } else { true } }
+        return section.contains { $0.1 != nil } ? text : nil
+    }
 }
 
 func transcriptDocument(

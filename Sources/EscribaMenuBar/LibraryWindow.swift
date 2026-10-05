@@ -177,7 +177,13 @@ struct PublishMenu: View {
                 if let publication = recording.publication(in: connector.key), publication.isPublished {
                     Menu(connector.name) {
                         if let page = publication.url {
-                            Button("Abrir en \(kind)") { NSWorkspace.shared.open(page) }
+                            switch connector.kind {
+                            case .notion:
+                                Button("Abrir en \(kind)") { NSWorkspace.shared.open(page) }
+                            case .okf:
+                                Button("Abrir el .md") { NSWorkspace.shared.open(page) }
+                                Button("Mostrar en Finder") { NSWorkspace.shared.activateFileViewerSelecting([page]) }
+                            }
                         }
                         Button("Actualizar en \(kind)") { publish(to: connector) }
                             .disabled(model.isPublishing(recording.key, to: connector.key))
