@@ -15,6 +15,21 @@ struct EscribaApp: App {
         }
         .defaultLaunchBehavior(.presented)
         .restorationBehavior(.automatic)
+        .commands {
+            CommandGroup(replacing: .newItem) {
+                if runtime.recorder.isRecording {
+                    Button("Detener y transcribir") { runtime.recorder.stop() }
+                        .keyboardShortcut("n")
+                } else {
+                    Button("Nueva grabación") { Task { await runtime.recorder.start() } }
+                        .keyboardShortcut("n")
+                }
+            }
+            CommandGroup(replacing: .appTermination) {
+                Button("Salir de Escriba") { quit(runtime) }
+                    .keyboardShortcut("q")
+            }
+        }
     }
 }
 
@@ -54,7 +69,7 @@ struct MenuContent: View {
         }
         Button("Ver registro") { NSWorkspace.shared.open(Paths.logFile) }
         Divider()
-        Button("Salir") { NSApp.terminate(nil) }
+        Button("Salir") { quit(runtime) }
     }
 
     private func show(_ section: MainSection) {
@@ -62,4 +77,10 @@ struct MenuContent: View {
         openWindow(id: "main")
         NSApp.activate()
     }
+}
+
+@MainActor
+private func quit(_ runtime: AppRuntime) {
+    runtime.recorder.prepareForQuit()
+    NSApp.terminate(nil)
 }

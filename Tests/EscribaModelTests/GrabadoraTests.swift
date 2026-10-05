@@ -16,6 +16,7 @@ private final class Registro {
     var nombres: Set<String> = []
     var copiados: [(URL, String)] = []
     var despertado = 0
+    var despierto = 0
 
     var grabadora: AudioRecorder {
         AudioRecorder(
@@ -60,6 +61,10 @@ private let madrid = TimeZone(identifier: "Europe/Madrid")!
 private func grabadora(_ registro: Registro) -> RecorderModel {
     RecorderModel(
         recorder: registro.grabadora, inbox: registro.bandeja, wake: { registro.despertado += 1 },
+        keepAwake: {
+            registro.despierto += 1
+            return { registro.despierto -= 1 }
+        },
         now: { inicio }, timeZone: madrid, ticks: false)
 }
 
@@ -164,6 +169,50 @@ struct GrabadoraTests {
         #expect(modelo.level == 1)
         #expect(modelo.elapsed == 75)
         #expect(modelo.clock == "01:15")
+    }
+}
+
+@MainActor
+@Suite("Grabadora en segundo plano")
+struct GrabadoraEnSegundoPlanoTests {
+    @Test("mientras graba, el Mac no se duerme ni la app se pausa; al acabar se suelta")
+    func despierto() async {
+        let registro = Registro()
+        let modelo = grabadora(registro)
+
+        await modelo.start()
+        #expect(registro.despierto == 1)
+        modelo.stop()
+        #expect(registro.despierto == 0)
+
+        await modelo.start()
+        modelo.cancel()
+        #expect(registro.despierto == 0)
+    }
+
+    @Test("si no llega a grabar, no deja el Mac despierto")
+    func sinGrabar() async {
+        let registro = Registro()
+        registro.fallaAlEmpezar = true
+        let modelo = grabadora(registro)
+
+        await modelo.start()
+
+        #expect(registro.despierto == 0)
+    }
+
+    @Test("al salir de la app, una grabacion en curso se guarda en vez de perderse")
+    func alSalir() async {
+        let registro = Registro()
+        let modelo = grabadora(registro)
+        await modelo.start()
+
+        modelo.prepareForQuit()
+
+        #expect(registro.eventos.last?.hasPrefix("guarda:") == true)
+        #expect(!modelo.isRecording)
+        modelo.prepareForQuit()
+        #expect(registro.eventos.filter { $0.hasPrefix("guarda:") }.count == 1)
     }
 }
 

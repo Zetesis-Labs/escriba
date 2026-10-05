@@ -19,6 +19,12 @@ private func digester(_ summarizer: Summarizer?, language: String?) -> Digester?
 
 private let inboxPrefix = "Escriba"
 
+private func keepRecordingAwake() -> () -> Void {
+    let activity = ProcessInfo.processInfo.beginActivity(
+        options: [.userInitiated, .idleSystemSleepDisabled], reason: "Grabando una nota de voz")
+    return { ProcessInfo.processInfo.endActivity(activity) }
+}
+
 private final class WakeRelay {
     var wake: () -> Void = {}
 }
@@ -49,6 +55,7 @@ final class AppRuntime {
     @ObservationIgnored private var events: Task<Void, Never>?
     @ObservationIgnored private var settingsWatch: Task<Void, Never>?
     @ObservationIgnored private let microphone: MicrophoneRecorder
+    @ObservationIgnored private var recordingItem: RecordingStatusItem?
 
     var symbolName: String {
         if recorder.isRecording { return "record.circle" }
@@ -71,9 +78,11 @@ final class AppRuntime {
         let box = fileInbox(root: Paths.inbox)
         let microphone = MicrophoneRecorder()
         self.microphone = microphone
-        recorder = RecorderModel(recorder: microphone.port(), inbox: box, wake: { relay.wake() })
+        recorder = RecorderModel(
+            recorder: microphone.port(), inbox: box, wake: { relay.wake() }, keepAwake: keepRecordingAwake)
         inbox = InboxModel(inbox: box, wake: { relay.wake() })
         relay.wake = { [weak self] in self?.wake() }
+        recordingItem = RecordingStatusItem(recorder: recorder)
         Notifier.requestAuthorization()
         start()
         watchSettings()

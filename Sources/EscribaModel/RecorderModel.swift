@@ -45,6 +45,8 @@ public final class RecorderModel {
     @ObservationIgnored private let recorder: AudioRecorder
     @ObservationIgnored private let inbox: Inbox
     @ObservationIgnored private let wake: () -> Void
+    @ObservationIgnored private let keepAwake: () -> () -> Void
+    @ObservationIgnored private var release: (() -> Void)?
     @ObservationIgnored private let now: () -> Date
     @ObservationIgnored private let timeZone: TimeZone
     @ObservationIgnored private let ticks: Bool
@@ -53,11 +55,13 @@ public final class RecorderModel {
 
     public init(
         recorder: AudioRecorder, inbox: Inbox, wake: @escaping () -> Void,
+        keepAwake: @escaping () -> () -> Void = { {} },
         now: @escaping () -> Date = Date.init, timeZone: TimeZone = .current, ticks: Bool = true
     ) {
         self.recorder = recorder
         self.inbox = inbox
         self.wake = wake
+        self.keepAwake = keepAwake
         self.now = now
         self.timeZone = timeZone
         self.ticks = ticks
@@ -94,6 +98,7 @@ public final class RecorderModel {
             file = url
             level = 0
             elapsed = 0
+            release = keepAwake()
             state = .recording(now())
             startTicking()
         } catch {
@@ -128,6 +133,10 @@ public final class RecorderModel {
         elapsed = recorder.elapsed()
     }
 
+    public func prepareForQuit() {
+        stop()
+    }
+
     public func dismissProblem() {
         guard problem != nil else { return }
         state = .idle
@@ -144,6 +153,8 @@ public final class RecorderModel {
     }
 
     private func finish() {
+        release?()
+        release = nil
         ticker?.cancel()
         ticker = nil
         file = nil
