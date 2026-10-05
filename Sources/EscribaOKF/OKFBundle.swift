@@ -15,16 +15,19 @@ public struct BundleEntry: Equatable, Sendable {
     }
 
     var fileName: String { String(path.split(separator: "/").last ?? Substring(path)) }
+
+    var directory: String {
+        guard let slash = path.lastIndex(of: "/") else { return "" }
+        return String(path[..<slash])
+    }
 }
 
 public struct BundleState: Equatable, Sendable {
-    public var notes: [BundleEntry]
-    public var transcripts: [BundleEntry]
+    public var entries: [BundleEntry]
     public var log: String?
 
-    public init(notes: [BundleEntry] = [], transcripts: [BundleEntry] = [], log: String? = nil) {
-        self.notes = notes
-        self.transcripts = transcripts
+    public init(entries: [BundleEntry] = [], log: String? = nil) {
+        self.entries = entries
         self.log = log
     }
 }
@@ -35,27 +38,28 @@ public enum FileChange: Equatable, Sendable {
 }
 
 public struct OKFPublication: Equatable, Sendable {
-    public let notePath: String
+    public let paths: [String]
     public let changes: [FileChange]
+
+    public var notePath: String { paths.first ?? "" }
+}
+
+func isReserved(_ path: String) -> Bool {
+    let name = path.split(separator: "/").last.map(String.init) ?? path
+    return name == "index.md" || name == "log.md"
+}
+
+func isConcept(_ path: String) -> Bool {
+    path.lowercased().hasSuffix(".md") && !isReserved(path)
 }
 
 public func bundleState(from files: [String: String]) -> BundleState {
-    func concepts(in folder: String) -> [BundleEntry] {
-        files
-            .filter { isConcept($0.key, in: folder) }
+    BundleState(
+        entries: files
+            .filter { isConcept($0.key) }
             .map { bundleEntry(path: $0.key, contents: $0.value) }
-            .sorted { $0.path < $1.path }
-    }
-    return BundleState(
-        notes: concepts(in: okfNotesFolder),
-        transcripts: concepts(in: okfTranscriptsFolder),
+            .sorted { $0.path < $1.path },
         log: files["log.md"])
-}
-
-func isConcept(_ path: String, in folder: String) -> Bool {
-    let parts = path.split(separator: "/", omittingEmptySubsequences: false)
-    guard parts.count == 2, parts[0] == folder, parts[1].hasSuffix(".md") else { return false }
-    return parts[1] != "index.md" && parts[1] != "log.md"
 }
 
 public func bundleEntry(path: String, contents: String) -> BundleEntry {
@@ -97,135 +101,118 @@ private func yamlScalar(_ raw: String) -> String? {
 }
 
 public func okfPublication(
-    _ note: Note, as export: OKFExport, in bundle: BundleState, known: String?,
-    producer: String, now: Date, timeZone: TimeZone
+    _ note: Note, as export: OKFExport, in bundle: BundleState, producer: String, now: Date, timeZone: TimeZone
 ) -> OKFPublication {
     let facts = noteFacts(note, timeZone: timeZone)
-    let previous = (known ?? bundle.notes.first { $0.key == facts.key }?.path)
-        .flatMap { path in bundle.notes.contains { $0.path == path } ? path : nil }
-    let name = availableName(
-        okfFileName(title: facts.title, startedAt: facts.startedAt, timeZone: timeZone),
-        for: facts.key, previous: previous, in: bundle)
-    let notePath = "\(okfNotesFolder)/\(name)"
-    let transcriptPath = "\(okfTranscriptsFolder)/\(name)"
-    let transcriptStyle = export.writesTranscript ? export.template.transcriptStyle : nil
+    let previous = bundle.entries.filter { $0.key == facts.key }.map(\.path)
 
-    var changes: [FileChange] = [
-        .write(
-            path: notePath,
-            contents: noteDocument(
-                facts, transcript: note.transcript, template: export.template,
-                transcriptLink: transcriptStyle.map { _ in "/\(transcriptPath)" },
-                producer: producer, now: now, timeZone: timeZone)),
-    ]
-    if let transcriptStyle {
-        changes.append(.write(
-            path: transcriptPath,
-            contents: transcriptDocument(
-                facts, transcript: note.transcript, style: transcriptStyle, notePath: notePath,
-                producer: producer, now: now, timeZone: timeZone)))
+    var taken: Set<String> = []
+    let paths = export.documents.map { document in
+        let path = availablePath(renderedPath(document.path, of: facts), for: facts.key, taken: taken, in: bundle)
+        taken.insert(path)
+        return path
     }
+    let links = Dictionary(
+        zip(export.documents, paths).map { ($0.id, RenderedLink(path: $1, title: documentTitle($0, of: facts))) },
+        uniquingKeysWith: { first, _ in first })
 
-    var removed: Set<String> = []
-    if let previous, previous != notePath { removed.insert(previous) }
-    let staleTranscripts = [previous.map(sibling), transcriptStyle == nil ? transcriptPath : nil]
-        .compactMap { $0 }
-        .filter { path in path != transcriptPath || transcriptStyle == nil }
-        .filter { path in bundle.transcripts.contains { $0.path == path } }
-    removed.formUnion(staleTranscripts)
+    var changes: [FileChange] = zip(export.documents, paths).map { document, path in
+        .write(path: path, contents: documentContents(document, of: facts, links: links, producer: producer, now: now))
+    }
+    let removed = Set(previous).subtracting(paths)
     changes += removed.sorted().map { .remove(path: $0) }
 
-    let entry = BundleEntry(path: notePath, title: facts.title, description: facts.description, key: facts.key)
-    let notes = bundle.notes.filter { !removed.contains($0.path) && $0.path != notePath } + [entry]
-    let transcripts = bundle.transcripts.filter { !removed.contains($0.path) && $0.path != transcriptPath }
-        + (transcriptStyle == nil ? [] : [
-            BundleEntry(
-                path: transcriptPath, title: "Transcripción: \(facts.title)",
-                description: "Transcripción completa de «\(facts.title)».", key: facts.key),
-        ])
-    changes += indexChanges(notes: notes, transcripts: transcripts)
-
-    let verb = previous == nil ? "Alta" : "Actualización"
-    changes.append(.write(
-        path: "log.md",
-        contents: logging(
-            "* **\(verb)**: [\(linkText(facts.title))](/\(notePath))", marker: "(/\(notePath))",
-            on: isoDay(now, timeZone: timeZone), in: bundle.log)))
-
-    return OKFPublication(notePath: notePath, changes: changes)
-}
-
-public func okfRemoval(of notePath: String, in bundle: BundleState, now: Date, timeZone: TimeZone) -> [FileChange] {
-    let transcriptPath = sibling(of: notePath)
-    var changes: [FileChange] = [.remove(path: notePath)]
-    if bundle.transcripts.contains(where: { $0.path == transcriptPath }) {
-        changes.append(.remove(path: transcriptPath))
+    let written = zip(export.documents, paths).map { document, path in
+        BundleEntry(
+            path: path, title: documentTitle(document, of: facts),
+            description: documentDescription(document, of: facts), key: facts.key)
     }
-    let entry = bundle.notes.first { $0.path == notePath }
+    let after = bundle.entries.filter { !removed.contains($0.path) && !paths.contains($0.path) } + written
+    changes += indexChanges(before: bundle.entries, after: after, documents: export.documents)
+
+    if let main = paths.first {
+        let verb = previous.isEmpty ? "Alta" : "Actualización"
+        changes.append(.write(
+            path: "log.md",
+            contents: logging(
+                "* **\(verb)**: [\(linkText(facts.title))](/\(main))", marker: "(/\(main))",
+                on: isoDay(now, timeZone: timeZone), in: bundle.log)))
+    }
+    return OKFPublication(paths: paths, changes: changes)
+}
+
+public func okfRemoval(
+    of notePath: String, in bundle: BundleState, documents: [OKFDocument] = [], now: Date, timeZone: TimeZone
+) -> [FileChange] {
+    let entry = bundle.entries.first { $0.path == notePath }
+    let targets = Set(entry?.key.map { key in bundle.entries.filter { $0.key == key }.map(\.path) } ?? [])
+        .union([notePath])
     let title = entry?.title ?? String((entry?.fileName ?? notePath).dropLast(3))
-    changes += indexChanges(
-        notes: bundle.notes.filter { $0.path != notePath },
-        transcripts: bundle.transcripts.filter { $0.path != transcriptPath })
-    changes.append(.write(
-        path: "log.md",
-        contents: logging(
-            "* **Baja**: \(title) (\(notePath))", marker: "(\(notePath))",
-            on: isoDay(now, timeZone: timeZone), in: bundle.log)))
-    return changes
+    let after = bundle.entries.filter { !targets.contains($0.path) }
+    return targets.sorted().map { .remove(path: $0) }
+        + indexChanges(before: bundle.entries, after: after, documents: documents)
+        + [.write(
+            path: "log.md",
+            contents: logging(
+                "* **Baja**: \(title) (\(notePath))", marker: "(\(notePath))",
+                on: isoDay(now, timeZone: timeZone), in: bundle.log))]
 }
 
-private func sibling(of notePath: String) -> String {
-    "\(okfTranscriptsFolder)/\(notePath.split(separator: "/").last ?? Substring(notePath))"
-}
-
-private func availableName(
-    _ base: String, for key: String, previous: String?, in bundle: BundleState
-) -> String {
+private func availablePath(_ base: String, for key: String, taken: Set<String>, in bundle: BundleState) -> String {
     let stem = base.dropLast(3)
     for attempt in 1... {
         let candidate = attempt == 1 ? base : "\(stem)-\(attempt).md"
-        let path = "\(okfNotesFolder)/\(candidate)"
-        if path == previous { return candidate }
-        guard let occupant = bundle.notes.first(where: { $0.path == path }) else { return candidate }
+        guard !taken.contains(candidate) else { continue }
+        guard let occupant = bundle.entries.first(where: { $0.path == candidate }) else { return candidate }
         if occupant.key == key { return candidate }
     }
     return base
 }
 
-private func indexChanges(notes: [BundleEntry], transcripts: [BundleEntry]) -> [FileChange] {
-    var sections: [String] = []
-    var changes: [FileChange] = []
-    if notes.isEmpty {
-        changes.append(.remove(path: "\(okfNotesFolder)/index.md"))
-    } else {
-        changes.append(.write(path: "\(okfNotesFolder)/index.md", contents: directoryIndex(notes, others: "Otras notas")))
-        sections.append("* [Notas](\(okfNotesFolder)/) - Una nota por grabación, con su resumen y sus datos.")
+private func indexChanges(before: [BundleEntry], after: [BundleEntry], documents: [OKFDocument]) -> [FileChange] {
+    let ownedAfter = Set(after.filter { $0.key != nil }.map(\.directory))
+    let ownedBefore = Set(before.filter { $0.key != nil }.map(\.directory))
+    let folders = ownedAfter.filter { !$0.isEmpty }.sorted()
+
+    var changes: [FileChange] = folders.map { folder in
+        .write(path: "\(folder)/index.md", contents: directoryIndex(after.filter { $0.directory == folder }))
     }
-    if transcripts.isEmpty {
-        changes.append(.remove(path: "\(okfTranscriptsFolder)/index.md"))
-    } else {
-        changes.append(.write(
-            path: "\(okfTranscriptsFolder)/index.md",
-            contents: directoryIndex(transcripts, others: "Otras transcripciones")))
-        sections.append(
-            "* [Transcripciones](\(okfTranscriptsFolder)/) - La transcripción completa de cada grabación.")
+    changes += ownedBefore.subtracting(ownedAfter).filter { !$0.isEmpty }.sorted()
+        .map { .remove(path: "\($0)/index.md") }
+
+    guard !ownedAfter.isEmpty else { return changes + [.remove(path: "index.md")] }
+    let lines = folders.map { folder in
+        let names = documents.filter { staticDirectory(of: $0.path) == folder }.map(\.name)
+        let link = "* [\(folder)](\(folder)/)"
+        return names.isEmpty ? link : "\(link) - \(names.joined(separator: ", "))"
     }
-    if sections.isEmpty {
-        changes.append(.remove(path: "index.md"))
-    } else {
-        changes.append(.write(path: "index.md", contents: "# Notas de voz\n\n" + sections.joined(separator: "\n") + "\n"))
+    var root = "# Notas de voz\n"
+    if !lines.isEmpty { root += "\n" + lines.joined(separator: "\n") + "\n" }
+    if ownedAfter.contains("") {
+        root += "\n" + directoryIndex(after.filter { $0.directory.isEmpty })
     }
-    return changes
+    return changes + [.write(path: "index.md", contents: root)]
 }
 
-func directoryIndex(_ entries: [BundleEntry], others: String) -> String {
+private func staticDirectory(of template: String) -> String? {
+    let trimmed = template.trimmingCharacters(in: .whitespaces)
+    guard let slash = trimmed.lastIndex(of: "/") else { return "" }
+    let folder = trimmed[..<slash]
+    guard !folder.contains("{{") else { return nil }
+    return folder.split(separator: "/")
+        .map { $0.trimmingCharacters(in: .whitespaces) }
+        .filter { !$0.isEmpty && $0 != "." && $0 != ".." }
+        .joined(separator: "/")
+}
+
+func directoryIndex(_ entries: [BundleEntry]) -> String {
     let grouped = Dictionary(grouping: entries) { monthKey(of: $0.fileName) }
     let dated = grouped.keys.compactMap { $0 }.sorted(by: >).map { key in
         (heading: monthHeading(year: key / 100, month: key % 100),
          entries: grouped[key, default: []].sorted { $0.fileName > $1.fileName })
     }
     let undated = (grouped[nil] ?? []).sorted { $0.fileName < $1.fileName }
-    let sections = dated + (undated.isEmpty ? [] : [(heading: others, entries: undated)])
+    let sections = dated + (undated.isEmpty ? [] : [(heading: "Otras", entries: undated)])
     return sections
         .map { section in "# \(section.heading)\n\n" + section.entries.map(indexLine).joined(separator: "\n") }
         .joined(separator: "\n\n") + "\n"

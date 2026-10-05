@@ -15,20 +15,27 @@ import EscribaOKF
     ConnectorsModel(settings: ajustes, tokens: { _ in .inMemory() })
 }
 
+@MainActor private func editor(_ ajustes: AppSettings = ajustes()) -> OKFModel {
+    let conectores = modelo(ajustes)
+    return conectores.okfEditor(for: conectores.add(.okf).id)
+}
+
 @MainActor
 @Suite("Conector OKF")
 struct ConectorOKFTests {
-    @Test("añadir uno lo crea sin carpeta, con el resumen y la transcripcion aparte por defecto")
-    func nuevo() {
+    @Test("añadir uno lo crea sin carpeta y con la nota y la transcripcion enlazadas")
+    func nuevo() throws {
         let ajustes = ajustes()
 
         let conector = modelo(ajustes).add(.okf)
 
         #expect(conector.name == "OKF")
         #expect(conector.kind == .okf)
-        #expect(conector.okf == OKFExport(folder: ""))
-        #expect(conector.okf?.separateTranscript == true)
-        #expect(conector.okf?.template.blocks.contains(.summary) == true)
+        let export = try #require(conector.okf)
+        #expect(export.folder.isEmpty)
+        #expect(export.documents.map(\.name) == ["Nota", "Transcripción"])
+        #expect(export.documents[0].body.contains("{{enlace:\(export.documents[1].id)}}"))
+        #expect(export.documents[1].body.contains("{{enlace:\(export.documents[0].id)}}"))
         #expect(!conector.isReady)
         #expect(ajustes.connectors == [conector])
     }
@@ -36,8 +43,7 @@ struct ConectorOKFTests {
     @Test("sin carpeta la pantalla dice que falta; con carpeta y activado, publica")
     func listo() {
         let ajustes = ajustes()
-        let conectores = modelo(ajustes)
-        let editor = conectores.okfEditor(for: conectores.add(.okf).id)
+        let editor = editor(ajustes)
 
         #expect(editor.readiness == "Elige la carpeta donde guardar las notas.")
         editor.folder = "/Users/alguien/Notas OKF"
@@ -50,6 +56,59 @@ struct ConectorOKFTests {
         #expect(ajustes.liveConnectors.map(\.okf?.folder) == ["/Users/alguien/Notas OKF"])
     }
 
+    @Test("se pueden añadir, renombrar y quitar documentos")
+    func documentos() throws {
+        let editor = editor()
+
+        let nuevo = editor.addDocument()
+        #expect(editor.documents.map(\.name) == ["Nota", "Transcripción", "Documento 3"])
+        editor.updateDocument(nuevo) { $0.name = "Acta" }
+        #expect(editor.document(nuevo)?.name == "Acta")
+        #expect(editor.document(nuevo)?.properties.first?.key == "type")
+
+        editor.removeDocument(editor.documents[1].id)
+        #expect(editor.documents.map(\.name) == ["Nota", "Acta"])
+    }
+
+    @Test("las propiedades se añaden, se editan y se quitan; type no se puede quitar")
+    func propiedades() throws {
+        let editor = editor()
+        let nota = editor.documents[0].id
+
+        let nueva = try #require(editor.addProperty(to: nota))
+        editor.updateProperty(nueva, in: nota) {
+            $0.key = "cliente"
+            $0.value = "Acme"
+        }
+        #expect(editor.document(nota)?.properties.last == OKFProperty(id: nueva, key: "cliente", value: "Acme"))
+
+        let tipo = try #require(editor.document(nota)?.properties.first?.id)
+        editor.removeProperty(tipo, from: nota)
+        #expect(editor.document(nota)?.properties.first?.key == "type")
+
+        editor.removeProperty(nueva, from: nota)
+        #expect(editor.document(nota)?.properties.contains { $0.key == "cliente" } == false)
+    }
+
+    @Test("la pantalla avisa de lo que impide exportar: sin documentos, rutas repetidas o type vacio")
+    func problemas() throws {
+        let editor = editor()
+        editor.folder = "/bundle"
+        let nota = editor.documents[0].id
+        let transcripcion = editor.documents[1].id
+
+        editor.updateDocument(transcripcion) { $0.path = editor.document(nota)?.path ?? "" }
+        #expect(editor.readiness == "«Nota» y «Transcripción» escriben en la misma ruta.")
+
+        editor.updateDocument(transcripcion) { $0.path = "otra/{{titulo}}.md" }
+        editor.updateDocument(nota) { $0.properties[0].value = " " }
+        #expect(editor.readiness == "«Nota» necesita un valor en type: OKF lo exige.")
+
+        editor.removeDocument(nota)
+        editor.removeDocument(transcripcion)
+        #expect(editor.readiness == "Añade al menos un documento.")
+    }
+
     @Test("los cambios quedan en borrador hasta Guardar, y Descartar vuelve a lo guardado")
     func borrador() {
         let ajustes = ajustes()
@@ -57,22 +116,26 @@ struct ConectorOKFTests {
         let conector = conectores.add(.okf)
         let editor = conectores.okfEditor(for: conector.id)
 
-        editor.name = "Bundle del equipo"
-        editor.separateTranscript = false
-        editor.template = BodyTemplate([.summary])
+        editor.updateDocument(editor.documents[0].id) { $0.body = "Solo esto" }
         #expect(editor.isDirty)
         #expect(ajustes.connector(conector.id) == conector)
 
         editor.discard()
         #expect(!editor.isDirty)
-        #expect(editor.separateTranscript)
 
-        editor.separateTranscript = false
-        editor.template = BodyTemplate([.summary])
+        editor.updateDocument(editor.documents[0].id) { $0.body = "Solo esto" }
         editor.save()
-        #expect(ajustes.connector(conector.id)?.okf?.separateTranscript == false)
-        #expect(ajustes.connector(conector.id)?.okf?.template == BodyTemplate([.summary]))
-        #expect(!editor.isDirty)
+        #expect(ajustes.connector(conector.id)?.okf?.documents.first?.body == "Solo esto")
+    }
+
+    @Test("la vista previa sigue al borrador, sin esperar a Guardar")
+    func vistaPrevia() {
+        let editor = editor()
+        #expect(editor.preview.count == 2)
+
+        editor.removeDocument(editor.documents[1].id)
+        #expect(editor.preview.count == 1)
+        #expect(editor.isDirty)
     }
 
     @Test("cada conector tiene su propio editor, tambien si son de tipos distintos")
@@ -100,13 +163,13 @@ struct ConectorOKFTests {
         #expect(ajustes.connector(conector.id) == nil)
     }
 
-    @Test("se guardan y vuelven con su carpeta, su plantilla y el interruptor")
+    @Test("se guardan y vuelven con su carpeta y sus documentos")
     func persistencia() {
         let defaults = UserDefaults(suiteName: "escriba-okf-persist-\(UUID().uuidString)")!
         let antes = AppSettings(defaults: defaults, recorderRoot: nil, voiceMemos: nil)
         let conector = Connector(
             name: "Equipo", kind: .okf, enabled: true,
-            okf: OKFExport(folder: "/bundle", template: BodyTemplate([.summary]), separateTranscript: false))
+            okf: OKFExport(folder: "/bundle", documents: OKFExport.standardDocuments()))
         antes.connectors = [conector]
 
         let despues = AppSettings(defaults: defaults, recorderRoot: nil, voiceMemos: nil)
@@ -115,16 +178,20 @@ struct ConectorOKFTests {
         #expect(despues.liveConnectors.map(\.name) == ["Equipo"])
     }
 
-    @Test("unos conectores guardados antes de existir OKF se leen igual")
-    func compatibilidad() throws {
+    @Test("un conector OKF guardado con la forma anterior conserva su carpeta y recibe los documentos de partida")
+    func formaAnterior() throws {
         let viejo = """
-            [{"id":"7D1B5E1C-1F6B-4C7A-9F1E-2B9F1C0D4A11","name":"Notion","kind":"notion","enabled":false}]
+            [{"id":"A58F36BA-0EC7-4973-B39D-FB3CFA376060","name":"OKF","kind":"okf","enabled":true,
+              "okf":{"folder":"/Users/alguien/Prueba/","separateTranscript":true,
+                     "template":{"blocks":[{"summary":{}}]}}},
+             {"id":"7D1B5E1C-1F6B-4C7A-9F1E-2B9F1C0D4A11","name":"Notion","kind":"notion","enabled":false}]
             """
 
         let leidos = try JSONDecoder().decode([Connector].self, from: Data(viejo.utf8))
 
-        #expect(leidos.map(\.kind) == [.notion])
-        #expect(leidos.first?.okf == nil)
+        #expect(leidos.map(\.kind) == [.okf, .notion])
+        #expect(leidos[0].okf?.folder == "/Users/alguien/Prueba/")
+        #expect(leidos[0].okf?.documents.map(\.name) == ["Nota", "Transcripción"])
     }
 
     @Test("borrar de un conector OKF avisa de que se borran sus ficheros, no de una papelera")
@@ -135,17 +202,9 @@ struct ConectorOKFTests {
         #expect(RowActionText.unpublish(from: .notion).contains("se archiva en Notion"))
     }
 
-    @Test("la vista previa sigue al borrador, sin esperar a Guardar")
-    func vistaPrevia() {
-        let conectores = modelo(ajustes())
-        let editor = conectores.okfEditor(for: conectores.add(.okf).id)
-        #expect(editor.preview.count == 2)
-
-        editor.separateTranscript = false
-        #expect(editor.preview.count == 1)
-
-        editor.template = BodyTemplate([.summary])
-        #expect(editor.preview.first?.contents.contains("Transcripción") == false)
-        #expect(editor.isDirty)
+    @Test("quitar un conector avisa de lo que se pierde: en Notion, tambien el token")
+    func avisoAlQuitar() {
+        #expect(ConnectorText.removal(of: .notion).contains("token"))
+        #expect(ConnectorText.removal(of: .okf).contains("siguen en la carpeta"))
     }
 }

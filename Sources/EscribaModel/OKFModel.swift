@@ -36,20 +36,55 @@ public final class OKFModel {
         set { editExport { $0.folder = newValue } }
     }
 
-    public var separateTranscript: Bool {
-        get { export.separateTranscript }
-        set { editExport { $0.separateTranscript = newValue } }
-    }
+    public var documents: [OKFDocument] { export.documents }
 
-    public var template: BodyTemplate {
-        get { export.template }
-        set { editExport { $0.template = newValue } }
-    }
+    public var links: [LinkTarget] { documents.map { LinkTarget(id: $0.id, name: $0.name) } }
 
     public var preview: [OKFPreviewFile] { okfPreview(export) }
 
-    public var readiness: String? {
-        export.isUsable ? nil : "Elige la carpeta donde guardar las notas."
+    public var readiness: String? { okfProblem(export) }
+
+    public func document(_ id: String) -> OKFDocument? {
+        documents.first { $0.id == id }
+    }
+
+    @discardableResult
+    public func addDocument() -> String {
+        let document = OKFExport.newDocument(number: documents.count + 1)
+        editExport { $0.documents.append(document) }
+        return document.id
+    }
+
+    public func removeDocument(_ id: String) {
+        editExport { $0.documents.removeAll { $0.id == id } }
+    }
+
+    public func updateDocument(_ id: String, _ change: (inout OKFDocument) -> Void) {
+        editExport { export in
+            guard let index = export.documents.firstIndex(where: { $0.id == id }) else { return }
+            change(&export.documents[index])
+        }
+    }
+
+    @discardableResult
+    public func addProperty(to document: String) -> String? {
+        guard self.document(document) != nil else { return nil }
+        let property = OKFProperty(key: "", value: "")
+        updateDocument(document) { $0.properties.append(property) }
+        return property.id
+    }
+
+    public func updateProperty(_ id: String, in document: String, _ change: (inout OKFProperty) -> Void) {
+        updateDocument(document) { document in
+            guard let index = document.properties.firstIndex(where: { $0.id == id }) else { return }
+            change(&document.properties[index])
+        }
+    }
+
+    public func removeProperty(_ id: String, from document: String) {
+        updateDocument(document) { document in
+            document.properties.removeAll { $0.id == id && $0.key.trimmingCharacters(in: .whitespaces) != "type" }
+        }
     }
 
     public func save() {

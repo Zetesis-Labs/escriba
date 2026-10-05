@@ -44,7 +44,7 @@ print("bloques para Notion:", body["children"]?.count ?? 0, "| titulo:", body["p
 
 let bundle = okfPublication(
     Note(recording: recordings[0], transcript: transcript, digest: resumen),
-    as: OKFExport(folder: "/bundle"), in: bundleState(from: [:]), known: nil,
+    as: OKFExport(folder: "/bundle"), in: bundleState(from: [:]),
     producer: "escriba/wasi", now: Date(timeIntervalSince1970: 1_758_013_200),
     timeZone: TimeZone(identifier: "UTC")!)
 print("ficheros del bundle OKF:", bundle.changes.count, "| nota:", bundle.notePath)

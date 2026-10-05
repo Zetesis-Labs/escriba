@@ -260,7 +260,7 @@ private struct ModelTab: View {
     }
 }
 
-private func chooseFolder() -> String? {
+func chooseFolder() -> String? {
     let panel = NSOpenPanel()
     panel.canChooseDirectories = true
     panel.canChooseFiles = false
@@ -270,7 +270,7 @@ private func chooseFolder() -> String? {
     return url.path(percentEncoded: false)
 }
 
-private func abbreviated(_ path: String) -> String {
+func abbreviated(_ path: String) -> String {
     (path as NSString).abbreviatingWithTildeInPath
 }
 
@@ -288,6 +288,7 @@ private nonisolated func directorySize(_ folder: URL) -> String {
 struct ConnectorsPane: View {
     let connectors: ConnectorsModel
     @State private var selected: UUID?
+    @State private var removing: Connector?
 
     var body: some View {
         ListDetailLayout(listWidth: 230) {
@@ -308,6 +309,9 @@ struct ConnectorsPane: View {
                 }
                 .listStyle(.inset)
                 .onAppear {
+                    if let name = MainSection.connectorToSelect, selected == nil {
+                        selected = connectors.connectors.first { $0.name == name }?.id
+                    }
                     if MainSection.selectsFirstItem, selected == nil {
                         selected = connectors.connectors.first?.id
                     }
@@ -324,8 +328,7 @@ struct ConnectorsPane: View {
                     .menuIndicator(.hidden)
                     .fixedSize()
                     Button {
-                        if let selected { connectors.remove(selected) }
-                        selected = nil
+                        removing = connectors.connectors.first { $0.id == selected }
                     } label: { Image(systemName: "minus") }
                     .disabled(selected == nil)
                     Spacer()
@@ -347,6 +350,18 @@ struct ConnectorsPane: View {
             }
         }
         .navigationTitle("Conectores")
+        .confirmationDialog(
+            "¿Quitar «\(removing?.name ?? "")»?",
+            isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } })
+        ) {
+            Button("Quitar", role: .destructive) {
+                if let removing { connectors.remove(removing.id) }
+                selected = nil
+                removing = nil
+            }
+        } message: {
+            Text(removing.map { ConnectorText.removal(of: $0.kind) } ?? "")
+        }
     }
 
     private func subtitle(of connector: Connector) -> String {
@@ -478,103 +493,6 @@ private struct NotionEditor: View {
         Binding(
             get: { notion.template.blocks.contains(.field(field)) },
             set: { notion.template = notion.template.togglingField(field, on: $0) })
-    }
-}
-
-private struct OKFEditor: View {
-    @Bindable var okf: OKFModel
-
-    var body: some View {
-        Form {
-            Section {
-                TextField("Nombre", text: $okf.name)
-                Toggle("Exportar cada transcripción nueva", isOn: $okf.publishes)
-                    .disabled(okf.readiness != nil)
-                if let pending = okf.readiness {
-                    Text(pending).font(.caption).foregroundStyle(.secondary)
-                } else {
-                    Text("Corregir hablantes, reprocesar o resumir reescribe la nota ya exportada.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            Section {
-                HStack {
-                    Text(okf.folder.isEmpty ? "Sin elegir" : abbreviated(okf.folder))
-                        .foregroundStyle(okf.folder.isEmpty ? .secondary : .primary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                    Spacer()
-                    if !okf.folder.isEmpty {
-                        Button("Mostrar en Finder") {
-                            NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: okf.folder)])
-                        }
-                    }
-                    Button("Elegir…") {
-                        if let folder = chooseFolder() { okf.folder = folder }
-                    }
-                }
-            } header: {
-                Text("Carpeta del bundle")
-            } footer: {
-                Text("Escriba gestiona esta carpeta como un bundle OKF: escribe notas/, transcripciones/, un index.md en cada una y log.md. Si va dentro de un bundle más grande, elige una subcarpeta propia.")
-            }
-
-            Section {
-                Toggle("Transcripción en su propio .md", isOn: $okf.separateTranscript)
-            } footer: {
-                Text(okf.separateTranscript
-                    ? "Cada grabación da dos ficheros enlazados: la nota con el resumen en notas/ y la transcripción en transcripciones/. Así quien lea o indexe el bundle va a los resúmenes sin cargar transcripciones largas."
-                    : "Cada grabación da un solo fichero en notas/, con la transcripción dentro.")
-            }
-
-            Section {
-                TemplateEditor(
-                    template: $okf.template, standard: OKFExport.standardTemplate,
-                    transcriptAsLink: okf.separateTranscript)
-            } header: {
-                Text("Cuerpo de la nota")
-            } footer: {
-                Text("Cada fila es un trozo del cuerpo, en este orden: arrástrala para moverla y pulsa ✕ para quitarla. El título, la descripción y las etiquetas no hace falta ponerlos: van siempre en la cabecera del fichero, como ves debajo.")
-            }
-
-            Section {
-                ForEach(okf.preview) { file in
-                    VStack(alignment: .leading, spacing: 6) {
-                        Label(file.path, systemImage: "doc.text")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        Text(file.contents)
-                            .font(.system(.caption, design: .monospaced))
-                            .textSelection(.enabled)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(10)
-                            .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 6))
-                    }
-                }
-            } header: {
-                Text("Así queda")
-            } footer: {
-                Text("Con una grabación de ejemplo. Se actualiza al momento al cambiar la plantilla o el interruptor, antes de guardar.")
-            }
-        }
-        .formStyle(.grouped)
-        .safeAreaInset(edge: .bottom) {
-            HStack {
-                if okf.isDirty {
-                    Text("Cambios sin guardar").font(.caption).foregroundStyle(.secondary)
-                }
-                Spacer()
-                Button("Descartar") { okf.discard() }
-                    .disabled(!okf.isDirty)
-                Button("Guardar") { okf.save() }
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(!okf.isDirty)
-            }
-            .padding(10)
-            .background(.bar)
-        }
     }
 }
 

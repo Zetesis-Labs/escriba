@@ -26,3 +26,14 @@ public enum RowActionText {
     public static let discard =
         "Desaparecen la fila, sus transcripciones y la copia de audio. El fichero original en su carpeta no se toca, pero la grabacion no volvera a aparecer en la biblioteca."
 }
+
+public enum ConnectorText {
+    public static func removal(of kind: Connector.Kind) -> String {
+        switch kind {
+        case .notion:
+            "Se borran su configuración y su token de Notion; tendrías que volver a pegarlo. Las páginas ya publicadas siguen en Notion."
+        case .okf:
+            "Se borra su configuración. Los ficheros ya escritos siguen en la carpeta."
+        }
+    }
+}

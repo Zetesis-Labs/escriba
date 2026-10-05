@@ -24,6 +24,10 @@ enum MainSection: String, CaseIterable, Identifiable {
         ProcessInfo.processInfo.environment["ESCRIBA_SELECT_FIRST"] == "1"
     }
 
+    static var connectorToSelect: String? {
+        ProcessInfo.processInfo.environment["ESCRIBA_SELECT_CONNECTOR"]
+    }
+
     var symbol: String {
         switch self {
         case .library: "waveform"

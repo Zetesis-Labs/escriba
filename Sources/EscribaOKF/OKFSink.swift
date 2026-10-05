@@ -6,14 +6,14 @@ import EscribaEngine
 public struct OKFFolder: Sendable {
     public let root: URL
     public var read: @Sendable (String) throws -> String?
-    public var list: @Sendable (String) throws -> [String]
+    public var list: @Sendable () throws -> [String]
     public var write: @Sendable (String, String) throws -> Void
     public var remove: @Sendable (String) throws -> Void
 
     public init(
         root: URL,
         read: @escaping @Sendable (String) throws -> String?,
-        list: @escaping @Sendable (String) throws -> [String],
+        list: @escaping @Sendable () throws -> [String],
         write: @escaping @Sendable (String, String) throws -> Void,
         remove: @escaping @Sendable (String) throws -> Void
     ) {
@@ -35,12 +35,7 @@ public func fileFolder(_ root: URL) -> OKFFolder {
             guard exists(target) else { return nil }
             return try String(contentsOf: target, encoding: .utf8)
         },
-        list: { folder in
-            let target = url(folder)
-            guard exists(target) else { return [] }
-            return try FileManager.default.contentsOfDirectory(atPath: target.path(percentEncoded: false))
-                .filter { $0.hasSuffix(".md") }
-        },
+        list: { try markdownFiles(under: root) },
         write: { path, contents in
             let target = url(path)
             try FileManager.default.createDirectory(
@@ -55,16 +50,13 @@ public func fileFolder(_ root: URL) -> OKFFolder {
 }
 
 public struct OKFJournal: Sendable {
-    public var known: @Sendable (String) throws -> String?
     public var published: @Sendable (String, String, Date) -> Void
     public var failed: @Sendable (String, String) -> Void
 
     public init(
-        known: @escaping @Sendable (String) throws -> String? = { _ in nil },
         published: @escaping @Sendable (String, String, Date) -> Void,
         failed: @escaping @Sendable (String, String) -> Void
     ) {
-        self.known = known
         self.published = published
         self.failed = failed
     }
@@ -85,11 +77,11 @@ public func okfSink(
     { note in
         let key = note.recording.key
         do {
-            let known = try journal.known(key)
+            guard !export.documents.isEmpty else { throw OKFError.noDocuments }
             let moment = now()
             let notePath = try bundleWrites.withLock { _ in
                 let publication = okfPublication(
-                    note, as: export, in: try readBundle(folder), known: known,
+                    note, as: export, in: try readBundle(folder),
                     producer: producer, now: moment, timeZone: timeZone)
                 try apply(publication.changes, to: folder)
                 return publication.notePath
@@ -105,26 +97,55 @@ public func okfSink(
     }
 }
 
+public enum OKFError: Error, LocalizedError {
+    case noDocuments
+
+    public var errorDescription: String? {
+        switch self {
+        case .noDocuments: "El conector no tiene ningún documento que escribir."
+        }
+    }
+}
+
 public func okfUnpublish(
-    _ notePath: String, from folder: OKFFolder, timeZone: TimeZone = .current,
+    _ notePath: String, from folder: OKFFolder, documents: [OKFDocument] = [], timeZone: TimeZone = .current,
     now: @Sendable () -> Date = Date.init
 ) throws {
     let moment = now()
     try bundleWrites.withLock { _ in
-        try apply(okfRemoval(of: notePath, in: try readBundle(folder), now: moment, timeZone: timeZone), to: folder)
+        let changes = okfRemoval(
+            of: notePath, in: try readBundle(folder), documents: documents, now: moment, timeZone: timeZone)
+        try apply(changes, to: folder)
     }
 }
 
 func readBundle(_ folder: OKFFolder) throws -> BundleState {
     var files: [String: String] = [:]
-    for subfolder in [okfNotesFolder, okfTranscriptsFolder] {
-        for name in try folder.list(subfolder) {
-            let path = "\(subfolder)/\(name)"
-            files[path] = try folder.read(path)
-        }
+    for path in try folder.list() where isConcept(path) {
+        files[path] = try folder.read(path)
     }
     files["log.md"] = try folder.read("log.md")
     return bundleState(from: files)
+}
+
+private func markdownFiles(under root: URL) throws -> [String] {
+    var found: [String] = []
+    var pending = [""]
+    while let folder = pending.popLast() {
+        let url = folder.isEmpty ? root : root.appending(path: folder)
+        guard (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true else { continue }
+        let children = try FileManager.default.contentsOfDirectory(
+            at: url, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles])
+        for child in children {
+            let relative = folder.isEmpty ? child.lastPathComponent : "\(folder)/\(child.lastPathComponent)"
+            if (try? child.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true {
+                pending.append(relative)
+            } else if child.pathExtension.lowercased() == "md" {
+                found.append(relative)
+            }
+        }
+    }
+    return found
 }
 
 func apply(_ changes: [FileChange], to folder: OKFFolder) throws {

@@ -19,11 +19,9 @@ private func leer(_ raiz: URL, _ ruta: String) -> String? {
 private final class Diario: Sendable {
     let publicadas = Mutex<[(String, String)]>([])
     let fallos = Mutex<[String]>([])
-    let conocida = Mutex<String?>(nil)
 
     var journal: OKFJournal {
         OKFJournal(
-            known: { _ in self.conocida.withLock { $0 } },
             published: { key, path, _ in self.publicadas.withLock { $0.append((key, path)) } },
             failed: { key, _ in self.fallos.withLock { $0.append(key) } })
     }
@@ -37,7 +35,7 @@ struct OKFSinkTests {
         defer { try? FileManager.default.removeItem(at: raiz) }
         let diario = Diario()
         let sink = okfSink(
-            export: OKFExport(folder: raiz.path), folder: fileFolder(raiz), journal: diario.journal,
+            export: OKFExport(folder: raiz.path, documents: estandar), folder: fileFolder(raiz), journal: diario.journal,
             producer: productor, timeZone: madrid, now: { ahora })
 
         let salida = try await sink(nota)
@@ -51,16 +49,15 @@ struct OKFSinkTests {
         #expect(diario.publicadas.withLock { $0.map(\.1) } == ["notas/2025-09-16-backups-de-cortes.md"])
     }
 
-    @Test("regenerar con la ruta anotada sustituye la nota en vez de duplicarla")
+    @Test("regenerar sustituye los ficheros de la nota en vez de duplicarlos")
     func regenera() async throws {
         let raiz = try carpetaTemporal()
         defer { try? FileManager.default.removeItem(at: raiz) }
         let diario = Diario()
         let sink = okfSink(
-            export: OKFExport(folder: raiz.path), folder: fileFolder(raiz), journal: diario.journal,
+            export: OKFExport(folder: raiz.path, documents: estandar), folder: fileFolder(raiz), journal: diario.journal,
             producer: productor, timeZone: madrid, now: { ahora })
         _ = try await sink(nota)
-        diario.conocida.withLock { $0 = "notas/2025-09-16-backups-de-cortes.md" }
 
         let corregida = Note(
             recording: grabacion, transcript: diarizada,
@@ -79,7 +76,7 @@ struct OKFSinkTests {
         try "x".write(to: fichero, atomically: true, encoding: .utf8)
         let diario = Diario()
         let sink = okfSink(
-            export: OKFExport(folder: fichero.path), folder: fileFolder(fichero), journal: diario.journal,
+            export: OKFExport(folder: fichero.path, documents: estandar), folder: fileFolder(fichero), journal: diario.journal,
             producer: productor, timeZone: madrid, now: { ahora })
 
         await #expect(throws: (any Error).self) { _ = try await sink(nota) }
@@ -93,7 +90,7 @@ struct OKFSinkTests {
         defer { try? FileManager.default.removeItem(at: raiz) }
         let carpeta = fileFolder(raiz)
         _ = try await okfSink(
-            export: OKFExport(folder: raiz.path), folder: carpeta, producer: productor, timeZone: madrid,
+            export: OKFExport(folder: raiz.path, documents: estandar), folder: carpeta, producer: productor, timeZone: madrid,
             now: { ahora })(nota)
 
         try okfUnpublish("notas/2025-09-16-backups-de-cortes.md", from: carpeta, timeZone: madrid, now: { ahora })
@@ -101,5 +98,17 @@ struct OKFSinkTests {
         #expect(leer(raiz, "notas/2025-09-16-backups-de-cortes.md") == nil)
         #expect(leer(raiz, "transcripciones/2025-09-16-backups-de-cortes.md") == nil)
         #expect(leer(raiz, "log.md")?.contains("**Baja**") == true)
+    }
+
+    @Test("lee los documentos en subcarpetas e ignora las carpetas ocultas")
+    func listado() throws {
+        let raiz = try carpetaTemporal()
+        defer { try? FileManager.default.removeItem(at: raiz) }
+        let carpeta = fileFolder(raiz)
+        try carpeta.write("a/b/c.md", "x")
+        try carpeta.write(".obsidian/d.md", "x")
+        try carpeta.write("e.txt", "x")
+
+        #expect(try carpeta.list().sorted() == ["a/b/c.md"])
     }
 }

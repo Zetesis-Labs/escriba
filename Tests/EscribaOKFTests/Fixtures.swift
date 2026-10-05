@@ -22,19 +22,28 @@ let resumen = Digest(
 
 let nota = Note(recording: grabacion, transcript: diarizada, digest: resumen)
 
-func exportacion(
-    _ template: BodyTemplate = OKFExport.standardTemplate, separada: Bool = true
-) -> OKFExport {
-    OKFExport(folder: "/bundle", template: template, separateTranscript: separada)
+let estandar = OKFExport.standardDocuments(noteID: "nota", transcriptID: "transcripcion")
+
+func exportacion(_ documentos: [OKFDocument] = estandar) -> OKFExport {
+    OKFExport(folder: "/bundle", documents: documentos)
+}
+
+func documento(
+    _ nombre: String = "Doc", id: String = "doc", ruta: String = "docs/{{dia}}-{{titulo}}.md",
+    propiedades: [(String, String)] = [("type", "Nota de voz")], cuerpo: String = ""
+) -> OKFDocument {
+    OKFDocument(
+        id: id, name: nombre, path: ruta,
+        properties: propiedades.enumerated().map { OKFProperty(id: "p\($0.offset)", key: $0.element.0, value: $0.element.1) },
+        body: cuerpo)
 }
 
 func publicar(
     _ nota: Note = nota, como export: OKFExport = exportacion(), en ficheros: [String: String] = [:],
-    conocida: String? = nil, cuando: Date = ahora
+    cuando: Date = ahora
 ) -> OKFPublication {
     okfPublication(
-        nota, as: export, in: bundleState(from: ficheros), known: conocida,
-        producer: productor, now: cuando, timeZone: madrid)
+        nota, as: export, in: bundleState(from: ficheros), producer: productor, now: cuando, timeZone: madrid)
 }
 
 func aplicar(_ cambios: [FileChange], a ficheros: [String: String]) -> [String: String] {
@@ -69,4 +78,8 @@ func cuerpo(_ contenido: String) -> String {
     let lineas = contenido.components(separatedBy: "\n")
     guard lineas.first == "---", let cierre = lineas.dropFirst().firstIndex(of: "---") else { return contenido }
     return lineas[(cierre + 1)...].joined(separator: "\n").trimmingCharacters(in: .newlines)
+}
+
+func fichero(_ ruta: String, de nota: Note = nota, como export: OKFExport) -> String? {
+    escritos(publicar(nota, como: export).changes)[ruta]
 }

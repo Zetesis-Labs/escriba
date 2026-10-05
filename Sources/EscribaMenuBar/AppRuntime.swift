@@ -266,7 +266,8 @@ final class AppRuntime {
             case .okf:
                 guard let export = connector.okf, export.isUsable else { continue }
                 let folder = fileFolder(URL(fileURLWithPath: export.folder))
-                result[connector.key] = { notePath in try okfUnpublish(notePath, from: folder) }
+                let documents = export.documents
+                result[connector.key] = { notePath in try okfUnpublish(notePath, from: folder, documents: documents) }
             }
         }
         return result
@@ -277,7 +278,6 @@ final class AppRuntime {
 
     private func okfJournal(for store: Store, connector: String, root: URL) -> OKFJournal {
         OKFJournal(
-            known: { key in try store.recording(for: key)?.publication(in: connector)?.pageId },
             published: { key, notePath, moment in
                 do {
                     try store.markPublished(
@@ -347,9 +347,7 @@ final class AppRuntime {
                                     .sorted())
                                 .joined(separator: ",")
                         } ?? ""
-                        let okf = connector.okf.map {
-                            "\($0.folder),\($0.separateTranscript),\($0.template.hashValue)"
-                        } ?? ""
+                        let okf = connector.okf.map { "\($0.folder),\($0.documents.hashValue)" } ?? ""
                         return "\(connector.key):\(connector.enabled):\(export):\(okf)"
                     }.joined(separator: ";"),
                 ].joined(separator: "|")
