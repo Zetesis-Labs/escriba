@@ -89,8 +89,7 @@ public func notionPage(for note: Note, style: TranscriptStyle = .speakers) -> No
 }
 
 func pageTitle(digest: Digest?, key: String, text: String) -> String {
-    guard let title = digest?.title, !title.isEmpty else { return notionTitle(key: key, text: text) }
-    return title
+    noteTitle(digest: digest, key: key, text: text, limit: notionTitleLimit)
 }
 
 public func notionBlocks(for transcript: Transcript, style: TranscriptStyle) -> [NotionBlock] {
@@ -107,31 +106,15 @@ public func notionBlocks(for transcript: Transcript, style: TranscriptStyle) -> 
 private func timestamped(_ transcript: Transcript) -> [TranscriptTurn] {
     transcript.turns.map { turn in
         guard let start = turn.start else { return turn }
-        let head = turn.speaker.map { "\(stamp(start)) \($0)" } ?? stamp(start)
+        let head = turn.speaker.map { "\(bracketStamp(start)) \($0)" } ?? bracketStamp(start)
         return TranscriptTurn(speaker: head, text: turn.text, start: start)
     }
-}
-
-func stamp(_ seconds: TimeInterval) -> String {
-    let total = Int(seconds.rounded(.down))
-    let hours = total / 3600
-    let body = String(format: "%02d:%02d", (total % 3600) / 60, total % 60)
-    return hours > 0 ? "[\(hours):\(body)]" : "[\(body)]"
 }
 
 public func notionBatches(_ blocks: [NotionBlock]) -> [[NotionBlock]] {
     stride(from: 0, to: blocks.count, by: notionBatchLimit).map {
         Array(blocks[$0..<min($0 + notionBatchLimit, blocks.count)])
     }
-}
-
-func notionTitle(key: String, text: String) -> String {
-    let words = text.split(whereSeparator: \.isWhitespace).map(String.init)
-    guard !words.isEmpty else { return key }
-
-    let head = fitting(words, limit: notionTitleLimit)
-    guard head.count < words.count else { return head.joined(separator: " ") }
-    return head.joined(separator: " ") + "…"
 }
 
 private func blocks(for turn: TranscriptTurn) -> [NotionBlock] {

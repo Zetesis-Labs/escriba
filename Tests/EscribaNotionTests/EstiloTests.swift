@@ -47,9 +47,9 @@ struct EstiloTests {
 
     @Test("la marca crece a horas cuando hace falta")
     func horas() {
-        #expect(stamp(0) == "[00:00]")
-        #expect(stamp(75) == "[01:15]")
-        #expect(stamp(3600) == "[1:00:00]")
-        #expect(stamp(3725.9) == "[1:02:05]")
+        #expect(bracketStamp(0) == "[00:00]")
+        #expect(bracketStamp(75) == "[01:15]")
+        #expect(bracketStamp(3600) == "[1:00:00]")
+        #expect(bracketStamp(3725.9) == "[1:02:05]")
     }
 }

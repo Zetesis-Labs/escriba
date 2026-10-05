@@ -46,12 +46,6 @@ public func notionDateString(_ date: Date, timeZone: TimeZone) -> String {
     return formatter.string(from: date)
 }
 
-func clock(_ seconds: TimeInterval) -> String {
-    let total = Int(seconds.rounded(.down))
-    let body = String(format: "%02d:%02d", (total % 3600) / 60, total % 60)
-    return total >= 3600 ? "\(total / 3600):\(body)" : body
-}
-
 private func properties(
     _ page: NotionPage, in source: NotionDataSource, mapping: NotionMapping, timeZone: TimeZone
 ) -> [String: JSONValue] {
@@ -85,7 +79,7 @@ private func value(
         return .object(["number": .number(duration.rounded())])
     case (.duration, _):
         guard let duration = page.duration else { return nil }
-        return .object(["rich_text": richText(clock(duration))])
+        return .object(["rich_text": richText(durationClock(duration))])
     case (.key, _):
         return .object(["rich_text": richText(page.key)])
     case (.source, "url"):

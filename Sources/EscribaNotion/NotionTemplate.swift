@@ -31,7 +31,7 @@ func fieldValue(_ field: NoteField, of page: NotionPage, timeZone: TimeZone) -> 
     case .title: page.title
     case .date: page.startedAt.formatted(.dateTime.day().month(.wide).year().hour().minute())
     case .speakers: page.speakers.isEmpty ? nil : page.speakers.joined(separator: ", ")
-    case .duration: page.duration.map(clock)
+    case .duration: page.duration.map(durationClock)
     case .key: page.key
     case .source: page.source
     case .summary: page.summary.flatMap { $0.isEmpty ? nil : $0 }

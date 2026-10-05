@@ -143,7 +143,7 @@ struct LibraryWindow: View {
         case .discard:
             RowActionText.discard
         case .unpublish(_, let connector):
-            RowActionText.unpublish(from: connector.kind.label)
+            RowActionText.unpublish(from: connector.kind)
         }
     }
 
