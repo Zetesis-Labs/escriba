@@ -71,6 +71,7 @@ ad-hoc y puede caducar.
 | `EscribaCore` | Modelo (`Transcript`, `Recording`), parseo, decisiones puras | macOS, Linux, WASI | ninguna |
 | `EscribaEngine` | Puertos (`TranscriptionBackend`, `RecordingSource`, `Sink`, `LedgerPort`, `FolderWatcher`, `ReadinessProbe`), `Pipeline`, `Daemon`, `Log`. Orquestación que solo habla con puertos | macOS, Linux, WASI | ninguna |
 | `EscribaNotion` | Conector Notion: esquema y mapeo, plantilla del cuerpo, cliente API sobre un transporte HTTP propio, publicación, sink | macOS, Linux, WASI | ninguna (URLSession solo fuera de WASI) |
+| `EscribaOKF` | Conector a un bundle OKF v0.2 en una carpeta: nota por grabación en `notas/`, transcripción aparte opcional en `transcripciones/`, `index.md` por carpeta y `log.md`. Decisiones puras (`okfPublication`, `okfRemoval`) y sink sobre el puerto `OKFFolder` | macOS, Linux, WASI | ninguna |
 | `EscribaSystemKit` | Host de sistema: FSEvents (macOS) o sondeo (Linux), stat/iCloud/materialización, flock, `offloaded`, ledger SQLite, migración legacy | macOS, Linux | SQLite del sistema (`CSQLite` en Linux) |
 | `EscribaWhisper` | Backend WhisperKit + SpeakerKit | Apple | argmax-oss-swift |
 | `EscribaIntelligence` | Adaptador del puerto `Summarizer` con FoundationModels (titulo, resumen, etiquetas) | Apple | ninguna |
@@ -82,8 +83,11 @@ ad-hoc y puede caducar.
 
 - **Los puertos son structs de funciones**, no protocolos ni herencia:
   `TranscriptionBackend`, `RecordingSource`, `Sink`, `LedgerPort`,
-  `NotionClient`, `NotionTransport`, `Summarizer`. Una implementación nueva es
+  `NotionClient`, `NotionTransport`, `Summarizer`, `OKFFolder`. Una implementación nueva es
   una función `make(...)` que devuelve el struct.
+- **La plantilla del cuerpo es de todos los conectores**: `BodyTemplate`,
+  `TemplateBlock`, `NoteField`, `TranscriptStyle` y los `/comandos` viven en
+  `EscribaCore`; cada conector solo decide cómo pinta cada bloque.
 - **Un destino recibe una `Note`** (`Recording` + `Transcript` + `Digest?`), no
   una transcripción suelta: así el resumen llega a la biblioteca y a Notion sin
   que el pipeline conozca a ninguno de los dos.
