@@ -1,6 +1,5 @@
 import EscribaCore
 import EscribaEngine
-import EscribaIntelligence
 import EscribaModel
 import EscribaNotion
 import EscribaOKF
@@ -17,7 +16,6 @@ struct SettingsPane: View {
                 block("General", "gearshape") { GeneralTab(settings: settings) }
                 block("Transcripción", "waveform") { TranscriptionTab(settings: settings) }
                 block("Carpetas vigiladas", "folder.badge.plus") { FoldersTab(settings: settings) }
-                block("Modelo", "internaldrive") { ModelTab() }
             }
             .padding(.vertical, 8)
         }
@@ -68,8 +66,6 @@ private struct GeneralTab: View {
 private struct TranscriptionTab: View {
     @Bindable var settings: AppSettings
 
-    private var summaries: SummaryAvailability { AppleIntelligence.availability() }
-
     var body: some View {
         Form {
             Picker("Idioma", selection: $settings.language) {
@@ -85,27 +81,9 @@ private struct TranscriptionTab: View {
                     Text("\(count) hablantes").tag(count)
                 }
             }
-            Text("Detectar hablantes cuesta unos segundos mas por nota.")
+            Text("Detectar hablantes cuesta unos segundos mas por nota y solo funciona con Whisper en este Mac.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-
-            Section("Titulo, resumen y etiquetas") {
-                Toggle("Resumir cada nota con el modelo del sistema", isOn: $settings.summarize)
-                if let problem = summaries.problem {
-                    Label(
-                        "Ahora mismo no se puede resumir: \(problem).",
-                        systemImage: "exclamationmark.triangle"
-                    )
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                } else {
-                    Text(
-                        "Apple Intelligence resume en el propio Mac: nada del audio ni del texto sale de aqui."
-                    )
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                }
-            }
 
             Section("Copia en texto plano") {
                 Toggle("Escribir tambien un .txt", isOn: $settings.writeTxt)
@@ -139,11 +117,24 @@ private struct FoldersTab: View {
     var body: some View {
         Form {
             Section {
+                VStack(alignment: .leading, spacing: 6) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Bandeja de Escriba")
+                        Text("Lo que grabas en la app y los audios que arrastras")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    ResolverPickers(choice: $settings.inboxResolvers, settings: settings)
+                }
+            }
+
+            Section {
                 if settings.watchedFolders.isEmpty {
                     Text("Ninguna carpeta extra. Solo se vigila Just Press Record.")
                         .foregroundStyle(.secondary)
                 }
                 ForEach($settings.watchedFolders) { $folder in
+                    VStack(alignment: .leading, spacing: 6) {
                     HStack {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(folder.displayName)
@@ -168,11 +159,13 @@ private struct FoldersTab: View {
                         }
                         .buttonStyle(.borderless)
                     }
+                    ResolverPickers(choice: $folder.resolvers, settings: settings)
+                    }
                 }
             } header: {
                 Text("Carpetas vigiladas")
             } footer: {
-                Text("Cualquier audio que caiga en ellas se transcribe solo. Las claves llevan el nombre de la carpeta como prefijo.")
+                Text("Cualquier audio que caiga en ellas se transcribe solo. Las claves llevan el nombre de la carpeta como prefijo. Los servicios para transcribir y resumir se configuran en STT y LLMs.")
             }
 
             Button("Anadir carpeta…") {
@@ -196,20 +189,20 @@ private struct FoldersTab: View {
     }
 }
 
-private struct ModelTab: View {
+struct WhisperModelSection: View {
     @State private var installed = WhisperKitBackend.installedModelFolder()
     @State private var sizeOnDisk: String?
     @State private var progress: Double?
     @State private var failure: String?
 
     var body: some View {
-        Form {
+        Section("Modelo") {
             LabeledContent("Modelo", value: WhisperKitBackend.defaultVariant)
 
             if installed != nil {
                 LabeledContent("Estado", value: "descargado\(sizeOnDisk.map { " · \($0)" } ?? "")")
                 Button("Borrar del disco", role: .destructive) { delete() }
-                Text("Sin el modelo no se transcribe nada hasta volver a descargarlo.")
+                Text("Sin el modelo no se transcribe nada en este Mac hasta volver a descargarlo.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             } else if let progress {
@@ -223,7 +216,6 @@ private struct ModelTab: View {
                 Text(failure).foregroundStyle(.red)
             }
         }
-        .formStyle(.grouped)
         .task { await measure() }
     }
 

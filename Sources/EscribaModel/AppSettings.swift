@@ -4,7 +4,7 @@ import EscribaEngine
 import Observation
 import EscribaNotion
 
-public struct WatchedFolder: Codable, Sendable, Equatable, Identifiable {
+nonisolated public struct WatchedFolder: Codable, Sendable, Equatable, Identifiable {
     public enum Style: String, Codable, Sendable {
         case justPressRecord
         case voiceMemos
@@ -14,17 +14,21 @@ public struct WatchedFolder: Codable, Sendable, Equatable, Identifiable {
     public var path: String
     public var speakers: Int?
     public var style: Style
+    public var resolvers: ResolverChoice
 
     public var id: String { path }
 
-    public init(path: String, speakers: Int? = nil, style: Style = .any) {
+    public init(
+        path: String, speakers: Int? = nil, style: Style = .any, resolvers: ResolverChoice = ResolverChoice()
+    ) {
         self.path = path
         self.speakers = speakers
         self.style = style
+        self.resolvers = resolvers
     }
 
     private enum CodingKeys: String, CodingKey {
-        case path, speakers, style
+        case path, speakers, style, resolvers
     }
 
     public init(from decoder: Decoder) throws {
@@ -32,10 +36,11 @@ public struct WatchedFolder: Codable, Sendable, Equatable, Identifiable {
         path = try container.decode(String.self, forKey: .path)
         speakers = try container.decodeIfPresent(Int.self, forKey: .speakers)
         style = try container.decodeIfPresent(Style.self, forKey: .style) ?? .any
+        resolvers = try container.decodeIfPresent(ResolverChoice.self, forKey: .resolvers) ?? ResolverChoice()
     }
 }
 
-extension WatchedFolder {
+nonisolated extension WatchedFolder {
     public var displayName: String {
         switch style {
         case .justPressRecord: "Just Press Record"
@@ -49,7 +54,7 @@ extension WatchedFolder {
     }
 }
 
-public func folder(for sourcePath: String, among folders: [WatchedFolder]) -> WatchedFolder? {
+nonisolated public func folder(for sourcePath: String, among folders: [WatchedFolder]) -> WatchedFolder? {
     let components = URL(fileURLWithPath: sourcePath).standardizedFileURL.pathComponents
 
     return folders
@@ -147,6 +152,15 @@ public final class AppSettings {
     public var connectors: [Connector] {
         didSet { persist(connectors, forKey: Keys.connectors) }
     }
+    public var sttResolvers: ResolverSet {
+        didSet { persist(sttResolvers, forKey: Keys.sttResolvers) }
+    }
+    public var llmResolvers: ResolverSet {
+        didSet { persist(llmResolvers, forKey: Keys.llmResolvers) }
+    }
+    public var inboxResolvers: ResolverChoice {
+        didSet { persist(inboxResolvers, forKey: Keys.inboxResolvers) }
+    }
 
     @ObservationIgnored private let defaults: UserDefaults
 
@@ -171,6 +185,12 @@ public final class AppSettings {
             } ?? []
 
         connectors = Self.restore([Connector].self, from: defaults, key: Keys.connectors) ?? []
+        sttResolvers = Self.restore(ResolverSet.self, from: defaults, key: Keys.sttResolvers)
+            ?? ResolverSet(role: .stt)
+        llmResolvers = Self.restore(ResolverSet.self, from: defaults, key: Keys.llmResolvers)
+            ?? ResolverSet(role: .llm)
+        inboxResolvers = Self.restore(ResolverChoice.self, from: defaults, key: Keys.inboxResolvers)
+            ?? ResolverChoice()
         watchedFolders = seededWithVoiceMemos(
             stored,
             root: voiceMemos,
@@ -231,6 +251,40 @@ public final class AppSettings {
         connectors[index] = connector
     }
 
+    public func resolvers(_ role: ResolverRole) -> ResolverSet {
+        role == .stt ? sttResolvers : llmResolvers
+    }
+
+    public func setResolvers(_ set: ResolverSet, for role: ResolverRole) {
+        switch role {
+        case .stt: sttResolvers = set
+        case .llm: llmResolvers = set
+        }
+    }
+
+    public func forget(resolver id: UUID, as role: ResolverRole) {
+        inboxResolvers = inboxResolvers.forgetting(id, as: role)
+        watchedFolders = watchedFolders.map { folder in
+            var folder = folder
+            folder.resolvers = folder.resolvers.forgetting(id, as: role)
+            return folder
+        }
+    }
+
+    public func routing(inbox: String, overrides: ChoiceStore = .inMemory()) -> ResolverRouting {
+        ResolverRouting(
+            stt: sttResolvers, llm: llmResolvers, folders: watchedFolders, inbox: inbox,
+            inboxChoice: inboxResolvers, overrides: overrides)
+    }
+
+    public func resolverChoice(forSource path: String, inbox: String) -> ResolverChoice {
+        routing(inbox: inbox).choice(forSource: path)
+    }
+
+    public func resolver(_ role: ResolverRole, forSource path: String, inbox: String) -> Resolver {
+        routing(inbox: inbox).resolver(role, forSource: path)
+    }
+
     public static func adoptLegacyDefaults(
         from legacy: UserDefaults?, into defaults: UserDefaults = .standard
     ) {
@@ -255,5 +309,8 @@ public final class AppSettings {
         static let watchedFolders = "watchedFolders"
         static let voiceMemosSeeded = "voiceMemosSeeded"
         static let connectors = "connectors"
+        static let sttResolvers = "sttResolvers"
+        static let llmResolvers = "llmResolvers"
+        static let inboxResolvers = "inboxResolvers"
     }
 }

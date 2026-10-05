@@ -38,7 +38,7 @@ jobs:
       - run: apt-get update -qq && apt-get install -y -qq libsqlite3-dev
       - name: Compilar lo que corre en un pod
         run: |
-          for target in EscribaCore EscribaEngine EscribaSystemKit EscribaNotion EscribaStore EscribaIntelligence; do
+          for target in EscribaCore EscribaEngine EscribaSystemKit EscribaNotion EscribaOpenAI EscribaStore EscribaIntelligence; do
             swift build --target "$target"
           done
 

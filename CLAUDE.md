@@ -74,10 +74,11 @@ ad-hoc y puede caducar.
 | `EscribaSystemKit` | Host de sistema: FSEvents (macOS) o sondeo (Linux), stat/iCloud/materialización, flock, `offloaded`, ledger SQLite, migración legacy | macOS, Linux | SQLite del sistema (`CSQLite` en Linux) |
 | `EscribaWhisper` | Backend WhisperKit + SpeakerKit | Apple | argmax-oss-swift |
 | `EscribaIntelligence` | Adaptador del puerto `Summarizer` con FoundationModels (titulo, resumen, etiquetas) | Apple | ninguna |
+| `EscribaOpenAI` | Adaptadores de `Summarizer` (`/chat/completions` con `json_schema`) y `TranscriptionBackend` (`/audio/transcriptions`) sobre una API compatible con OpenAI; validación de URL y errores | macOS, Linux | ninguna (URLSession solo fuera de WASI) |
 | `EscribaStore` | Biblioteca SQLite + copia del audio + rastro de publicaciones | macOS, Linux | GRDB |
 | `EscribaModel` | Modelos observables de la UI (biblioteca, conectores, ajustes), token en fichero 0600 | macOS | |
 | `escriba` | CLI | macOS | |
-| `EscribaMenuBar` | App: ventana única con Biblioteca / Conectores / Ajustes | macOS | aislamiento MainActor por defecto |
+| `EscribaMenuBar` | App: ventana única con Biblioteca / Conectores / STT / LLMs / Ajustes | macOS | aislamiento MainActor por defecto |
 | `escriba-wasm-probe` | Sonda que ejercita Core+Engine+Notion; la ejecuta el CI en un runtime WASI | WASI | |
 
 - **Los puertos son structs de funciones**, no protocolos ni herencia:
@@ -127,10 +128,22 @@ ad-hoc y puede caducar.
 - **La app se descarga sus modelos** a
   `~/Library/Application Support/escriba/models`; nunca reutiliza los
   de MacWhisper.
-- **WhisperKit es el único backend** (por defecto desde 2026-08-31; el
+- **WhisperKit es el único backend local** (por defecto desde 2026-08-31; el
   contraste MacWhisper/`mw` se borró el 2026-09-20). Nada del repo lanza
   procesos externos (`Shell`/`Process` se fueron con él): transcribir es un
   puerto que provee el host, y en un runtime WASI sería `wasi:nn`.
+- **STT y LLM son resolutores, en plural** (Rubén, 2026-10-06, a imagen de
+  los proveedores de Biiak Next pero con N por papel): cada papel tiene una
+  lista con un favorito (`ResolverSet`); los locales (Whisper, Apple
+  Intelligence) vienen de serie y no se quitan, los remotos hablan la API de
+  OpenAI. Quién procesa una grabación se resuelve en `ResolverRouting`: lo
+  elegido para esa grabación (`ChoiceStore`, `elecciones.json`, escrito
+  **antes** de que el fichero entre en la bandeja para que el pipeline no se
+  adelante) > lo de su carpeta o la bandeja > el favorito. **Sin fallback**: un
+  remoto caído no cae a local; los fallos que afectan a todas las notas (red,
+  clave, 429, 5xx) son `backendUnavailable` y la nota espera, los de esa nota
+  (413, 400) la marcan fallida. La clave se lee en cada llamada, así cambiarla
+  no reconstruye nada. Diarizar solo existe en local.
 - **Conectores, en plural** (Rubén, 2026-09-20): lista de N conectores, cada
   uno con su token (fichero `~/Library/Application Support/escriba/secrets/<id>.token`
   con permisos 0600; **ya no en el Llavero**: pedía la contraseña en cada
@@ -149,7 +162,7 @@ ad-hoc y puede caducar.
   obligaría a un backend con `client_secret`. Cada usuario crea su conexión
   «Token de acceso» en Notion y le comparte las bases.
 - **La ventana de Ajustes no existe**: todo vive en la ventana principal
-  (barra lateral Biblioteca / Conectores / Ajustes).
+  (barra lateral Biblioteca / Conectores / STT / LLMs / Ajustes).
 - **Resumir es un puerto, no una dependencia** (Rubén, 2026-09-21): `Summarizer`
   vive en `EscribaEngine` y recibe una `DigestRequest` (instrucciones +
   petición, ambas decididas en `EscribaCore`) y devuelve un `Digest`. El
@@ -160,8 +173,10 @@ ad-hoc y puede caducar.
   `maxReduceRounds`): unir todos los parciales de golpe se salía de la ventana
   justo en las grabaciones largas, que son las que motivan trocear.
   Un `Digest` vacío es un fallo (`SummaryError.empty`), no un resumen: si no,
-  un modelo que no responde se guarda igual que uno que sí. Hoy hay uno (`EscribaIntelligence`, FoundationModels en el
-  propio Mac); el de una cuenta compatible con OpenAI entra por el mismo hueco.
+  un modelo que no responde se guarda igual que uno que sí. Hay dos: `EscribaIntelligence` (FoundationModels en el
+  propio Mac) y `EscribaOpenAI` (cualquier API compatible). El prompt es del
+  resolutor (`Summarizer.prompt`); `DigestPrompt` le añade el idioma y el
+  adaptador remoto el formato JSON.
   El resumen viene **apagado** por defecto.
 - **El resumen es de la versión, no de la grabación**: se guarda en la fila de
   `transcript`, así elegir otra versión trae su resumen. Corregir hablantes lo

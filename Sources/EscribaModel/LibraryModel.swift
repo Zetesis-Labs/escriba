@@ -5,10 +5,10 @@ import EscribaSystemKit
 import EscribaStore
 import Observation
 
-public typealias Reprocessor = @Sendable (URL, TranscriptionOptions) async throws -> Transcript
+public typealias Reprocessor = @Sendable (StoredRecording, TranscriptionOptions) async throws -> Transcript
 public typealias TranscriptWriter = @Sendable (String, Transcript) throws -> Void
 public typealias Unpublisher = @Sendable (String) async throws -> Void
-public typealias Digester = @Sendable (Transcript) async throws -> Digest
+public typealias Digester = @Sendable (StoredRecording, Transcript) async throws -> Digest
 
 @Observable
 public final class LibraryModel {
@@ -25,6 +25,7 @@ public final class LibraryModel {
     @ObservationIgnored private let writeText: TranscriptWriter?
     @ObservationIgnored private let publishers: [String: Sink]
     @ObservationIgnored private let unpublishers: [String: Unpublisher]
+    @ObservationIgnored private let choices: ChoiceStore
     @ObservationIgnored private var observation: Task<Void, Never>?
     @ObservationIgnored private var summaries: Task<Void, Never>?
 
@@ -34,7 +35,8 @@ public final class LibraryModel {
         digester: Digester? = nil,
         writeText: TranscriptWriter? = nil,
         publishers: [String: Sink] = [:],
-        unpublishers: [String: Unpublisher] = [:]
+        unpublishers: [String: Unpublisher] = [:],
+        choices: ChoiceStore = .inMemory()
     ) {
         self.store = store
         self.reprocess = reprocess
@@ -42,6 +44,7 @@ public final class LibraryModel {
         self.writeText = writeText
         self.publishers = publishers
         self.unpublishers = unpublishers
+        self.choices = choices
     }
 
     public func unpublish(_ key: String, from connector: String) async throws {
@@ -135,11 +138,12 @@ public final class LibraryModel {
     }
 
     private func generate(with digester: Digester, for key: String) async throws -> Digest {
-        guard let transcript = try await store.transcript(for: key),
+        guard let recording = try store.recording(for: key),
+            let transcript = try await store.transcript(for: key),
             let version = try await store.currentVersion(for: key)
         else { throw LibraryModelError.nothingToSummarize }
 
-        let digest = try await digester(transcript)
+        let digest = try await digester(recording, transcript)
         try await store.setDigest(digest, for: key, version: version)
         await republish(transcript, digest: digest, for: key, version: version)
         return digest
@@ -235,14 +239,21 @@ public final class LibraryModel {
         try await store.removeAudio(key: key)
     }
 
-    public func reprocess(_ recording: StoredRecording, options: TranscriptionOptions) async throws {
+    public func resolverChoice(for recording: StoredRecording) -> ResolverChoice {
+        choices.read(recording.sourceURL.path(percentEncoded: false)) ?? ResolverChoice()
+    }
+
+    public func reprocess(
+        _ recording: StoredRecording, options: TranscriptionOptions, resolvers: ResolverChoice? = nil
+    ) async throws {
         guard let reprocess else { throw LibraryModelError.reprocessUnavailable }
         guard !reprocessing.contains(recording.key) else { return }
+        if let resolvers { choices.write(recording.sourceURL.path(percentEncoded: false), resolvers) }
 
         reprocessing.insert(recording.key)
         defer { reprocessing.remove(recording.key) }
 
-        let transcript = try await reprocess(recording.audioURL, options)
+        let transcript = try await reprocess(recording, options)
         try await store.addTranscript(
             transcript, for: recording.key, backend: "reprocesado", options: options)
         refreshText(transcript, for: recording.key)
@@ -295,7 +306,7 @@ public enum LibraryModelError: Error, CustomStringConvertible {
     public var description: String {
         switch self {
         case .reprocessUnavailable: "esta app no tiene motor de reprocesado configurado"
-        case .summaryUnavailable: "los resumenes automaticos estan apagados en Ajustes"
+        case .summaryUnavailable: "los resumenes automaticos estan apagados en LLMs"
         case .nothingToSummarize: "esta grabacion aun no tiene transcripcion que resumir"
         case .alreadySummarizing: "ya se esta resumiendo esta grabacion"
         case .connectorUnavailable: "ese conector no esta activo en Ajustes"

@@ -100,6 +100,25 @@ struct DigestTests {
         #expect(DigestPrompt.instructions(language: "xx").contains("mismo idioma"))
     }
 
+    @Test("un prompt propio sustituye al de serie y conserva la frase del idioma")
+    func promptPropio() {
+        let propio = DigestPrompt.instructions(language: "es", base: "  Resume como un acta.\n")
+
+        #expect(propio.hasPrefix("Resume como un acta."))
+        #expect(propio.contains("español"))
+        #expect(!propio.contains("Eres un asistente"))
+        #expect(DigestPrompt.instructions(language: "es").hasPrefix(DigestPrompt.standard))
+        #expect(DigestPrompt.instructions(language: "es", base: " \n ") == DigestPrompt.instructions(language: "es"))
+        #expect(DigestPrompt.instructions(language: "es", base: nil) == DigestPrompt.instructions(language: "es"))
+    }
+
+    @Test("las peticiones de trozo y de reduccion llevan el prompt propio")
+    func peticionesConPrompt() {
+        #expect(digestRequest(text: "x", language: nil, prompt: "Acta.").instructions.hasPrefix("Acta."))
+        #expect(reduceRequest(partials: ["x"], language: nil, prompt: "Acta.").instructions.hasPrefix("Acta."))
+        #expect(digestRequest(text: "x", language: nil).instructions.hasPrefix(DigestPrompt.standard))
+    }
+
     @Test("la peticion de un trozo y la de reduccion se distinguen y llevan el texto")
     func peticiones() {
         let trozo = DigestPrompt.request(text: "Hola mundo")
