@@ -15,6 +15,10 @@ enum Paths {
         home.appending(path: "Library/Application Support/escriba/library")
     }
 
+    static var inbox: URL {
+        home.appending(path: "Library/Application Support/escriba/bandeja")
+    }
+
     static var lockFile: URL {
         home.appending(path: ".local/state/escriba/instance.lock")
     }

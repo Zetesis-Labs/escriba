@@ -55,7 +55,9 @@ struct MainWindow: View {
                     folders: runtime.settings.watchedFolders,
                     connectors: runtime.settings.connectors,
                     txtFolder: runtime.settings.txtFolder,
-                    defaultOptions: runtime.settings.transcriptionDefaults)
+                    defaultOptions: runtime.settings.transcriptionDefaults,
+                    recorder: runtime.recorder,
+                    inbox: runtime.inbox)
             case .connectors:
                 ConnectorsPane(connectors: runtime.connectors)
             case .settings:
