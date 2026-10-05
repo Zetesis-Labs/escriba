@@ -195,13 +195,13 @@ struct DocumentoTests {
 
     @Test("la descripcion es la primera frase del resumen, recortada si es muy larga")
     func descripcion() {
-        #expect(okfDescription(summary: "Primera. Segunda.") == "Primera.")
-        #expect(okfDescription(summary: "¿Pregunta? Respuesta.") == "¿Pregunta?")
-        #expect(okfDescription(summary: "Una linea\nOtra linea") == "Una linea")
-        #expect(okfDescription(summary: "  ") == nil)
-        let recortada = okfDescription(summary: String(repeating: "palabra ", count: 60))
+        #expect(noteDescription(summary: "Primera. Segunda.") == "Primera.")
+        #expect(noteDescription(summary: "¿Pregunta? Respuesta.") == "¿Pregunta?")
+        #expect(noteDescription(summary: "Una linea\nOtra linea") == "Una linea")
+        #expect(noteDescription(summary: "  ") == nil)
+        let recortada = noteDescription(summary: String(repeating: "palabra ", count: 60))
         #expect(recortada?.hasSuffix("…") == true)
-        #expect((recortada?.count ?? 0) <= okfDescriptionLimit + 1)
+        #expect((recortada?.count ?? 0) <= noteDescriptionLimit + 1)
     }
 
     @Test("las comillas, barras y saltos de linea no rompen el YAML")

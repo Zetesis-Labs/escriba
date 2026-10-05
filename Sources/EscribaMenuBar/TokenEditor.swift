@@ -163,12 +163,22 @@ final class TokenTextView: NSTextView {
     }
 
     func fittingHeight(width: CGFloat) -> CGFloat {
-        guard let layoutManager, let textContainer else { return 24 }
-        textContainer.containerSize = NSSize(
-            width: max(width - textContainerInset.width * 2, 10), height: CGFloat.greatestFiniteMagnitude)
-        layoutManager.ensureLayout(for: textContainer)
-        let used = ceil(layoutManager.usedRect(for: textContainer).height) + textContainerInset.height * 2
+        let storage = NSTextStorage(attributedString: textStorage ?? NSAttributedString())
+        let layout = NSLayoutManager()
+        let container = NSTextContainer(
+            size: NSSize(width: max(width - textContainerInset.width * 2, 10), height: CGFloat.greatestFiniteMagnitude))
+        container.lineFragmentPadding = textContainer?.lineFragmentPadding ?? 4
+        layout.addTextContainer(container)
+        storage.addLayoutManager(layout)
+        layout.ensureLayout(for: container)
+        let used = ceil(layout.usedRect(for: container).height) + textContainerInset.height * 2
         return max(used, multiline ? 160 : ceil(baseFont.boundingRectForFont.height) + textContainerInset.height * 2)
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        textContainer?.containerSize = NSSize(
+            width: max(newSize.width - textContainerInset.width * 2, 10), height: CGFloat.greatestFiniteMagnitude)
     }
 
     override func didChangeText() {

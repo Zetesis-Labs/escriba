@@ -23,19 +23,3 @@ public func okfPreview(_ export: OKFExport, now: Date = Date(), timeZone: TimeZo
         written[path].map { OKFPreviewFile(documentID: document.id, path: path, contents: $0) }
     }
 }
-
-private func sampleNote(recordedAt: Date) -> Note {
-    Note(
-        recording: Recording(
-            url: URL(fileURLWithPath: "/Notas de voz/Reunion del lanzamiento.m4a"),
-            startedAt: recordedAt, key: "ejemplo"),
-        transcript: Transcript(segments: [
-            TranscriptSegment(start: 0, end: 8, speaker: "Ana", text: "¿Cómo vamos con el lanzamiento del jueves?"),
-            TranscriptSegment(start: 8, end: 21, speaker: "Luis", text: "La migración no llega; propongo moverla una semana."),
-            TranscriptSegment(start: 21, end: 29, speaker: "Ana", text: "Vale, y avisamos a soporte hoy mismo."),
-        ]),
-        digest: Digest(
-            title: "Lanzamiento del jueves",
-            summary: "Ana y Luis repasan el lanzamiento del jueves. Acuerdan mover la migración una semana y avisar hoy a soporte.",
-            tags: ["lanzamiento", "migración"]))
-}

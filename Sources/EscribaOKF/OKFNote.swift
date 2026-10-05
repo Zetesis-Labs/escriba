@@ -2,7 +2,6 @@ import Foundation
 import EscribaCore
 
 public let okfSlugLimit = 60
-public let okfDescriptionLimit = 200
 
 public struct OKFProperty: Equatable, Hashable, Sendable, Codable, Identifiable {
     public var id: String
@@ -105,86 +104,30 @@ private func normalized(_ path: String) -> String {
     path.trimmingCharacters(in: .whitespaces).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
 }
 
-struct NoteFacts {
-    let title: String
-    let description: String
-    let summary: String?
-    let tags: [String]
-    let key: String
-    let startedAt: Date
-    let speakers: [String]
-    let duration: TimeInterval?
-    let source: URL
-    let transcript: Transcript
-    let timeZone: TimeZone
-}
-
-func noteFacts(_ note: Note, timeZone: TimeZone) -> NoteFacts {
-    let summary = note.digest?.summary.trimmingCharacters(in: .whitespacesAndNewlines)
-    return NoteFacts(
-        title: noteTitle(digest: note.digest, key: note.recording.key, text: note.transcript.text),
-        description: okfDescription(summary: summary)
-            ?? "Grabación del \(longDate(note.recording.startedAt, timeZone: timeZone)).",
-        summary: summary.flatMap { $0.isEmpty ? nil : $0 },
-        tags: note.digest?.tags ?? [],
-        key: note.recording.key,
-        startedAt: note.recording.startedAt,
-        speakers: note.transcript.speakers,
-        duration: note.transcript.duration,
-        source: note.recording.url,
-        transcript: note.transcript,
-        timeZone: timeZone)
-}
-
 struct RenderedLink {
     let path: String
     let title: String
 }
 
-func inlineValue(_ token: TemplateToken, of facts: NoteFacts, links: [String: RenderedLink]) -> String {
+private func bodyValue(_ token: TemplateToken, of values: NoteValues, links: [String: RenderedLink]) -> String {
     switch token {
-    case .title: facts.title
-    case .description: facts.description
-    case .summary: facts.summary ?? ""
-    case .tags: facts.tags.joined(separator: ", ")
-    case .date: longDate(facts.startedAt, timeZone: facts.timeZone)
-    case .isoDate: iso8601(facts.startedAt, timeZone: facts.timeZone)
-    case .day: isoDay(facts.startedAt, timeZone: facts.timeZone)
-    case .speakers: facts.speakers.joined(separator: ", ")
-    case .duration: facts.duration.map(durationClock) ?? ""
-    case .seconds: facts.duration.map { "\(Int($0.rounded()))" } ?? ""
-    case .key: facts.key
-    case .source: facts.source.path(percentEncoded: false)
-    case .audio: facts.source.absoluteString
-    case .transcript: facts.transcript.rendered
-    case .link(let id): links[id].map { "/\($0.path)" } ?? ""
-    }
-}
-
-private func bodyValue(_ token: TemplateToken, of facts: NoteFacts, links: [String: RenderedLink]) -> String {
-    switch token {
-    case .transcript(let style): markdownTranscript(facts.transcript, style: style) ?? ""
-    case .audio: "[Audio](\(facts.source.absoluteString))"
+    case .transcript(let style): markdownTranscript(values.transcript, style: style) ?? ""
+    case .audio: "[Audio](\(values.source.absoluteString))"
     case .link(let id): links[id].map { "[\(linkText($0.title))](/\($0.path))" } ?? ""
-    default: inlineValue(token, of: facts, links: links)
+    default: values.inline(token)
     }
 }
 
-func renderedInline(_ template: String, of facts: NoteFacts, links: [String: RenderedLink]) -> String {
-    templatePieces(template).map { piece in
-        switch piece {
-        case .text(let text): text
-        case .token(let token): inlineValue(token, of: facts, links: links)
-        }
-    }.joined()
+func renderedInline(_ template: String, of values: NoteValues, links: [String: RenderedLink]) -> String {
+    values.inline(template) { id in links[id].map { "/\($0.path)" } ?? "" }
 }
 
-func renderedPath(_ template: String, of facts: NoteFacts) -> String {
+func renderedPath(_ template: String, of values: NoteValues) -> String {
     let raw = templatePieces(template).map { piece in
         switch piece {
         case .text(let text): text
-        case .token(.day): isoDay(facts.startedAt, timeZone: facts.timeZone)
-        case .token(let token): slug(inlineValue(token, of: facts, links: [:]))
+        case .token(.day): isoDay(values.startedAt, timeZone: values.timeZone)
+        case .token(let token): slug(values.inline(token))
         }
     }.joined()
     let segments = raw.split(separator: "/")
@@ -195,65 +138,65 @@ func renderedPath(_ template: String, of facts: NoteFacts) -> String {
     return path.lowercased().hasSuffix(".md") ? path : path + ".md"
 }
 
-func documentTitle(_ document: OKFDocument, of facts: NoteFacts) -> String {
+func documentTitle(_ document: OKFDocument, of values: NoteValues) -> String {
     let title = document.properties.first { $0.key.trimmingCharacters(in: .whitespaces) == "title" }
-        .map { renderedInline($0.value, of: facts, links: [:]).trimmingCharacters(in: .whitespaces) }
-    return title.flatMap { $0.isEmpty ? nil : $0 } ?? facts.title
+        .map { renderedInline($0.value, of: values, links: [:]).trimmingCharacters(in: .whitespaces) }
+    return title.flatMap { $0.isEmpty ? nil : $0 } ?? values.title
 }
 
-func documentDescription(_ document: OKFDocument, of facts: NoteFacts) -> String? {
+func documentDescription(_ document: OKFDocument, of values: NoteValues) -> String? {
     document.properties.first { $0.key.trimmingCharacters(in: .whitespaces) == "description" }
-        .map { renderedInline($0.value, of: facts, links: [:]).trimmingCharacters(in: .whitespaces) }
+        .map { renderedInline($0.value, of: values, links: [:]).trimmingCharacters(in: .whitespaces) }
         .flatMap { $0.isEmpty ? nil : $0 }
 }
 
 private let reservedKeys: Set<String> = ["type", "escriba_key", "generated"]
 
 func documentContents(
-    _ document: OKFDocument, of facts: NoteFacts, links: [String: RenderedLink], producer: String, now: Date
+    _ document: OKFDocument, of values: NoteValues, links: [String: RenderedLink], producer: String, now: Date
 ) -> String {
-    let type = document.type.map { renderedInline($0, of: facts, links: links).trimmingCharacters(in: .whitespaces) }
+    let type = document.type.map { renderedInline($0, of: values, links: links).trimmingCharacters(in: .whitespaces) }
     var lines = ["type: \(yamlPlainOrQuoted(type.flatMap { $0.isEmpty ? nil : $0 } ?? "Documento"))"]
-    lines += document.properties.compactMap { yamlLine($0, of: facts, links: links) }
-    lines.append("escriba_key: \(yamlQuoted(facts.key))")
+    lines += document.properties.compactMap { yamlLine($0, of: values, links: links) }
+    lines.append("escriba_key: \(yamlQuoted(values.key))")
     lines.append(
         "generated: { by: \(yamlQuoted(producer)), at: \(iso8601(now, timeZone: TimeZone(identifier: "UTC")!)) }")
     let header = "---\n" + lines.joined(separator: "\n") + "\n---\n"
-    let body = renderedBody(document.body, of: facts, links: links)
+    let body = renderedBody(document.body, of: values, links: links)
     return body.isEmpty ? header : header + "\n" + body + "\n"
 }
 
-private func yamlLine(_ property: OKFProperty, of facts: NoteFacts, links: [String: RenderedLink]) -> String? {
+private func yamlLine(_ property: OKFProperty, of values: NoteValues, links: [String: RenderedLink]) -> String? {
     let key = property.key.trimmingCharacters(in: .whitespaces)
     guard !key.isEmpty, !reservedKeys.contains(key) else { return nil }
     let pieces = templatePieces(property.value).filter { piece in
         if case .text(let text) = piece { return !text.trimmingCharacters(in: .whitespaces).isEmpty }
         return true
     }
-    if pieces.count == 1, case .token(let token) = pieces[0], let typed = typedValue(token, of: facts) {
+    if pieces.count == 1, case .token(let token) = pieces[0], let typed = typedValue(token, of: values) {
         return typed.isEmpty ? nil : "\(yamlKey(key)): \(typed)"
     }
-    let value = renderedInline(property.value, of: facts, links: links).trimmingCharacters(in: .whitespaces)
+    let value = renderedInline(property.value, of: values, links: links).trimmingCharacters(in: .whitespaces)
     return value.isEmpty ? nil : "\(yamlKey(key)): \(yamlQuoted(value))"
 }
 
-private func typedValue(_ token: TemplateToken, of facts: NoteFacts) -> String? {
+private func typedValue(_ token: TemplateToken, of values: NoteValues) -> String? {
     switch token {
     case .tags:
-        let tags = okfTags(facts.tags)
+        let tags = okfTags(values.tags)
         return tags.isEmpty ? "" : "[\(tags.joined(separator: ", "))]"
     case .speakers:
-        return facts.speakers.isEmpty ? "" : "[\(facts.speakers.map(yamlQuoted).joined(separator: ", "))]"
+        return values.speakers.isEmpty ? "" : "[\(values.speakers.map(yamlQuoted).joined(separator: ", "))]"
     case .seconds:
-        return facts.duration.map { "\(Int($0.rounded()))" } ?? ""
+        return values.duration.map { "\(Int($0.rounded()))" } ?? ""
     case .isoDate:
-        return iso8601(facts.startedAt, timeZone: facts.timeZone)
+        return iso8601(values.startedAt, timeZone: values.timeZone)
     default:
         return nil
     }
 }
 
-func renderedBody(_ template: String, of facts: NoteFacts, links: [String: RenderedLink]) -> String {
+func renderedBody(_ template: String, of values: NoteValues, links: [String: RenderedLink]) -> String {
     let rendered = template.components(separatedBy: "\n").compactMap { line -> String? in
         let pieces = templatePieces(line)
         let hasToken = pieces.contains { if case .token = $0 { true } else { false } }
@@ -264,39 +207,17 @@ func renderedBody(_ template: String, of facts: NoteFacts, links: [String: Rende
         let value = pieces.map { piece in
             switch piece {
             case .text(let text): text
-            case .token(let token): bodyValue(token, of: facts, links: links)
+            case .token(let token): bodyValue(token, of: values, links: links)
             }
         }.joined()
         return hasToken && !hasText && value.trimmingCharacters(in: .whitespaces).isEmpty ? nil : value
     }
-    let lines = rendered.joined(separator: "\n").components(separatedBy: "\n")
-    return collapsedBlankLines(withoutEmptyHeadings(lines)).joined(separator: "\n")
-}
-
-private func headingLevel(_ line: String) -> Int? {
-    guard let match = line.prefixMatch(of: /(#{1,6})(\s|$)/) else { return nil }
-    return match.1.count
-}
-
-private func withoutEmptyHeadings(_ lines: [String]) -> [String] {
-    var kept = Array(repeating: true, count: lines.count)
-    for index in lines.indices.reversed() {
-        guard let level = headingLevel(lines[index]) else { continue }
-        var hasContent = false
-        var next = index + 1
-        while next < lines.count {
-            if let inner = headingLevel(lines[next]) {
-                if inner <= level { break }
-                if kept[next] { hasContent = true }
-            } else if !lines[next].trimmingCharacters(in: .whitespaces).isEmpty {
-                hasContent = true
-            }
-            next += 1
-        }
-        let title = lines[index].drop { $0 == "#" }.trimmingCharacters(in: .whitespaces)
-        kept[index] = hasContent && !title.isEmpty
+    let lines = rendered.joined(separator: "\n").components(separatedBy: "\n").filter { line in
+        markdownHeadingLevel(line) == nil || !line.drop { $0 == "#" }.trimmingCharacters(in: .whitespaces).isEmpty
     }
-    return lines.indices.filter { kept[$0] }.map { lines[$0] }
+    let sections = withoutEmptySections(
+        lines, level: markdownHeadingLevel, isBlank: { $0.trimmingCharacters(in: .whitespaces).isEmpty })
+    return collapsedBlankLines(sections).joined(separator: "\n")
 }
 
 private func collapsedBlankLines(_ lines: [String]) -> [String] {
@@ -330,34 +251,6 @@ private func prefix(of turn: TranscriptTurn, style: TranscriptStyle) -> String? 
         guard let start = turn.start else { return turn.speaker }
         return turn.speaker.map { "\(bracketStamp(start)) \($0)" } ?? bracketStamp(start)
     }
-}
-
-public func okfDescription(summary: String?) -> String? {
-    guard let summary = summary?.trimmingCharacters(in: .whitespacesAndNewlines), !summary.isEmpty else {
-        return nil
-    }
-    let line = summary.split(whereSeparator: \.isNewline).first.map(String.init) ?? summary
-    let sentence = firstSentence(of: line)
-    guard sentence.count > okfDescriptionLimit else { return sentence }
-    var taken = ""
-    for word in sentence.split(whereSeparator: \.isWhitespace) {
-        let next = taken.isEmpty ? String(word) : taken + " " + word
-        guard next.count < okfDescriptionLimit else { break }
-        taken = next
-    }
-    return (taken.isEmpty ? String(sentence.prefix(okfDescriptionLimit - 1)) : taken) + "…"
-}
-
-private func firstSentence(of line: String) -> String {
-    var index = line.startIndex
-    while index < line.endIndex {
-        let next = line.index(after: index)
-        if ".?!".contains(line[index]), next == line.endIndex || line[next].isWhitespace {
-            return String(line[...index])
-        }
-        index = next
-    }
-    return line
 }
 
 public func okfTags(_ raw: [String]) -> [String] {
@@ -418,39 +311,4 @@ private func yamlPlainOrQuoted(_ text: String) -> String {
 
 private func yamlKey(_ key: String) -> String {
     key.wholeMatch(of: /[A-Za-z0-9_][A-Za-z0-9_.\-]*/) != nil ? key : yamlQuoted(key)
-}
-
-private let monthNames = [
-    "enero", "febrero", "marzo", "abril", "mayo", "junio",
-    "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre",
-]
-
-func monthHeading(year: Int, month: Int) -> String {
-    guard (1...12).contains(month) else { return "\(year)" }
-    return monthNames[month - 1].prefix(1).uppercased() + monthNames[month - 1].dropFirst() + " de \(year)"
-}
-
-private func calendar(_ timeZone: TimeZone) -> Calendar {
-    var calendar = Calendar(identifier: .gregorian)
-    calendar.timeZone = timeZone
-    return calendar
-}
-
-func isoDay(_ date: Date, timeZone: TimeZone) -> String {
-    let parts = calendar(timeZone).dateComponents([.year, .month, .day], from: date)
-    return String(format: "%04d-%02d-%02d", parts.year ?? 0, parts.month ?? 0, parts.day ?? 0)
-}
-
-private func longDate(_ date: Date, timeZone: TimeZone) -> String {
-    let parts = calendar(timeZone).dateComponents([.year, .month, .day, .hour, .minute], from: date)
-    let month = monthNames[max(0, min(11, (parts.month ?? 1) - 1))]
-    let time = String(format: "%02d:%02d", parts.hour ?? 0, parts.minute ?? 0)
-    return "\(parts.day ?? 0) de \(month) de \(parts.year ?? 0), \(time)"
-}
-
-private func iso8601(_ date: Date, timeZone: TimeZone) -> String {
-    let formatter = ISO8601DateFormatter()
-    formatter.timeZone = timeZone
-    formatter.formatOptions = [.withInternetDateTime, .withColonSeparatorInTimeZone]
-    return formatter.string(from: date)
 }

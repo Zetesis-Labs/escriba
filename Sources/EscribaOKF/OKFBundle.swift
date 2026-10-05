@@ -103,29 +103,29 @@ private func yamlScalar(_ raw: String) -> String? {
 public func okfPublication(
     _ note: Note, as export: OKFExport, in bundle: BundleState, producer: String, now: Date, timeZone: TimeZone
 ) -> OKFPublication {
-    let facts = noteFacts(note, timeZone: timeZone)
-    let previous = bundle.entries.filter { $0.key == facts.key }.map(\.path)
+    let values = NoteValues(note, timeZone: timeZone)
+    let previous = bundle.entries.filter { $0.key == values.key }.map(\.path)
 
     var taken: Set<String> = []
     let paths = export.documents.map { document in
-        let path = availablePath(renderedPath(document.path, of: facts), for: facts.key, taken: taken, in: bundle)
+        let path = availablePath(renderedPath(document.path, of: values), for: values.key, taken: taken, in: bundle)
         taken.insert(path)
         return path
     }
     let links = Dictionary(
-        zip(export.documents, paths).map { ($0.id, RenderedLink(path: $1, title: documentTitle($0, of: facts))) },
+        zip(export.documents, paths).map { ($0.id, RenderedLink(path: $1, title: documentTitle($0, of: values))) },
         uniquingKeysWith: { first, _ in first })
 
     var changes: [FileChange] = zip(export.documents, paths).map { document, path in
-        .write(path: path, contents: documentContents(document, of: facts, links: links, producer: producer, now: now))
+        .write(path: path, contents: documentContents(document, of: values, links: links, producer: producer, now: now))
     }
     let removed = Set(previous).subtracting(paths)
     changes += removed.sorted().map { .remove(path: $0) }
 
     let written = zip(export.documents, paths).map { document, path in
         BundleEntry(
-            path: path, title: documentTitle(document, of: facts),
-            description: documentDescription(document, of: facts), key: facts.key)
+            path: path, title: documentTitle(document, of: values),
+            description: documentDescription(document, of: values), key: values.key)
     }
     let after = bundle.entries.filter { !removed.contains($0.path) && !paths.contains($0.path) } + written
     changes += indexChanges(before: bundle.entries, after: after, documents: export.documents)
@@ -135,7 +135,7 @@ public func okfPublication(
         changes.append(.write(
             path: "log.md",
             contents: logging(
-                "* **\(verb)**: [\(linkText(facts.title))](/\(main))", marker: "(/\(main))",
+                "* **\(verb)**: [\(linkText(values.title))](/\(main))", marker: "(/\(main))",
                 on: isoDay(now, timeZone: timeZone), in: bundle.log)))
     }
     return OKFPublication(paths: paths, changes: changes)
