@@ -4,6 +4,8 @@ import SwiftUI
 enum MainSection: String, CaseIterable, Identifiable {
     case library
     case connectors
+    case stt
+    case llms
     case settings
 
     var id: String { rawValue }
@@ -12,6 +14,8 @@ enum MainSection: String, CaseIterable, Identifiable {
         switch self {
         case .library: "Biblioteca"
         case .connectors: "Conectores"
+        case .stt: "STT"
+        case .llms: "LLMs"
         case .settings: "Ajustes"
         }
     }
@@ -32,6 +36,8 @@ enum MainSection: String, CaseIterable, Identifiable {
         switch self {
         case .library: "waveform"
         case .connectors: "square.and.arrow.up"
+        case .stt: "waveform.badge.mic"
+        case .llms: "sparkles"
         case .settings: "gearshape"
         }
     }
@@ -57,9 +63,14 @@ struct MainWindow: View {
                     txtFolder: runtime.settings.txtFolder,
                     defaultOptions: runtime.settings.transcriptionDefaults,
                     recorder: runtime.recorder,
-                    inbox: runtime.inbox)
+                    inbox: runtime.inbox,
+                    settings: runtime.settings)
             case .connectors:
                 ConnectorsPane(connectors: runtime.connectors)
+            case .stt:
+                ResolversPane(resolvers: runtime.stt, settings: runtime.settings)
+            case .llms:
+                ResolversPane(resolvers: runtime.llm, settings: runtime.settings)
             case .settings:
                 SettingsPane(settings: runtime.settings)
             }

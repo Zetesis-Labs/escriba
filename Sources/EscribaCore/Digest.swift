@@ -130,17 +130,20 @@ private func hardSplit(_ word: String, every limit: Int) -> [String] {
 }
 
 public enum DigestPrompt {
-    public static func instructions(language: String?) -> String {
+    public static let standard = """
+        Eres un asistente que lee la transcripción de una nota de voz o de una reunión \
+        y devuelve un título, un resumen y unas etiquetas. \
+        El título es breve y concreto, sin comillas. El resumen es fiel al contenido, \
+        de tres a cinco frases y nunca más de 600 caracteres, sin inventar nada que no \
+        esté en el texto. \
+        Las etiquetas son de dos a cinco temas cortos, en minúsculas.
+        """
+
+    public static func instructions(language: String?, base: String? = nil) -> String {
         let idiom = languageName(language).map { "Responde en \($0)." }
             ?? "Responde en el mismo idioma en que está escrita la transcripción."
-        return """
-            Eres un asistente que lee la transcripción de una nota de voz o de una reunión \
-            y devuelve un título, un resumen y unas etiquetas. \(idiom) \
-            El título es breve y concreto, sin comillas. El resumen es fiel al contenido, \
-            de tres a cinco frases y nunca más de 600 caracteres, sin inventar nada que no \
-            esté en el texto. \
-            Las etiquetas son de dos a cinco temas cortos, en minúsculas.
-            """
+        let custom = base?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return (custom.isEmpty ? standard : custom) + "\n\n" + idiom
     }
 
     public static func request(text: String) -> String {
@@ -178,15 +181,15 @@ public struct DigestRequest: Sendable, Equatable {
     }
 }
 
-public func digestRequest(text: String, language: String?) -> DigestRequest {
+public func digestRequest(text: String, language: String?, prompt: String? = nil) -> DigestRequest {
     DigestRequest(
-        instructions: DigestPrompt.instructions(language: language),
+        instructions: DigestPrompt.instructions(language: language, base: prompt),
         prompt: DigestPrompt.request(text: text))
 }
 
-public func reduceRequest(partials: [String], language: String?) -> DigestRequest {
+public func reduceRequest(partials: [String], language: String?, prompt: String? = nil) -> DigestRequest {
     DigestRequest(
-        instructions: DigestPrompt.instructions(language: language),
+        instructions: DigestPrompt.instructions(language: language, base: prompt),
         prompt: DigestPrompt.reduce(partials: partials))
 }
 

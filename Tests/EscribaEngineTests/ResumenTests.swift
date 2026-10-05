@@ -57,6 +57,34 @@ struct ResumenTests {
         #expect(peticiones.values.dropLast().allSatisfy { !$0.prompt.contains("parciales") })
     }
 
+    @Test("el prompt del resumidor manda en todas las peticiones, tambien al unir los parciales")
+    func promptDelResumidor() async throws {
+        let peticiones = Trace<DigestRequest>()
+        let resumidor = summarizer(capacity: 200, into: peticiones) { request in
+            request.prompt.contains("parciales")
+                ? Digest(title: "Todo junto", summary: "Union", tags: [])
+                : Digest(title: "T", summary: "P", tags: [])
+        }.prompted("Resume como un acta.")
+        let largo = (1...6).map { "Párrafo \($0) con bastante texto dentro." }.joined(separator: "\n")
+
+        _ = try await resumidor.digest(of: largo, language: "es")
+
+        #expect(resumidor.prompt == "Resume como un acta.")
+        #expect(peticiones.count == 3)
+        #expect(peticiones.values.allSatisfy { $0.instructions.hasPrefix("Resume como un acta.") })
+        #expect(peticiones.values.allSatisfy { $0.instructions.contains("español") })
+    }
+
+    @Test("sin prompt propio se usa el de serie")
+    func promptDeSerie() async throws {
+        let peticiones = Trace<DigestRequest>()
+        let resumidor = summarizer(into: peticiones) { _ in Digest(title: "T", summary: "R", tags: []) }
+
+        _ = try await resumidor.digest(of: "Hola.", language: "es")
+
+        #expect(peticiones.values[0].instructions.hasPrefix(DigestPrompt.standard))
+    }
+
     @Test("cuando los parciales tampoco caben de una vez, se reducen por rondas")
     func reduccionEnCascada() async throws {
         let peticiones = Trace<DigestRequest>()
@@ -173,7 +201,25 @@ struct ResumenTests {
         let roto = enricher(summarizer { _ throws(SummaryError) in throw SummaryError.failed("sin memoria") }, language: "es")
         let bueno = enricher(summarizer { _ in Digest(title: "Hola", summary: "Adiós", tags: []) }, language: "es")
 
-        #expect(await roto(Transcript(text: "Hola")) == nil)
-        #expect(await bueno(Transcript(text: "Hola"))?.title == "Hola")
+        #expect(await roto(recording("a"), Transcript(text: "Hola")) == nil)
+        #expect(await bueno(recording("a"), Transcript(text: "Hola"))?.title == "Hola")
+    }
+
+    @Test("el resumen de cada nota sabe de que grabacion es, para elegir con que resumirla")
+    func resumenPorGrabacion() async throws {
+        let resumidas = Trace<String>()
+        let pipeline = Pipeline(
+            source: source([recording("a"), recording("b")]),
+            ledger: MemoryLedger().port,
+            backend: backend { _ in Transcript(text: "Hola") },
+            sink: { $0.recording.url },
+            enrich: { grabacion, _ in
+                resumidas.append(grabacion.key)
+                return nil
+            })
+
+        try await pipeline.runOnce()
+
+        #expect(resumidas.values.sorted() == ["a", "b"])
     }
 }

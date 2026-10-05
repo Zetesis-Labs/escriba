@@ -102,7 +102,7 @@ public struct Pipeline: Sendable {
         }
 
         let note = Note(
-            recording: recording, transcript: transcript, digest: await enrich?(transcript))
+            recording: recording, transcript: transcript, digest: await enrich?(recording, transcript))
         let output = try await sink(note)
         try ledger.markDone(recording.key, recording.url, output)
         onEvent?(.transcribed(key: recording.key, transcript: transcript, output: output))

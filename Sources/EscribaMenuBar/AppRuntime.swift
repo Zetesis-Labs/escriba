@@ -6,15 +6,25 @@ import EscribaSystemKit
 import EscribaIntelligence
 import EscribaNotion
 import EscribaOKF
+import EscribaOpenAI
 import EscribaStore
 import EscribaWhisper
 import Observation
 
-private func digester(_ summarizer: Summarizer?, language: String?) -> Digester? {
-    guard let summarizer else { return nil }
-    return { transcript in
-        try await summarizer.digest(of: transcript.rendered, language: language)
+private func digester(_ routing: ResolverRouting, enabled: Bool, language: String?) -> Digester? {
+    guard enabled else { return nil }
+    return { recording, transcript in
+        try await summarizer(for: routing.resolver(.llm, forSource: recording.sourceURL.path(percentEncoded: false)))
+            .digest(of: transcript.rendered, language: language)
     }
+}
+
+private struct PipelineSource {
+    let source: RecordingSource
+    let backend: TranscriptionBackend
+    let options: TranscriptionOptions
+    let stt: Resolver
+    let llm: Resolver
 }
 
 private let inboxPrefix = "Escriba"
@@ -47,6 +57,8 @@ final class AppRuntime {
     var section = MainSection.initial(from: ProcessInfo.processInfo.environment)
     let settings: AppSettings
     let connectors: ConnectorsModel
+    let stt: ResolversModel
+    let llm: ResolversModel
     let recorder: RecorderModel
     let inbox: InboxModel
 
@@ -56,6 +68,7 @@ final class AppRuntime {
     @ObservationIgnored private var settingsWatch: Task<Void, Never>?
     @ObservationIgnored private let microphone: MicrophoneRecorder
     @ObservationIgnored private var recordingItem: RecordingStatusItem?
+    @ObservationIgnored private let choices = fileChoiceStore(Paths.choices)
 
     var symbolName: String {
         if recorder.isRecording { return "record.circle" }
@@ -74,13 +87,16 @@ final class AppRuntime {
         AppSettings.adoptLegacyDefaults(from: UserDefaults(suiteName: "dev.ruben.jpr-transcribe"))
         settings = AppSettings()
         connectors = ConnectorsModel(settings: settings)
+        stt = ResolversModel(role: .stt, settings: settings, services: resolverServices())
+        llm = ResolversModel(role: .llm, settings: settings, services: resolverServices())
         let relay = WakeRelay()
         let box = fileInbox(root: Paths.inbox)
         let microphone = MicrophoneRecorder()
         self.microphone = microphone
         recorder = RecorderModel(
-            recorder: microphone.port(), inbox: box, wake: { relay.wake() }, keepAwake: keepRecordingAwake)
-        inbox = InboxModel(inbox: box, wake: { relay.wake() })
+            recorder: microphone.port(), inbox: box, choices: choices, wake: { relay.wake() },
+            keepAwake: keepRecordingAwake)
+        inbox = InboxModel(inbox: box, choices: choices, wake: { relay.wake() })
         relay.wake = { [weak self] in self?.wake() }
         recordingItem = RecordingStatusItem(recorder: recorder)
         Notifier.requestAuthorization()
@@ -118,26 +134,25 @@ final class AppRuntime {
         do {
             let store = try Store(root: Paths.defaultLibrary)
             let engine = WhisperKitEngine(language: settings.languageCode)
-            let summarizer = liveSummarizer()
+            let routing = settings.routing(inbox: Paths.inbox.path(percentEncoded: false), overrides: choices)
+            let pipelineSources = sources(engine: engine, routing: routing)
 
             let model = LibraryModel(
                 store: store,
-                reprocess: { [engine] url, options in
-                    try await engine.backend(options: options).transcribe(url)
+                reprocess: { [engine] recording, options in
+                    let stt = routing.resolver(.stt, forSource: recording.sourceURL.path(percentEncoded: false))
+                    return try await transcriber(for: stt, options: options, engine: engine)
+                        .transcribe(recording.audioURL)
                 },
-                digester: digester(summarizer, language: settings.languageCode),
+                digester: digester(routing, enabled: settings.summarize, language: settings.languageCode),
                 writeText: textWriter(into: settings.txtFolder),
                 publishers: publishers(for: store),
-                unpublishers: unpublishers())
+                unpublishers: unpublishers(),
+                choices: choices)
             model.startObserving()
             self.model = model
 
-            do {
-                try engine.backend().preflight()
-            } catch {
-                Log.error("\(error)")
-                Notifier.problem(title: "Modelo de transcripcion no disponible", detail: "\(error)")
-            }
+            warnAboutUnusable(pipelineSources)
 
             let (stream, continuation) = AsyncStream.makeStream(of: PipelineEvent.self)
             events = Task { [settings] in
@@ -151,13 +166,15 @@ final class AppRuntime {
 
             let ledger = try Ledger(path: Paths.defaultState)
             reconcileLibrary(store: store, ledger: ledger)
-            controllers = sources(engine: engine).map { source, backend, options in
+            let summarize = settings.summarize
+            let language = settings.languageCode
+            controllers = pipelineSources.map { entry in
                 let pipeline = Pipeline(
-                    source: source,
+                    source: entry.source,
                     ledger: ledger,
-                    backend: backend,
-                    sink: sink(for: store, options: options),
-                    enrich: summarizer.map { enricher($0, language: settings.languageCode) },
+                    backend: entry.backend,
+                    sink: sink(for: store, options: entry.options, routing: routing),
+                    enrich: summarize ? routedEnricher(routing, language: language) : nil,
                     onEvent: { continuation.yield($0) }
                 )
                 let controller = DaemonController(pipeline: pipeline)
@@ -175,16 +192,23 @@ final class AppRuntime {
             Notifier.problem(title: "No se pudo arrancar", detail: "\(error)")
         }
 
-        func sources(engine: WhisperKitEngine) -> [(RecordingSource, TranscriptionBackend, TranscriptionOptions)] {
-            var result: [(RecordingSource, TranscriptionBackend, TranscriptionOptions)] = []
+        func sources(engine: WhisperKitEngine, routing: ResolverRouting) -> [PipelineSource] {
+            var result: [PipelineSource] = []
             var prefixes: Set<String> = [inboxPrefix]
+
+            func entry(_ source: RecordingSource, _ choice: ResolverChoice, _ options: TranscriptionOptions) -> PipelineSource {
+                PipelineSource(
+                    source: source, backend: routedTranscriber(routing, options: options, engine: engine),
+                    options: options, stt: settings.sttResolvers.resolver(choice.stt),
+                    llm: settings.llmResolvers.resolver(choice.llm))
+            }
 
             do {
                 try FileManager.default.createDirectory(at: Paths.inbox, withIntermediateDirectories: true)
                 let options = settings.transcriptionOptions(for: WatchedFolder(path: Paths.inbox.path(percentEncoded: false)))
-                result.append((
+                result.append(entry(
                     namespaced(folderSource(name: inboxPrefix, root: Paths.inbox), prefix: inboxPrefix),
-                    engine.backend(options: options), options))
+                    settings.inboxResolvers, options))
             } catch {
                 Log.error("no se pudo preparar la bandeja de Escriba: \(error)")
             }
@@ -198,18 +222,17 @@ final class AppRuntime {
                 }
 
                 let options = settings.transcriptionOptions(for: folder)
-                let backend = engine.backend(options: options)
 
                 switch folder.style {
                 case .justPressRecord:
-                    result.append((justPressRecordSource(root: folderRoot), backend, options))
+                    result.append(entry(justPressRecordSource(root: folderRoot), folder.resolvers, options))
                     continue
                 case .voiceMemos:
-                    result.append((
+                    result.append(entry(
                         namespaced(
                             voiceMemosSource(root: folderRoot, expectedSpeakers: folder.speakers),
                             prefix: "Notas de Voz"),
-                        backend, options))
+                        folder.resolvers, options))
                     continue
                 case .any:
                     break
@@ -221,28 +244,35 @@ final class AppRuntime {
                     prefix = "\(folderRoot.lastPathComponent)-\(counter)"
                     counter += 1
                 }
-                result.append((
+                result.append(entry(
                     namespaced(
                         folderSource(
                             name: prefix, root: folderRoot, expectedSpeakers: folder.speakers),
                         prefix: prefix),
-                    backend, options
-                ))
+                    folder.resolvers, options))
             }
             return result
         }
     }
 
-    private func liveSummarizer() -> Summarizer? {
-        guard settings.summarize else { return nil }
-        let summarizer = AppleIntelligence.summarizer()
-        if let problem = summarizer.availability().problem {
-            Log.error("los resumenes estan activados pero \(problem)")
+    private func warnAboutUnusable(_ sources: [PipelineSource]) {
+        var warned: Set<UUID> = []
+        for resolver in sources.map(\.stt) where warned.insert(resolver.id).inserted {
+            let problem = resolver.kind == .local
+                ? localResolverProblem(.stt)
+                : resolverProblem(resolver, localProblem: nil)
+            guard let problem else { continue }
+            Log.error("no se puede transcribir con \(resolver.name): \(problem)")
+            Notifier.problem(title: "No se puede transcribir con \(resolver.name)", detail: problem)
+        }
+        guard settings.summarize else { return }
+        for resolver in sources.map(\.llm) where warned.insert(resolver.id).inserted {
+            guard let problem = summarizer(for: resolver).availability().problem else { continue }
+            Log.error("los resumenes estan activados pero \(resolver.name): \(problem)")
             Notifier.problem(
-                title: "No se pueden generar resumenes",
+                title: "No se puede resumir con \(resolver.name)",
                 detail: "\(problem). Las notas se transcribiran igual.")
         }
-        return summarizer
     }
 
     private func reconcileLibrary(store: Store, ledger: Ledger) {
@@ -258,8 +288,11 @@ final class AppRuntime {
         }
     }
 
-    private func sink(for store: Store, options: TranscriptionOptions) -> Sink {
-        let librarySink = store.sink(backend: WhisperKitBackend.name, options: options)
+    private func sink(for store: Store, options: TranscriptionOptions, routing: ResolverRouting) -> Sink {
+        let librarySink: Sink = { note in
+            let stt = routing.resolver(.stt, forSource: note.recording.url.path(percentEncoded: false))
+            return try await store.sink(backend: backendLabel(stt), options: options)(note)
+        }
         let extras = publishers(for: store).values.map(forgiving)
 
         guard settings.writeTxt else {
@@ -379,7 +412,10 @@ final class AppRuntime {
                     settings.txtFolderPath,
                     "\(settings.summarize)",
                     settings.watchedFolders
-                        .map { "\($0.path):\($0.speakers ?? 0)" }.joined(separator: ","),
+                        .map { "\($0.path):\($0.speakers ?? 0):\($0.resolvers)" }.joined(separator: ","),
+                    "\(settings.sttResolvers)",
+                    "\(settings.llmResolvers)",
+                    "\(settings.inboxResolvers)",
                     fingerprint(of: settings.connectors),
                 ].joined(separator: "|")
             }

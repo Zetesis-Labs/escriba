@@ -44,17 +44,20 @@ public enum SummaryError: Error, Equatable, CustomStringConvertible {
 public struct Summarizer: Sendable {
     public let name: String
     public let capacity: Int
+    public let prompt: String?
     public let availability: @Sendable () -> SummaryAvailability
     public let run: @Sendable (DigestRequest) async throws(SummaryError) -> Digest
 
     public init(
         name: String,
         capacity: Int,
+        prompt: String? = nil,
         availability: @escaping @Sendable () -> SummaryAvailability = { .ready },
         run: @escaping @Sendable (DigestRequest) async throws(SummaryError) -> Digest
     ) {
         self.name = name
         self.capacity = capacity
+        self.prompt = prompt
         self.availability = availability
         self.run = run
     }
@@ -63,21 +66,25 @@ public struct Summarizer: Sendable {
 public let maxReduceRounds = 3
 
 extension Summarizer {
+    public func prompted(_ prompt: String?) -> Summarizer {
+        Summarizer(name: name, capacity: capacity, prompt: prompt, availability: availability, run: run)
+    }
+
     public func digest(of text: String, language: String?) async throws(SummaryError) -> Digest {
         if case .unavailable(let reason) = availability() { throw .unavailable(reason) }
         let chunks = digestChunks(of: text, maxCharacters: capacity)
         guard !chunks.isEmpty else { throw .nothingToSummarize }
         guard chunks.count > 1 else {
-            return try await answer(digestRequest(text: chunks[0], language: language))
+            return try await answer(digestRequest(text: chunks[0], language: language, prompt: prompt))
         }
 
-        var partials = try await summaries(of: chunks) { digestRequest(text: $0, language: language) }
+        var partials = try await summaries(of: chunks) { digestRequest(text: $0, language: language, prompt: prompt) }
         for _ in 0...maxReduceRounds {
             let joined = digestChunks(of: partials.joined(separator: "\n"), maxCharacters: capacity)
             guard joined.count > 1 else {
-                return try await answer(reduceRequest(partials: joined, language: language))
+                return try await answer(reduceRequest(partials: joined, language: language, prompt: prompt))
             }
-            partials = try await summaries(of: joined) { reduceRequest(partials: [$0], language: language) }
+            partials = try await summaries(of: joined) { reduceRequest(partials: [$0], language: language, prompt: prompt) }
         }
         throw .failed("la transcripcion es demasiado larga para \(name)")
     }
@@ -99,10 +106,10 @@ extension Summarizer {
     }
 }
 
-public typealias Enricher = @Sendable (Transcript) async -> Digest?
+public typealias Enricher = @Sendable (Recording, Transcript) async -> Digest?
 
 public func enricher(_ summarizer: Summarizer, language: String?) -> Enricher {
-    { transcript in
+    { _, transcript in
         do {
             return try await summarizer.digest(of: transcript.rendered, language: language)
         } catch {

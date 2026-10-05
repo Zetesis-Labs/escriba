@@ -27,6 +27,7 @@ struct LibraryWindow: View {
     let defaultOptions: TranscriptionOptions
     let recorder: RecorderModel
     let inbox: InboxModel
+    let settings: AppSettings
 
     @State private var selected: String?
     @State private var pendingAction: RowAction?
@@ -65,6 +66,7 @@ struct LibraryWindow: View {
                     let recording = model.recordings.first(where: { $0.key == selected }) {
                     TranscriptDetail(
                         model: model,
+                        settings: settings,
                         recording: recording,
                         origin: origin(recording),
                         connectors: connectors,
@@ -89,6 +91,9 @@ struct LibraryWindow: View {
                         Label("Añadir audio…", systemImage: "plus.rectangle.on.folder")
                     }
                     .help("Añadir ficheros de audio para transcribirlos")
+                    ResolverChoiceButton(
+                        choice: Bindable(inbox).choice, settings: settings, origin: settings.inboxResolvers,
+                        help: "Con qué transcribir y resumir los próximos audios que añadas o arrastres")
                     if recorder.isRecording {
                         Button {
                             recorder.stop()
@@ -105,10 +110,13 @@ struct LibraryWindow: View {
                         .help("Grabar una nota de voz")
                         .disabled(recorder.state == .asking)
                     }
+                    ResolverChoiceButton(
+                        choice: Bindable(recorder).choice, settings: settings, origin: settings.inboxResolvers,
+                        help: "Con qué transcribir y resumir la próxima grabación")
                 }
             }
             .safeAreaInset(edge: .top, spacing: 0) {
-                if recorder.isRecording { RecordingBar(recorder: recorder) }
+                if recorder.isRecording { RecordingBar(recorder: recorder, settings: settings) }
             }
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 if let notice = inbox.notice {
@@ -462,6 +470,7 @@ struct StatusChip: View {
 
 struct TranscriptDetail: View {
     let model: LibraryModel
+    let settings: AppSettings
     let recording: StoredRecording
     let origin: WatchedFolder?
     let connectors: [Connector]
@@ -522,9 +531,14 @@ struct TranscriptDetail: View {
         ) {
             ReprocessSheet(
                 options: reprocessOptions ?? defaultOptions,
-                onRun: { options in
+                resolvers: model.resolverChoice(for: recording),
+                origin: settings.resolverChoice(
+                    forSource: recording.sourceURL.path(percentEncoded: false),
+                    inbox: Paths.inbox.path(percentEncoded: false)),
+                settings: settings,
+                onRun: { options, resolvers in
                     reprocessOptions = nil
-                    reprocess(options)
+                    reprocess(options, resolvers: resolvers)
                 },
                 onCancel: { reprocessOptions = nil })
         }
@@ -735,10 +749,10 @@ struct TranscriptDetail: View {
         }
     }
 
-    private func reprocess(_ options: TranscriptionOptions) {
+    private func reprocess(_ options: TranscriptionOptions, resolvers: ResolverChoice? = nil) {
         Task {
             do {
-                try await model.reprocess(recording, options: options)
+                try await model.reprocess(recording, options: options, resolvers: resolvers)
                 await reload()
             } catch {
                 actionError = "\(error)"
@@ -811,7 +825,8 @@ struct TranscriptDetail: View {
 }
 
 private struct RecordingBar: View {
-    let recorder: RecorderModel
+    @Bindable var recorder: RecorderModel
+    let settings: AppSettings
 
     var body: some View {
         HStack(spacing: 12) {
@@ -823,6 +838,11 @@ private struct RecordingBar: View {
             LevelMeter(level: recorder.level)
                 .frame(width: 140, height: 6)
             Spacer()
+            ResolverChoiceButton(
+                choice: $recorder.choice, settings: settings, origin: settings.inboxResolvers,
+                help: "Con qué se transcribe y se resume esta grabación")
+                .labelStyle(.titleAndIcon)
+                .fixedSize()
             Button("Descartar", role: .destructive) { recorder.cancel() }
             Button("Detener y transcribir") { recorder.stop() }
                 .buttonStyle(.borderedProminent)

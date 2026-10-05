@@ -3,7 +3,8 @@
 <p align="center"><img src="Resources/AppIcon.png" width="160" alt="Escriba"></p>
 
 Transcribe automaticamente las notas de voz de **Just Press Record** con
-**WhisperKit** (CoreML sobre el Neural Engine, todo local). No toca la app ni
+**WhisperKit** (CoreML sobre el Neural Engine, todo local) o con el servicio
+compatible con OpenAI que elijas. No toca la app ni
 cambia como grabas: tu sigues pulsando el boton en el iPhone, el Watch o el
 Mac, y el texto aparece solo.
 
@@ -266,14 +267,35 @@ del demonio aunque la ventana estuviera cerrada cuando ocurrio.
 El `Ledger` (que decide que esta pendiente, con reintentos y backoff) sigue
 aparte a proposito: son dos preguntas distintas.
 
+## STT y LLMs: en local o en un servicio remoto
+
+Transcribir (STT) y resumir (LLM) pasan por **resolutores**. Cada uno tiene su
+seccion en la barra lateral con una lista de N resolutores y uno **favorito**:
+
+- De serie estan los locales, que no se pueden quitar: **Whisper en este Mac**
+  (el unico que detecta hablantes) y **Apple Intelligence**. Con ellos nada sale
+  del Mac.
+- Con «+» se añade cualquier servicio con la API de OpenAI (`/audio/transcriptions`
+  y `/chat/completions`): OpenAI, Groq, OpenRouter o, en tu red, LM Studio y
+  Ollama. Se pone URL, clave (fichero 0600 en `secrets/`) y modelo; «Cargar
+  modelos» trae la lista y «Probar» resume una nota de ejemplo o manda un audio
+  de silencio antes de guardar. Una URL `http://` solo vale dentro de casa o de
+  la tailnet.
+- Cada LLM lleva su **prompt del resumen**, editable y con «Restaurar el de
+  serie». Escriba añade siempre el idioma y el formato.
+
+Que resolutor procesa cada grabacion se decide asi, de mas a menos concreto:
+lo elegido para esa grabacion (la flecha de «Grabar» y de «Añadir audio», o al
+«Reprocesar con otros criterios»), lo elegido para su carpeta o para la bandeja
+(Ajustes → Carpetas vigiladas) y, si no, el favorito. No hay plan B: si el
+servicio elegido falla, la nota espera al siguiente ciclo y el fallo se ve.
+
 ## Titulo, resumen y etiquetas
 
-Con «Resumir cada nota con el modelo del sistema» (Ajustes → Transcripcion),
-cada nota transcrita pasa por el modelo de lenguaje del propio Mac
-(FoundationModels, Apple Intelligence) y sale con titulo, resumen de unas pocas
-frases y un punado de etiquetas. **Nada sale del Mac**: el modelo corre en el
-dispositivo. Requiere Apple Intelligence activo y su modelo descargado; si no
-lo esta, Ajustes lo dice y el resumen no se intenta.
+Con «Resumir cada nota» (LLMs), cada nota transcrita pasa por su LLM y sale con
+titulo, resumen de unas pocas frases y un punado de etiquetas. Con Apple
+Intelligence hace falta tenerlo activo y su modelo descargado; si no lo esta,
+el panel lo dice y el resumen no se intenta.
 
 El resumen viaja con la version de la transcripcion que lo genero: si eliges
 otra version, vuelve el resumen de aquella. Se puede pedir a mano desde el
@@ -283,9 +305,9 @@ El titulo del resumen es el que se usa en la biblioteca y como titulo de la
 pagina en Notion; las etiquetas van a una columna `multi_select` si la base la
 tiene.
 
-Resumir es un puerto (`Summarizer`), no una dependencia: hoy lo implementa
-`EscribaIntelligence` con el modelo de Apple, y manana lo puede implementar una
-cuenta compatible con OpenAI sin tocar ni el motor ni la biblioteca.
+Resumir es un puerto (`Summarizer`), no una dependencia: lo implementan
+`EscribaIntelligence` con el modelo de Apple y `EscribaOpenAI` con cualquier
+API compatible, sin tocar ni el motor ni la biblioteca.
 
 Desde terminal:
 
@@ -343,6 +365,7 @@ habla HTTP y, sobre todo, quien transcribe (CoreML en Apple; whisper.cpp o
 | `EscribaCore` | Nucleo puro: parseo de rutas, clasificacion de estado, seleccion de pendientes, ritmo del bucle, modelo `Transcript`. Sin I/O, cubierto por tests. |
 | `EscribaEngine` | Motor portable: puertos, `Pipeline`, demonio, log. Compila a Linux y a WebAssembly (WASI). Sin dependencias. |
 | `EscribaIntelligence` | Adaptador del puerto `Summarizer` con FoundationModels: titulo, resumen y etiquetas en el propio Mac. |
+| `EscribaOpenAI` | Adaptadores de `Summarizer` y `TranscriptionBackend` sobre una API compatible con OpenAI, con transporte HTTP propio. |
 | `EscribaNotion` | Conector Notion: valor de cada columna según su tipo, cuerpo de texto con datos convertido a bloques, subida de audio, publicación que regenera sin duplicar. Portable. |
 | `EscribaOKF` | Conector a un bundle OKF v0.2: N documentos por grabación con su ruta, frontmatter y cuerpo, índices por carpeta y registro. Portable. |
 | `EscribaSystemKit` | Host de sistema (macOS y Linux): FSEvents o sondeo, stat e iCloud, flock, ledger SQLite. |
