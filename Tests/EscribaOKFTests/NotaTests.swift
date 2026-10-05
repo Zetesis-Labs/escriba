@@ -112,6 +112,14 @@ struct NotaTests {
         #expect(cuerpo(nota) == "Solo texto")
     }
 
+    @Test("un encabezado sin texto no se escribe")
+    func encabezadoSinTexto() throws {
+        let ficheros = escritos(publicar(como: exportacion(BodyTemplate([.heading(" "), .summary]))).changes)
+
+        let nota = try #require(ficheros["notas/2025-09-16-backups-de-cortes.md"])
+        #expect(cuerpo(nota) == "Se revisa el restore. Luego se habla de MinIO.")
+    }
+
     @Test("un encabezado que se queda sin nada debajo no se escribe")
     func encabezadoVacio() throws {
         let plana = Note(recording: grabacion, transcript: Transcript(text: "Solo texto"))

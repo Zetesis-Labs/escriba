@@ -10,6 +10,7 @@ public func render(
         case .text(let text):
             return text.isEmpty ? [] : notionBlocks(for: Transcript(text: text), style: .plain)
         case .heading(let text):
+            guard !text.trimmingCharacters(in: .whitespaces).isEmpty else { return [] }
             return [NotionBlock(kind: .heading, runs: [NotionRun(text: text, bold: false)])]
         case .transcript(let style):
             return notionBlocks(for: transcript, style: style)

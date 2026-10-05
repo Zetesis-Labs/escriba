@@ -8,7 +8,7 @@ public enum TranscriptStyle: String, CaseIterable, Sendable, Codable {
     public var label: String {
         switch self {
         case .plain: "Solo el texto"
-        case .speakers: "Un parrafo por hablante"
+        case .speakers: "Un párrafo por hablante"
         case .timestamps: "Con marca de tiempo"
         }
     }
@@ -56,14 +56,16 @@ public enum TemplateBlock: Equatable, Sendable, Codable, Hashable {
         return false
     }
 
-    public var label: String {
+    public func label(transcriptAsLink: Bool = false) -> String {
         switch self {
         case .text(let text): text
-        case .heading(let text): text
-        case .transcript(let style): "Transcripción · \(style.label.lowercased())"
-        case .summary: "Resumen"
-        case .audio: "Audio"
-        case .field(let field): field.label
+        case .heading(let text): "Encabezado: \(text)"
+        case .transcript(let style) where transcriptAsLink:
+            "Enlace a la transcripción completa · \(style.label.lowercased())"
+        case .transcript(let style): "Transcripción completa · \(style.label.lowercased())"
+        case .summary: "Texto del resumen"
+        case .audio: "Audio de la grabación"
+        case .field(let field): "Dato: \(field.label)"
         }
     }
 }
@@ -104,7 +106,12 @@ public struct BodyTemplate: Equatable, Sendable, Codable, Hashable {
     }
 
     public func settingText(_ text: String, at index: Int) -> BodyTemplate {
-        replacing(at: index, with: .text(text)) ?? self
+        guard blocks.indices.contains(index) else { return self }
+        switch blocks[index] {
+        case .text: return replacing(at: index, with: .text(text)) ?? self
+        case .heading: return replacing(at: index, with: .heading(text)) ?? self
+        default: return self
+        }
     }
 
     public func applying(command typed: String, at index: Int) -> BodyTemplate? {

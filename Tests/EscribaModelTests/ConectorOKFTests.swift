@@ -134,4 +134,18 @@ struct ConectorOKFTests {
         #expect(okf.contains("se quedan en la biblioteca"))
         #expect(RowActionText.unpublish(from: .notion).contains("se archiva en Notion"))
     }
+
+    @Test("la vista previa sigue al borrador, sin esperar a Guardar")
+    func vistaPrevia() {
+        let conectores = modelo(ajustes())
+        let editor = conectores.okfEditor(for: conectores.add(.okf).id)
+        #expect(editor.preview.count == 2)
+
+        editor.separateTranscript = false
+        #expect(editor.preview.count == 1)
+
+        editor.template = BodyTemplate([.summary])
+        #expect(editor.preview.first?.contents.contains("Transcripción") == false)
+        #expect(editor.isDirty)
+    }
 }

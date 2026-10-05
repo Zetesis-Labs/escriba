@@ -122,7 +122,7 @@ private func markdown(
     case .text(let text):
         return text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : text
     case .heading(let text):
-        return "# \(text)"
+        return text.trimmingCharacters(in: .whitespaces).isEmpty ? nil : "# \(text)"
     case .summary:
         return facts.summary
     case .transcript(let style):

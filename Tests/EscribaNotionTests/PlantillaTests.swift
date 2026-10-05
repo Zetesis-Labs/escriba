@@ -50,6 +50,13 @@ struct PlantillaTests {
         #expect(bloques[7...].map(\.plainText) == ["Hola.", "Dime."])
     }
 
+    @Test("un encabezado sin texto no se manda a Notion")
+    func encabezadoSinTexto() {
+        let bloques = render(BodyTemplate([.heading(""), .transcript(.plain)]), for: pagina(diarizada), transcript: diarizada, audio: nil)
+
+        #expect(bloques.map(\.plainText) == ["Hola.", "Dime."])
+    }
+
     @Test("sin audio subido el bloque de audio no se pone, y un dato vacio tampoco")
     func huecos() {
         let plana = Transcript(text: "Solo texto")

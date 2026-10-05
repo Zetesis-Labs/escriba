@@ -525,16 +525,38 @@ private struct OKFEditor: View {
                 Toggle("Transcripción en su propio .md", isOn: $okf.separateTranscript)
             } footer: {
                 Text(okf.separateTranscript
-                    ? "La nota lleva el resumen y /transcripcion se convierte en un enlace a transcripciones/. Así quien indexe el bundle lee los resúmenes sin cargar transcripciones largas."
-                    : "La transcripción va dentro de la nota, donde esté /transcripcion en la plantilla.")
+                    ? "Cada grabación da dos ficheros enlazados: la nota con el resumen en notas/ y la transcripción en transcripciones/. Así quien lea o indexe el bundle va a los resúmenes sin cargar transcripciones largas."
+                    : "Cada grabación da un solo fichero en notas/, con la transcripción dentro.")
             }
 
             Section {
-                TemplateEditor(template: $okf.template, standard: OKFExport.standardTemplate)
+                TemplateEditor(
+                    template: $okf.template, standard: OKFExport.standardTemplate,
+                    transcriptAsLink: okf.separateTranscript)
             } header: {
                 Text("Cuerpo de la nota")
             } footer: {
-                Text("El título, el resumen y las etiquetas van siempre en el frontmatter. En el cuerpo, escribe texto libre o «/» para insertar un bloque: /resumen, /transcripcion, /hablantes, /fecha, /audio, /encabezado…")
+                Text("Cada fila es un trozo del cuerpo, en este orden: arrástrala para moverla y pulsa ✕ para quitarla. El título, la descripción y las etiquetas no hace falta ponerlos: van siempre en la cabecera del fichero, como ves debajo.")
+            }
+
+            Section {
+                ForEach(okf.preview) { file in
+                    VStack(alignment: .leading, spacing: 6) {
+                        Label(file.path, systemImage: "doc.text")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Text(file.contents)
+                            .font(.system(.caption, design: .monospaced))
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(10)
+                            .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 6))
+                    }
+                }
+            } header: {
+                Text("Así queda")
+            } footer: {
+                Text("Con una grabación de ejemplo. Se actualiza al momento al cambiar la plantilla o el interruptor, antes de guardar.")
             }
         }
         .formStyle(.grouped)
@@ -559,6 +581,7 @@ private struct OKFEditor: View {
 private struct TemplateEditor: View {
     @Binding var template: BodyTemplate
     let standard: BodyTemplate
+    var transcriptAsLink = false
     @State private var slashRow: Int?
 
     var body: some View {
@@ -576,9 +599,12 @@ private struct TemplateEditor: View {
             .scrollDisabled(true)
             HStack {
                 Button("Añadir texto") { template = template.inserting(.text(""), at: template.blocks.count) }
-                Menu("Insertar bloque") {
-                    ForEach(slashCommands) { command in
-                        Button("\(command.command) — \(command.help)") {
+                Button("Añadir encabezado") {
+                    template = template.inserting(.heading(""), at: template.blocks.count)
+                }
+                Menu("Insertar dato") {
+                    ForEach(slashCommands.filter { !isHeading($0.block) }) { command in
+                        Button(command.block.label(transcriptAsLink: transcriptAsLink)) {
                             template = template.inserting(command.block, at: template.blocks.count)
                         }
                     }
@@ -597,7 +623,7 @@ private struct TemplateEditor: View {
             Image(systemName: "line.3.horizontal").foregroundStyle(.tertiary).font(.caption)
             switch block {
             case .text(let text):
-                TextField("Texto, o / para un bloque", text: textBinding(index, text), axis: .vertical)
+                TextField("Párrafo libre (escribe / para insertar un dato)", text: textBinding(index, text), axis: .vertical)
                     .textFieldStyle(.roundedBorder)
                     .onSubmit {
                         if let applied = template.applying(command: text, at: index) {
@@ -612,8 +638,13 @@ private struct TemplateEditor: View {
                             slashRow = nil
                         }
                     }
+            case .heading(let text):
+                Text("#").font(.headline.monospaced()).foregroundStyle(.secondary)
+                TextField("Encabezado", text: textBinding(index, text))
+                    .textFieldStyle(.roundedBorder)
+                    .font(.headline)
             default:
-                Label(block.label, systemImage: symbol(for: block))
+                Label(block.label(transcriptAsLink: transcriptAsLink), systemImage: symbol(for: block))
                     .padding(.horizontal, 8)
                     .padding(.vertical, 5)
                     .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
@@ -632,6 +663,11 @@ private struct TemplateEditor: View {
                 template = template.settingText(text, at: index)
                 slashRow = text.hasPrefix("/") ? index : (slashRow == index ? nil : slashRow)
             })
+    }
+
+    private func isHeading(_ block: TemplateBlock) -> Bool {
+        if case .heading = block { return true }
+        return false
     }
 
     private func slashPresented(_ index: Int) -> Binding<Bool> {

@@ -46,6 +46,8 @@ public final class OKFModel {
         set { editExport { $0.template = newValue } }
     }
 
+    public var preview: [OKFPreviewFile] { okfPreview(export) }
+
     public var readiness: String? {
         export.isUsable ? nil : "Elige la carpeta donde guardar las notas."
     }
