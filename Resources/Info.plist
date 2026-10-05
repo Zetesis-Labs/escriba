@@ -22,6 +22,8 @@
 	<string>26.0</string>
 	<key>EscribaDefaultRoot</key>
 	<string>Library/Mobile Documents/iCloud~com~openplanetsoftware~just-press-record/Documents</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Escriba usa el micrófono para grabar notas de voz y transcribirlas en este Mac.</string>
 	<key>LSUIElement</key>
 	<false/>
 	<key>NSHumanReadableCopyright</key>

@@ -28,6 +28,19 @@ struct MenuContent: View {
         if let model = runtime.model {
             Text("\(model.recordings.count) en la biblioteca")
             Divider()
+            if runtime.recorder.isRecording {
+                Button("Detener y transcribir (\(runtime.recorder.clock))") { runtime.recorder.stop() }
+                Button("Descartar la grabación") { runtime.recorder.cancel() }
+            } else {
+                Button("Grabar nota") {
+                    Task { await runtime.recorder.start() }
+                }
+            }
+            if let problem = runtime.recorder.problem {
+                Text(problem)
+                Button("Entendido") { runtime.recorder.dismissProblem() }
+            }
+            Divider()
             Button("Abrir biblioteca") { show(.library) }
             Button("Buscar grabaciones ahora") { runtime.wake() }
         }

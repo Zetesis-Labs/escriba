@@ -17,6 +17,12 @@ private func digester(_ summarizer: Summarizer?, language: String?) -> Digester?
     }
 }
 
+private let inboxPrefix = "Escriba"
+
+private final class WakeRelay {
+    var wake: () -> Void = {}
+}
+
 private func fingerprint(of connectors: [Connector]) -> String {
     connectors.map { "\($0)" }.joined(separator: ";")
 }
@@ -35,14 +41,18 @@ final class AppRuntime {
     var section = MainSection.initial(from: ProcessInfo.processInfo.environment)
     let settings: AppSettings
     let connectors: ConnectorsModel
+    let recorder: RecorderModel
+    let inbox: InboxModel
 
     @ObservationIgnored private var controllers: [DaemonController] = []
     @ObservationIgnored private var instanceLock: InstanceLock?
     @ObservationIgnored private var events: Task<Void, Never>?
     @ObservationIgnored private var settingsWatch: Task<Void, Never>?
+    @ObservationIgnored private let microphone: MicrophoneRecorder
 
     var symbolName: String {
-        model?.status.symbolName ?? WatcherStatus.problem("").symbolName
+        if recorder.isRecording { return "record.circle" }
+        return model?.status.symbolName ?? WatcherStatus.problem("").symbolName
     }
 
     var statusLabel: String {
@@ -57,6 +67,13 @@ final class AppRuntime {
         AppSettings.adoptLegacyDefaults(from: UserDefaults(suiteName: "dev.ruben.jpr-transcribe"))
         settings = AppSettings()
         connectors = ConnectorsModel(settings: settings)
+        let relay = WakeRelay()
+        let box = fileInbox(root: Paths.inbox)
+        let microphone = MicrophoneRecorder()
+        self.microphone = microphone
+        recorder = RecorderModel(recorder: microphone.port(), inbox: box, wake: { relay.wake() })
+        inbox = InboxModel(inbox: box, wake: { relay.wake() })
+        relay.wake = { [weak self] in self?.wake() }
         Notifier.requestAuthorization()
         start()
         watchSettings()
@@ -151,7 +168,17 @@ final class AppRuntime {
 
         func sources(engine: WhisperKitEngine) -> [(RecordingSource, TranscriptionBackend, TranscriptionOptions)] {
             var result: [(RecordingSource, TranscriptionBackend, TranscriptionOptions)] = []
-            var prefixes: Set<String> = []
+            var prefixes: Set<String> = [inboxPrefix]
+
+            do {
+                try FileManager.default.createDirectory(at: Paths.inbox, withIntermediateDirectories: true)
+                let options = settings.transcriptionOptions(for: WatchedFolder(path: Paths.inbox.path(percentEncoded: false)))
+                result.append((
+                    namespaced(folderSource(name: inboxPrefix, root: Paths.inbox), prefix: inboxPrefix),
+                    engine.backend(options: options), options))
+            } catch {
+                Log.error("no se pudo preparar la bandeja de Escriba: \(error)")
+            }
 
             for folder in settings.watchedFolders {
                 let folderRoot = URL(fileURLWithPath: folder.path)

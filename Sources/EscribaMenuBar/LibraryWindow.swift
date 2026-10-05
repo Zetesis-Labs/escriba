@@ -2,6 +2,7 @@ import EscribaModel
 import EscribaCore
 import EscribaStore
 import SwiftUI
+import UniformTypeIdentifiers
 
 enum RowAction: Identifiable {
     case removeAudio(StoredRecording)
@@ -24,10 +25,13 @@ struct LibraryWindow: View {
     let connectors: [Connector]
     let txtFolder: URL?
     let defaultOptions: TranscriptionOptions
+    let recorder: RecorderModel
+    let inbox: InboxModel
 
     @State private var selected: String?
     @State private var pendingAction: RowAction?
     @State private var actionError: String?
+    @State private var dropTargeted = false
 
     var body: some View {
         if let model {
@@ -71,10 +75,75 @@ struct LibraryWindow: View {
                     ContentUnavailableView(
                         "Elige una grabacion",
                         systemImage: "waveform",
-                        description: Text(librarySummary(of: model.recordings.map(\.status))))
+                        description: Text(
+                            librarySummary(of: model.recordings.map(\.status))
+                                + "\nArrastra aquí un audio o pulsa Grabar."))
                 }
             }
             .navigationTitle("Biblioteca")
+            .toolbar {
+                ToolbarItemGroup {
+                    Button {
+                        chooseAudio()
+                    } label: {
+                        Label("Añadir audio…", systemImage: "plus.rectangle.on.folder")
+                    }
+                    .help("Añadir ficheros de audio para transcribirlos")
+                    if recorder.isRecording {
+                        Button {
+                            recorder.stop()
+                        } label: {
+                            Label("Detener", systemImage: "stop.circle.fill")
+                        }
+                        .help("Detener y transcribir")
+                    } else {
+                        Button {
+                            Task { await recorder.start() }
+                        } label: {
+                            Label("Grabar", systemImage: "mic.circle")
+                        }
+                        .help("Grabar una nota de voz")
+                        .disabled(recorder.state == .asking)
+                    }
+                }
+            }
+            .safeAreaInset(edge: .top, spacing: 0) {
+                if recorder.isRecording { RecordingBar(recorder: recorder) }
+            }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                if let notice = inbox.notice {
+                    NoticeBar(text: notice) { inbox.dismissNotice() }
+                        .task(id: notice) {
+                            try? await Task.sleep(for: .seconds(8))
+                            inbox.dismissNotice()
+                        }
+                }
+            }
+            .dropDestination(for: URL.self) { urls, _ in
+                inbox.add(urls)
+                return true
+            } isTargeted: { dropTargeted = $0 }
+            .overlay {
+                if dropTargeted { DropHint() }
+            }
+            .alert(
+                "Grabadora",
+                isPresented: Binding(
+                    get: { recorder.problem != nil },
+                    set: { if !$0 { recorder.dismissProblem() } })
+            ) {
+                if recorder.state == .denied {
+                    Button("Abrir Ajustes del Sistema") {
+                        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone") {
+                            NSWorkspace.shared.open(url)
+                        }
+                        recorder.dismissProblem()
+                    }
+                }
+                Button("Vale") { recorder.dismissProblem() }
+            } message: {
+                Text(recorder.problem ?? "")
+            }
             .confirmationDialog(
                 dialogTitle,
                 isPresented: Binding(
@@ -145,6 +214,17 @@ struct LibraryWindow: View {
         case .unpublish(_, let connector):
             RowActionText.unpublish(from: connector.kind)
         }
+    }
+
+    private func chooseAudio() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = true
+        panel.allowedContentTypes = audioExtensions.compactMap { UTType(filenameExtension: $0) }
+        panel.prompt = "Añadir"
+        guard panel.runModal() == .OK else { return }
+        inbox.add(panel.urls)
     }
 
     private func origin(_ recording: StoredRecording) -> WatchedFolder? {
@@ -727,5 +807,80 @@ struct TranscriptDetail: View {
         case .done, .discarded:
             Text("Sin transcripcion").foregroundStyle(.secondary)
         }
+    }
+}
+
+private struct RecordingBar: View {
+    let recorder: RecorderModel
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "record.circle.fill")
+                .foregroundStyle(.red)
+                .symbolEffect(.pulse)
+            Text(recorder.clock)
+                .font(.body.monospacedDigit())
+            LevelMeter(level: recorder.level)
+                .frame(width: 140, height: 6)
+            Spacer()
+            Button("Descartar", role: .destructive) { recorder.cancel() }
+            Button("Detener y transcribir") { recorder.stop() }
+                .buttonStyle(.borderedProminent)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+        .background(.bar)
+    }
+}
+
+private struct LevelMeter: View {
+    let level: Double
+
+    var body: some View {
+        GeometryReader { geometry in
+            ZStack(alignment: .leading) {
+                Capsule().fill(.quaternary)
+                Capsule()
+                    .fill(level > 0.85 ? Color.orange : Color.green)
+                    .frame(width: geometry.size.width * level)
+                    .animation(.linear(duration: 0.1), value: level)
+            }
+        }
+    }
+}
+
+private struct NoticeBar: View {
+    let text: String
+    let dismiss: () -> Void
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "tray.and.arrow.down")
+            Text(text)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer()
+            Button(action: dismiss) { Image(systemName: "xmark") }
+                .buttonStyle(.borderless)
+        }
+        .font(.callout)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 9)
+        .background(.bar)
+    }
+}
+
+private struct DropHint: View {
+    var body: some View {
+        RoundedRectangle(cornerRadius: 12)
+            .strokeBorder(.tint, style: StrokeStyle(lineWidth: 3, dash: [8, 6]))
+            .background(.tint.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+            .overlay {
+                Label("Suelta para transcribir", systemImage: "waveform.badge.plus")
+                    .font(.title2)
+                    .padding(14)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+            }
+            .padding(10)
+            .allowsHitTesting(false)
     }
 }
