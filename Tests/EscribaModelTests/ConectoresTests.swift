@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import EscribaCore
 import EscribaNotion
 
 @testable import EscribaModel

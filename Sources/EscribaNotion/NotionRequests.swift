@@ -1,4 +1,5 @@
 import Foundation
+import EscribaCore
 
 public func createPageBody(
     _ page: NotionPage, in source: NotionDataSource, mapping: NotionMapping, timeZone: TimeZone
@@ -66,7 +67,7 @@ private func properties(
 }
 
 private func value(
-    of field: NotionField, in page: NotionPage, as type: String, timeZone: TimeZone
+    of field: NoteField, in page: NotionPage, as type: String, timeZone: TimeZone
 ) -> JSONValue? {
     switch (field, type) {
     case (.title, _):

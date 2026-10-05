@@ -88,35 +88,24 @@ public final class NotionModel {
     }
 
     public func insert(_ block: TemplateBlock, at index: Int) {
-        var blocks = template.blocks
-        blocks.insert(block, at: min(max(index, 0), blocks.count))
-        template = BodyTemplate(blocks)
+        template = template.inserting(block, at: index)
     }
 
     public func removeBlock(at index: Int) {
-        var blocks = template.blocks
-        guard blocks.indices.contains(index) else { return }
-        blocks.remove(at: index)
-        template = BodyTemplate(blocks)
+        template = template.removing(at: index)
     }
 
     public func moveBlocks(from source: IndexSet, to destination: Int) {
-        template = BodyTemplate(moved(template.blocks, from: source, to: destination))
+        template = template.moving(from: source, to: destination)
     }
 
     public func setText(_ text: String, at index: Int) {
-        var blocks = template.blocks
-        guard blocks.indices.contains(index) else { return }
-        blocks[index] = .text(text)
-        template = BodyTemplate(blocks)
+        template = template.settingText(text, at: index)
     }
 
     public func apply(command typed: String, replacing index: Int) -> Bool {
-        guard let block = templateBlock(forCommand: typed) else { return false }
-        var blocks = template.blocks
-        guard blocks.indices.contains(index) else { return false }
-        blocks[index] = block
-        template = BodyTemplate(blocks)
+        guard let applied = template.applying(command: typed, at: index) else { return false }
+        template = applied
         return true
     }
 
@@ -161,15 +150,15 @@ public final class NotionModel {
         edit { $0.notion = NotionExport(source: source, mapping: mapping, template: template) }
     }
 
-    public func assign(_ field: NotionField, to property: String?) {
+    public func assign(_ field: NoteField, to property: String?) {
         edit { $0.notion?.mapping[field] = property }
     }
 
-    public func property(for field: NotionField) -> String? {
+    public func property(for field: NoteField) -> String? {
         export?.mapping[field]
     }
 
-    public func options(for field: NotionField) -> [NotionProperty] {
+    public func options(for field: NoteField) -> [NotionProperty] {
         guard let source = selected else { return [] }
         return compatible(field, in: source)
     }
@@ -201,12 +190,4 @@ public final class NotionModel {
                 template: current.template)
         }
     }
-}
-
-nonisolated func moved<T>(_ items: [T], from source: IndexSet, to destination: Int) -> [T] {
-    let moving = source.sorted().compactMap { items.indices.contains($0) ? items[$0] : nil }
-    var rest = items.enumerated().filter { !source.contains($0.offset) }.map(\.element)
-    let before = source.filter { $0 < destination }.count
-    rest.insert(contentsOf: moving, at: min(max(destination - before, 0), rest.count))
-    return rest
 }

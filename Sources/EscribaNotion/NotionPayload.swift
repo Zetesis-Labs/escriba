@@ -60,20 +60,6 @@ public struct NotionPage: Equatable, Sendable {
     }
 }
 
-public enum NotionBodyStyle: String, CaseIterable, Sendable, Codable {
-    case plain
-    case speakers
-    case timestamps
-
-    public var label: String {
-        switch self {
-        case .plain: "Solo el texto"
-        case .speakers: "Un parrafo por hablante"
-        case .timestamps: "Con marca de tiempo"
-        }
-    }
-}
-
 extension NotionPage {
     public func replacing(blocks: [NotionBlock]) -> NotionPage {
         NotionPage(
@@ -84,7 +70,7 @@ extension NotionPage {
 
 public func notionPage(
     for recording: Recording, transcript: Transcript, digest: Digest? = nil,
-    style: NotionBodyStyle = .speakers
+    style: TranscriptStyle = .speakers
 ) -> NotionPage {
     NotionPage(
         title: pageTitle(digest: digest, key: recording.key, text: transcript.text),
@@ -98,7 +84,7 @@ public func notionPage(
         blocks: notionBlocks(for: transcript, style: style))
 }
 
-public func notionPage(for note: Note, style: NotionBodyStyle = .speakers) -> NotionPage {
+public func notionPage(for note: Note, style: TranscriptStyle = .speakers) -> NotionPage {
     notionPage(for: note.recording, transcript: note.transcript, digest: note.digest, style: style)
 }
 
@@ -107,7 +93,7 @@ func pageTitle(digest: Digest?, key: String, text: String) -> String {
     return title
 }
 
-public func notionBlocks(for transcript: Transcript, style: NotionBodyStyle) -> [NotionBlock] {
+public func notionBlocks(for transcript: Transcript, style: TranscriptStyle) -> [NotionBlock] {
     switch style {
     case .plain:
         return transcript.turns.flatMap { blocks(for: TranscriptTurn(speaker: nil, text: $0.text)) }

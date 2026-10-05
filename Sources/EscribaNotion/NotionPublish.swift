@@ -14,7 +14,7 @@ public struct NotionExport: Equatable, Sendable, Codable {
         self.template = template
     }
 
-    public init(source: NotionDataSource, mapping: NotionMapping, style: NotionBodyStyle) {
+    public init(source: NotionDataSource, mapping: NotionMapping, style: TranscriptStyle) {
         self.init(source: source, mapping: mapping, template: BodyTemplate([.transcript(style)]))
     }
 

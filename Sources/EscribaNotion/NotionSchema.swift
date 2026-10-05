@@ -1,28 +1,7 @@
 import Foundation
+import EscribaCore
 
-public enum NotionField: String, CaseIterable, Sendable, Codable {
-    case title
-    case date
-    case speakers
-    case duration
-    case key
-    case source
-    case summary
-    case tags
-
-    public var label: String {
-        switch self {
-        case .title: "Título"
-        case .date: "Fecha de la grabación"
-        case .speakers: "Hablantes"
-        case .duration: "Duración (segundos)"
-        case .key: "Clave de la grabación"
-        case .source: "Fichero de origen"
-        case .summary: "Resumen"
-        case .tags: "Etiquetas"
-        }
-    }
-
+extension NoteField {
     public var accepts: [String] {
         switch self {
         case .title: ["title"]
@@ -81,12 +60,12 @@ public struct NotionDataSource: Equatable, Sendable, Identifiable, Codable {
 public struct NotionMapping: Equatable, Sendable, Codable {
     private var byField: [String: String]
 
-    public init(_ byField: [NotionField: String] = [:]) {
+    public init(_ byField: [NoteField: String] = [:]) {
         self.byField = Dictionary(
             uniqueKeysWithValues: byField.map { ($0.key.rawValue, $0.value) })
     }
 
-    public subscript(field: NotionField) -> String? {
+    public subscript(field: NoteField) -> String? {
         get { byField[field.rawValue] }
         set {
             if let newValue {
@@ -96,9 +75,9 @@ public struct NotionMapping: Equatable, Sendable, Codable {
         }
     }
 
-    public var assigned: [NotionField: String] {
+    public var assigned: [NoteField: String] {
         Dictionary(uniqueKeysWithValues: byField.compactMap { raw, name in
-            NotionField(rawValue: raw).map { ($0, name) }
+            NoteField(rawValue: raw).map { ($0, name) }
         })
     }
 
@@ -106,7 +85,7 @@ public struct NotionMapping: Equatable, Sendable, Codable {
         var filled = self
         let suggested = suggestedMapping(for: source)
         let taken = Set(assigned.values)
-        for field in NotionField.allCases where filled[field] == nil {
+        for field in NoteField.allCases where filled[field] == nil {
             guard let name = suggested[field], !taken.contains(name) else { continue }
             filled[field] = name
         }
@@ -122,7 +101,7 @@ public struct NotionMapping: Equatable, Sendable, Codable {
     }
 }
 
-public func compatible(_ field: NotionField, in source: NotionDataSource) -> [NotionProperty] {
+public func compatible(_ field: NoteField, in source: NotionDataSource) -> [NotionProperty] {
     field.accepts.flatMap { type in source.properties.filter { $0.type == type } }
 }
 
@@ -130,7 +109,7 @@ public func suggestedMapping(for source: NotionDataSource) -> NotionMapping {
     var mapping = NotionMapping()
     var taken: Set<String> = []
 
-    for field in NotionField.allCases {
+    for field in NoteField.allCases {
         guard let chosen = compatible(field, in: source)
             .first(where: { !taken.contains($0.name) && named($0, like: field) })
         else { continue }
@@ -138,7 +117,7 @@ public func suggestedMapping(for source: NotionDataSource) -> NotionMapping {
         taken.insert(chosen.name)
     }
 
-    for field in NotionField.allCases where mapping[field] == nil {
+    for field in NoteField.allCases where mapping[field] == nil {
         guard let chosen = compatible(field, in: source)
             .first(where: { !taken.contains($0.name) && !claimed($0, by: field) })
         else { continue }
@@ -157,11 +136,11 @@ public func usabilityProblem(for source: NotionDataSource) -> String? {
     return "La base «\(source.title)» no tiene propiedad de título."
 }
 
-private func claimed(_ property: NotionProperty, by field: NotionField) -> Bool {
-    NotionField.allCases.contains { $0 != field && named(property, like: $0) }
+private func claimed(_ property: NotionProperty, by field: NoteField) -> Bool {
+    NoteField.allCases.contains { $0 != field && named(property, like: $0) }
 }
 
-private func named(_ property: NotionProperty, like field: NotionField) -> Bool {
+private func named(_ property: NotionProperty, like field: NoteField) -> Bool {
     let name = folded(property.name)
     return field.hints.contains { name.contains($0) }
 }

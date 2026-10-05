@@ -1,3 +1,4 @@
+import EscribaCore
 import EscribaEngine
 import EscribaIntelligence
 import EscribaModel
@@ -397,7 +398,7 @@ private struct NotionEditor: View {
 
             if notion.selected != nil {
                 Section {
-                    ForEach(NotionField.allCases, id: \.self) { field in
+                    ForEach(NoteField.allCases, id: \.self) { field in
                         HStack {
                             Picker(field.label, selection: binding(for: field)) {
                                 Text("No exportar").tag(String?.none)
@@ -453,13 +454,13 @@ private struct NotionEditor: View {
             })
     }
 
-    private func binding(for field: NotionField) -> Binding<String?> {
+    private func binding(for field: NoteField) -> Binding<String?> {
         Binding(
             get: { notion.property(for: field) },
             set: { notion.assign(field, to: $0) })
     }
 
-    private func inBody(_ field: NotionField) -> Binding<Bool> {
+    private func inBody(_ field: NoteField) -> Binding<Bool> {
         Binding(
             get: { notion.template.blocks.contains(.field(field)) },
             set: { wanted in

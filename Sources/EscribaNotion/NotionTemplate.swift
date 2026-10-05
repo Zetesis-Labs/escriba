@@ -1,77 +1,6 @@
 import Foundation
 import EscribaCore
 
-public enum TemplateBlock: Equatable, Sendable, Codable, Hashable {
-    case text(String)
-    case heading(String)
-    case transcript(NotionBodyStyle)
-    case summary
-    case audio
-    case field(NotionField)
-
-    public var isText: Bool {
-        if case .text = self { return true }
-        return false
-    }
-
-    public var label: String {
-        switch self {
-        case .text(let text): text
-        case .heading(let text): text
-        case .transcript(let style): "Transcripción · \(style.label.lowercased())"
-        case .summary: "Resumen"
-        case .audio: "Audio"
-        case .field(let field): field.label
-        }
-    }
-}
-
-public struct BodyTemplate: Equatable, Sendable, Codable, Hashable {
-    public var blocks: [TemplateBlock]
-
-    public init(_ blocks: [TemplateBlock]) {
-        self.blocks = blocks
-    }
-
-    public static let standard = BodyTemplate([.transcript(.speakers)])
-
-    public var needsAudio: Bool { blocks.contains(.audio) }
-}
-
-public struct SlashCommand: Equatable, Sendable, Identifiable {
-    public let command: String
-    public let block: TemplateBlock
-    public let help: String
-
-    public var id: String { command }
-}
-
-public let slashCommands: [SlashCommand] = [
-    SlashCommand(command: "/transcripcion", block: .transcript(.speakers), help: "Un párrafo por hablante"),
-    SlashCommand(command: "/transcripcion-tiempos", block: .transcript(.timestamps), help: "Con marca de tiempo"),
-    SlashCommand(command: "/transcripcion-texto", block: .transcript(.plain), help: "Solo el texto"),
-    SlashCommand(command: "/resumen", block: .summary, help: "El resumen generado por el modelo"),
-    SlashCommand(command: "/etiquetas", block: .field(.tags), help: "Las etiquetas del resumen"),
-    SlashCommand(command: "/audio", block: .audio, help: "El fichero de audio, reproducible"),
-    SlashCommand(command: "/encabezado", block: .heading("Encabezado"), help: "Un encabezado"),
-    SlashCommand(command: "/titulo", block: .field(.title), help: "El título de la grabación"),
-    SlashCommand(command: "/fecha", block: .field(.date), help: "Fecha y hora de la grabación"),
-    SlashCommand(command: "/hablantes", block: .field(.speakers), help: "Quién habla"),
-    SlashCommand(command: "/duracion", block: .field(.duration), help: "Cuánto dura"),
-    SlashCommand(command: "/origen", block: .field(.source), help: "El fichero de origen"),
-    SlashCommand(command: "/clave", block: .field(.key), help: "Identificador de la grabación"),
-]
-
-public func slashCommands(matching typed: String) -> [SlashCommand] {
-    let needle = folded(typed)
-    guard needle.hasPrefix("/") else { return [] }
-    return slashCommands.filter { folded($0.command).hasPrefix(needle) }
-}
-
-public func templateBlock(forCommand typed: String) -> TemplateBlock? {
-    slashCommands.first { folded($0.command) == folded(typed) }?.block
-}
-
 public func render(
     _ template: BodyTemplate, for page: NotionPage, transcript: Transcript, audio: String?,
     timeZone: TimeZone = .current
@@ -97,7 +26,7 @@ public func render(
     }
 }
 
-func fieldValue(_ field: NotionField, of page: NotionPage, timeZone: TimeZone) -> String? {
+func fieldValue(_ field: NoteField, of page: NotionPage, timeZone: TimeZone) -> String? {
     switch field {
     case .title: page.title
     case .date: page.startedAt.formatted(.dateTime.day().month(.wide).year().hour().minute())
@@ -108,9 +37,4 @@ func fieldValue(_ field: NotionField, of page: NotionPage, timeZone: TimeZone) -
     case .summary: page.summary.flatMap { $0.isEmpty ? nil : $0 }
     case .tags: page.tags.isEmpty ? nil : page.tags.joined(separator: ", ")
     }
-}
-
-private func folded(_ text: String) -> String {
-    text.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: Locale(identifier: "es"))
-        .trimmingCharacters(in: .whitespaces)
 }
