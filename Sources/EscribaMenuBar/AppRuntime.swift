@@ -17,6 +17,10 @@ private func digester(_ summarizer: Summarizer?, language: String?) -> Digester?
     }
 }
 
+private func fingerprint(of connectors: [Connector]) -> String {
+    connectors.map { "\($0)" }.joined(separator: ";")
+}
+
 private func textWriter(into folder: URL?) -> TranscriptWriter? {
     guard let folder else { return nil }
     return { key, transcript in
@@ -340,16 +344,7 @@ final class AppRuntime {
                     "\(settings.summarize)",
                     settings.watchedFolders
                         .map { "\($0.path):\($0.speakers ?? 0)" }.joined(separator: ","),
-                    settings.connectors.map { connector in
-                        let export = connector.notion.map { export in
-                            ([export.source.id, "\(export.template.hashValue)"]
-                                + export.mapping.assigned.map { "\($0.key.rawValue)=\($0.value)" }
-                                    .sorted())
-                                .joined(separator: ",")
-                        } ?? ""
-                        let okf = connector.okf.map { "\($0.folder),\($0.documents.hashValue)" } ?? ""
-                        return "\(connector.key):\(connector.enabled):\(export):\(okf)"
-                    }.joined(separator: ";"),
+                    fingerprint(of: settings.connectors),
                 ].joined(separator: "|")
             }
 

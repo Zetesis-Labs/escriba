@@ -427,32 +427,56 @@ private struct NotionEditor: View {
 
             if notion.selected != nil {
                 Section {
-                    ForEach(NoteField.allCases, id: \.self) { field in
-                        HStack {
-                            Picker(field.label, selection: binding(for: field)) {
-                                Text("No exportar").tag(String?.none)
-                                ForEach(notion.options(for: field), id: \.name) { property in
-                                    Text(property.name).tag(String?.some(property.name))
-                                }
+                    ForEach(notion.columns, id: \.name) { column in
+                        HStack(alignment: .top, spacing: 8) {
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(column.name)
+                                Text(columnTypeLabel(column.type)).font(.caption).foregroundStyle(.secondary)
                             }
-                            .disabled(notion.options(for: field).isEmpty)
-                            Toggle("En el cuerpo", isOn: inBody(field))
-                                .toggleStyle(.checkbox)
-                                .fixedSize()
+                            .frame(width: 150, alignment: .leading)
+                            .padding(.top, 2)
+                            TokenEditor(
+                                source: columnBinding(column.name), context: .property, placeholder: "No se exporta")
                         }
                     }
                 } header: {
-                    Text("Columnas")
+                    Text("Propiedades")
                 } footer: {
-                    Text("Cada dato puede ir a una columna de la base, al cuerpo de la página (como bloque), a los dos sitios o a ninguno.")
+                    Text("Una fila por columna de tu base: escribe qué va en ella, con texto y datos. Vacía, Escriba no la toca. Las columnas de casilla, persona, archivo o relación no aparecen porque Escriba no escribe en ellas.")
                 }
 
                 Section {
-                    TemplateEditor(template: $notion.template, standard: .standard)
+                    TokenEditor(
+                        source: $notion.body, context: .body,
+                        placeholder: "Escribe aquí. Pulsa / para insertar un dato.", multiline: true)
                 } header: {
                     Text("Cuerpo de la página")
                 } footer: {
-                    Text("Escribe texto libre, o «/» para insertar un bloque: /transcripcion, /audio, /fecha, /hablantes, /duracion, /origen, /titulo, /encabezado.")
+                    Text("Escribe como en una página: # para títulos, - para viñetas, **negrita**. Pulsa / para insertar un dato; el dato Audio sube el fichero a Notion. Una línea cuyos datos salen vacíos no se escribe.")
+                }
+
+                if let preview = notion.preview {
+                    Section {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 4) {
+                                ForEach(preview.properties) { property in
+                                    GridRow {
+                                        Text(property.name).foregroundStyle(.secondary)
+                                        Text(property.value).lineLimit(2)
+                                    }
+                                }
+                            }
+                            Divider()
+                            Text(preview.text)
+                                .textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .font(.callout)
+                    } header: {
+                        Text("Así queda")
+                    } footer: {
+                        Text("Con una grabación de ejemplo. Se actualiza mientras escribes, antes de guardar.")
+                    }
                 }
             }
         }
@@ -483,154 +507,7 @@ private struct NotionEditor: View {
             })
     }
 
-    private func binding(for field: NoteField) -> Binding<String?> {
-        Binding(
-            get: { notion.property(for: field) },
-            set: { notion.assign(field, to: $0) })
-    }
-
-    private func inBody(_ field: NoteField) -> Binding<Bool> {
-        Binding(
-            get: { notion.template.blocks.contains(.field(field)) },
-            set: { notion.template = notion.template.togglingField(field, on: $0) })
-    }
-}
-
-private struct TemplateEditor: View {
-    @Binding var template: BodyTemplate
-    let standard: BodyTemplate
-    var transcriptAsLink = false
-    @State private var slashRow: Int?
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            List {
-                ForEach(Array(template.blocks.enumerated()), id: \.offset) { index, block in
-                    row(index, block)
-                        .listRowSeparator(.hidden)
-                }
-                .onMove { template = template.moving(from: $0, to: $1) }
-                .onDelete { $0.sorted(by: >).forEach { template = template.removing(at: $0) } }
-            }
-            .listStyle(.plain)
-            .frame(minHeight: CGFloat(max(template.blocks.count, 3)) * 34 + 8)
-            .scrollDisabled(true)
-            HStack {
-                Button("Añadir texto") { template = template.inserting(.text(""), at: template.blocks.count) }
-                Button("Añadir encabezado") {
-                    template = template.inserting(.heading(""), at: template.blocks.count)
-                }
-                Menu("Insertar dato") {
-                    ForEach(slashCommands.filter { !isHeading($0.block) }) { command in
-                        Button(command.block.label(transcriptAsLink: transcriptAsLink)) {
-                            template = template.inserting(command.block, at: template.blocks.count)
-                        }
-                    }
-                }
-                .fixedSize()
-                Spacer()
-                Button("Volver a la plantilla básica") { template = standard }
-                    .disabled(template == standard)
-            }
-            .controlSize(.small)
-        }
-    }
-
-    @ViewBuilder private func row(_ index: Int, _ block: TemplateBlock) -> some View {
-        HStack(spacing: 6) {
-            Image(systemName: "line.3.horizontal").foregroundStyle(.tertiary).font(.caption)
-            switch block {
-            case .text(let text):
-                TextField("Párrafo libre (escribe / para insertar un dato)", text: textBinding(index, text), axis: .vertical)
-                    .textFieldStyle(.roundedBorder)
-                    .onSubmit {
-                        if let applied = template.applying(command: text, at: index) {
-                            template = applied
-                        } else {
-                            template = template.inserting(.text(""), at: index + 1)
-                        }
-                    }
-                    .popover(isPresented: slashPresented(index), arrowEdge: .bottom) {
-                        SlashMenu(typed: text) { command in
-                            template = template.applying(command: command.command, at: index) ?? template
-                            slashRow = nil
-                        }
-                    }
-            case .heading(let text):
-                Text("#").font(.headline.monospaced()).foregroundStyle(.secondary)
-                TextField("Encabezado", text: textBinding(index, text))
-                    .textFieldStyle(.roundedBorder)
-                    .font(.headline)
-            default:
-                Label(block.label(transcriptAsLink: transcriptAsLink), systemImage: symbol(for: block))
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 5)
-                    .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
-                Spacer()
-            }
-            Button { template = template.removing(at: index) } label: { Image(systemName: "xmark.circle") }
-                .buttonStyle(.borderless)
-                .foregroundStyle(.secondary)
-        }
-    }
-
-    private func textBinding(_ index: Int, _ current: String) -> Binding<String> {
-        Binding(
-            get: { current },
-            set: { text in
-                template = template.settingText(text, at: index)
-                slashRow = text.hasPrefix("/") ? index : (slashRow == index ? nil : slashRow)
-            })
-    }
-
-    private func isHeading(_ block: TemplateBlock) -> Bool {
-        if case .heading = block { return true }
-        return false
-    }
-
-    private func slashPresented(_ index: Int) -> Binding<Bool> {
-        Binding(get: { slashRow == index }, set: { if !$0, slashRow == index { slashRow = nil } })
-    }
-
-    private func symbol(for block: TemplateBlock) -> String {
-        switch block {
-        case .text: "text.alignleft"
-        case .summary: "text.badge.star"
-        case .heading: "textformat.size"
-        case .transcript: "text.quote"
-        case .audio: "waveform"
-        case .field: "tag"
-        }
-    }
-}
-
-private struct SlashMenu: View {
-    let typed: String
-    let choose: (SlashCommand) -> Void
-
-    var body: some View {
-        let matches = slashCommands(matching: typed)
-        VStack(alignment: .leading, spacing: 2) {
-            if matches.isEmpty {
-                Text("Ningún bloque se llama así").foregroundStyle(.secondary).padding(8)
-            }
-            ForEach(matches) { command in
-                Button {
-                    choose(command)
-                } label: {
-                    HStack {
-                        Text(command.command).font(.body.monospaced())
-                        Spacer()
-                        Text(command.help).foregroundStyle(.secondary)
-                    }
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
-            }
-        }
-        .padding(.vertical, 6)
-        .frame(width: 360)
+    private func columnBinding(_ name: String) -> Binding<String> {
+        Binding(get: { notion.value(forColumn: name) }, set: { notion.setValue($0, forColumn: name) })
     }
 }

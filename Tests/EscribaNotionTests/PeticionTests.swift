@@ -4,134 +4,195 @@ import EscribaCore
 
 @testable import EscribaNotion
 
-@Suite("Cuerpo de las peticiones a Notion")
+private func propiedades(_ columnas: [String: String], _ nota: Note = notaDe()) -> JSONValue? {
+    createPageBody(paginaDe(nota, como: exportDe(columnas: columnas)), in: baseCompleta)["properties"]
+}
+
+private func texto(_ valor: JSONValue?) -> JSONValue? {
+    valor?["rich_text"]?[0]?["text"]?["content"]
+}
+
+@Suite("Columnas y peticiones a Notion")
 struct PeticionTests {
     @Test("borrar de Notion archiva la pagina: se puede restaurar desde su papelera")
     func archivar() {
         #expect(archivePageBody() == .object(["archived": .bool(true)]))
     }
 
-    private let momento = Date(timeIntervalSince1970: 1_758_013_200)
-    private let madrid = TimeZone(identifier: "Europe/Madrid")!
-
-    private var fuente: NotionDataSource {
-        NotionDataSource(
-            id: "ds-1", databaseTitle: "Diario", title: "Notas",
-            properties: [
-                NotionProperty(name: "Nombre", type: "title"),
-                NotionProperty(name: "Fecha", type: "date"),
-                NotionProperty(name: "Hablantes", type: "multi_select"),
-                NotionProperty(name: "Duración", type: "number"),
-                NotionProperty(name: "Clave", type: "rich_text"),
-                NotionProperty(name: "Origen", type: "url"),
-            ])
+    @Test("la base sugiere que va en cada columna segun su nombre y su tipo")
+    func sugerencias() {
+        #expect(suggestedColumns(for: baseCompleta) == [
+            "Nombre": "{{titulo}}", "Fecha": "{{fecha-iso}}", "Hablantes": "{{hablantes}}",
+            "Duración": "{{segundos}}", "Clave": "{{clave}}", "Origen": "{{audio}}",
+            "Resumen": "{{resumen}}", "Temas": "{{etiquetas}}",
+        ])
     }
 
-    private var pagina: NotionPage {
-        notionPage(
-            for: Recording(
-                url: URL(fileURLWithPath: "/Notas/llamada.m4a"), startedAt: momento, key: "llamada"),
-            transcript: Transcript(segments: [
-                TranscriptSegment(start: 0, end: 12, speaker: "Ruben", text: "Hola."),
-                TranscriptSegment(start: 12, end: 187, speaker: "Aritz", text: "Dime."),
-            ]))
-    }
-
-    @Test("la pagina nace en la base elegida con cada dato en su propiedad")
-    func propiedadesMapeadas() {
-        let cuerpo = createPageBody(
-            pagina, in: fuente, mapping: suggestedMapping(for: fuente), timeZone: madrid)
+    @Test("la pagina nace en la base elegida con cada columna rellena")
+    func columnasSugeridas() {
+        let cuerpo = createPageBody(paginaDe(), in: baseCompleta)
+        let props = cuerpo["properties"]
 
         #expect(cuerpo["parent"]?["data_source_id"] == .string("ds-1"))
         #expect(cuerpo["parent"]?["type"] == .string("data_source_id"))
-
-        let props = cuerpo["properties"]
         #expect(props?["Nombre"]?["title"]?[0]?["text"]?["content"] == .string("Hola. Dime."))
         #expect(props?["Fecha"]?["date"]?["start"] == .string("2025-09-16T11:00:00+02:00"))
         #expect(props?["Hablantes"]?["multi_select"] == .array([
             .object(["name": .string("Ruben")]), .object(["name": .string("Aritz")]),
         ]))
         #expect(props?["Duración"]?["number"] == .number(187))
-        #expect(props?["Clave"]?["rich_text"]?[0]?["text"]?["content"] == .string("llamada"))
+        #expect(texto(props?["Clave"]) == .string("llamada"))
         #expect(props?["Origen"]?["url"] == .string("file:///Notas/llamada.m4a"))
     }
 
-    @Test("lo que el usuario deja sin mapear no viaja")
-    func sinMapear() {
-        var mapeo = suggestedMapping(for: fuente)
-        mapeo[.duration] = nil
-        mapeo[.source] = nil
-        let props = createPageBody(pagina, in: fuente, mapping: mapeo, timeZone: madrid)["properties"]
+    @Test("una columna vacia o que no esta en la base no viaja")
+    func sinValor() {
+        let props = propiedades(["Nombre": "{{titulo}}", "Duración": "  ", "Inventada": "{{clave}}"])
 
         #expect(props?["Duración"] == nil)
-        #expect(props?["Origen"] == nil)
+        #expect(props?["Inventada"] == nil)
         #expect(props?["Nombre"] != nil)
     }
 
-    @Test("los datos de lista y numero se adaptan si la propiedad elegida es de texto")
-    func adaptacionATexto() {
-        let textual = NotionDataSource(
-            id: "ds-2", databaseTitle: "Diario", title: "Notas",
-            properties: [
-                NotionProperty(name: "Nombre", type: "title"),
-                NotionProperty(name: "Quien", type: "rich_text"),
-                NotionProperty(name: "Cuanto", type: "rich_text"),
-            ])
-        var mapeo = suggestedMapping(for: textual)
-        mapeo[.speakers] = "Quien"
-        mapeo[.duration] = "Cuanto"
-        let props = createPageBody(pagina, in: textual, mapping: mapeo, timeZone: madrid)["properties"]
+    @Test("una columna de texto admite texto fijo y datos mezclados; listas y duracion se escriben como texto")
+    func textoMezclado() {
+        let props = propiedades(["Nombre": "Llamada con {{hablantes}}", "Clave": "{{duracion}} · {{clave}}"])
 
-        #expect(props?["Quien"]?["rich_text"]?[0]?["text"]?["content"] == .string("Ruben, Aritz"))
-        #expect(props?["Cuanto"]?["rich_text"]?[0]?["text"]?["content"] == .string("03:07"))
+        #expect(props?["Nombre"]?["title"]?[0]?["text"]?["content"] == .string("Llamada con Ruben, Aritz"))
+        #expect(texto(props?["Clave"]) == .string("03:07 · llamada"))
     }
 
-    @Test("el cuerpo de la pagina viaja como parrafos con la negrita del hablante")
-    func bloquesDelCuerpo() {
-        let cuerpo = createPageBody(
-            pagina, in: fuente, mapping: suggestedMapping(for: fuente), timeZone: madrid)
-        let primero = cuerpo["children"]?[0]
+    @Test("selección múltiple: un dato de lista va como opciones; un texto con comas se trocea")
+    func multiple() {
+        let props = propiedades(["Temas": "{{etiquetas}}", "Hablantes": "uno, dos ,, tres"], notaDe(digest: resumenDeCharla))
 
-        #expect(primero?["object"] == .string("block"))
-        #expect(primero?["type"] == .string("paragraph"))
-        #expect(primero?["paragraph"]?["rich_text"]?[0]?["text"]?["content"] == .string("Ruben: "))
-        #expect(primero?["paragraph"]?["rich_text"]?[0]?["annotations"]?["bold"] == .bool(true))
-        #expect(primero?["paragraph"]?["rich_text"]?[1]?["text"]?["content"] == .string("Hola."))
+        #expect(props?["Temas"]?["multi_select"] == .array([
+            .object(["name": .string("backups")]), .object(["name": .string("talos linux")]),
+        ]))
+        #expect(props?["Hablantes"]?["multi_select"]?.count == 3)
+    }
+
+    @Test("select, numero, url y fecha reciben su tipo; lo que no encaja se vacia o no viaja")
+    func tipos() {
+        let props = propiedades([
+            "Estado": "Revisar", "Duración": "abc", "Origen": "", "Fecha": "el martes", "Hecho": "{{clave}}",
+        ])
+
+        #expect(props?["Estado"]?["select"]?["name"] == .string("Revisar"))
+        #expect(props?["Duración"]?["number"] == .null)
+        #expect(props?["Origen"] == nil)
+        #expect(props?["Fecha"] == nil)
+        #expect(props?["Hecho"] == nil)
+    }
+
+    @Test("sin resumen, sus columnas se vacian para que Notion no conserve el anterior")
+    func vaciado() {
+        let props = propiedades(["Resumen": "{{resumen}}", "Temas": "{{etiquetas}}", "Estado": "{{resumen}}"])
+
+        #expect(props?["Resumen"]?["rich_text"] == .array([]))
+        #expect(props?["Temas"]?["multi_select"] == .array([]))
+        #expect(props?["Estado"]?["select"] == .null)
+    }
+
+    @Test("un resumen larguisimo se acota al limite de Notion en vez de tumbar la pagina")
+    func limite() {
+        let largo = Digest(title: "t", summary: String(repeating: "a", count: 5000), tags: [])
+
+        let props = propiedades(["Resumen": "{{resumen}}"], notaDe(digest: largo))
+
+        guard case .string(let contenido) = texto(props?["Resumen"]) else {
+            Issue.record("sin resumen")
+            return
+        }
+        #expect(contenido.count == notionTextLimit)
+    }
+
+    @Test("con resumen, la pagina se titula con el; sin el, con el arranque del texto")
+    func titulo() {
+        let con = propiedades(["Nombre": "{{titulo}}"], notaDe(digest: resumenDeCharla))
+        let sin = propiedades(["Nombre": "{{titulo}}"], notaDe(Transcript(text: "Hola que tal")))
+
+        #expect(con?["Nombre"]?["title"]?[0]?["text"]?["content"] == .string("Backups de cortes"))
+        #expect(sin?["Nombre"]?["title"]?[0]?["text"]?["content"] == .string("Hola que tal"))
+    }
+
+    @Test("buscar por clave usa la columna de texto cuyo valor es la clave")
+    func consultaPorClave() {
+        let export = exportDe()
+        #expect(export.keyColumn == "Clave")
+        #expect(findByKeyBody("llamada", column: export.keyColumn)?["filter"] == .object([
+            "property": .string("Clave"), "rich_text": .object(["equals": .string("llamada")]),
+        ]))
+
+        #expect(exportDe(columnas: ["Nombre": "{{titulo}}", "Clave": "id {{clave}}"]).keyColumn == nil)
+        #expect(findByKeyBody("llamada", column: nil) == nil)
+    }
+
+    @Test("sin nada en la columna de titulo la exportacion no vale")
+    func tituloObligatorio() {
+        #expect(exportDe().isUsable)
+        #expect(!exportDe(columnas: ["Nombre": " ", "Clave": "{{clave}}"]).isUsable)
+        #expect(notionProblem(exportDe(columnas: ["Clave": "{{clave}}"])) == "Escribe qué va en «Nombre», la columna del título.")
+    }
+
+    @Test("al refrescar la base se sugieren las columnas nuevas sin pisar lo elegido ni lo vaciado a proposito")
+    func refresco() {
+        let elegidas = ["Nombre": "Nota: {{titulo}}", "Cuando": "{{fecha-iso}}", "Clave": ""]
+        let ahora = NotionDataSource(
+            id: "ds", databaseTitle: "D", title: "D",
+            properties: [
+                NotionProperty(name: "Nombre", type: "title"), NotionProperty(name: "Clave", type: "rich_text"),
+                NotionProperty(name: "Hablantes", type: "multi_select"),
+            ])
+
+        #expect(refreshedColumns(elegidas, for: ahora) == [
+            "Nombre": "Nota: {{titulo}}", "Clave": "", "Hablantes": "{{hablantes}}",
+        ])
+        #expect(writableProperties(of: baseCompleta).map(\.name).contains("Hecho") == false)
+        #expect(writableProperties(of: baseCompleta).first?.name == "Nombre")
+    }
+
+    @Test("una exportacion guardada con el mapeo y la plantilla de antes se lee como columnas y cuerpo")
+    func formaAnterior() throws {
+        let vieja = """
+            {"source":{"id":"ds-1","databaseTitle":"Diario","title":"Notas","properties":[
+                {"name":"Nombre","type":"title"},{"name":"Duración","type":"rich_text"},{"name":"Origen","type":"url"}]},
+             "mapping":{"byField":{"title":"Nombre","duration":"Duración","source":"Origen"}},
+             "template":{"blocks":[{"heading":{"_0":"Datos"}},{"field":{"_0":"speakers"}},{"audio":{}},
+                                   {"transcript":{"_0":"timestamps"}}]}}
+            """
+
+        let export = try JSONDecoder().decode(NotionExport.self, from: Data(vieja.utf8))
+
+        #expect(export.columns == ["Nombre": "{{titulo}}", "Duración": "{{duracion}}", "Origen": "{{audio}}"])
+        #expect(export.body == "# Datos\n\n**Hablantes:** {{hablantes}}\n\n{{audio}}\n\n{{transcripcion-tiempos}}")
+        let vuelta = try JSONDecoder().decode(NotionExport.self, from: JSONEncoder().encode(export))
+        #expect(vuelta == export)
     }
 
     @Test("una transcripcion larga deja la primera tanda en la pagina y el resto para despues")
     func tandas() {
         let largo = Transcript(segments: (0..<250).map {
-            TranscriptSegment(
-                start: Double($0), end: Double($0) + 1, speaker: "H\($0)", text: "turno \($0)")
+            TranscriptSegment(start: Double($0), end: Double($0) + 1, speaker: "H\($0)", text: "turno \($0)")
         })
-        let pagina = notionPage(
-            for: Recording(url: URL(fileURLWithPath: "/a.m4a"), startedAt: momento, key: "a"),
-            transcript: largo)
-        let cuerpo = createPageBody(
-            pagina, in: fuente, mapping: suggestedMapping(for: fuente), timeZone: madrid)
+        let pagina = paginaDe(notaDe(largo))
 
-        #expect(cuerpo["children"]?.count == 100)
+        #expect(createPageBody(pagina, in: baseCompleta)["children"]?.count == 100)
         #expect(notionBatches(pagina.blocks).count == 3)
         #expect(appendChildrenBody(notionBatches(pagina.blocks)[1])["children"]?.count == 100)
     }
 
-    @Test("buscar por clave filtra por la propiedad que el usuario mapeo")
-    func consultaPorClave() {
-        var mapeo = suggestedMapping(for: fuente)
-        #expect(findByKeyBody("llamada", mapping: mapeo)?["filter"] == .object([
-            "property": .string("Clave"), "rich_text": .object(["equals": .string("llamada")]),
-        ]))
+    @Test("actualizar manda solo las propiedades; el cuerpo se reescribe aparte")
+    func actualizar() {
+        let cuerpo = updatePageBody(paginaDe())
 
-        mapeo[.key] = nil
-        #expect(findByKeyBody("llamada", mapping: mapeo) == nil)
+        #expect(cuerpo["properties"]?["Nombre"] != nil)
+        #expect(cuerpo["children"] == nil)
     }
 
     @Test("el json que se envia es json valido")
     func serializacion() throws {
-        let cuerpo = createPageBody(
-            pagina, in: fuente, mapping: suggestedMapping(for: fuente), timeZone: madrid)
-        let datos = try JSONEncoder().encode(cuerpo)
+        let datos = try JSONEncoder().encode(createPageBody(paginaDe(), in: baseCompleta))
         let vuelta = try JSONSerialization.jsonObject(with: datos) as? [String: Any]
 
         #expect(vuelta?["parent"] != nil)

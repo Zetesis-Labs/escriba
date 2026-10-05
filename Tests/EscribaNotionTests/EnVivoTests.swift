@@ -25,15 +25,15 @@ struct EnVivoTests {
         let base = try #require(bases.first { deseada == nil || deseada == $0.id })
         print("BASE:", base.label, base.properties.map { "\($0.name):\($0.type)" })
 
-        let mapeo = suggestedMapping(for: base)
-        print("MAPEO:", mapeo.assigned.map { "\($0.key.rawValue)→\($0.value)" }.sorted())
+        let columnas = suggestedColumns(for: base)
+        print("COLUMNAS:", columnas.map { "\($0.key)=\($0.value)" }.sorted())
         let audio = entorno["ESCRIBA_NOTION_AUDIO"].map { URL(fileURLWithPath: $0) }
-        let ficha: [TemplateBlock] = [
-            .heading("Ficha"), .field(.date), .field(.speakers), .field(.duration),
-            .field(.tags), .summary,
-        ] + (audio == nil ? [] : [.audio])
+        let ficha = [
+            "# Ficha", "**Fecha:** {{fecha}}", "**Hablantes:** {{hablantes}}", "**Duración:** {{duracion}}",
+            "**Etiquetas:** {{etiquetas}}", "{{resumen}}",
+        ] + (audio == nil ? [] : ["{{audio}}"])
         let export = NotionExport(
-            source: base, mapping: mapeo, template: BodyTemplate(ficha + [.transcript(.timestamps)]))
+            source: base, columns: columnas, body: (ficha + ["{{transcripcion-tiempos}}"]).joined(separator: "\n"))
         #expect(export.isUsable)
 
         let clave = "escriba-verificacion-\(Int(Date().timeIntervalSince1970))"
@@ -63,7 +63,7 @@ struct EnVivoTests {
 
         let corregida = larga.renaming("Aritz", to: "Aritz (corregido)")
         var regenerada = export
-        regenerada.template = BodyTemplate(ficha + [.transcript(.speakers)])
+        regenerada.body = (ficha + ["{{transcripcion}}"]).joined(separator: "\n")
         let segunda = try await publish(
             Note(recording: grabacion, transcript: corregida, digest: resumen), as: regenerada,
             using: client, known: primera)
@@ -72,7 +72,7 @@ struct EnVivoTests {
         print("REESCRITA:", segunda.id)
 
         try await unpublish(pageId: segunda.id, using: client)
-        let buscada = try await findByKeyBody(clave, mapping: mapeo).asyncFlatMap {
+        let buscada = try await findByKeyBody(clave, column: export.keyColumn).asyncFlatMap {
             try await client.findPage(base.id, $0)
         }
         #expect(buscada == nil)

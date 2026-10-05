@@ -14,7 +14,7 @@ private func exportacion() -> NotionExport {
     let fuente = NotionDataSource(
         id: "ds-1", databaseTitle: "Diario", title: "Notas",
         properties: [NotionProperty(name: "Nombre", type: "title")])
-    return NotionExport(source: fuente, mapping: suggestedMapping(for: fuente))
+    return NotionExport(source: fuente, columns: suggestedColumns(for: fuente), body: NotionExport.standardBody)
 }
 
 private enum DiarioError: Error { case roto }

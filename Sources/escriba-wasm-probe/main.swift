@@ -34,12 +34,12 @@ let base = NotionDataSource(
         NotionProperty(name: "Hablantes", type: "multi_select"),
     ])
 let export = NotionExport(
-    source: base, mapping: suggestedMapping(for: base),
-    template: BodyTemplate([.field(.speakers), .summary, .field(.tags), .transcript(.timestamps)]))
-let page = notionPage(for: Note(recording: recordings[0], transcript: transcript, digest: resumen))
-let body = createPageBody(
-    page.replacing(blocks: render(export.template, for: page, transcript: transcript, audio: nil)),
-    in: export.source, mapping: export.mapping, timeZone: TimeZone(identifier: "UTC")!)
+    source: base, columns: suggestedColumns(for: base),
+    body: "**Hablantes:** {{hablantes}}\n{{resumen}}\n{{etiquetas}}\n{{transcripcion-tiempos}}")
+let page = notionPage(
+    for: Note(recording: recordings[0], transcript: transcript, digest: resumen), as: export,
+    timeZone: TimeZone(identifier: "UTC")!)
+let body = createPageBody(page, in: export.source)
 print("bloques para Notion:", body["children"]?.count ?? 0, "| titulo:", body["properties"]?["Nombre"]?["title"]?[0]?["text"]?["content"]?.text ?? "?")
 
 let bundle = okfPublication(

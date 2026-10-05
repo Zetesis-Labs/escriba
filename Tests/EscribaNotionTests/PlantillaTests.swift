@@ -5,104 +5,112 @@ import EscribaCore
 
 @testable import EscribaNotion
 
-private let madrid = TimeZone(identifier: "Europe/Madrid")!
-
-private func pagina(_ transcript: Transcript) -> NotionPage {
-    notionPage(
-        for: Recording(
-            url: URL(fileURLWithPath: "/Notas/llamada.m4a"),
-            startedAt: Date(timeIntervalSince1970: 1_758_013_200), key: "llamada"),
-        transcript: transcript)
+private func cuerpo(_ plantilla: String, _ nota: Note = notaDe(), audio: String? = nil) -> [NotionBlock] {
+    notionBody(plantilla, values: valoresDe(nota), audio: audio)
 }
 
-private let diarizada = Transcript(segments: [
-    TranscriptSegment(start: 0, end: 12, speaker: "Ruben", text: "Hola."),
-    TranscriptSegment(start: 12, end: 187, speaker: "Aritz", text: "Dime."),
-])
-
-@Suite("Plantilla del cuerpo")
-struct PlantillaTests {
-    @Test("la plantilla basica es solo la transcripcion por hablantes")
+@Suite("Cuerpo de la pagina de Notion")
+struct CuerpoTests {
+    @Test("la plantilla de partida es la transcripcion, un parrafo por hablante con su nombre en negrita")
     func basica() {
-        let bloques = render(.standard, for: pagina(diarizada), transcript: diarizada, audio: nil)
+        let bloques = cuerpo(NotionExport.standardBody)
 
         #expect(bloques.map(\.plainText) == ["Ruben: Hola.", "Aritz: Dime."])
+        #expect(bloques[0].runs == [NotionRun(text: "Ruben: ", bold: true), NotionRun(text: "Hola.", bold: false)])
     }
 
-    @Test("los bloques salen en el orden de la plantilla, cada uno con su forma")
-    func orden() {
-        let plantilla = BodyTemplate([
-            .heading("Datos"), .field(.date), .field(.speakers), .field(.duration),
-            .text("Notas:\nrevisar"), .audio, .transcript(.plain),
+    @Test("las lineas con # son encabezados de Notion con su nivel, hasta el tercero")
+    func encabezados() {
+        let bloques = cuerpo("# Uno\nuno\n## Dos\ndos\n### Tres\ntres\n#### Cuatro\ncuatro")
+
+        #expect(bloques.map(\.kind) == [
+            .heading(1), .paragraph, .heading(2), .paragraph, .heading(3), .paragraph, .heading(3), .paragraph,
         ])
-        let bloques = render(plantilla, for: pagina(diarizada), transcript: diarizada, audio: "up-1", timeZone: madrid)
-
-        #expect(bloques[0].kind == .heading)
-        #expect(bloques[0].plainText == "Datos")
-        #expect(bloques[1].plainText.hasPrefix("Fecha de la grabación: "))
-        #expect(bloques[1].plainText.contains("2025"))
-        #expect(bloques[1].runs.first?.bold == true)
-        #expect(bloques[2].plainText == "Hablantes: Ruben, Aritz")
-        #expect(bloques[3].plainText == "Duración (segundos): 03:07")
-        #expect(bloques[4].plainText == "Notas:")
-        #expect(bloques[5].plainText == "revisar")
-        #expect(bloques[6].kind == .audio(uploadId: "up-1"))
-        #expect(bloques[7...].map(\.plainText) == ["Hola.", "Dime."])
+        #expect(bloques[0].plainText == "Uno")
     }
 
-    @Test("un encabezado sin texto no se manda a Notion")
-    func encabezadoSinTexto() {
-        let bloques = render(BodyTemplate([.heading(""), .transcript(.plain)]), for: pagina(diarizada), transcript: diarizada, audio: nil)
+    @Test("una linea con datos es un parrafo, y la **negrita** de Markdown se respeta")
+    func parrafoConDatos() {
+        let bloques = cuerpo("**Hablantes:** {{hablantes}} · {{duracion}}")
 
-        #expect(bloques.map(\.plainText) == ["Hola.", "Dime."])
+        #expect(bloques == [NotionBlock(runs: [
+            NotionRun(text: "Hablantes:", bold: true), NotionRun(text: " Ruben, Aritz · 03:07", bold: false),
+        ])])
     }
 
-    @Test("sin audio subido el bloque de audio no se pone, y un dato vacio tampoco")
+    @Test("las lineas con - son viñetas")
+    func vinetas() {
+        let bloques = cuerpo("- uno\n- {{clave}}")
+
+        #expect(bloques.map(\.kind) == [.bullet, .bullet])
+        #expect(bloques.map(\.plainText) == ["uno", "llamada"])
+    }
+
+    @Test("el dato Audio pone el fichero subido; sin subida no deja nada")
+    func audio() {
+        #expect(cuerpo("{{audio}}", audio: "up-1").map(\.kind) == [.audio(uploadId: "up-1")])
+        #expect(cuerpo("Antes\n{{audio}}\nDespues").map(\.plainText) == ["Antes", "Despues"])
+    }
+
+    @Test("las lineas en blanco separan; no crean parrafos vacios")
+    func blancos() {
+        #expect(cuerpo("uno\n\n\ndos").map(\.plainText) == ["uno", "dos"])
+    }
+
+    @Test("una linea cuyos datos salen vacios no se escribe, y un encabezado sin nada debajo tampoco")
     func huecos() {
-        let plana = Transcript(text: "Solo texto")
-        let bloques = render(
-            BodyTemplate([.audio, .field(.speakers), .text(""), .transcript(.speakers)]),
-            for: pagina(plana), transcript: plana, audio: nil)
+        let plana = notaDe(Transcript(text: "Solo texto"))
 
-        #expect(bloques.map(\.plainText) == ["Solo texto"])
+        let bloques = cuerpo("# Resumen\n{{resumen}}\n{{etiquetas}}\n# Texto\n{{transcripcion}}", plana)
+
+        #expect(bloques.map(\.kind) == [.heading(1), .paragraph])
+        #expect(bloques.map(\.plainText) == ["Texto", "Solo texto"])
     }
 
-    @Test("un bloque de audio viaja como fichero subido")
-    func audioJSON() {
-        let cuerpo = appendChildrenBody([NotionBlock(kind: .audio(uploadId: "up-9"), runs: [])])
+    @Test("el resumen en su linea da un parrafo por cada linea del resumen")
+    func resumen() {
+        let bloques = cuerpo("{{resumen}}", notaDe(digest: resumenDeCharla))
 
-        #expect(cuerpo["children"]?[0]?["type"] == .string("audio"))
-        #expect(cuerpo["children"]?[0]?["audio"]?["file_upload"]?["id"] == .string("up-9"))
-        #expect(appendChildrenBody([NotionBlock(kind: .heading, runs: [])])["children"]?[0]?["type"] == .string("heading_2"))
+        #expect(bloques.map(\.plainText) == ["Se revisa el restore.", "Y se habla de MinIO."])
     }
 
-    @Test("escribir / propone bloques y admite tildes y mayusculas")
-    func comandos() {
-        #expect(slashCommands(matching: "/").count == slashCommands.count)
-        #expect(slashCommands(matching: "/trans").map(\.command) == [
-            "/transcripcion", "/transcripcion-tiempos", "/transcripcion-texto",
+    @Test("la transcripcion sale en el estilo de su dato")
+    func estilos() {
+        #expect(cuerpo("{{transcripcion-tiempos}}").map(\.plainText) == ["[00:00] Ruben: Hola.", "[00:12] Aritz: Dime."])
+        #expect(cuerpo("{{transcripcion-texto}}").map(\.plainText) == ["Hola.", "Dime."])
+    }
+
+    @Test("un parrafo larguisimo se parte sin pasar del limite de Notion")
+    func largo() {
+        let largo = String(repeating: "palabra ", count: 600)
+
+        let bloques = cuerpo(largo)
+
+        #expect(bloques.count > 1)
+        #expect(bloques.allSatisfy { $0.plainText.count <= notionTextLimit })
+    }
+
+    @Test("un enlace a otro documento no tiene sentido en Notion y no deja rastro")
+    func enlace() {
+        #expect(cuerpo("Ver {{enlace:otro}}\n{{enlace:otro}}").map(\.plainText) == ["Ver "])
+    }
+
+    @Test("los bloques viajan como parrafo, encabezado, viñeta o audio")
+    func json() {
+        let cuerpo = appendChildrenBody([
+            NotionBlock(kind: .audio(uploadId: "up-9"), runs: []),
+            NotionBlock(kind: .heading(1), runs: [NotionRun(text: "H", bold: false)]),
+            NotionBlock(kind: .heading(3), runs: [NotionRun(text: "H", bold: false)]),
+            NotionBlock(kind: .bullet, runs: [NotionRun(text: "v", bold: false)]),
         ])
-        #expect(templateBlock(forCommand: "/Transcripción") == .transcript(.speakers))
-        #expect(templateBlock(forCommand: "/duración ") == .field(.duration))
-        #expect(templateBlock(forCommand: "/nada") == nil)
-        #expect(slashCommands(matching: "hola").isEmpty)
+
+        #expect(cuerpo["children"]?[0]?["audio"]?["file_upload"]?["id"] == .string("up-9"))
+        #expect(cuerpo["children"]?[1]?["type"] == .string("heading_1"))
+        #expect(cuerpo["children"]?[2]?["type"] == .string("heading_3"))
+        #expect(cuerpo["children"]?[3]?["bulleted_list_item"]?["rich_text"]?[0]?["text"]?["content"] == .string("v"))
     }
 
-    @Test("la plantilla se guarda con la exportacion y una vieja sin plantilla usa la basica")
-    func persistencia() throws {
-        let fuente = NotionDataSource(
-            id: "ds", databaseTitle: "D", title: "D",
-            properties: [NotionProperty(name: "Nombre", type: "title")])
-        let export = NotionExport(
-            source: fuente, mapping: suggestedMapping(for: fuente),
-            template: BodyTemplate([.audio, .transcript(.timestamps)]))
-        let vuelta = try JSONDecoder().decode(NotionExport.self, from: JSONEncoder().encode(export))
-
-        #expect(vuelta == export)
-        #expect(NotionExport(source: fuente, mapping: NotionMapping(), style: .plain).template == BodyTemplate([.transcript(.plain)]))
-    }
-
-    @Test("publicar con /audio sube el fichero antes de crear la pagina")
+    @Test("publicar con el dato Audio sube el fichero antes de crear la pagina")
     func publicaConAudio() async throws {
         let registro = Mutex<[String]>([])
         let client = NotionClient(
@@ -117,43 +125,16 @@ struct PlantillaTests {
                 registro.withLock { $0.append("subir:\(url.lastPathComponent)") }
                 return "up-1"
             })
-        let fuente = NotionDataSource(
-            id: "ds", databaseTitle: "D", title: "D",
-            properties: [NotionProperty(name: "Nombre", type: "title")])
-        let export = NotionExport(
-            source: fuente, mapping: suggestedMapping(for: fuente),
-            template: BodyTemplate([.audio, .transcript(.speakers)]))
-        let grabacion = Recording(url: URL(fileURLWithPath: "/Notas/a.m4a"), startedAt: .now, key: "a")
 
-        _ = try await publish(
-            Note(recording: grabacion, transcript: diarizada), as: export, using: client)
+        _ = try await publish(notaDe(), as: exportDe(cuerpo: "{{audio}}\n{{transcripcion}}"), using: client)
 
-        #expect(registro.withLock { $0 } == ["subir:a.m4a", "crear:audio"])
+        #expect(registro.withLock { $0 } == ["subir:llamada.m4a", "crear:audio"])
     }
 
-    @Test("al refrescar, las columnas nuevas se sugieren sin pisar lo ya elegido")
-    func rellenoTrasRefrescar() {
-        let antes = NotionDataSource(
-            id: "ds", databaseTitle: "D", title: "D",
-            properties: [
-                NotionProperty(name: "Nombre", type: "title"),
-                NotionProperty(name: "Cuando", type: "date"),
-            ])
-        var mapeo = suggestedMapping(for: antes)
-        mapeo[.date] = "Cuando"
-        let ahora = NotionDataSource(
-            id: "ds", databaseTitle: "D", title: "D",
-            properties: antes.properties + [
-                NotionProperty(name: "Fecha", type: "date"),
-                NotionProperty(name: "Hablantes", type: "multi_select"),
-                NotionProperty(name: "Clave", type: "rich_text"),
-            ])
-
-        let relleno = mapeo.pruned(to: ahora).fillingGaps(from: ahora)
-
-        #expect(relleno[.date] == "Cuando")
-        #expect(relleno[.speakers] == "Hablantes")
-        #expect(relleno[.key] == "Clave")
+    @Test("sin el dato Audio no se sube nada")
+    func sinAudio() {
+        #expect(!exportDe(cuerpo: "{{transcripcion}}").needsAudio)
+        #expect(exportDe(cuerpo: "Escucha: {{audio}}").needsAudio)
     }
 }
 

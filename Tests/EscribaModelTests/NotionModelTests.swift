@@ -121,7 +121,7 @@ struct NotionModelTests {
         #expect(modelo.phase.problem?.contains("Compártele una desde Notion") == true)
     }
 
-    @Test("elegir base propone el mapeo y deja la exportacion lista")
+    @Test("elegir base propone que va en cada columna y deja la exportacion lista")
     func eligeBase() async {
         let ajustes = ajustes()
         let modelo = NotionModel(
@@ -131,44 +131,61 @@ struct NotionModelTests {
         modelo.save()
 
         #expect(modelo.selected?.id == "ds-1")
-        #expect(modelo.property(for: .title) == "Nombre")
-        #expect(modelo.property(for: .key) == "Clave")
+        #expect(modelo.value(forColumn: "Nombre") == "{{titulo}}")
+        #expect(modelo.value(forColumn: "Clave") == "{{clave}}")
         #expect(modelo.readiness == nil)
         #expect(ajustes.connector(conector)?.isReady == true)
     }
 
-    @Test("cambiar de base no arrastra el mapeo de la anterior")
+    @Test("cambiar de base no arrastra las columnas de la anterior")
     func cambiaBase() {
         let modelo = NotionModel(connector: conector, settings: ajustes(), tokens: .inMemory(), client: client { [] })
 
         modelo.choose(notas())
         modelo.choose(llamadas())
 
-        #expect(modelo.property(for: .title) == "Asunto")
-        #expect(modelo.property(for: .key) == nil)
+        #expect(modelo.value(forColumn: "Asunto") == "{{titulo}}")
+        #expect(modelo.value(forColumn: "Clave") == "")
     }
 
-    @Test("el usuario puede quitar un dato del mapeo y se guarda")
-    func mapeoManual() {
+    @Test("el usuario escribe lo que quiera en una columna, o la vacia, y se guarda")
+    func columnasManuales() {
         let ajustes = ajustes()
         let modelo = NotionModel(connector: conector, settings: ajustes, tokens: .inMemory(), client: client { [] })
         modelo.choose(notas())
 
-        modelo.assign(.date, to: nil)
+        modelo.setValue("", forColumn: "Fecha")
+        modelo.setValue("Nota: {{titulo}}", forColumn: "Nombre")
+        modelo.body = "# Resumen\n{{resumen}}"
         modelo.save()
 
-        #expect(modelo.property(for: .date) == nil)
-        #expect(ajustes.connector(conector)?.notion?.mapping[.date] == nil)
+        #expect(ajustes.connector(conector)?.notion?.columns["Fecha"] == "")
+        #expect(ajustes.connector(conector)?.notion?.columns["Nombre"] == "Nota: {{titulo}}")
+        #expect(ajustes.connector(conector)?.notion?.body == "# Resumen\n{{resumen}}")
     }
 
-    @Test("solo se ofrecen propiedades que admiten el dato")
-    func opciones() {
+    @Test("solo se ofrecen las columnas en las que Escriba sabe escribir, el titulo primero")
+    func columnas() {
         let modelo = NotionModel(connector: conector, settings: ajustes(), tokens: .inMemory(), client: client { [] })
-        modelo.choose(notas())
+        modelo.choose(NotionDataSource(
+            id: "ds", databaseTitle: "D", title: "D",
+            properties: [
+                NotionProperty(name: "Hecho", type: "checkbox"), NotionProperty(name: "Fecha", type: "date"),
+                NotionProperty(name: "Nombre", type: "title"),
+            ]))
 
-        #expect(modelo.options(for: .date).map(\.name) == ["Fecha"])
-        #expect(modelo.options(for: .duration).map(\.name) == ["Clave"])
-        #expect(modelo.options(for: .title).map(\.name) == ["Nombre"])
+        #expect(modelo.columns.map(\.name) == ["Nombre", "Fecha"])
+    }
+
+    @Test("la vista previa sigue al borrador")
+    func vistaPrevia() {
+        let modelo = NotionModel(connector: conector, settings: ajustes(), tokens: .inMemory(), client: client { [] })
+        #expect(modelo.preview == nil)
+
+        modelo.choose(notas())
+        modelo.setValue("Nota: {{titulo}}", forColumn: "Nombre")
+
+        #expect(modelo.preview?.properties.first?.value == "Nota: Lanzamiento del jueves")
     }
 
     @Test("sin token o sin base, la pantalla dice que falta")
@@ -193,7 +210,7 @@ struct NotionModelTests {
         modelo.save()
         #expect(ajustes.liveConnectors.first?.notion?.source.id == "ds-1")
 
-        modelo.assign(.title, to: nil)
+        modelo.setValue("", forColumn: "Nombre")
         modelo.save()
         #expect(ajustes.liveConnectors.isEmpty)
     }
@@ -211,8 +228,8 @@ struct NotionModelTests {
 
         await modelo.connect()
 
-        #expect(modelo.property(for: .title) == "Nombre")
-        #expect(modelo.property(for: .key) == nil)
+        #expect(modelo.value(forColumn: "Nombre") == "{{titulo}}")
+        #expect(modelo.value(forColumn: "Clave") == "")
         #expect(modelo.selected?.properties.count == 1)
     }
 

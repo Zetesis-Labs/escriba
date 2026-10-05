@@ -1,41 +1,67 @@
 import Foundation
 import EscribaCore
 
-public func render(
-    _ template: BodyTemplate, for page: NotionPage, transcript: Transcript, audio: String?,
-    timeZone: TimeZone = .current
-) -> [NotionBlock] {
-    template.blocks.flatMap { block -> [NotionBlock] in
-        switch block {
-        case .text(let text):
-            return text.isEmpty ? [] : notionBlocks(for: Transcript(text: text), style: .plain)
-        case .heading(let text):
-            guard !text.trimmingCharacters(in: .whitespaces).isEmpty else { return [] }
-            return [NotionBlock(kind: .heading, runs: [NotionRun(text: text, bold: false)])]
-        case .transcript(let style):
-            return notionBlocks(for: transcript, style: style)
-        case .summary:
-            guard let summary = page.summary, !summary.isEmpty else { return [] }
-            return notionBlocks(for: Transcript(text: summary), style: .plain)
-        case .audio:
-            return audio.map { [NotionBlock(kind: .audio(uploadId: $0), runs: [])] } ?? []
-        case .field(let field):
-            return fieldValue(field, of: page, timeZone: timeZone).map {
-                [NotionBlock(runs: [NotionRun(text: "\(field.label): ", bold: true), NotionRun(text: $0, bold: false)])]
-            } ?? []
+private enum BodyLine {
+    case heading(Int, String)
+    case text(String)
+    case bullet(String)
+    case blocks([NotionBlock])
+    case blank
+
+    var level: Int? {
+        if case .heading(let level, _) = self { return level }
+        return nil
+    }
+
+    var isBlank: Bool {
+        switch self {
+        case .blank: true
+        case .blocks(let blocks): blocks.isEmpty
+        default: false
         }
     }
 }
 
-func fieldValue(_ field: NoteField, of page: NotionPage, timeZone: TimeZone) -> String? {
-    switch field {
-    case .title: page.title
-    case .date: page.startedAt.formatted(.dateTime.day().month(.wide).year().hour().minute())
-    case .speakers: page.speakers.isEmpty ? nil : page.speakers.joined(separator: ", ")
-    case .duration: page.duration.map(durationClock)
-    case .key: page.key
-    case .source: page.source
-    case .summary: page.summary.flatMap { $0.isEmpty ? nil : $0 }
-    case .tags: page.tags.isEmpty ? nil : page.tags.joined(separator: ", ")
+public func notionBody(_ template: String, values: NoteValues, audio: String?) -> [NotionBlock] {
+    let lines = template.components(separatedBy: "\n").flatMap { bodyLines($0, values: values, audio: audio) }
+    return withoutEmptySections(lines, level: \.level, isBlank: \.isBlank).flatMap { line -> [NotionBlock] in
+        switch line {
+        case .heading(let level, let text): paragraphBlocks(text, kind: .heading(min(level, 3)))
+        case .text(let text): paragraphBlocks(text)
+        case .bullet(let text): paragraphBlocks(text, kind: .bullet)
+        case .blocks(let blocks): blocks
+        case .blank: []
+        }
+    }
+}
+
+private func bodyLines(_ line: String, values: NoteValues, audio: String?) -> [BodyLine] {
+    switch soleToken(of: line) {
+    case .transcript(let style)?:
+        return [.blocks(notionBlocks(for: values.transcript, style: style))]
+    case .audio?:
+        return audio.map { [.blocks([NotionBlock(kind: .audio(uploadId: $0), runs: [])])] } ?? []
+    case .link?:
+        return []
+    default:
+        break
+    }
+    let pieces = templatePieces(line)
+    let hasToken = pieces.contains { if case .token = $0 { true } else { false } }
+    let hasText = pieces.contains { piece in
+        if case .text(let text) = piece { return !text.trimmingCharacters(in: .whitespaces).isEmpty }
+        return false
+    }
+    let rendered = values.inline(line)
+    if hasToken, !hasText, rendered.trimmingCharacters(in: .whitespaces).isEmpty { return [] }
+    return rendered.split(separator: "\n", omittingEmptySubsequences: false).map { physical in
+        let text = String(physical)
+        guard !text.trimmingCharacters(in: .whitespaces).isEmpty else { return .blank }
+        if let level = markdownHeadingLevel(text) {
+            let title = text.drop { $0 == "#" }.trimmingCharacters(in: .whitespaces)
+            return title.isEmpty ? .blank : .heading(level, title)
+        }
+        if text.hasPrefix("- ") || text.hasPrefix("* ") { return .bullet(String(text.dropFirst(2))) }
+        return .text(text)
     }
 }

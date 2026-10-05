@@ -48,18 +48,20 @@ private func exportacion(clave: Bool = true) -> NotionExport {
             NotionProperty(name: "Nombre", type: "title"),
             NotionProperty(name: "Clave", type: "rich_text"),
         ])
-    var mapeo = suggestedMapping(for: fuente)
-    if !clave { mapeo[.key] = nil }
-    return NotionExport(source: fuente, mapping: mapeo)
+    var columnas = suggestedColumns(for: fuente)
+    if !clave { columnas["Clave"] = nil }
+    return NotionExport(source: fuente, columns: columnas, body: NotionExport.standardBody)
 }
 
 private func pagina(turnos: Int) -> NotionPage {
     notionPage(
-        for: Recording(url: URL(fileURLWithPath: "/a.m4a"), startedAt: .now, key: "a"),
-        transcript: Transcript(segments: (0..<turnos).map {
-            TranscriptSegment(
-                start: Double($0), end: Double($0) + 1, speaker: "H\($0)", text: "turno \($0)")
-        }))
+        for: Note(
+            recording: Recording(url: URL(fileURLWithPath: "/a.m4a"), startedAt: .now, key: "a"),
+            transcript: Transcript(segments: (0..<turnos).map {
+                TranscriptSegment(
+                    start: Double($0), end: Double($0) + 1, speaker: "H\($0)", text: "turno \($0)")
+            })),
+        as: exportacion())
 }
 
 @Suite("Publicar en Notion")
@@ -120,7 +122,7 @@ struct PublicacionTests {
         #expect(espia.registro == ["actualizar(pg-borrada)", "crear(1)"])
     }
 
-    @Test("sin clave mapeada no se busca duplicado y siempre crea")
+    @Test("sin columna de clave no se busca duplicado y siempre crea")
     func sinClave() async throws {
         let espia = Espia(existente: NotionPageRef(id: "pg-vieja", url: nil))
         let ref = try await publish(pagina(turnos: 1), as: exportacion(clave: false), using: espia.client)
@@ -129,12 +131,12 @@ struct PublicacionTests {
         #expect(espia.registro == ["crear(1)"])
     }
 
-    @Test("una exportacion sin titulo mapeado no vale")
+    @Test("una exportacion sin nada en el titulo no vale")
     func exportacionInvalida() {
         var export = exportacion()
         #expect(export.isUsable)
 
-        export.mapping[.title] = nil
+        export.columns["Nombre"] = nil
         #expect(!export.isUsable)
     }
 }

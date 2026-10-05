@@ -79,7 +79,7 @@ struct MapeoTests {
     func baseSinTitulo() {
         let sinTitulo = base([NotionProperty(name: "Cuando", type: "date")])
 
-        #expect(!isUsable(suggestedMapping(for: sinTitulo), for: sinTitulo))
+        #expect(!NotionExport(source: sinTitulo, columns: suggestedColumns(for: sinTitulo)).isUsable)
         #expect(usabilityProblem(for: sinTitulo) == "La base «Notas» no tiene propiedad de título.")
     }
 
@@ -97,7 +97,7 @@ struct MapeoTests {
 
         mapeo[.date] = nil
         #expect(mapeo[.date] == nil)
-        #expect(isUsable(mapeo, for: fuente))
+        #expect(mapeo[.title] == "Nombre")
     }
 
     @Test("la sugerencia no le roba a otro dato la propiedad que lleva su nombre")

@@ -82,7 +82,7 @@ struct ConectoresTests {
             source: NotionDataSource(
                 id: "ds", databaseTitle: "D", title: "D",
                 properties: [NotionProperty(name: "Nombre", type: "title")]),
-            mapping: NotionMapping([.title: "Nombre"]), style: .timestamps)
+            columns: ["Nombre": "{{titulo}}"], body: "{{transcripcion-tiempos}}")
         antes.connectors = [conector]
 
         let despues = AppSettings(defaults: defaults, recorderRoot: nil, voiceMemos: nil)
@@ -91,16 +91,8 @@ struct ConectoresTests {
         #expect(despues.liveConnectors.map(\.name) == ["Trabajo"])
     }
 
-    @Test("mover bloques de la plantilla conserva el resto en orden")
-    func mover() {
-        #expect(moved([1, 2, 3, 4], from: [0], to: 3) == [2, 3, 1, 4])
-        #expect(moved([1, 2, 3, 4], from: [3], to: 0) == [4, 1, 2, 3])
-        #expect(moved([1, 2, 3, 4], from: [1, 2], to: 4) == [1, 4, 2, 3])
-        #expect(moved([1, 2, 3], from: [9], to: 0) == [1, 2, 3])
-    }
-
-    @Test("el editor cambia la plantilla del conector con /comandos")
-    func plantillaDesdeElEditor() {
+    @Test("el editor cambia el cuerpo de la pagina y solo se guarda al pulsar Guardar")
+    func cuerpoDesdeElEditor() {
         let ajustes = ajustes()
         let modelo = ConnectorsModel(settings: ajustes, tokens: { _ in .inMemory() }, client: cliente)
         let conector = modelo.add()
@@ -110,17 +102,12 @@ struct ConectoresTests {
                 id: "ds", databaseTitle: "D", title: "D",
                 properties: [NotionProperty(name: "Nombre", type: "title")]))
 
-        editor.insert(.text("/aud"), at: 0)
-        #expect(!editor.apply(command: "/aud", replacing: 0))
-        #expect(editor.apply(command: "/audio", replacing: 0))
-        editor.insert(.text("Notas"), at: 1)
-        editor.moveBlocks(from: [2], to: 0)
+        editor.body = "{{audio}}\nNotas\n{{transcripcion}}"
+        #expect(ajustes.connector(conector.id)?.notion == nil)
         editor.save()
 
-        #expect(ajustes.connector(conector.id)?.notion?.template.blocks == [
-            .transcript(.speakers), .audio, .text("Notas"),
-        ])
-        #expect(ajustes.connector(conector.id)?.notion?.template.needsAudio == true)
+        #expect(ajustes.connector(conector.id)?.notion?.body == "{{audio}}\nNotas\n{{transcripcion}}")
+        #expect(ajustes.connector(conector.id)?.notion?.needsAudio == true)
     }
 
     @Test("solo publican los conectores activados y listos")
@@ -130,7 +117,7 @@ struct ConectoresTests {
             source: NotionDataSource(
                 id: "ds", databaseTitle: "D", title: "D",
                 properties: [NotionProperty(name: "Nombre", type: "title")]),
-            mapping: NotionMapping([.title: "Nombre"]))
+            columns: ["Nombre": "{{titulo}}"])
         ajustes.connectors = [
             Connector(name: "apagado", enabled: false, notion: listo),
             Connector(name: "sin base", enabled: true, notion: nil),

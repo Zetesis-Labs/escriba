@@ -127,10 +127,6 @@ public func suggestedMapping(for source: NotionDataSource) -> NotionMapping {
     return mapping
 }
 
-public func isUsable(_ mapping: NotionMapping, for source: NotionDataSource) -> Bool {
-    usabilityProblem(for: source) == nil && mapping[.title] != nil
-}
-
 public func usabilityProblem(for source: NotionDataSource) -> String? {
     guard compatible(.title, in: source).isEmpty else { return nil }
     return "La base «\(source.title)» no tiene propiedad de título."

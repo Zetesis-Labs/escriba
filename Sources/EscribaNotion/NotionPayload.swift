@@ -18,7 +18,8 @@ public struct NotionRun: Equatable, Sendable {
 public struct NotionBlock: Equatable, Sendable {
     public enum Kind: Equatable, Sendable {
         case paragraph
-        case heading
+        case heading(Int)
+        case bullet
         case audio(uploadId: String)
     }
 
@@ -34,62 +35,15 @@ public struct NotionBlock: Equatable, Sendable {
 }
 
 public struct NotionPage: Equatable, Sendable {
-    public let title: String
     public let key: String
-    public let startedAt: Date
-    public let speakers: [String]
-    public let duration: TimeInterval?
-    public let source: String
-    public let summary: String?
-    public let tags: [String]
+    public let properties: [String: JSONValue]
     public let blocks: [NotionBlock]
 
-    init(
-        title: String, key: String, startedAt: Date, speakers: [String], duration: TimeInterval?,
-        source: String, summary: String? = nil, tags: [String] = [], blocks: [NotionBlock]
-    ) {
-        self.title = title
+    public init(key: String, properties: [String: JSONValue], blocks: [NotionBlock]) {
         self.key = key
-        self.startedAt = startedAt
-        self.speakers = speakers
-        self.duration = duration
-        self.source = source
-        self.summary = summary
-        self.tags = tags
+        self.properties = properties
         self.blocks = blocks
     }
-}
-
-extension NotionPage {
-    public func replacing(blocks: [NotionBlock]) -> NotionPage {
-        NotionPage(
-            title: title, key: key, startedAt: startedAt, speakers: speakers, duration: duration,
-            source: source, summary: summary, tags: tags, blocks: blocks)
-    }
-}
-
-public func notionPage(
-    for recording: Recording, transcript: Transcript, digest: Digest? = nil,
-    style: TranscriptStyle = .speakers
-) -> NotionPage {
-    NotionPage(
-        title: pageTitle(digest: digest, key: recording.key, text: transcript.text),
-        key: recording.key,
-        startedAt: recording.startedAt,
-        speakers: transcript.speakers,
-        duration: transcript.duration,
-        source: recording.url.path(percentEncoded: false),
-        summary: digest?.summary,
-        tags: digest?.tags ?? [],
-        blocks: notionBlocks(for: transcript, style: style))
-}
-
-public func notionPage(for note: Note, style: TranscriptStyle = .speakers) -> NotionPage {
-    notionPage(for: note.recording, transcript: note.transcript, digest: note.digest, style: style)
-}
-
-func pageTitle(digest: Digest?, key: String, text: String) -> String {
-    noteTitle(digest: digest, key: key, text: text, limit: notionTitleLimit)
 }
 
 public func notionBlocks(for transcript: Transcript, style: TranscriptStyle) -> [NotionBlock] {
@@ -117,8 +71,30 @@ public func notionBatches(_ blocks: [NotionBlock]) -> [[NotionBlock]] {
     }
 }
 
+public func paragraphBlocks(_ text: String, kind: NotionBlock.Kind = .paragraph) -> [NotionBlock] {
+    let runs = textRuns(text)
+    guard runs.map(\.text.count).reduce(0, +) > notionTextLimit else {
+        return runs.isEmpty ? [] : [NotionBlock(kind: kind, runs: runs)]
+    }
+    let lead = runs.first.flatMap { $0.bold ? $0.text : nil }
+    let rest = runs.dropFirst(lead == nil ? 0 : 1).map(\.text).joined()
+    return blocks(for: TranscriptTurn(speaker: nil, text: rest), prefix: lead.map { NotionRun(text: $0, bold: true) })
+        .map { NotionBlock(kind: kind, runs: $0.runs) }
+}
+
+func textRuns(_ text: String) -> [NotionRun] {
+    let parts = text.components(separatedBy: "**")
+    guard parts.count % 2 == 1 else { return text.isEmpty ? [] : [NotionRun(text: text, bold: false)] }
+    return parts.enumerated()
+        .filter { !$0.element.isEmpty }
+        .map { NotionRun(text: $0.element, bold: $0.offset % 2 == 1) }
+}
+
 private func blocks(for turn: TranscriptTurn) -> [NotionBlock] {
-    let prefix = turn.speaker.map { NotionRun(text: "\($0): ", bold: true) }
+    blocks(for: TranscriptTurn(speaker: nil, text: turn.text), prefix: turn.speaker.map { NotionRun(text: "\($0): ", bold: true) })
+}
+
+private func blocks(for turn: TranscriptTurn, prefix: NotionRun?) -> [NotionBlock] {
     let lines = turn.text.split(whereSeparator: \.isNewline).map(String.init)
 
     var blocks: [NotionBlock] = []

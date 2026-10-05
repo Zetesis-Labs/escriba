@@ -13,12 +13,17 @@ struct PayloadTests {
             url: URL(fileURLWithPath: "/Notas/\(key).m4a"), startedAt: momento, key: key)
     }
 
+    private func pagina(_ recording: Recording, _ transcript: Transcript) -> (title: String, blocks: [NotionBlock]) {
+        let nota = Note(recording: recording, transcript: transcript)
+        return (NoteValues(nota, timeZone: .gmt).title, notionBlocks(for: transcript, style: .speakers))
+    }
+
     @Test("el titulo es el arranque del texto, cortado por palabra")
     func tituloDelTexto() {
         let transcript = Transcript(
             text: "Hola Aritz, te llamo por lo del contrato de la semana que viene y "
                 + "por el asunto de las licencias que quedo pendiente ayer por la tarde")
-        let pagina = notionPage(for: grabacion(), transcript: transcript)
+        let pagina = pagina(grabacion(), transcript)
 
         #expect(pagina.title.count <= notionTitleLimit + 1)
         #expect(pagina.title.hasPrefix("Hola Aritz, te llamo por lo del contrato"))
@@ -28,14 +33,14 @@ struct PayloadTests {
 
     @Test("sin texto el titulo cae a la clave de la grabacion")
     func tituloSinTexto() {
-        let pagina = notionPage(for: grabacion(key: "2026-09-16 09-20-00"), transcript: Transcript(text: ""))
+        let pagina = pagina(grabacion(key: "2026-09-16 09-20-00"), Transcript(text: ""))
 
         #expect(pagina.title == "2026-09-16 09-20-00")
     }
 
     @Test("un texto corto no se corta ni lleva puntos suspensivos")
     func tituloCorto() {
-        let pagina = notionPage(for: grabacion(), transcript: Transcript(text: "Comprar pan"))
+        let pagina = pagina(grabacion(), Transcript(text: "Comprar pan"))
 
         #expect(pagina.title == "Comprar pan")
     }
@@ -47,7 +52,7 @@ struct PayloadTests {
             TranscriptSegment(start: 2, end: 4, speaker: "Ruben", text: "Te llamo por el envio."),
             TranscriptSegment(start: 4, end: 6, speaker: "Aritz", text: "Dime."),
         ])
-        let pagina = notionPage(for: grabacion(), transcript: transcript)
+        let pagina = pagina(grabacion(), transcript)
 
         #expect(pagina.blocks.count == 2)
         #expect(pagina.blocks[0].runs == [
@@ -62,8 +67,7 @@ struct PayloadTests {
 
     @Test("sin hablantes cada linea del texto es un parrafo")
     func parrafosSinHablantes() {
-        let pagina = notionPage(
-            for: grabacion(), transcript: Transcript(text: "Primera linea\n\nSegunda linea"))
+        let pagina = pagina(grabacion(), Transcript(text: "Primera linea\n\nSegunda linea"))
 
         #expect(pagina.blocks.map(\.plainText) == ["Primera linea", "Segunda linea"])
         #expect(pagina.blocks.allSatisfy { $0.runs.allSatisfy { !$0.bold } })
@@ -73,7 +77,7 @@ struct PayloadTests {
     func troceadoPorLimite() {
         let palabra = String(repeating: "a", count: 99)
         let largo = Array(repeating: palabra, count: 60).joined(separator: " ")
-        let pagina = notionPage(for: grabacion(), transcript: Transcript(text: largo))
+        let pagina = pagina(grabacion(), Transcript(text: largo))
 
         #expect(pagina.blocks.count > 1)
         #expect(pagina.blocks.allSatisfy { $0.plainText.count <= notionTextLimit })
@@ -88,7 +92,7 @@ struct PayloadTests {
         let transcript = Transcript(segments: [
             TranscriptSegment(start: 0, end: 1, speaker: "Ruben", text: largo)
         ])
-        let pagina = notionPage(for: grabacion(), transcript: transcript)
+        let pagina = pagina(grabacion(), transcript)
 
         #expect(pagina.blocks.count > 1)
         #expect(pagina.blocks[0].runs.first == NotionRun(text: "Ruben: ", bold: true))
@@ -105,18 +109,10 @@ struct PayloadTests {
         #expect(notionBatches([]).isEmpty)
     }
 
-    @Test("la pagina lleva clave, fecha, duracion, hablantes y origen")
-    func propiedades() {
-        let transcript = Transcript(segments: [
-            TranscriptSegment(start: 0, end: 12, speaker: "Ruben", text: "Hola."),
-            TranscriptSegment(start: 12, end: 30.5, speaker: "Aritz", text: "Adios."),
-        ])
-        let pagina = notionPage(for: grabacion(key: "clave-1"), transcript: transcript)
+    @Test("la pagina lleva la clave de la grabacion para reencontrarla")
+    func clave() {
+        let nota = Note(recording: grabacion(key: "clave-1"), transcript: Transcript(text: "Hola"))
 
-        #expect(pagina.key == "clave-1")
-        #expect(pagina.startedAt == momento)
-        #expect(pagina.speakers == ["Ruben", "Aritz"])
-        #expect(pagina.duration == 30.5)
-        #expect(pagina.source == "/Notas/clave-1.m4a")
+        #expect(notionPage(for: nota, as: exportDe(), timeZone: .gmt).key == "clave-1")
     }
 }

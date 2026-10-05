@@ -82,38 +82,29 @@ public final class NotionModel {
         phase = .idle
     }
 
-    public var template: BodyTemplate {
-        get { export?.template ?? .standard }
-        set { edit { $0.notion?.template = newValue } }
+    public var columns: [NotionProperty] {
+        selected.map(writableProperties(of:)) ?? []
     }
 
-    public func insert(_ block: TemplateBlock, at index: Int) {
-        template = template.inserting(block, at: index)
+    public func value(forColumn name: String) -> String {
+        export?.columns[name] ?? ""
     }
 
-    public func removeBlock(at index: Int) {
-        template = template.removing(at: index)
+    public func setValue(_ value: String, forColumn name: String) {
+        edit { $0.notion?.columns[name] = value }
     }
 
-    public func moveBlocks(from source: IndexSet, to destination: Int) {
-        template = template.moving(from: source, to: destination)
+    public var body: String {
+        get { export?.body ?? NotionExport.standardBody }
+        set { edit { $0.notion?.body = newValue } }
     }
 
-    public func setText(_ text: String, at index: Int) {
-        template = template.settingText(text, at: index)
-    }
-
-    public func apply(command typed: String, replacing index: Int) -> Bool {
-        guard let applied = template.applying(command: typed, at: index) else { return false }
-        template = applied
-        return true
-    }
+    public var preview: NotionPreview? { export.map { notionPreview($0) } }
 
     public var readiness: String? {
         guard !token.isEmpty else { return "Pega el token de tu integración de Notion." }
         guard let export else { return "Elige la base donde guardar." }
-        return usabilityProblem(for: export.source)
-            ?? (export.isUsable ? nil : "Falta decir qué propiedad hace de título.")
+        return notionProblem(export)
     }
 
     private func edit(_ change: (inout Connector) -> Void) {
@@ -142,25 +133,11 @@ public final class NotionModel {
     }
 
     public func choose(_ source: NotionDataSource) {
-        let mapping = export.map {
-            $0.source.id == source.id ? $0.mapping.pruned(to: source) : suggestedMapping(for: source)
-        } ?? suggestedMapping(for: source)
-
-        let template = export?.template ?? .standard
-        edit { $0.notion = NotionExport(source: source, mapping: mapping, template: template) }
-    }
-
-    public func assign(_ field: NoteField, to property: String?) {
-        edit { $0.notion?.mapping[field] = property }
-    }
-
-    public func property(for field: NoteField) -> String? {
-        export?.mapping[field]
-    }
-
-    public func options(for field: NoteField) -> [NotionProperty] {
-        guard let source = selected else { return [] }
-        return compatible(field, in: source)
+        let columns = export.map {
+            $0.source.id == source.id ? refreshedColumns($0.columns, for: source) : suggestedColumns(for: source)
+        } ?? suggestedColumns(for: source)
+        let body = export?.body ?? NotionExport.standardBody
+        edit { $0.notion = NotionExport(source: source, columns: columns, body: body) }
     }
 
     public func disconnect() {
@@ -185,9 +162,7 @@ public final class NotionModel {
         else { return }
         edit {
             $0.notion = NotionExport(
-                source: fresh,
-                mapping: current.mapping.pruned(to: fresh).fillingGaps(from: fresh),
-                template: current.template)
+                source: fresh, columns: refreshedColumns(current.columns, for: fresh), body: current.body)
         }
     }
 }
