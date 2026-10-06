@@ -15,28 +15,45 @@ publica y con qué datos. El usuario tiene N recetas y elige cuál se aplica a
 cada carpeta vigilada o a cada grabación. Una receta puede pasar la nota a
 otra.
 
-```js
-const receta = { clave: "general", nombre: "General" }
+Las recetas viven en un **proyecto de código**: una carpeta con una
+subcarpeta por receta y carpetas comunes que cualquier receta importa.
 
-const datos = {
-  type: "object",
-  properties: { categoria: { enum: ["reunion", "idea", "tarea", "personal"] } },
-  required: ["categoria"],
-}
+```
+recetas/                          el proyecto
+├── escriba-recetas.d.ts          tipos del contrato (los escribe la app)
+├── tsconfig.json                 para abrirlo también en VS Code (lo escribe la app)
+├── comun/
+│   ├── glosario.ts
+│   └── categorias.ts
+└── recetas/
+    ├── general/
+    │   └── receta.ts
+    └── reuniones/
+        ├── receta.ts
+        └── plantillas.ts
+```
 
-async function flujo(audio, escriba) {
+```ts
+// recetas/general/receta.ts
+import { corregir } from "../../comun/glosario"
+import { ESQUEMA, type Categoria } from "../../comun/categorias"
+
+export const receta = { nombre: "General" }
+
+export async function flujo(audio: Audio, escriba: Escriba) {
   if (audio.duracion < 10) return
   const nota = await escriba.transcribir(audio, { stt: "whisper", hablantes: { detectar: true } })
-  nota.texto = nota.texto.replaceAll("escrivá", "Escriba")
-  nota.datos = await escriba.preguntar({ entrada: nota.texto.slice(0, 3000), esquema: datos })
+  nota.texto = corregir(nota.texto)
+  const { categoria } = await escriba.preguntar<{ categoria: Categoria }>({ entrada: nota.texto.slice(0, 3000), esquema: ESQUEMA })
+  nota.datos.categoria = categoria
   await nota.guardar()
-  if (nota.datos.categoria === "reunion") return escriba.receta("reuniones")(nota)
+  if (categoria === "reunion") return escriba.receta("reuniones")(nota)
   await nota.resumir({ llm: "apple" })
   await nota.guardar()
   await publicar(nota, escriba)
 }
 
-async function publicar(nota, escriba) {
+export async function publicar(nota: Nota, escriba: Escriba) {
   await escriba.conector("okf-ideas").publicar({
     documentos: [{ ruta: `ideas/${nota.fecha.slice(0, 10)}.md`, frontmatter: nota.datos, cuerpo: nota.resumen.texto }],
   })
@@ -50,12 +67,17 @@ async function publicar(nota, escriba) {
 - La app guarda **N recetas** y una **favorita**, con la misma forma que las
   listas de STT y de LLMs: sección propia en la barra lateral, añadir, quitar,
   duplicar, renombrar, marcar favorita.
-- Cada receta tiene una **clave estable** (`receta.clave`) que no cambia al
-  renombrarla; las redirecciones usan la clave.
-- Las recetas son ficheros `.js` en
-  `~/Library/Application Support/escriba/recetas`: se importan, se exportan y
-  se comparten. Una receta importada con una clave que ya existe pide
-  reemplazar o duplicar.
+- Las recetas viven en un **proyecto de recetas** (RF-18): una receta es una
+  subcarpeta de `recetas/` con su fichero de entrada, y el código compartido
+  va en carpetas comunes.
+- La **clave** de una receta es el nombre de su carpeta; el nombre que se ve
+  en la app es `receta.nombre` y se cambia sin tocar la clave. Las
+  redirecciones usan la clave, y la app la escribe en los tipos para que una
+  clave mal escrita sea un error de tipos.
+- Una receta se exporta como su carpeta más los ficheros comunes que importa
+  (la app conoce el grafo de imports) y se importa descomprimiéndola en el
+  proyecto. Si ya existe una carpeta con esa clave, pide reemplazar o
+  duplicar.
 
 ### RF-2. Qué receta procesa cada grabación
 
@@ -85,23 +107,24 @@ la receta en `audio.eleccion`.
 - La app trae una **receta por defecto** generada que reproduce el
   comportamiento actual de Escriba.
 
-### RF-4. El contrato del fichero
+### RF-4. El contrato de una receta
 
-JavaScriptCore no admite módulos en su API pública (verificado en las
-cabeceras de macOS 26), así que una receta es un script con nombres fijos:
+El fichero de entrada de cada receta (`recetas/<clave>/receta.ts` o
+`receta.js`) exporta:
 
 | Nombre | Obligatorio | Qué es |
 |---|---|---|
-| `receta` | Sí | `{ clave, nombre }` |
+| `receta` | Sí | `{ nombre }` |
 | `flujo(audio, escriba)` | Sí | Función asíncrona: todo el recorrido de una grabación |
 | `publicar(nota, escriba)` | No | Función asíncrona: publicar una nota ya procesada (RF-9) |
 | `datos` | No | Esquema de los metadatos propios de la receta (RF-7) |
 
-- Cada receta vive en su propio contexto de JavaScript: sus nombres no chocan
-  con los de otra.
-- Una receta se escribe en **JavaScript o en TypeScript** (`.js` o `.ts`). La
-  app traduce el TypeScript a JavaScript al guardar (RF-16); lo que ejecuta
-  JavaScriptCore es siempre JavaScript.
+- Se escribe con **módulos normales**: `import` y `export` entre ficheros del
+  proyecto, en **JavaScript o TypeScript**. JavaScriptCore no admite módulos en
+  su API pública (verificado en las cabeceras de macOS 26), así que la app
+  traduce cada fichero con el compilador de TypeScript y los carga con un
+  `require` propio que resuelve rutas relativas dentro del proyecto (RF-18).
+- Cada receta se ejecuta en su propio contexto de JavaScript.
 - Los tipos del contrato viven en un solo fichero, `escriba-recetas.d.ts`, que
   usan el editor de la app, el MCP (RF-17) y el editor propio del usuario. Un
   test lo compara con los tipos del contrato en Swift para que no se
@@ -287,7 +310,11 @@ el editor de VS Code, dentro de una vista web (`WKWebView`).
 - **Ayudas al desarrollador** con el servicio de TypeScript de Monaco y
   `escriba-recetas.d.ts`: autocompletado de `escriba.` y `nota.`, errores de
   tipos y de sintaxis subrayados mientras se escribe, firma y documentación al
-  pasar el ratón, y saltar a la definición.
+  pasar el ratón, y saltar a la definición, **también entre ficheros**: Monaco
+  recibe todos los ficheros del proyecto, así que autocompleta lo que exporta
+  `comun/` y marca un import roto.
+- **Árbol del proyecto** a la izquierda (nativo, en SwiftUI) y pestañas en
+  Monaco: crear, renombrar, mover y borrar ficheros y carpetas.
 - **El texto vive en Swift**: la vista web solo edita; guardar, validar y
   traducir lo hace la app, por el mismo camino que una receta importada o
   escrita por MCP.
@@ -319,9 +346,9 @@ resultados.
 
   | Herramienta | Qué hace |
   |---|---|
-  | `recetas_listar`, `receta_leer` | Las recetas y su código |
+  | `proyecto_listar`, `fichero_leer` | El árbol del proyecto y el contenido de un fichero |
   | `receta_tipos` | `escriba-recetas.d.ts`, para que el agente sepa qué puede pedir |
-  | `receta_escribir` | Guardar una receta, validada y traducida como en RF-16 |
+  | `fichero_escribir`, `fichero_borrar` | Cambiar ficheros del proyecto; cada cambio comprueba el proyecto entero (RF-18) y devuelve sus errores |
   | `receta_probar` | Ejecutarla sobre una grabación sin publicar (RF-15) y devolver la traza, los datos y las cargas de cada conector |
   | `notas_buscar` | Por texto, fechas, receta o metadatos propios |
   | `nota_leer` | Transcripción con hablantes, resumen, datos, traza y dónde se publicó |
@@ -336,6 +363,37 @@ resultados.
   recetas y se puede hacer antes (2 o 3 días); editar y probar recetas va
   después de la fase 3 (otros 2 o 3 días).
 
+### RF-18. El proyecto de recetas
+
+- Es una **carpeta normal**: por defecto
+  `~/Library/Application Support/escriba/recetas`, y el usuario puede elegir
+  otra (por ejemplo, dentro de su carpeta de desarrollo) para versionarla con
+  git o abrirla en VS Code. La app escribe y mantiene `escriba-recetas.d.ts` y
+  `tsconfig.json`; el resto es del usuario.
+- **Estructura**: `recetas/<clave>/receta.ts` es una receta; cualquier otra
+  carpeta (`comun/`, `lib/`, la que sea) es código compartido. Una receta
+  puede tener ficheros propios en su carpeta.
+- **Imports**: rutas relativas entre ficheros del proyecto. Sin paquetes de
+  npm ni `node_modules` en la primera versión.
+- **Comprobación del proyecto entero** al guardar cualquier fichero: un error
+  en `comun/` aparece en las recetas que lo importan. Un error de sintaxis
+  desactiva las recetas afectadas hasta que se arregle (las demás siguen
+  procesando); un error de tipos avisa pero no bloquea.
+- **Recarga en caliente**: la app vigila la carpeta y vuelve a traducir solo
+  lo que cambió. Una nota que ya está en marcha termina con el código con el
+  que empezó; la traza guarda la huella del grafo de ficheros que usó.
+- Las recetas generadas por el formulario también son carpetas del proyecto;
+  editar a mano cualquiera de sus ficheros la convierte en manual.
+- Probado el 2026-10-06 con un proyecto de cinco ficheros (dos recetas en
+  subcarpetas y una carpeta común):
+
+  | Prueba | Resultado |
+  |---|---|
+  | Comprobar los tipos del proyecto entero | 385 ms la primera vez, sin errores |
+  | Traducir cada fichero para cargarlo | 18 ms |
+  | La receta general importa de `comun/`, pregunta, y pasa la nota a la de reuniones, que también importa de `comun/` | Funciona, 0,5 ms sin contar las capacidades |
+  | Renombrar mal un import | Error detectado entre ficheros en 8,5 ms |
+
 ## Arquitectura
 
 - **El contrato vive en `EscribaCore`**: tipos de `audio`, `nota`, opciones,
@@ -347,7 +405,9 @@ resultados.
   siendo la fuente de verdad del pipeline y la biblioteca su espejo.
 - **Puerto `RecipeRuntime`** en `EscribaEngine`: ejecutar una receta con unas
   capacidades. Adaptador **JavaScriptCore** en macOS (un hilo propio, nunca el
-  principal; un contexto por receta). El puerto permite cambiar
+  principal; un contexto por receta) con un cargador de módulos propio: cada
+  fichero del proyecto traducido a CommonJS y un `require` que resuelve rutas
+  relativas dentro del proyecto. El puerto permite cambiar
   JavaScriptCore por otro runtime (por ejemplo, un motor de JavaScript
   compilado a WebAssembly) sin tocar las recetas.
 - La app no compila nada ni lanza procesos.
@@ -376,8 +436,8 @@ Cada fase termina en la app, con tests, y la prueba Rubén.
    comprobada con grabaciones reales).
 3. **N recetas y enrutado.** Lista como los resolutores, generadas y manuales,
    receta por carpeta y en la flecha de grabar e importar, «Personalizar»,
-   migración de los ajustes por carpeta, «Probar con…», y el editor Monaco con
-   TypeScript (RF-16).
+   migración de los ajustes por carpeta, «Probar con…», el proyecto de recetas
+   con carpetas comunes (RF-18) y el editor Monaco con TypeScript (RF-16).
 4. **Preguntar y metadatos.** `preguntar` con esquema en los dos tipos de LLM,
    `datos` por versión, la biblioteca los muestra y filtra.
 5. **Conectores decididos por la receta.** Cargas por tipo de conector,
@@ -410,4 +470,4 @@ las grandes.
 - ¿Puede una receta de `flujo` descartar una grabación para siempre, o solo
   saltarla esta vez?
 - ¿Se le da a la receta acceso de solo lectura al audio (para medir silencios)?
-- ¿Qué pasa con una nota en curso si su receta cambia a mitad de proceso?
+- ¿Paquetes de npm puros (sin APIs de Node) en una versión posterior?
