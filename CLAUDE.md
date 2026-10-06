@@ -26,8 +26,9 @@ Kubernetes **está descartado** (Rubén, 2026-10-06: no se va a hacer; no
 reabrirlo sin que lo pida): el análisis queda en
 `docs/requisito-nucleo-wasm-kubernetes.md` y la prueba de `wasi:http` en
 `spikes/wasi-http`. **Recetas** (requisito propuesto por Rubén el
-2026-10-06, sin empezar: `docs/requisito-recetas.md`): N scripts JavaScript,
-como los resolutores, que orquestan todo el recorrido de una grabación con
+2026-10-06, sin empezar: `docs/requisito-recetas.md`): un proyecto de código
+con una carpeta por receta y carpetas comunes importables, en JavaScript o
+TypeScript; las recetas se eligen como los resolutores y orquestan todo el recorrido de una grabación con
 `await` (transcribir, resumir, preguntar a los LLM con esquema, guardar
 metadatos propios, publicar en los conectores que la receta elija y con los
 datos que decida); se asignan por carpeta o al grabar e importar, y una puede
