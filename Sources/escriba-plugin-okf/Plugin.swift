@@ -25,7 +25,7 @@ func isType(_ property: OKFProperty, in document: OKFDocument) -> Bool {
         && document.properties.first { $0.key.trimmingCharacters(in: .whitespaces) == "type" }?.id == property.id
 }
 
-func documentItems(_ document: OKFDocument, index: Int, export: OKFExport, preview: [OKFPreviewFile]) -> [FormItem] {
+func documentItems(_ document: OKFDocument, index: Int, export: OKFExport) -> [FormItem] {
     let base = "documents/\(index)"
     let links = export.documents.map { FormLink(id: $0.id, name: $0.name) }
     let properties = document.properties.enumerated().map { offset, property in
@@ -37,7 +37,6 @@ func documentItems(_ document: OKFDocument, index: Int, export: OKFExport, previ
             .button("Quitar", action: "removeProperty/\(document.id)/\(property.id)", symbol: "xmark.circle", enabled: !isType(property, in: document)),
         ])
     }
-    let file = preview.first { $0.documentID == document.id }
     return [
         .section(
             "Documento",
@@ -57,17 +56,16 @@ func documentItems(_ document: OKFDocument, index: Int, export: OKFExport, previ
         .section(
             "Así queda",
             footer: "Con una grabación de ejemplo. Se actualiza mientras escribes, antes de guardar.",
-            [.preview(file?.contents ?? "", label: file?.path)]),
+            [.preview(key: document.id)]),
     ]
 }
 
 func form(for config: PluginJSON, timeZone: TimeZone) -> PluginForm {
     let export = export(from: config)
-    let preview = okfPreview(export, timeZone: timeZone)
     let tabs = export.documents.enumerated().map { index, document in
         FormTab(
             id: document.id, label: document.name.isEmpty ? "Sin nombre" : document.name,
-            items: documentItems(document, index: index, export: export, preview: preview))
+            items: documentItems(document, index: index, export: export))
     }
     return PluginForm(
         items: [
@@ -113,6 +111,9 @@ func serve(_ request: PluginRequest) async throws -> PluginResponse {
     case .form:
         let config = try PluginJSON(encoding: export(from: request.config))
         return PluginResponse(form: form(for: config, timeZone: timeZone), config: config)
+    case .preview:
+        let files = okfPreview(export(from: request.config), timeZone: timeZone)
+        return PluginResponse(previews: Dictionary(uniqueKeysWithValues: files.map { ($0.documentID, "── \($0.path)\n\($0.contents)") }))
     case .action:
         let config = try apply(request.action ?? "", to: request.config)
         return PluginResponse(form: form(for: config, timeZone: timeZone), config: config)

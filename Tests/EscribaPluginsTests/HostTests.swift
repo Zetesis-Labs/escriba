@@ -27,11 +27,11 @@ private func escapado(_ json: String) -> String {
 private func wat(hostRequest: String?, respuesta: String) -> String {
     let llamada = hostRequest.map { peticion in
         """
-        (local.set $n (call $call (i32.const 200000) (i32.const \(peticion.utf8.count))))
-        (drop (call $take (i32.const 300000) (local.get $n)))
+        (local.set $n (call $call (i32.const 700000) (i32.const \(peticion.utf8.count))))
+        (drop (call $take (i32.const 800000) (local.get $n)))
         """
     } ?? ""
-    let datosPeticion = hostRequest.map { "(data (i32.const 200000) \"\(escapado($0))\")" } ?? ""
+    let datosPeticion = hostRequest.map { "(data (i32.const 700000) \"\(escapado($0))\")" } ?? ""
     return """
     (module
       (import "escriba" "call" (func $call (param i32 i32) (result i32)))
@@ -42,7 +42,7 @@ private func wat(hostRequest: String?, respuesta: String) -> String {
       \(datosPeticion)
       (func (export "_initialize"))
       (func (export "escriba_handle") (param $len i32) (result i32) (local $n i32)
-        (drop (call $take (i32.const 100000) (local.get $len)))
+        (drop (call $take (i32.const 600000) (local.get $len)))
         \(llamada)
         (call $respond (i32.const 100) (i32.const \(respuesta.utf8.count)))
         (i32.const 0)
@@ -132,24 +132,26 @@ struct HostTests {
 
     @Test("si el plugin se rompe, la siguiente llamada arranca una instancia nueva")
     func seRompe() async throws {
+        let rota = PluginRequest(command: .publish, timeZone: "UTC")
+        let sana = PluginRequest(command: .form, timeZone: "UTC")
+        let longitud = try pluginJSONEncoder().encode(rota).count
         let plugin = try modulo("""
             (module
               (import "escriba" "take" (func $take (param i32 i32) (result i32)))
               (import "escriba" "respond" (func $respond (param i32 i32)))
               (memory (export "memory") 1)
-              (global $vez (mut i32) (i32.const 0))
               (data (i32.const 100) "{}")
               (func (export "_initialize"))
               (func (export "escriba_handle") (param $len i32) (result i32)
-                (global.set $vez (i32.add (global.get $vez) (i32.const 1)))
-                (if (i32.eq (global.get $vez) (i32.const 1)) (then (unreachable)))
+                (drop (call $take (i32.const 1000) (local.get $len)))
+                (if (i32.eq (local.get $len) (i32.const \(longitud))) (then (unreachable)))
                 (call $respond (i32.const 100) (i32.const 2))
                 (i32.const 0))
             )
             """)
 
-        await #expect(throws: HostError.self) { try await plugin.run(PluginRequest(command: .form), permissions: .none) }
-        let despues = try await plugin.run(PluginRequest(command: .form), permissions: .none)
+        await #expect(throws: HostError.self) { try await plugin.run(rota, permissions: .none) }
+        let despues = try await plugin.run(sana, permissions: .none)
         #expect(despues.response == PluginResponse())
     }
 }

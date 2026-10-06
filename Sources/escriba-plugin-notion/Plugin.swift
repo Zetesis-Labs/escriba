@@ -74,8 +74,6 @@ func form(_ draft: Draft, hasToken: Bool, timeZone: TimeZone) -> PluginForm {
                 .template("export/columns/\(column.name)", context: .property, placeholder: "No se exporta"),
             ])
         }
-        let preview = notionPreview(export, timeZone: timeZone)
-        let properties = preview.properties.map { "\($0.name): \($0.value)" }.joined(separator: "\n")
         items += [
             .section(
                 "Propiedades",
@@ -88,7 +86,7 @@ func form(_ draft: Draft, hasToken: Bool, timeZone: TimeZone) -> PluginForm {
             .section(
                 "Así queda",
                 footer: "Con una grabación de ejemplo. Se actualiza mientras escribes, antes de guardar.",
-                [.preview(properties + "\n\n" + preview.text)]),
+                [.preview(key: "pagina")]),
         ]
     }
     let problem: String? = !hasToken
@@ -126,6 +124,11 @@ func serve(_ request: PluginRequest) async throws -> PluginResponse {
         return PluginResponse(manifest: manifest)
     case .form:
         return try respond(reconciled(request.config, state: request.state), hasToken: hasToken, timeZone: timeZone)
+    case .preview:
+        guard let export = reconciled(request.config, state: request.state).export else { return PluginResponse(previews: [:]) }
+        let preview = notionPreview(export, timeZone: timeZone)
+        let properties = preview.properties.map { "\($0.name): \($0.value)" }.joined(separator: "\n")
+        return PluginResponse(previews: ["pagina": properties + "\n\n" + preview.text])
     case .action:
         var draft = reconciled(request.config, state: request.state)
         switch request.action {

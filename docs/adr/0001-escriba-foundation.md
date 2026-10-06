@@ -93,3 +93,15 @@ Fuera a propósito: `FileManager`, `URLSession`, `Process`, `FileHandle`,
   de ser Swift y de compartir código con el núcleo.
 - **Esperar a que el SDK wasm recorte ICU.** No hay fecha y el núcleo en
   Kubernetes lo necesita ya.
+
+## Lo que el ADR no sabía cuando se escribió (medido después, 2026-10-06)
+
+La tabla de arriba mide una llamada trivial. Con el plugin OKF real, bajo
+WasmKit y con la instancia viva, `form` tarda 0,65 s y `publish` 2,3–3,6 s:
+no es el arranque, es que **un intérprete ejecuta Foundation unas 60 veces
+más lento que un JIT**. El mismo módulo bajo wasmtime da 1–2 ms y 7 ms, y
+bajo JavaScriptCore 40 ms y 90 ms (`docs/spike-conectores-wasm.md`). Por
+tanto `EscribaFoundation` resuelve tamaño y arranque, pero la velocidad por
+llamada la decide el runtime: la recomendación del spike es wasmtime. Antes
+de dar este ADR por cerrado hay que medir el plugin OKF sin Foundation bajo
+los dos runtimes.

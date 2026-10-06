@@ -195,6 +195,13 @@ public struct FormItem: Codable, Sendable, Equatable {
         return item
     }
 
+    /// Una vista previa que el plugin calcula aparte, con el comando `preview`, bajo esta clave.
+    public static func preview(key: String) -> FormItem {
+        var item = FormItem(kind: .preview)
+        item.path = key
+        return item
+    }
+
     public static func tabs(_ tabs: [FormTab], addAction: String, removeAction: String) -> FormItem {
         var item = FormItem(kind: .tabs)
         item.tabs = tabs

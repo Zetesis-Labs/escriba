@@ -25,7 +25,9 @@ public final class PluginConnectorModel {
     public private(set) var draft: Connector?
     public private(set) var config: PluginJSON
     public private(set) var form: PluginForm?
+    public private(set) var previews: [String: String] = [:]
     public private(set) var phase: Phase = .idle
+    @ObservationIgnored private var previewing: Task<Void, Never>?
     public var secrets: [String: String]
     @ObservationIgnored private var savedSecrets: [String: String]
     @ObservationIgnored private var state: PluginJSON = .object([:])
@@ -150,15 +152,33 @@ public final class PluginConnectorModel {
                 let response = try await runner(request, secrets)
                 guard let self, mine == generation else { return }
                 if let form = response.form { self.form = form }
+                if let previews = response.previews { self.previews = previews }
                 if let state = response.state { self.state = state }
                 if let config = response.config, config != self.config {
                     self.config = restoringSecrets(config)
                 }
                 phase = .idle
+                if request.command != .preview, response.form?.items.contains(where: wantsPreview) == true {
+                    refreshPreviews()
+                }
             } catch {
                 guard let self, mine == generation else { return }
                 phase = .failed("\(error)")
             }
+        }
+    }
+
+    private func refreshPreviews() {
+        previewing?.cancel()
+        var request = PluginRequest(command: .preview, config: config, state: state)
+        request.config = withSecretMarkers(request.config, present: secrets.keys.filter { !(secrets[$0] ?? "").isEmpty })
+        let runner = runner
+        let secrets = secrets
+        let mine = generation
+        previewing = Task { [weak self] in
+            guard let response = try? await runner(request, secrets), !Task.isCancelled else { return }
+            guard let self, mine == generation, let previews = response.previews else { return }
+            self.previews = previews
         }
     }
 
@@ -169,4 +189,10 @@ public final class PluginConnectorModel {
         }
         return config
     }
+}
+
+nonisolated private func wantsPreview(_ item: FormItem) -> Bool {
+    if item.kind == .preview, item.text == nil, item.path != nil { return true }
+    if (item.items ?? []).contains(where: wantsPreview) { return true }
+    return (item.tabs ?? []).contains { $0.items.contains(where: wantsPreview) }
 }

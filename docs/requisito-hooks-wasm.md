@@ -6,6 +6,10 @@ documenta por qué y se cierra.
 
 ## Resultado del spike de conectores como plugins (2026-10-06)
 
+Medidas completas, hándicaps y recomendación de runtime en
+`docs/spike-conectores-wasm.md`: con wasmtime, 1–7 ms por llamada y tiempo
+límite por época, que es lo que piden estos hooks.
+
 Hecho en la rama `feat/conectores-wasm` (commit `b2b2218`): Notion y OKF
 compilan también como plugins WASI, la app los carga con WasmKit y publican de
 punta a punta por dos llamadas al host; el editor del plugin OKF conserva todo

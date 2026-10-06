@@ -62,6 +62,7 @@ public struct PluginRequest: Codable, Sendable, Equatable {
     public enum Command: String, Codable, Sendable {
         case describe
         case form
+        case preview
         case action
         case publish
         case unpublish
@@ -95,17 +96,19 @@ public struct PluginRequest: Codable, Sendable, Equatable {
 public struct PluginResponse: Codable, Sendable, Equatable {
     public var manifest: PluginManifest?
     public var form: PluginForm?
+    public var previews: [String: String]?
     public var config: PluginJSON?
     public var state: PluginJSON?
     public var ref: PluginRef?
     public var error: String?
 
     public init(
-        manifest: PluginManifest? = nil, form: PluginForm? = nil, config: PluginJSON? = nil,
-        state: PluginJSON? = nil, ref: PluginRef? = nil, error: String? = nil
+        manifest: PluginManifest? = nil, form: PluginForm? = nil, previews: [String: String]? = nil,
+        config: PluginJSON? = nil, state: PluginJSON? = nil, ref: PluginRef? = nil, error: String? = nil
     ) {
         self.manifest = manifest
         self.form = form
+        self.previews = previews
         self.config = config
         self.state = state
         self.ref = ref

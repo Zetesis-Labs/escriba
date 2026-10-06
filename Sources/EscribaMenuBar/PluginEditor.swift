@@ -121,7 +121,7 @@ private struct FormItemView: View {
                 if let label = item.label {
                     Label(label, systemImage: "doc.text").font(.caption).foregroundStyle(.secondary)
                 }
-                Text(item.text ?? "")
+                Text(item.text ?? item.path.flatMap { plugin.previews[$0] } ?? "Calculando…")
                     .font(.system(.caption, design: .monospaced))
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)

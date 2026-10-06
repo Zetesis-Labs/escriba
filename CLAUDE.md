@@ -27,10 +27,20 @@ Kubernetes es un spike aprobado: la prueba de `wasi:http` está en
 `docs/requisito-nucleo-wasm-kubernetes.md`. Los hooks del usuario en WebAssembly (tres
 eventos, decisiones en JSON, WasmKit) son un requisito propuesto el
 2026-10-06: `docs/requisito-hooks-wasm.md`. El spike de conectores como
-plugins wasm salió viable y su peaje es Foundation: **decisión en
+plugins wasm salió viable (rama `feat/conectores-wasm`, medidas y hándicaps en
+`docs/spike-conectores-wasm.md`): contrato JSON, formulario declarativo que
+pinta la app con sus controles, plugins como reactores. Dos peajes distintos:
+el **tamaño** es Foundation (ICU, ~35 MB por plugin) → **decisión en
 `docs/adr/0001-escriba-foundation.md`**, el núcleo portable deja
 `import Foundation` por `EscribaFoundation` (copia mínima de
-swift-foundation). Las decisiones de arquitectura van en `docs/adr/`.
+swift-foundation); la **velocidad** es el runtime: WasmKit interpreta
+(segundos por llamada con Foundation), JavaScriptCore decenas de ms, wasmtime
+milisegundos y arranque de 23 ms precompilado → recomendación wasmtime, con
+WasmKit para los tests del host. Trampas: Foundation en WASI con `TZ` ≠ UTC
+lee `/usr/share/zoneinfo` (pre-abrir o `unreachable` sin mensaje);
+`WASIBridgeToHost.close()` es obligatorio antes de soltar el puente (si no,
+precondición y señal 5); `Engine` y `Store` de WasmKit deben vivir tanto como
+la `Instance`. Las decisiones de arquitectura van en `docs/adr/`.
 
 ## Comandos
 
