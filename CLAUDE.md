@@ -24,9 +24,12 @@ por decisión de producto (la interfaz es Swift), no por CoreML**: el sidecar
 sería Swift y usaría el Neural Engine igual. No reabrirlo sin que Rubén lo pida. El núcleo como componente WebAssembly en
 Kubernetes es un spike aprobado: la prueba de `wasi:http` está en
 `spikes/wasi-http` y los criterios de salida en
-`docs/requisito-nucleo-wasm-kubernetes.md`. Los hooks del usuario en WebAssembly (tres
-eventos, decisiones en JSON, WasmKit) son un requisito propuesto el
-2026-10-06, pendiente de spike: `docs/requisito-hooks-wasm.md`. Los
+`docs/requisito-nucleo-wasm-kubernetes.md`. Los hooks del usuario (tres eventos,
+decisiones en JSON) son un requisito propuesto el 2026-10-06, pendiente de
+spike: `docs/requisito-hooks.md`. Runtime decidido por Rubén: **JavaScript con
+JavaScriptCore detrás de un puerto `Hook`**, para cambiarlo por WebAssembly
+cuando compense; el tiempo límite usa `JSContextGroupSetExecutionTimeLimit`
+(API privada, cargada con `dlsym`, probada en macOS 26). Los
 conectores como plugins wasm se exploraron y se archivaron el 2026-10-06
 (viable, pero no merece la pena ahora): conclusiones y medidas en
 `docs/exploracion-plugins-wasm.md`, código en el PR en borrador #3.

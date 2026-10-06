@@ -91,5 +91,7 @@ dos conectores que ya vienen de serie.
 3. Dejar `EscribaFoundation` para el final. Sin ella todo funciona, solo que
    cada plugin pesa 59 MB y su caché precompilada 111 MB.
 
-Los hooks del usuario (`docs/requisito-hooks-wasm.md`) usarían el mismo
-runtime y el mismo contrato, así que estas medidas también les aplican.
+Los hooks del usuario (`docs/requisito-hooks.md`) van con JavaScriptCore
+detrás de un puerto. Estas medidas valen para el día que se les añada un
+adaptador de WebAssembly: sin Foundation, un módulo pesa menos de 1 MB y
+WasmKit basta.
