@@ -136,7 +136,13 @@ ad-hoc y puede caducar.
 - **WhisperKit es el único backend local** (por defecto desde 2026-08-31; el
   contraste MacWhisper/`mw` se borró el 2026-09-20). Nada del repo lanza
   procesos externos (`Shell`/`Process` se fueron con él): transcribir es un
-  puerto que provee el host, y en un runtime WASI sería `wasi:nn`.
+  puerto que provee el host, y en un runtime WASI sería `wasi:nn`. La
+  dirección es **computación local** (Rubén, 2026-10-06); las alternativas
+  investigadas (FluidAudio con Parakeet y Sortformer, modelos que transcriben
+  y diarizan a la vez como VibeVoice-ASR) están en
+  `docs/exploracion-transcripcion-diarizacion.md`. Cambiar de motor reabre esta
+  decisión y solo con el banco de pruebas de `docs/requisito-hablantes.md`
+  (memoria de hablantes, «Personas», aprobada y sin empezar).
 - **STT y LLM son resolutores, en plural** (Rubén, 2026-10-06, a imagen de
   los proveedores de Biiak Next pero con N por papel): cada papel tiene una
   lista con un favorito (`ResolverSet`); los locales (Whisper, Apple
