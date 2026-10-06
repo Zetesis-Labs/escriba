@@ -20,6 +20,8 @@ public enum RowActionText {
             "La página se archiva en \(kind.label) (se puede restaurar desde su papelera). La grabación y sus transcripciones se quedan en la biblioteca."
         case .okf:
             "Se borran sus ficheros .md de la carpeta del bundle y se anota la baja en el registro. La grabación y sus transcripciones se quedan en la biblioteca."
+        case .plugin:
+            "El plugin retira lo publicado en su destino. La grabación y sus transcripciones se quedan en la biblioteca."
         }
     }
 
@@ -34,6 +36,8 @@ public enum ConnectorText {
             "Se borran su configuración y su token de Notion; tendrías que volver a pegarlo. Las páginas ya publicadas siguen en Notion."
         case .okf:
             "Se borra su configuración. Los ficheros ya escritos siguen en la carpeta."
+        case .plugin:
+            "Se borran su configuración y sus claves. Lo ya publicado sigue en su destino."
         }
     }
 }

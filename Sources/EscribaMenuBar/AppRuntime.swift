@@ -7,6 +7,8 @@ import EscribaIntelligence
 import EscribaNotion
 import EscribaOKF
 import EscribaOpenAI
+import EscribaPluginKit
+import EscribaPlugins
 import EscribaStore
 import EscribaWhisper
 import Observation
@@ -322,9 +324,48 @@ final class AppRuntime {
                     export: export, folder: folder,
                     journal: okfJournal(for: store, connector: connector.key, root: folder.root),
                     producer: Self.producer)
+            case .plugin:
+                guard let binding = pluginBinding(for: connector) else { continue }
+                publishers[connector.key] = pluginSink(binding, journal: pluginJournal(for: store, connector: connector.key))
             }
         }
         return publishers
+    }
+
+    private func pluginBinding(for connector: Connector) -> PluginBinding? {
+        guard let export = connector.plugin, export.isUsable else { return nil }
+        do {
+            return connectors.binding(for: connector, module: try connectors.plugins.module(export.pluginID))
+        } catch {
+            Log.error("el conector \(connector.name) no puede cargar su plugin: \(error)")
+            Notifier.problem(title: "Plugin no disponible", detail: "\(connector.name): \(error)")
+            return nil
+        }
+    }
+
+    private func pluginJournal(for store: Store, connector: String) -> PluginJournal {
+        PluginJournal(
+            known: { key in
+                guard let publication = try store.recording(for: key)?.publication(in: connector),
+                    let pageId = publication.pageId
+                else { return nil }
+                return PluginRef(id: pageId, url: publication.url?.absoluteString)
+            },
+            published: { key, ref, moment in
+                do {
+                    try store.markPublished(
+                        key: key, connector: connector, pageId: ref.id, url: ref.url.flatMap(URL.init(string:)), at: moment)
+                } catch {
+                    Log.error("no se pudo anotar la publicacion de \(key): \(error)")
+                }
+            },
+            failed: { key, problem in
+                do {
+                    try store.markPublishFailed(key: key, connector: connector, error: problem)
+                } catch {
+                    Log.error("no se pudo anotar el fallo de \(key): \(error)")
+                }
+            })
     }
 
     private func unpublishers() -> [String: Unpublisher] {
@@ -341,6 +382,9 @@ final class AppRuntime {
                 let folder = fileFolder(URL(fileURLWithPath: export.folder))
                 let documents = export.documents
                 result[connector.key] = { notePath in try okfUnpublish(notePath, from: folder, documents: documents) }
+            case .plugin:
+                guard let binding = pluginBinding(for: connector) else { continue }
+                result[connector.key] = pluginUnpublisher(binding)
             }
         }
         return result

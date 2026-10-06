@@ -1,0 +1,5 @@
+module CWasmtime {
+    header "shim.h"
+    link "wasmtime"
+    export *
+}
