@@ -262,6 +262,10 @@ public final class AppSettings {
         }
     }
 
+    public func removeWatchedFolder(path: String) {
+        watchedFolders.removeAll { $0.path == path }
+    }
+
     public func forget(resolver id: UUID, as role: ResolverRole) {
         inboxResolvers = inboxResolvers.forgetting(id, as: role)
         watchedFolders = watchedFolders.map { folder in

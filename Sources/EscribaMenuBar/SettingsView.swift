@@ -153,7 +153,7 @@ private struct FoldersTab: View {
                         }
                         .frame(width: 170)
                         Button(role: .destructive) {
-                            settings.watchedFolders.removeAll { $0.path == folder.path }
+                            settings.removeWatchedFolder(path: folder.path)
                         } label: {
                             Image(systemName: "trash")
                         }
