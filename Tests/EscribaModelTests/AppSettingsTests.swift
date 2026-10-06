@@ -138,6 +138,20 @@ struct SeedingTests {
         #expect(segunda.watchedFolders.isEmpty)
     }
 
+    @Test("quitar una carpeta vigilada por su ruta quita solo esa y sobrevive al siguiente arranque")
+    func quitarPorRuta() {
+        let defaults = freshDefaults()
+        let root = URL(fileURLWithPath: "/tmp/jpr")
+        let primera = AppSettings(defaults: defaults, recorderRoot: root, voiceMemos: URL(fileURLWithPath: "/tmp/memos"))
+        primera.watchedFolders.append(WatchedFolder(path: "/tmp/llamadas"))
+
+        primera.removeWatchedFolder(path: "/tmp/jpr")
+
+        #expect(primera.watchedFolders.map(\.path) == ["/tmp/memos", "/tmp/llamadas"])
+        let segunda = AppSettings(defaults: defaults, recorderRoot: root, voiceMemos: URL(fileURLWithPath: "/tmp/memos"))
+        #expect(segunda.watchedFolders.map(\.path) == ["/tmp/memos", "/tmp/llamadas"])
+    }
+
     @Test("las carpetas guardadas sin estilo se leen como carpetas normales")
     func compatibilidad() {
         let defaults = freshDefaults()
