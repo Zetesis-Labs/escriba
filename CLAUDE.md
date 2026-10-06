@@ -26,7 +26,11 @@ Kubernetes es un spike aprobado: la prueba de `wasi:http` está en
 `spikes/wasi-http` y los criterios de salida en
 `docs/requisito-nucleo-wasm-kubernetes.md`. Los hooks del usuario en WebAssembly (tres
 eventos, decisiones en JSON, WasmKit) son un requisito propuesto el
-2026-10-06, pendiente de spike: `docs/requisito-hooks-wasm.md`.
+2026-10-06: `docs/requisito-hooks-wasm.md`. El spike de conectores como
+plugins wasm salió viable y su peaje es Foundation: **decisión en
+`docs/adr/0001-escriba-foundation.md`**, el núcleo portable deja
+`import Foundation` por `EscribaFoundation` (copia mínima de
+swift-foundation). Las decisiones de arquitectura van en `docs/adr/`.
 
 ## Comandos
 

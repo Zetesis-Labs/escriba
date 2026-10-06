@@ -4,6 +4,20 @@ Estado: **propuesto por Rubén el 2026-10-06**, pendiente de un spike con los
 criterios de salida de abajo. Si se cumplen, se implementa; si no, se
 documenta por qué y se cierra.
 
+## Resultado del spike de conectores como plugins (2026-10-06)
+
+Hecho en la rama `feat/conectores-wasm` (commit `b2b2218`): Notion y OKF
+compilan también como plugins WASI, la app los carga con WasmKit y publican de
+punta a punta por dos llamadas al host; el editor del plugin OKF conserva todo
+lo del nativo (N documentos, propiedades, plantillas con enlaces, vista previa)
+gracias a un formulario declarativo. Medidas con Foundation: 59 MB por plugin,
+4–5 s por comando, 850 ms/35 ms como reactor. Sin Foundation: 6,8 MB y 0,5 ms.
+Conclusión: viable, y el peaje es Foundation, no wasm ni WasmKit. De ahí el
+[ADR 0001](adr/0001-escriba-foundation.md): el núcleo deja Foundation. Los
+hooks de este documento y los plugins comparten runtime, contrato y SDK, y el
+objetivo de producto es que un MCP de Escriba permita a Claude generar e
+instalar plugins en caliente.
+
 ## Qué tiene que poder hacer
 
 El usuario cambia cómo trabaja Escriba sin tocar su código: en puntos fijos
