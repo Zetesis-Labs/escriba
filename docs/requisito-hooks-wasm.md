@@ -4,6 +4,10 @@ Estado: **propuesto por Rubén el 2026-10-06**, pendiente de un spike con los
 criterios de salida de abajo. Si se cumplen, se implementa; si no, se
 documenta por qué y se cierra.
 
+La exploración de plugins wasm (archivada, `docs/exploracion-plugins-wasm.md`)
+ya midió los runtimes: WasmKit tarda segundos por llamada con Foundation y
+wasmtime milisegundos. Un spike de hooks parte de esas medidas.
+
 ## Qué tiene que poder hacer
 
 El usuario cambia cómo trabaja Escriba sin tocar su código: en puntos fijos

@@ -26,7 +26,10 @@ Kubernetes es un spike aprobado: la prueba de `wasi:http` está en
 `spikes/wasi-http` y los criterios de salida en
 `docs/requisito-nucleo-wasm-kubernetes.md`. Los hooks del usuario en WebAssembly (tres
 eventos, decisiones en JSON, WasmKit) son un requisito propuesto el
-2026-10-06, pendiente de spike: `docs/requisito-hooks-wasm.md`.
+2026-10-06, pendiente de spike: `docs/requisito-hooks-wasm.md`. Los
+conectores como plugins wasm se exploraron y se archivaron el 2026-10-06
+(viable, pero no merece la pena ahora): conclusiones y medidas en
+`docs/exploracion-plugins-wasm.md`, código en el PR en borrador #3.
 
 ## Comandos
 
