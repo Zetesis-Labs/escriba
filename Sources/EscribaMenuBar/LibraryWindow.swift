@@ -271,6 +271,11 @@ struct PublishMenu: View {
                             case .okf:
                                 Button("Abrir el .md") { NSWorkspace.shared.open(page) }
                                 Button("Mostrar en Finder") { NSWorkspace.shared.activateFileViewerSelecting([page]) }
+                            case .plugin:
+                                Button("Abrir") { NSWorkspace.shared.open(page) }
+                                if page.isFileURL {
+                                    Button("Mostrar en Finder") { NSWorkspace.shared.activateFileViewerSelecting([page]) }
+                                }
                             }
                         }
                         Button("Actualizar en \(kind)") { publish(to: connector) }

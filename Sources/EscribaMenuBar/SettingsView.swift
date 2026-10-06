@@ -6,6 +6,7 @@ import EscribaOKF
 import EscribaWhisper
 import ServiceManagement
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct SettingsPane: View {
     let settings: AppSettings
@@ -311,8 +312,20 @@ struct ConnectorsPane: View {
                 Divider()
                 HStack(spacing: 0) {
                     Menu {
-                        ForEach(Connector.Kind.allCases, id: \.self) { kind in
+                        ForEach(Connector.Kind.native, id: \.self) { kind in
                             Button(kind.label) { selected = connectors.add(kind).id }
+                        }
+                        if !connectors.plugins.installed.isEmpty { Divider() }
+                        ForEach(connectors.plugins.installed) { plugin in
+                            Button("\(plugin.manifest.name) \(plugin.manifest.version)") {
+                                selected = connectors.add(plugin: plugin).id
+                            }
+                        }
+                        Divider()
+                        Button("Importar plugin…") {
+                            if let url = choosePlugin(), let plugin = connectors.plugins.install(from: url) {
+                                selected = connectors.add(plugin: plugin).id
+                            }
                         }
                     } label: {
                         Image(systemName: "plus")
@@ -333,6 +346,14 @@ struct ConnectorsPane: View {
                 switch connector.kind {
                 case .notion: NotionEditor(notion: connectors.editor(for: connector.id))
                 case .okf: OKFEditor(okf: connectors.okfEditor(for: connector.id))
+                case .plugin:
+                    if let editor = connectors.pluginEditor(for: connector.id) {
+                        PluginEditor(plugin: editor)
+                    } else {
+                        ContentUnavailableView(
+                            "Plugin no instalado", systemImage: "puzzlepiece.extension",
+                            description: Text("Este conector usa el plugin «\(connector.plugin?.pluginID ?? "")», que ya no está. Impórtalo otra vez."))
+                    }
                 }
             } else {
                 ContentUnavailableView(
@@ -342,6 +363,13 @@ struct ConnectorsPane: View {
             }
         }
         .navigationTitle("Conectores")
+        .alert(
+            "Plugin", isPresented: Binding(get: { connectors.plugins.problem != nil }, set: { if !$0 { connectors.plugins.dismissProblem() } })
+        ) {
+            Button("Vale") { connectors.plugins.dismissProblem() }
+        } message: {
+            Text(connectors.plugins.problem ?? "")
+        }
         .confirmationDialog(
             "¿Quitar «\(removing?.name ?? "")»?",
             isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } })
@@ -362,8 +390,24 @@ struct ConnectorsPane: View {
             connector.notion?.source.label ?? "Sin base elegida"
         case .okf:
             connector.okf.flatMap { $0.isUsable ? abbreviated($0.folder) : nil } ?? "Sin carpeta elegida"
+        case .plugin:
+            connector.plugin.map { export in
+                let name = connectors.plugins.plugin(export.pluginID)?.manifest.name ?? export.pluginID
+                return export.isUsable ? "\(name) · listo" : "\(name) · \(export.problem ?? "sin configurar")"
+            } ?? "Plugin"
         }
     }
+}
+
+func choosePlugin() -> URL? {
+    let panel = NSOpenPanel()
+    panel.canChooseDirectories = false
+    panel.canChooseFiles = true
+    panel.allowsMultipleSelection = false
+    panel.allowedContentTypes = [UTType(filenameExtension: "wasm") ?? .data]
+    panel.message = "Elige un plugin de Escriba (.wasm)"
+    guard panel.runModal() == .OK else { return nil }
+    return panel.url
 }
 
 private struct NotionEditor: View {

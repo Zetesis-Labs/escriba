@@ -1,4 +1,3 @@
-#if !os(WASI)
 import Foundation
 import EscribaCore
 import EscribaEngine
@@ -52,4 +51,3 @@ public func notionSink(
         }
     }
 }
-#endif

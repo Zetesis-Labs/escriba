@@ -1,12 +1,20 @@
 // swift-tools-version: 6.2
 import PackageDescription
 
+// Los plugins son reactores WASI: se instancian una vez y atienden llamadas por escriba_handle.
+let pluginLinkerSettings: [LinkerSetting] = [
+    .unsafeFlags(
+        ["-Xclang-linker", "-mexec-model=reactor", "-Xlinker", "--export=escriba_handle"],
+        .when(platforms: [.wasi]))
+]
+
 let package = Package(
     name: "escriba",
     platforms: [.macOS(.v26)],
     dependencies: [
         .package(url: "https://github.com/argmaxinc/argmax-oss-swift.git", from: "1.1.0"),
         .package(url: "https://github.com/groue/GRDB.swift.git", from: "7.11.1"),
+        .package(url: "https://github.com/swiftwasm/WasmKit.git", .upToNextMinor(from: "0.4.1")),
     ],
     targets: [
         .target(name: "EscribaCore"),
@@ -36,10 +44,28 @@ let package = Package(
         .target(name: "EscribaIntelligence", dependencies: ["EscribaCore", "EscribaEngine"]),
         .target(name: "EscribaOpenAI", dependencies: ["EscribaCore", "EscribaEngine"]),
         .target(
+            name: "EscribaPluginKit", dependencies: ["EscribaCore"],
+            swiftSettings: [.enableExperimentalFeature("Extern")]),
+        .target(
+            name: "EscribaPlugins",
+            dependencies: [
+                "EscribaCore", "EscribaEngine", "EscribaPluginKit",
+                .product(name: "WasmKit", package: "WasmKit"),
+                .product(name: "WasmKitWASI", package: "WasmKit"),
+            ]),
+        .executableTarget(
+            name: "escriba-plugin-okf",
+            dependencies: ["EscribaCore", "EscribaEngine", "EscribaOKF", "EscribaPluginKit"],
+            linkerSettings: pluginLinkerSettings),
+        .executableTarget(
+            name: "escriba-plugin-notion",
+            dependencies: ["EscribaCore", "EscribaEngine", "EscribaNotion", "EscribaPluginKit"],
+            linkerSettings: pluginLinkerSettings),
+        .target(
             name: "EscribaModel",
             dependencies: [
                 "EscribaCore", "EscribaEngine", "EscribaSystemKit", "EscribaStore", "EscribaNotion",
-                "EscribaOKF", "EscribaOpenAI",
+                "EscribaOKF", "EscribaOpenAI", "EscribaPluginKit", "EscribaPlugins",
             ],
             swiftSettings: [.defaultIsolation(MainActor.self)]),
         .executableTarget(
@@ -56,6 +82,7 @@ let package = Package(
             dependencies: [
                 "EscribaCore", "EscribaEngine", "EscribaSystemKit", "EscribaWhisper", "EscribaStore",
                 "EscribaModel", "EscribaNotion", "EscribaOKF", "EscribaIntelligence", "EscribaOpenAI",
+                "EscribaPluginKit", "EscribaPlugins",
             ],
             swiftSettings: [.defaultIsolation(MainActor.self)]),
         .testTarget(name: "EscribaCoreTests", dependencies: ["EscribaCore"]),
@@ -73,6 +100,12 @@ let package = Package(
         .testTarget(
             name: "EscribaOpenAITests", dependencies: ["EscribaOpenAI", "EscribaCore", "EscribaEngine"]),
         .testTarget(
+            name: "EscribaPluginsTests",
+            dependencies: [
+                "EscribaPlugins", "EscribaPluginKit", "EscribaCore", "EscribaEngine",
+                .product(name: "WAT", package: "WasmKit"),
+            ]),
+        .testTarget(
             name: "EscribaIntelligenceTests",
             dependencies: ["EscribaIntelligence", "EscribaCore", "EscribaEngine"]),
         .testTarget(
@@ -82,6 +115,7 @@ let package = Package(
             name: "EscribaModelTests",
             dependencies: [
                 "EscribaModel", "EscribaStore", "EscribaCore", "EscribaNotion", "EscribaOKF", "EscribaSystemKit",
+                "EscribaPluginKit", "EscribaPlugins",
             ],
             swiftSettings: [.defaultIsolation(MainActor.self)]),
     ]
