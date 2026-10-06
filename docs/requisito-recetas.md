@@ -99,8 +99,14 @@ cabeceras de macOS 26), así que una receta es un script con nombres fijos:
 
 - Cada receta vive en su propio contexto de JavaScript: sus nombres no chocan
   con los de otra.
-- Se publican los tipos (`escriba-recetas.d.ts`) para que el editor del
-  usuario autocomplete, y una galería de recetas de ejemplo.
+- Una receta se escribe en **JavaScript o en TypeScript** (`.js` o `.ts`). La
+  app traduce el TypeScript a JavaScript al guardar (RF-16); lo que ejecuta
+  JavaScriptCore es siempre JavaScript.
+- Los tipos del contrato viven en un solo fichero, `escriba-recetas.d.ts`, que
+  usan el editor de la app, el MCP (RF-17) y el editor propio del usuario. Un
+  test lo compara con los tipos del contrato en Swift para que no se
+  desincronicen.
+- Se publica una galería de recetas de ejemplo.
 
 ### RF-5. Lo que una receta puede pedir (`escriba` y `nota`)
 
@@ -231,13 +237,28 @@ cabeceras de macOS 26), así que una receta es un script con nombres fijos:
 
 - Un contexto de JavaScriptCore no trae red, disco, temporizadores ni `fetch`:
   la receta solo ve el audio, la nota y las capacidades de `escriba`.
-- **Tiempo límite de ejecución** por receta con
-  `JSContextGroupSetExecutionTimeLimit` (API privada, cargada con `dlsym`).
-  Probado el 2026-10-06: corta un bucle infinito a los 211 ms con un límite
-  de 200 ms y el contexto sigue respondiendo. Solo cuenta el tiempo que
-  JavaScript ejecuta: esperar una transcripción de 14 minutos no lo dispara
-  (probado con esperas de 3 s y límite de 200 ms). Si la función desaparece en
-  una versión de macOS, las recetas manuales se desactivan con un aviso.
+- **Tiempo límite de JavaScript: 10 s por tramo.** Un tramo es lo que la
+  receta ejecuta sin parar entre dos `await`. Las esperas no cuentan:
+  mientras un LLM o una transcripción trabajan, JavaScript está parado y el
+  contador no corre. Protege contra un `while (true) {}` o una expresión
+  regular catastrófica, que bloquearían para siempre el hilo de las recetas.
+  Como referencia, parsear y responder un JSON de 3 MB tarda 6,5 ms.
+- Se aplica con `JSContextGroupSetExecutionTimeLimit` (API privada, cargada con
+  `dlsym`). Probado el 2026-10-06 con un límite de 200 ms, elegido solo para
+  que la prueba fuese rápida: corta un bucle infinito a los 211 ms, el
+  contexto sigue respondiendo, y un flujo con 3 s de esperas termina entero.
+  Si la función desaparece en una versión de macOS, las recetas manuales se
+  desactivan con un aviso.
+- **Lo que tarda de verdad se controla en Swift, en cada capacidad**: los LLM
+  y STT remotos fallan si el servidor pasa 300 s sin responder (como hoy) y
+  eso llega a la receta como «no disponible»; la transcripción local y Apple
+  Intelligence no tienen límite (una nota de 45 minutos tarda lo que tarda) y
+  se paran con «Cancelar» desde la biblioteca. La receta entera no tiene
+  plazo.
+- **Tope de llamadas a LLM por nota: 50, ajustable.** Cubre el hueco que el
+  tiempo límite no ve: una receta que llama a un LLM dentro de un bucle hace un
+  `await` en cada vuelta y nunca agota su tramo. Al llegar al tope, la
+  siguiente llamada falla y la nota lo muestra.
 - Sin límite de memoria por contexto en la primera versión.
 
 ### RF-14. Traza de cada nota
@@ -252,6 +273,68 @@ procesó así». Al reprocesar, la hoja de reprocesado elige receta.
 En la sección de recetas, «Probar con…» ejecuta la receta sobre una grabación
 de la biblioteca **sin publicar** (los conectores registran lo que habrían
 mandado) y enseña la traza, los datos y las cargas de cada conector.
+
+### RF-16. Editor de recetas: Monaco
+
+Decisión de Rubén el 2026-10-06: el editor de recetas manuales es **Monaco**,
+el editor de VS Code, dentro de una vista web (`WKWebView`).
+
+- **Va dentro de la app, sin conexión**: Monaco 0.57.0 (2026-09-24) ocupa
+  25 MB en su versión mínima con todos los lenguajes, y se recorta a
+  JavaScript y TypeScript. Por verificar en la fase: que sus *web workers*
+  carguen sirviendo los ficheros con un esquema de URL propio de la app en vez
+  de `file://`.
+- **Ayudas al desarrollador** con el servicio de TypeScript de Monaco y
+  `escriba-recetas.d.ts`: autocompletado de `escriba.` y `nota.`, errores de
+  tipos y de sintaxis subrayados mientras se escribe, firma y documentación al
+  pasar el ratón, y saltar a la definición.
+- **El texto vive en Swift**: la vista web solo edita; guardar, validar y
+  traducir lo hace la app, por el mismo camino que una receta importada o
+  escrita por MCP.
+- **Validar y traducir sin editor**: el compilador de TypeScript, que es
+  JavaScript puro, corre dentro de JavaScriptCore en su propio contexto.
+  Medido el 2026-10-06 con TypeScript 5.9.3: cargarlo, 75 ms; errores de
+  tipos de una receta, 15 ms; traducir TypeScript a JavaScript, 7,5 ms. Con
+  él se validan también las recetas que llegan importadas o por MCP.
+- **Al guardar**: un error de sintaxis impide guardar; un error de tipos se
+  avisa pero no bloquea, como en TypeScript.
+- **Firma**: hoy la app se firma sin el modo endurecido de macOS. Si se
+  notariza para publicarla, hará falta el permiso
+  `com.apple.security.cs.allow-jit` para que JavaScriptCore compile a código
+  nativo.
+- **Memoria**: no medida. Monaco y el compilador de TypeScript se cargan solo
+  mientras el editor está abierto.
+
+### RF-17. Acceso por MCP (propuesta, sin decidir)
+
+Claude, Codex u otro agente se conectan por MCP para editar recetas y leer
+resultados.
+
+- **`escriba mcp`**, un subcomando del CLI que habla MCP por stdio con el SDK
+  oficial de Swift (`modelcontextprotocol/swift-sdk`, 0.12.1). Lo arranca el
+  cliente; la app no lanza procesos y no hace falta que esté abierta. Lee la
+  biblioteca SQLite directamente (otro proceso puede leer mientras la app
+  escribe) y escribe recetas en su carpeta, que la app recarga en caliente.
+- **Herramientas**:
+
+  | Herramienta | Qué hace |
+  |---|---|
+  | `recetas_listar`, `receta_leer` | Las recetas y su código |
+  | `receta_tipos` | `escriba-recetas.d.ts`, para que el agente sepa qué puede pedir |
+  | `receta_escribir` | Guardar una receta, validada y traducida como en RF-16 |
+  | `receta_probar` | Ejecutarla sobre una grabación sin publicar (RF-15) y devolver la traza, los datos y las cargas de cada conector |
+  | `notas_buscar` | Por texto, fechas, receta o metadatos propios |
+  | `nota_leer` | Transcripción con hablantes, resumen, datos, traza y dónde se publicó |
+
+- **Una receta escrita por MCP entra como borrador**: se puede probar, pero no
+  procesa grabaciones hasta que una persona la activa en la app.
+- **Nunca expone** credenciales ni huellas de voz.
+- **Opcional y apagado por defecto**: lo que el agente lee viaja al
+  proveedor de su modelo, en la nube. Un ajuste lo permite, con carpetas
+  excluidas.
+- **Orden**: leer resultados (`notas_buscar`, `nota_leer`) no depende de las
+  recetas y se puede hacer antes (2 o 3 días); editar y probar recetas va
+  después de la fase 3 (otros 2 o 3 días).
 
 ## Arquitectura
 
@@ -293,7 +376,8 @@ Cada fase termina en la app, con tests, y la prueba Rubén.
    comprobada con grabaciones reales).
 3. **N recetas y enrutado.** Lista como los resolutores, generadas y manuales,
    receta por carpeta y en la flecha de grabar e importar, «Personalizar»,
-   migración de los ajustes por carpeta, «Probar con…».
+   migración de los ajustes por carpeta, «Probar con…», y el editor Monaco con
+   TypeScript (RF-16).
 4. **Preguntar y metadatos.** `preguntar` con esquema en los dos tipos de LLM,
    `datos` por versión, la biblioteca los muestra y filtra.
 5. **Conectores decididos por la receta.** Cargas por tipo de conector,
@@ -304,7 +388,11 @@ Cada fase termina en la app, con tests, y la prueba Rubén.
 7. **Opcional**: Escriba escribe una receta con su propio LLM a partir de una
    descripción en castellano.
 
-Estimación: de 4 a 6 semanas en total; la fase 1 y la 5 son las grandes.
+El MCP (RF-17), si se decide, va en paralelo: su lectura de resultados puede
+ir antes de la fase 1, y la edición de recetas después de la 3.
+
+Estimación: de 5 a 7 semanas en total, con el editor; la fase 1 y la 5 son
+las grandes.
 
 ## Lo que se pierde, a sabiendas
 
@@ -319,11 +407,7 @@ Estimación: de 4 a 6 semanas en total; la fase 1 y la 5 son las grandes.
 
 - ¿Se procesan varias notas a la vez con recetas distintas, o se mantiene una
   a una como hoy?
-- ¿Un tope de llamadas a LLM remotos por nota, para que una receta en bucle
-  no gaste?
 - ¿Puede una receta de `flujo` descartar una grabación para siempre, o solo
   saltarla esta vez?
 - ¿Se le da a la receta acceso de solo lectura al audio (para medir silencios)?
-- ¿TypeScript? JavaScriptCore solo ejecuta JavaScript; con el `.d.ts` se
-  puede escribir en TypeScript y compilar fuera.
 - ¿Qué pasa con una nota en curso si su receta cambia a mitad de proceso?

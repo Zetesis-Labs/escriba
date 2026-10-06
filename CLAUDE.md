@@ -36,7 +36,9 @@ enrutado por carpeta y por grabación y a los editores de mapeo de los
 conectores. Runtime: **JavaScriptCore detrás de un puerto**, para cambiarlo
 por WebAssembly cuando compense; el tiempo límite usa
 `JSContextGroupSetExecutionTimeLimit` (API privada, cargada con `dlsym`,
-probada en macOS 26) y no cuenta las esperas. Los
+probada en macOS 26) y no cuenta las esperas. Editor de recetas decidido:
+**Monaco** en un `WKWebView`; recetas en JavaScript o TypeScript, que la app
+traduce con el compilador de TypeScript corriendo dentro de JavaScriptCore. Los
 conectores como plugins wasm se exploraron y se archivaron el 2026-10-06
 (viable, pero no merece la pena ahora): conclusiones y medidas en
 `docs/exploracion-plugins-wasm.md`, código en el PR en borrador #3.
