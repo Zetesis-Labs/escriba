@@ -22,9 +22,10 @@ SwiftUI en el Mac y **SwiftCrossUI** fuera, compartiendo `EscribaModel` (observa
 `@Observable`, verificado el 2026-09-22). **Tauri con sidecar está descartado
 por decisión de producto (la interfaz es Swift), no por CoreML**: el sidecar
 sería Swift y usaría el Neural Engine igual. No reabrirlo sin que Rubén lo pida. El núcleo como componente WebAssembly en
-Kubernetes es un spike aprobado: la prueba de `wasi:http` está en
-`spikes/wasi-http` y los criterios de salida en
-`docs/requisito-nucleo-wasm-kubernetes.md`. **Recetas** (requisito propuesto por Rubén el
+Kubernetes **está descartado** (Rubén, 2026-10-06: no se va a hacer; no
+reabrirlo sin que lo pida): el análisis queda en
+`docs/requisito-nucleo-wasm-kubernetes.md` y la prueba de `wasi:http` en
+`spikes/wasi-http`. **Recetas** (requisito propuesto por Rubén el
 2026-10-06, sin empezar: `docs/requisito-recetas.md`): N scripts JavaScript,
 como los resolutores, que orquestan todo el recorrido de una grabación con
 `await` (transcribir, resumir, preguntar a los LLM con esquema, guardar
