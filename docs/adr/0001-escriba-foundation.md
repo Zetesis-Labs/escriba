@@ -105,3 +105,44 @@ tanto `EscribaFoundation` resuelve tamaño y arranque, pero la velocidad por
 llamada la decide el runtime: la recomendación del spike es wasmtime. Antes
 de dar este ADR por cerrado hay que medir el plugin OKF sin Foundation bajo
 los dos runtimes.
+
+## Hándicaps que quedan aun siguiendo la recomendación (2026-10-06)
+
+Con wasmtime como runtime, `EscribaFoundation` hecho y los plugins como
+reactores, esto es lo que se resuelve y lo que no:
+
+**Se resuelve**
+- Velocidad: de segundos a milisegundos por llamada.
+- El trap de zonas horarias y la caída al cerrar el puente WASI.
+
+**Pendiente de trabajo, no de decisión**
+- Los 59 MB por plugin solo bajan con `EscribaFoundation`, que es un
+  refactor ancho (Core, Notion, OKF, Engine) sin empezar. Hasta entonces cada
+  plugin pesa 50–60 MB y tarda 1,6 s en compilarse la primera vez.
+
+**No se resuelve; se asume**
+- **Reactores y la directiva interna de Swift.** Un módulo WASI *comando*
+  tiene `_start`, corre de arriba abajo y termina: una instancia por llamada.
+  Un *reactor* tiene `_initialize` y exporta funciones que el host llama
+  muchas veces conservando memoria y estado. Los plugins son reactores para
+  no pagar el arranque de Foundation en cada llamada (0,85 s bajo WasmKit).
+  El precio: dentro de una exportación síncrona hay que ejecutar el código
+  asíncrono del motor (`Sink`, `NotionClient`), y para drenar el ejecutor se
+  usa `swift_task_donateThreadToGlobalExecutorUntil`, una función interna del
+  runtime de Swift, sin documentar ni garantizar. Si cambia, los plugins
+  dejan de compilar (no fallan en silencio). Quitarla tiene dos vías, ninguna
+  gratis: duplicar el cliente de Notion en forma síncrona, o volver al modelo
+  de comando, que con wasmtime (instanciar: 5 ms) podría ser barato pero
+  **no está medido**.
+- **Doble descripción de la pantalla.** El formulario declarativo del plugin
+  y el editor nativo de SwiftUI describen lo mismo. Solo desaparece si los
+  conectores de serie también pasan a ser plugins y se borra el editor
+  nativo: decisión de producto, no técnica.
+- **Dependencia en C.** `libwasmtime` (24 MB) firmada dentro de la app, un
+  binario por plataforma, y una caché precompilada de 111 MB por plugin
+  ligada a la versión de wasmtime. Rompe «solo Swift» en esa capa.
+- **Compilar un plugin en Swift tarda un minuto** y exige el toolchain de
+  swift.org con su SDK wasm. Ningún runtime lo cambia. Para plugins
+  generados por un agente, Swift no es el lenguaje adecuado.
+- **Plataforma inmadura.** Foundation en wasm tiene bordes afilados (el de
+  las zonas horarias costó una hora, con un trap sin mensaje). Habrá más.
