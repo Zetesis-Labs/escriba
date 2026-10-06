@@ -1,8 +1,10 @@
 # Requisito funcional: hooks del usuario
 
-Estado: **propuesto por Rubén el 2026-10-06**, pendiente de un spike con los
-criterios de salida de abajo. Si se cumplen, se implementa; si no, se
-documenta por qué y se cierra.
+Estado: **sustituido el 2026-10-06 por `docs/requisito-recetas.md`**: los tres
+eventos con N hooks pasan a ser recetas, una función asíncrona en JavaScript
+que orquesta todo el recorrido de una grabación. Se conserva por las pruebas
+de JavaScriptCore (tiempo límite, JSON grande) y el razonamiento del puerto,
+que el requisito de recetas reutiliza.
 
 **Decisión de runtime (Rubén, 2026-10-06)**: los hooks se escriben en
 **JavaScript** y los ejecuta **JavaScriptCore**, el motor del sistema. Va

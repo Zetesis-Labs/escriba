@@ -24,12 +24,18 @@ por decisión de producto (la interfaz es Swift), no por CoreML**: el sidecar
 sería Swift y usaría el Neural Engine igual. No reabrirlo sin que Rubén lo pida. El núcleo como componente WebAssembly en
 Kubernetes es un spike aprobado: la prueba de `wasi:http` está en
 `spikes/wasi-http` y los criterios de salida en
-`docs/requisito-nucleo-wasm-kubernetes.md`. Los hooks del usuario (tres eventos,
-decisiones en JSON) son un requisito propuesto el 2026-10-06, pendiente de
-spike: `docs/requisito-hooks.md`. Runtime decidido por Rubén: **JavaScript con
-JavaScriptCore detrás de un puerto `Hook`**, para cambiarlo por WebAssembly
-cuando compense; el tiempo límite usa `JSContextGroupSetExecutionTimeLimit`
-(API privada, cargada con `dlsym`, probada en macOS 26). Los
+`docs/requisito-nucleo-wasm-kubernetes.md`. **Recetas** (requisito propuesto por Rubén el
+2026-10-06, sin empezar: `docs/requisito-recetas.md`): N scripts JavaScript,
+como los resolutores, que orquestan todo el recorrido de una grabación con
+`await` (transcribir, resumir, preguntar a los LLM con esquema, guardar
+metadatos propios, publicar en los conectores que la receta elija y con los
+datos que decida); se asignan por carpeta o al grabar e importar, y una puede
+pasar la nota a otra. Sustituyen a los hooks (`docs/requisito-hooks.md`), al
+enrutado por carpeta y por grabación y a los editores de mapeo de los
+conectores. Runtime: **JavaScriptCore detrás de un puerto**, para cambiarlo
+por WebAssembly cuando compense; el tiempo límite usa
+`JSContextGroupSetExecutionTimeLimit` (API privada, cargada con `dlsym`,
+probada en macOS 26) y no cuenta las esperas. Los
 conectores como plugins wasm se exploraron y se archivaron el 2026-10-06
 (viable, pero no merece la pena ahora): conclusiones y medidas en
 `docs/exploracion-plugins-wasm.md`, código en el PR en borrador #3.
