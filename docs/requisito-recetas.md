@@ -264,9 +264,9 @@ mandado) y enseña la traza, los datos y las cargas de cada conector.
   siendo la fuente de verdad del pipeline y la biblioteca su espejo.
 - **Puerto `RecipeRuntime`** en `EscribaEngine`: ejecutar una receta con unas
   capacidades. Adaptador **JavaScriptCore** en macOS (un hilo propio, nunca el
-  principal; un contexto por receta). Más adelante, un adaptador con un motor
-  de JavaScript compilado a WebAssembly (QuickJS bajo WasmKit) para que las
-  mismas recetas corran en un pod de Linux.
+  principal; un contexto por receta). El puerto permite cambiar
+  JavaScriptCore por otro runtime (por ejemplo, un motor de JavaScript
+  compilado a WebAssembly) sin tocar las recetas.
 - La app no compila nada ni lanza procesos.
 
 ## Migración
@@ -311,7 +311,9 @@ Estimación: de 4 a 6 semanas en total; la fase 1 y la 5 son las grandes.
 - **El mapeo visual de columnas** para quien no programa. Se mitiga con el
   mapeo automático de las recetas generadas, la galería de ejemplos y la
   fase 7.
-- **Ejecutar en Linux** hasta que exista el adaptador de WebAssembly.
+- **Ejecutar fuera de macOS**: JavaScriptCore es del sistema. No es un
+  objetivo (el escritorio fuera de Apple y el núcleo en Kubernetes están
+  descartados).
 
 ## Preguntas abiertas
 

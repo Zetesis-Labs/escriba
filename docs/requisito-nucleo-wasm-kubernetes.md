@@ -1,8 +1,9 @@
 # Requisito funcional (spike): el núcleo como componente WebAssembly en Kubernetes
 
-Estado: **spike aprobado por Rubén el 2026-09-20**. No es un compromiso de
-producto: es una prueba con criterios de salida claros. Si se cumplen, se
-convierte en requisito; si no, se documenta por qué y se cierra.
+Estado: **descartado por Rubén el 2026-10-06**: no se va a hacer. Era un
+spike aprobado el 2026-09-20 y ninguno de sus criterios de salida llegó a
+ejecutarse. Se conserva por la prueba de `wasi:http` (`spikes/wasi-http`) y por
+lo que se aprendió de Swift en WASI.
 
 ## Qué tiene que poder hacer
 
