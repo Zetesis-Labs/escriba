@@ -1,8 +1,13 @@
 ---
-status: accepted
+status: aparcada
 ---
 
 # El núcleo portable no usa Foundation: usa EscribaFoundation
+
+> **Aparcada el 2026-10-06.** Rubén archiva el spike de plugins wasm: no
+> merece la pena ahora. Sin plugins, el motivo que queda es el núcleo en
+> Kubernetes (`docs/requisito-nucleo-wasm-kubernetes.md`). Si se retoma
+> cualquiera de los dos, las medidas de abajo siguen valiendo.
 
 Decisión de Rubén el 2026-10-06: `EscribaCore`, `EscribaEngine`, `EscribaNotion`,
 `EscribaOKF`, `EscribaOpenAI` y el contrato de los plugins (`EscribaPluginKit`)
@@ -132,8 +137,9 @@ reactores, esto es lo que se resuelve y lo que no:
   runtime de Swift, sin documentar ni garantizar. Si cambia, los plugins
   dejan de compilar (no fallan en silencio). Quitarla tiene dos vías, ninguna
   gratis: duplicar el cliente de Notion en forma síncrona, o volver al modelo
-  de comando, que con wasmtime (instanciar: 5 ms) podría ser barato pero
-  **no está medido**.
+  de comando. **Medido después**: con wasmtime el modelo de comando cuesta
+  5–11 ms por llamada con Foundation entera (arrancarla, unos 4 ms), así que
+  con ese runtime la directiva sobra.
 - **Doble descripción de la pantalla.** El formulario declarativo del plugin
   y el editor nativo de SwiftUI describen lo mismo. Solo desaparece si los
   conectores de serie también pasan a ser plugins y se borra el editor

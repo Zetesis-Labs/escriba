@@ -1,9 +1,26 @@
 # Spike: conectores como plugins WebAssembly cargados en caliente
 
-Estado: **medido el 2026-10-06** en la rama `feat/conectores-wasm`. Responde a
-dos preguntas de Rubén: si es viable que los conectores sean plugins `.wasm`
-que el usuario importa sin reiniciar la app, y qué hándicap se paga con cada
-forma de ejecutarlos, por mucho que se afine.
+Estado: **archivado el 2026-10-06**, medido en la rama `feat/conectores-wasm`.
+Responde a dos preguntas de Rubén: si es viable que los conectores sean
+plugins `.wasm` que el usuario importa sin reiniciar la app, y qué hándicap se
+paga con cada forma de ejecutarlos, por mucho que se afine.
+
+## Por qué se archiva
+
+Decisión de Rubén el 2026-10-06: el concepto funciona, pero terminarlo no
+merece la pena ahora. Lo que quedaba (`docs/roadmap-extensiones-wasm.md`):
+
+| Trabajo | Estimación |
+|---|---|
+| wasmtime como runtime de la app (dylib firmada, CI de Linux) | 1–2 días |
+| Plugins como comandos, sin la directiva interna | medio día |
+| `EscribaFoundation` (ADR 0001) para bajar de 59 MB a < 1 MB | 4–6 días |
+| Conectores de serie como plugins, migración de configuración | 1–2 días |
+| Hooks y un plugin de ejemplo en otro lenguaje | 2–3 días |
+
+Unas dos semanas para un ecosistema que hoy tiene dos conectores, los dos de
+serie. La rama se queda como PR en borrador con el código y las medidas; en
+`main` queda `docs/exploracion-plugins-wasm.md` con las conclusiones.
 
 ## Lo que hay en la rama
 
@@ -59,6 +76,20 @@ Mismo módulo (`okf.wasm`, 59 MB, con Foundation), mismas peticiones, mismo Mac
 | Linux (pod) | sí | no | sí (el mismo runtime que Spin en Kubernetes) | — |
 | Dependencias | ninguna | ninguna (macOS) | `libwasmtime.dylib`, 24 MB, en C, firmada dentro de la app | — |
 
+Modelo de comando bajo wasmtime (instancia nueva por llamada, petición por
+stdin, `await` de nivel superior, Foundation completa, módulo precompilado):
+
+| | Tiempo por llamada, instanciar incluido |
+|---|---|
+| `describe` | 8,8 ms |
+| `form` | 4,8–5,3 ms |
+| `preview` | 8,8 ms |
+| `publish` | 11,2 ms |
+
+Arrancar Foundation en cada llamada cuesta unos 4 ms bajo el JIT. El reactor
+no hace falta con wasmtime: los plugins pueden ser comandos normales y la
+directiva interna de Swift desaparece.
+
 Otras medidas:
 
 - Módulo Swift sin Foundation: 7,8 MB con nombres, 0,5 MB sin ellos; con
@@ -93,8 +124,9 @@ Otras medidas:
    le damos.
 5. **El reactor usa una función interna del runtime de Swift**
    (`swift_task_donateThreadToGlobalExecutorUntil`) para ejecutar código
-   asíncrono dentro de una exportación síncrona. Sin ella, cada llamada
-   reinstanciaría el módulo y pagaría el arranque de Foundation.
+   asíncrono dentro de una exportación síncrona. Solo es un hándicap bajo un
+   intérprete: con wasmtime el modelo de comando cuesta 5–11 ms por llamada y
+   no la necesita (medido después, ver arriba).
 6. **Dos descripciones de la misma pantalla.** El formulario declarativo del
    plugin y el editor nativo de SwiftUI describen lo mismo. Es inherente a que
    la pantalla no viaje en el plugin; se mitiga si los conectores de serie
@@ -122,7 +154,7 @@ echo '{"command":"form","config":{"folder":"/tmp/b"},"state":{},"timeZone":"UTC"
   | node scripts/run-plugin.mjs .build/plugins/okf.wasm /tmp/b   # Node
 ```
 
-Las sondas de wasmtime (`wtprobe`, API C 49.0.2) y de JavaScriptCore
-(`jscprobe`, shim WASI en JS) son paquetes desechables de la sesión del
-2026-10-06; el código de las dos está resumido en este documento y su
-estructura es la del `PluginModule` del repo con otro runtime debajo.
+Las sondas de wasmtime y de JavaScriptCore están en `spikes/wasmtime` y
+`spikes/javascriptcore`, con su propio `README.md`. Para el modo comando,
+`main.swift` del plugin pasa a ser `await runPlugin(serve)` y se quitan los
+flags de reactor del `Package.swift`.

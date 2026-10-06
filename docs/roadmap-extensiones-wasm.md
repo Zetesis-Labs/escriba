@@ -1,5 +1,10 @@
 # Roadmap: extensiones de Escriba en WebAssembly
 
+> **Archivado el 2026-10-06** tras la fase 0: Rubén decide que no merece la
+> pena ahora. Queda como plan si se retoma; las conclusiones están en
+> `docs/spike-conectores-wasm.md` y, en `main`, en
+> `docs/exploracion-plugins-wasm.md`.
+
 Encargo de Rubén el 2026-10-06: terminar lo que el spike
 (`docs/spike-conectores-wasm.md`) dejó medido pero sin hacer. Una fase se da
 por hecha cuando funciona hasta la pantalla, con tests, y Rubén puede
@@ -14,6 +19,9 @@ Foundation por llamada bajo un JIT.
 
 - Salida: tiempo de `describe`, `form` y `publish` en modo comando bajo
   wasmtime, anotado en el spike y en el ADR 0001. Decide la fase 2.
+- **Resultado**: `describe` 8,8 ms, `form` 5 ms, `preview` 8,8 ms,
+  `publish` 11,2 ms con instancia nueva por llamada. La fase 2 queda en
+  borrar el reactor y la directiva.
 
 ## Fase 1: wasmtime como runtime del host
 
@@ -89,10 +97,10 @@ genera plugins en caliente. Sin esto el ecosistema son solo los dos de serie.
 
 | Fase | Estado |
 |---|---|
-| 0 | en curso |
-| 1 | pendiente |
-| 2 | pendiente |
-| 3 | pendiente |
-| 4 | pendiente |
-| 5 | pendiente |
-| 6 | pendiente |
+| 0 | hecha: comando a 5–11 ms |
+| 1 | archivada |
+| 2 | archivada |
+| 3 | archivada |
+| 4 | archivada |
+| 5 | archivada |
+| 6 | archivada |

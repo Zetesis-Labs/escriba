@@ -42,6 +42,19 @@ public func hostLog(_ message: String) {
     _ = try? hostCall(HostRequest(op: .log, message: message))
 }
 
+/// Modo comando: una instancia por llamada; la peticion entra por stdin y la respuesta sale por stdout.
+public func runPlugin(_ serve: (PluginRequest) async throws -> PluginResponse) async {
+    var input = Data()
+    while let line = readLine(strippingNewline: false) { input.append(Data(line.utf8)) }
+    let response: PluginResponse
+    do {
+        response = try await serve(try pluginJSONDecoder().decode(PluginRequest.self, from: input))
+    } catch {
+        response = .failure(error)
+    }
+    print(String(decoding: (try? pluginJSONEncoder().encode(response)) ?? Data(), as: UTF8.self))
+}
+
 nonisolated(unsafe) private var finished = false
 
 public func handle(_ count: Int32, _ serve: @escaping @Sendable (PluginRequest) async throws -> PluginResponse) -> Int32 {
@@ -74,6 +87,8 @@ public func answer(_ response: PluginResponse) {
 }
 
 public func hostLog(_ message: String) {}
+
+public func runPlugin(_ serve: (PluginRequest) async throws -> PluginResponse) async {}
 
 public func handle(_ count: Int32, _ serve: @escaping @Sendable (PluginRequest) async throws -> PluginResponse) -> Int32 {
     1
