@@ -78,7 +78,7 @@ struct MainWindow: View {
             case .llms:
                 ResolversPane(resolvers: runtime.llm, settings: runtime.settings)
             case .recipes:
-                RecipesPane(settings: runtime.settings, recipes: runtime.recipes)
+                RecipesPane(settings: runtime.settings, recipes: runtime.recipes, library: runtime.model)
             case .settings:
                 SettingsPane(settings: runtime.settings)
             }
