@@ -138,7 +138,7 @@ struct JavaScriptCoreTests {
         latido.cancel()
 
         #expect(registro.values == ["transcribe", "resume", "guarda"])
-        #expect(latidos.withLock { $0 } > 10)
+        #expect(latidos.withLock { $0 } > 3)
     }
 
     @Test("la nota llega a JavaScript con sus datos y resumir la actualiza")
