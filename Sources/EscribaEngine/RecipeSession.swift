@@ -5,6 +5,7 @@ import EscribaCore
 final class RecipeSession: Sendable {
     private struct State {
         var take: Take?
+        var language: String?
         var output: URL?
         var steps: [RecipeStep] = []
         var logs: [String] = []
@@ -15,25 +16,25 @@ final class RecipeSession: Sendable {
     private let save: Sink
     private let publishers: [String: Sink]
     private let catalog: RecipeCatalog
-    private let parameters: DefaultRecipeSettings?
+    private let target: RecipeTarget
     private let state = Mutex(State())
 
     init(
         recording: Recording, capabilities: Capabilities, save: @escaping Sink, publishers: [String: Sink],
-        catalog: RecipeCatalog, parameters: DefaultRecipeSettings?
+        catalog: RecipeCatalog, target: RecipeTarget
     ) {
         self.recording = recording
         self.capabilities = capabilities
         self.save = save
         self.publishers = publishers
         self.catalog = catalog
-        self.parameters = parameters
+        self.target = target
     }
 
     var bridge: RecipeBridge {
         RecipeBridge(
             audio: recipeAudio(recording),
-            parameters: parameters,
+            parameters: target.parameters,
             stts: catalog.stts,
             llms: catalog.llms,
             connectors: catalog.connectors,
@@ -51,10 +52,10 @@ final class RecipeSession: Sendable {
         }
     }
 
-    func trace(of package: RecipePackage, error: (any Error)?) -> RecipeTrace {
+    func trace(error: (any Error)?) -> RecipeTrace {
         state.withLock { state in
             RecipeTrace(
-                recipe: package.key, fingerprint: package.fingerprint, steps: state.steps,
+                recipe: target.key, name: target.name, fingerprint: target.package.fingerprint, steps: state.steps,
                 logs: state.logs, error: error.map { "\($0)" })
         }
     }
@@ -71,7 +72,10 @@ final class RecipeSession: Sendable {
         let take = try await step("transcribir", detail: "\(inputs.backend) · \(inputs.options.label)") {
             try await capabilities.transcribe(recording, with: chosen)
         }
-        state.withLock { $0.take = take }
+        state.withLock { state in
+            state.take = take
+            state.language = inputs.options.language
+        }
         return note(take)
     }
 
@@ -79,7 +83,8 @@ final class RecipeSession: Sendable {
         let transcribed = try current(for: "resumir")
         let chosen: ChosenSummarizer?
         do {
-            chosen = request.isDefault ? nil : try catalog.summarizer(recording, request)
+            chosen = request.isDefault
+                ? nil : try catalog.summarizer(recording, request, state.withLock { $0.language })
         } catch {
             record(RecipeStep(capability: "resumir", detail: request.llm, seconds: 0, error: "\(error)"))
             throw error
@@ -109,7 +114,7 @@ final class RecipeSession: Sendable {
         let publisher: Sink
         let connector: RecipeConnector
         do {
-            connector = try recipeLookup(target, in: catalog.connectors, kind: "conector", key: \.key, name: \.name)
+            connector = try recipeLookup(target, in: catalog.connectors, kind: .connector, key: \.key, name: \.name)
             guard connector.isActive, let found = publishers[connector.key] else {
                 throw RecipeError.inactiveConnector(connector.name)
             }

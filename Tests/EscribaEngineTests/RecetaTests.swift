@@ -346,7 +346,7 @@ struct RecetaTests {
                 runtime: runtime { escriba in _ = try await escriba.transcribe(RecipeTranscription(stt: "nada")) },
                 publishers: [:],
                 catalog: RecipeCatalog(transcriber: { _, _ in
-                    throw RecipeLookupError.missing(kind: "STT", query: "nada")
+                    throw RecipeLookupError.missing(kind: .stt, query: "nada")
                 })))
 
         try await pipeline.runOnce()
@@ -389,7 +389,7 @@ struct RecetaTests {
                     try await escriba.save()
                 },
                 publishers: [:],
-                catalog: RecipeCatalog(summarizer: { _, pedido in
+                catalog: RecipeCatalog(summarizer: { _, pedido, _ in
                     ChosenSummarizer(label: "Apple Intelligence · prompt propio", enrich: resumidor(pasos))
                 })),
             onEvent: { eventos.append($0) })
@@ -417,7 +417,7 @@ struct RecetaTests {
                     try await escriba.save()
                 },
                 publishers: [:],
-                catalog: RecipeCatalog(summarizer: { _, _ in
+                catalog: RecipeCatalog(summarizer: { _, _, _ in
                     ChosenSummarizer(label: "Apple Intelligence", enrich: resumidor(pasos))
                 })),
             onEvent: { eventos.append($0) })

@@ -206,7 +206,10 @@ struct PanelDeResolutoresTests {
         claves[nuevo.id] = "sk-1"
         settings.watchedFolders = [WatchedFolder(path: "/notas", resolvers: ResolverChoice(stt: UUID(), llm: nuevo.id))]
         settings.inboxResolvers = ResolverChoice(llm: nuevo.id)
-        settings.defaultRecipe.llm = nuevo.recipeKey(role: .llm)
+        let receta = settings.recipeBook.forms[0]
+        var parametros = receta.settings
+        parametros.llm = nuevo.recipeKey(role: .llm)
+        settings.recipeBook.update(receta.key, settings: parametros)
 
         modelo.remove(nuevo.id)
 
@@ -215,7 +218,7 @@ struct PanelDeResolutoresTests {
         #expect(settings.watchedFolders[0].resolvers.llm == nil)
         #expect(settings.watchedFolders[0].resolvers.stt != nil)
         #expect(settings.inboxResolvers.llm == nil)
-        #expect(settings.defaultRecipe.llm == "apple")
+        #expect(settings.recipeBook.forms[0].settings.llm == "apple")
     }
 
     @Test("el editor trabaja sobre un borrador: guardar escribe resolutor y clave, descartar vuelve atras")

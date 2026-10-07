@@ -97,21 +97,21 @@ private let resolutores = [
 struct RecetaEleccionTests {
     @Test("un STT, un LLM o un conector se piden por su clave o por su nombre, sin distinguir mayusculas")
     func busqueda() throws {
-        #expect(try recipeLookup("whisper", in: resolutores, kind: "STT", key: \.key, name: \.name).key == "whisper")
-        #expect(try recipeLookup("openai", in: resolutores, kind: "STT", key: \.key, name: \.name).key == "A1")
-        #expect(try recipeLookup("B2", in: resolutores, kind: "STT", key: \.key, name: \.name).name == "Groq")
+        #expect(try recipeLookup("whisper", in: resolutores, kind: .stt, key: \.key, name: \.name).key == "whisper")
+        #expect(try recipeLookup("openai", in: resolutores, kind: .stt, key: \.key, name: \.name).key == "A1")
+        #expect(try recipeLookup("B2", in: resolutores, kind: .stt, key: \.key, name: \.name).name == "Groq")
     }
 
     @Test("lo que no existe falla diciendo que, y un nombre repetido pide la clave")
     func busquedaFallida() {
-        #expect(throws: RecipeLookupError.missing(kind: "STT", query: "Deepgram")) {
-            try recipeLookup("Deepgram", in: resolutores, kind: "STT", key: \.key, name: \.name)
+        #expect(throws: RecipeLookupError.missing(kind: .stt, query: "Deepgram")) {
+            try recipeLookup("Deepgram", in: resolutores, kind: .stt, key: \.key, name: \.name)
         }
-        #expect(throws: RecipeLookupError.ambiguous(kind: "STT", query: "GROQ")) {
-            try recipeLookup("GROQ", in: resolutores, kind: "STT", key: \.key, name: \.name)
+        #expect(throws: RecipeLookupError.ambiguous(kind: .stt, query: "GROQ")) {
+            try recipeLookup("GROQ", in: resolutores, kind: .stt, key: \.key, name: \.name)
         }
-        #expect("\(RecipeLookupError.missing(kind: "conector", query: "x"))" == "no hay ningún conector «x»")
-        #expect("\(RecipeLookupError.ambiguous(kind: "LLM", query: "x"))" == "el nombre «x» lo llevan varios: usa su clave")
+        #expect("\(RecipeLookupError.missing(kind: .connector, query: "x"))" == "no hay ningún conector «x»")
+        #expect("\(RecipeLookupError.ambiguous(kind: .llm, query: "x"))" == "el nombre «x» lo llevan varios: usa su clave")
     }
 
     @Test("sin opciones se transcribe con lo de la carpeta")

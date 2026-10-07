@@ -59,7 +59,7 @@ public struct Pipeline: Sendable {
         var deferred = 0
         var downRoutes: Set<String> = []
 
-        for recording in pending {
+        for (index, recording) in pending.enumerated() {
             let route = backend.route(recording.url)
             guard !downRoutes.contains(route) else {
                 Log.info("\(recording.key) espera: su motor de transcripcion no responde")
@@ -73,6 +73,11 @@ public struct Pipeline: Sendable {
                 onEvent?(.backendUnavailable(reason: "\(error)"))
                 downRoutes.insert(route)
                 deferred += 1
+            } catch let unavailable as RecipeUnavailable {
+                Log.error("receta no disponible, las notas esperan: \(unavailable.reason)")
+                onEvent?(.recipeUnavailable(reason: unavailable.reason))
+                deferred += pending.count - index
+                break
             } catch {
                 Log.error("fallo procesando \(recording.key): \(error)")
                 recordFailure(of: recording, error)
@@ -98,13 +103,20 @@ public struct Pipeline: Sendable {
             return false
         }
 
+        let target: RecipeTarget?
+        do {
+            target = try recipe?.shelf.target(nil)
+        } catch {
+            throw RecipeUnavailable(reason: "\(error)")
+        }
+
         Log.info("transcribiendo \(recording.key)")
         onEvent?(.transcribing(key: recording.key))
         let started = Date()
 
         let delivered: (transcript: Transcript, output: URL)
         do {
-            delivered = try await deliver(recording)
+            delivered = try await deliver(recording, target: target)
         } catch let error as TranscriptionError where error.isBackendUnavailable {
             throw error
         } catch let error as TranscriptionError {
@@ -124,10 +136,12 @@ public struct Pipeline: Sendable {
         return true
     }
 
-    private func deliver(_ recording: Recording) async throws -> (transcript: Transcript, output: URL) {
+    private func deliver(
+        _ recording: Recording, target: RecipeTarget?
+    ) async throws -> (transcript: Transcript, output: URL) {
         let capabilities = Capabilities(backend: backend, enrich: enrich, memory: memory)
-        if let recipe {
-            return try await deliver(recording, with: recipe, capabilities)
+        if let recipe, let target {
+            return try await deliver(recording, with: recipe, target, capabilities)
         }
         let take = try await capabilities.summarize(recording, try await capabilities.transcribe(recording))
         let output = try await sink(Note(recording: recording, transcript: take.transcript, digest: take.digest))
@@ -135,19 +149,23 @@ public struct Pipeline: Sendable {
     }
 
     private func deliver(
-        _ recording: Recording, with recipe: Recipe, _ capabilities: Capabilities
+        _ recording: Recording, with recipe: Recipe, _ target: RecipeTarget, _ capabilities: Capabilities
     ) async throws -> (transcript: Transcript, output: URL) {
         let session = RecipeSession(
             recording: recording, capabilities: capabilities, save: sink, publishers: recipe.publishers,
-            catalog: recipe.catalog, parameters: recipe.parameters)
+            catalog: recipe.catalog, target: target)
         do {
-            try await recipe.runtime.run(recipe.package, session.bridge)
+            try await recipe.runtime.run(target.package, session.bridge)
             guard let delivered = session.delivered else { throw RecipeError.notSaved }
-            onEvent?(.traced(key: recording.key, trace: session.trace(of: recipe.package, error: nil)))
+            onEvent?(.traced(key: recording.key, trace: session.trace(error: nil)))
             return delivered
         } catch {
-            onEvent?(.traced(key: recording.key, trace: session.trace(of: recipe.package, error: error)))
+            onEvent?(.traced(key: recording.key, trace: session.trace(error: error)))
             throw error
         }
     }
+}
+
+private struct RecipeUnavailable: Error {
+    let reason: String
 }

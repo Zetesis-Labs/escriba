@@ -11,6 +11,7 @@ import EscribaOpenAI
 import EscribaStore
 import EscribaWhisper
 import Observation
+import Synchronization
 
 private func recipeDigester(_ llm: Resolver, prompt: String?, language: String?) -> Digester {
     { _, transcript in
@@ -18,12 +19,17 @@ private func recipeDigester(_ llm: Resolver, prompt: String?, language: String?)
     }
 }
 
-private struct PipelineSource {
-    let source: RecordingSource
-    let backend: TranscriptionBackend
-    let options: TranscriptionOptions
-    let stt: Resolver
-    let llm: Resolver
+nonisolated private final class Shared<Value: Sendable>: Sendable {
+    private let storage: Mutex<Value>
+
+    init(_ value: Value) {
+        storage = Mutex(value)
+    }
+
+    var value: Value {
+        get { storage.withLock { $0 } }
+        set { storage.withLock { $0 = newValue } }
+    }
 }
 
 private let inboxPrefix = "Escriba"
@@ -59,9 +65,11 @@ final class AppRuntime {
     @ObservationIgnored private var instanceLock: InstanceLock?
     @ObservationIgnored private var events: Task<Void, Never>?
     @ObservationIgnored private var settingsWatch: Task<Void, Never>?
+    @ObservationIgnored private var recipeBookWatch: Task<Void, Never>?
     @ObservationIgnored private let microphone: MicrophoneRecorder
     @ObservationIgnored private var recordingItem: RecordingStatusItem?
     @ObservationIgnored private let choices = fileChoiceStore(Paths.choices)
+    @ObservationIgnored private let recipeBook: Shared<RecipeBook>
 
     var symbolName: String {
         if recorder.isRecording { return "record.circle" }
@@ -79,6 +87,7 @@ final class AppRuntime {
         LegacyMigration.run()
         AppSettings.adoptLegacyDefaults(from: UserDefaults(suiteName: "dev.ruben.jpr-transcribe"))
         settings = AppSettings()
+        recipeBook = Shared(settings.recipeBook)
         connectors = ConnectorsModel(settings: settings)
         stt = ResolversModel(role: .stt, settings: settings, services: resolverServices())
         llm = ResolversModel(role: .llm, settings: settings, services: resolverServices())
@@ -130,29 +139,33 @@ final class AppRuntime {
 
         do {
             let store = try Store(root: Paths.defaultLibrary)
-            let recipeSettings = settings.defaultRecipe
-            let stt = recipeResolver(settings.sttResolvers, key: recipeSettings.stt)
-            let llm = recipeResolver(settings.llmResolvers, key: recipeSettings.llm)
-            let recipeOptions = TranscriptionOptions(
-                language: recipeSettings.language, diarize: recipeSettings.detectSpeakers,
-                speakerCount: recipeSettings.speakerCount)
-            let engine = WhisperKitEngine(language: recipeSettings.language)
-            let routing = settings.routing(inbox: Paths.inbox.path(percentEncoded: false), overrides: choices)
-            let pipelineSources = sources(engine: engine, stt: stt, llm: llm, options: recipeOptions)
+            let (stts, llms) = (settings.sttResolvers, settings.llmResolvers)
+            let engine = WhisperKitEngine(language: nil)
+            let book = recipeBook
+            let formSettings: @Sendable () -> DefaultRecipeSettings = {
+                let current = book.value
+                return current.form(current.defaultKey)?.settings ?? .standard
+            }
 
             let model = LibraryModel(
                 store: store,
                 reprocess: { [engine] recording, options in
-                    try await transcriber(for: stt, options: options, engine: engine).transcribe(recording.audioURL)
+                    let stt = recipeResolver(stts, key: formSettings().stt)
+                    return try await transcriber(for: stt, options: options, engine: engine).transcribe(recording.audioURL)
                 },
-                digester: recipeDigester(llm, prompt: recipeSettings.prompt, language: recipeSettings.language),
+                digester: { recording, transcript in
+                    let form = formSettings()
+                    return try await recipeDigester(
+                        recipeResolver(llms, key: form.llm), prompt: form.prompt, language: form.language
+                    )(recording, transcript)
+                },
                 publishers: publishers(for: store),
                 unpublishers: unpublishers(),
                 choices: choices)
             model.startObserving()
             self.model = model
 
-            warnAboutUnusable(pipelineSources)
+            warnAboutUnusable(stt: recipeResolver(stts, key: formSettings().stt), llm: recipeResolver(llms, key: formSettings().llm))
 
             let (stream, continuation) = AsyncStream.makeStream(of: PipelineEvent.self)
             events = Task { [settings] in
@@ -166,30 +179,26 @@ final class AppRuntime {
 
             let ledger = try Ledger(path: Paths.defaultState)
             reconcileLibrary(store: store, ledger: ledger)
-            let language = recipeSettings.language
-            let recipes = recipeRuntime()
+            let unchosen = TranscriptionOptions(language: nil, diarize: false)
+            let backend = recipeTranscriber(stts.local, options: unchosen, engine: engine)
+            let runtime = recipeRuntime()
             let publishers = publishers(for: store)
-            let connectors = settings.connectors.map {
-                recipeConnector($0, isActive: publishers[$0.key] != nil)
-            }
-            let (stts, llms) = (settings.sttResolvers, settings.llmResolvers)
-            let parameters = settings.defaultRecipe
-            controllers = pipelineSources.map { entry in
-                let recipe = recipes.map { runtime in
-                    Recipe(
-                        package: .defaultRecipe, runtime: runtime, publishers: publishers,
-                        catalog: recipeCatalog(
-                            routing: routing, stts: stts, llms: llms, connectors: connectors,
-                            folderOptions: entry.options, language: language, engine: engine),
-                        parameters: parameters)
-                }
+            let catalog = recipeCatalog(
+                stts: stts, llms: llms,
+                connectors: settings.connectors.map { recipeConnector($0, isActive: publishers[$0.key] != nil) },
+                unchosen: unchosen, engine: engine)
+            let installed = Paths.installedRecipes
+            let shelf = recipeShelf(
+                book: { book.value }, installed: { try readInstalledRecipes(at: installed) },
+                formPackage: .defaultRecipe)
+            controllers = sources().map { source in
+                let recipe = runtime.map { Recipe(shelf: shelf, runtime: $0, publishers: publishers, catalog: catalog) }
                 let pipeline = Pipeline(
-                    source: entry.source,
+                    source: source,
                     ledger: ledger,
-                    backend: entry.backend,
+                    backend: backend,
                     sink: recipe == nil ? sink(for: store) : saveSink(for: store),
-                    enrich: recipeSettings.summarize
-                        ? enricher(summarizer(for: llm).prompted(recipeSettings.prompt), language: language) : nil,
+                    enrich: enricher(summarizer(for: llms.local), language: nil),
                     memory: store.memory(),
                     recipe: recipe,
                     onEvent: { continuation.yield($0) }
@@ -210,23 +219,13 @@ final class AppRuntime {
             Notifier.problem(title: "No se pudo arrancar", detail: "\(error)")
         }
 
-        func sources(
-            engine: WhisperKitEngine, stt: Resolver, llm: Resolver, options recipeOptions: TranscriptionOptions
-        ) -> [PipelineSource] {
-            var result: [PipelineSource] = []
+        func sources() -> [RecordingSource] {
+            var result: [RecordingSource] = []
             var prefixes: Set<String> = [inboxPrefix]
-
-            func entry(_ source: RecordingSource) -> PipelineSource {
-                PipelineSource(
-                    source: source, backend: recipeTranscriber(stt, options: recipeOptions, engine: engine),
-                    options: recipeOptions, stt: stt, llm: llm)
-            }
 
             do {
                 try FileManager.default.createDirectory(at: Paths.inbox, withIntermediateDirectories: true)
-                result.append(entry(
-                    namespaced(folderSource(name: inboxPrefix, root: Paths.inbox), prefix: inboxPrefix),
-                    ))
+                result.append(namespaced(folderSource(name: inboxPrefix, root: Paths.inbox), prefix: inboxPrefix))
             } catch {
                 Log.error("no se pudo preparar la bandeja de Escriba: \(error)")
             }
@@ -241,14 +240,10 @@ final class AppRuntime {
 
                 switch folder.style {
                 case .justPressRecord:
-                    result.append(entry(justPressRecordSource(root: folderRoot), ))
+                    result.append(justPressRecordSource(root: folderRoot))
                     continue
                 case .voiceMemos:
-                    result.append(entry(
-                        namespaced(
-                            voiceMemosSource(root: folderRoot, expectedSpeakers: nil),
-                            prefix: "Notas de Voz"),
-                        ))
+                    result.append(namespaced(voiceMemosSource(root: folderRoot, expectedSpeakers: nil), prefix: "Notas de Voz"))
                     continue
                 case .any:
                     break
@@ -260,35 +255,26 @@ final class AppRuntime {
                     prefix = "\(folderRoot.lastPathComponent)-\(counter)"
                     counter += 1
                 }
-                result.append(entry(
-                    namespaced(
-                        folderSource(
-                            name: prefix, root: folderRoot, expectedSpeakers: nil),
-                        prefix: prefix),
-                    ))
+                result.append(namespaced(
+                    folderSource(name: prefix, root: folderRoot, expectedSpeakers: nil), prefix: prefix))
             }
             return result
         }
     }
 
-    private func warnAboutUnusable(_ sources: [PipelineSource]) {
-        var warned: Set<UUID> = []
-        for resolver in sources.map(\.stt) where warned.insert(resolver.id).inserted {
-            let problem = resolver.kind == .local
-                ? localResolverProblem(.stt)
-                : resolverProblem(resolver, localProblem: nil)
-            guard let problem else { continue }
-            Log.error("no se puede transcribir con \(resolver.name): \(problem)")
-            Notifier.problem(title: "No se puede transcribir con \(resolver.name)", detail: problem)
+    private func warnAboutUnusable(stt: Resolver, llm: Resolver) {
+        let sttProblem = stt.kind == .local ? localResolverProblem(.stt) : resolverProblem(stt, localProblem: nil)
+        if let sttProblem {
+            Log.error("no se puede transcribir con \(stt.name): \(sttProblem)")
+            Notifier.problem(title: "No se puede transcribir con \(stt.name)", detail: sttProblem)
         }
-        guard settings.defaultRecipe.summarize else { return }
-        for resolver in sources.map(\.llm) where warned.insert(resolver.id).inserted {
-            guard let problem = summarizer(for: resolver).availability().problem else { continue }
-            Log.error("los resumenes estan activados pero \(resolver.name): \(problem)")
-            Notifier.problem(
-                title: "No se puede resumir con \(resolver.name)",
-                detail: "\(problem). Las notas se transcribiran igual.")
-        }
+        guard recipeBook.value.form(recipeBook.value.defaultKey)?.settings.summarize == true,
+            let llmProblem = summarizer(for: llm).availability().problem
+        else { return }
+        Log.error("la receta por defecto resume pero \(llm.name): \(llmProblem)")
+        Notifier.problem(
+            title: "No se puede resumir con \(llm.name)",
+            detail: "\(llmProblem). Las notas se transcribiran igual.")
     }
 
     private func reconcileLibrary(store: Store, ledger: Ledger) {
@@ -307,7 +293,9 @@ final class AppRuntime {
     private func recipeRuntime() -> RecipeRuntime? {
         do {
             let runtime = try javaScriptCoreRuntime()
-            Log.info("recetas: «\(RecipePackage.defaultRecipe.key)» \(RecipePackage.defaultRecipe.fingerprint) en \(runtime.name)")
+            let book = recipeBook.value
+            let name = book.form(book.defaultKey)?.name ?? book.defaultKey
+            Log.info("recetas en \(runtime.name); la por defecto es «\(name)», formulario \(RecipePackage.defaultRecipe.fingerprint)")
             return runtime
         } catch {
             Log.error("las recetas no arrancan, se procesa sin receta: \(error)")
@@ -433,7 +421,6 @@ final class AppRuntime {
                     "\(settings.sttResolvers)",
                     "\(settings.llmResolvers)",
                     fingerprint(of: settings.connectors),
-                    "\(settings.defaultRecipe)",
                 ].joined(separator: "|")
             }
 
@@ -444,6 +431,12 @@ final class AppRuntime {
                     continue
                 }
                 self?.rebuild()
+            }
+        }
+        recipeBookWatch = Task { [weak self] in
+            guard let settings = self?.settings else { return }
+            for await book in Observations({ settings.recipeBook }) {
+                self?.recipeBook.value = book
             }
         }
     }
