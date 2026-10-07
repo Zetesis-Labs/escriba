@@ -138,7 +138,9 @@ actor RecipeRun {
             } ?? 0
         }
         puente.setObject(process, forKeyedSubscript: "procesar" as NSString)
-        let log: @convention(block) (String) -> Void = { bridge.log($0) }
+        let log: @convention(block) (String, String) -> Void = { level, text in
+            bridge.log(RecipeLogLevel(rawValue: level) ?? .info, text)
+        }
         puente.setObject(log, forKeyedSubscript: "log" as NSString)
         return puente
     }

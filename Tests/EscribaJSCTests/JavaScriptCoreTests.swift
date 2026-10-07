@@ -70,7 +70,7 @@ private func puente(
         save: { registro.append("guarda") },
         publish: { registro.append("publica \($0)") },
         process: { registro.append("procesa \($0)") },
-        log: { registro.append("log \($0)") })
+        log: { nivel, texto in registro.append(nivel == .info ? "log \(texto)" : "log \(nivel.rawValue) \(texto)") })
 }
 
 private func ejecutar(_ package: RecipePackage, _ bridge: RecipeBridge, limite: Double = 10) async throws {
@@ -396,6 +396,29 @@ struct JavaScriptCoreTests {
         ])
     }
 
+    @Test("console escribe en el log con su nivel; los objetos como JSON y los errores con su nombre")
+    func consola() async throws {
+        let registro = Registro()
+
+        try await ejecutar(
+            paquete("""
+                console.log("hola", 1, { a: [1, 2] })
+                console.info("info")
+                console.warn(new Error("cuidado"))
+                console.error("mal")
+                console.debug("detalle")
+                const ciclo = {}
+                ciclo.yo = ciclo
+                console.log(ciclo)
+                """),
+            puente(registro))
+
+        #expect(registro.values == [
+            "log hola 1 {\n  \"a\": [\n    1,\n    2\n  ]\n}", "log info", "log warn Error: cuidado", "log error mal",
+            "log debug detalle", "log [object Object]",
+        ])
+    }
+
     @Test("la receta ve las recetas y pasa la grabacion a otra por su nombre")
     func otraReceta() async throws {
         let registro = Registro()
@@ -468,7 +491,7 @@ struct JavaScriptCoreTests {
         }.first
         #expect(hechas.withLock { $0 } == ["a"])
         #expect(registro.values == ["transcribe", "guarda"])
-        #expect(traza?.logs == ["soy codigo"])
+        #expect(traza?.logs.map(\.text) == ["soy codigo"])
         #expect(traza?.steps.map(\.title).last == "receta · Reuniones")
         #expect(traza?.steps.dropLast().allSatisfy { $0.origin == "Reuniones" } == true)
     }

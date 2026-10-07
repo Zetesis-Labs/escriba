@@ -18,7 +18,7 @@ private let porDefecto: @Sendable (RecipeBridge) async throws -> Void = { escrib
         do {
             try await escriba.publish(conector.key)
         } catch {
-            escriba.log("no se pudo publicar en \(conector.name): \(error)")
+            escriba.log(.info, "no se pudo publicar en \(conector.name): \(error)")
         }
     }
 }
@@ -141,7 +141,7 @@ struct RecetaTests {
         let traza = try #require(trazas(eventos).first)
         #expect(ledger.doneKeys == ["a"])
         #expect(traza.steps.last?.error != nil)
-        #expect(traza.logs.first?.contains("no se pudo publicar en notion") == true)
+        #expect(traza.logs.first?.text.contains("no se pudo publicar en notion") == true)
     }
 
     @Test("sin LLM con el que resumir, resumir no llama a ningun modelo y la traza lo dice")
@@ -260,7 +260,7 @@ struct RecetaTests {
             recipe: Recipe(
                 package: paquete,
                 runtime: runtime { escriba in
-                    escriba.log("antes de romper")
+                    escriba.log(.info, "antes de romper")
                     throw RecipeError.failed("se rompio en la linea 3")
                 },
                 publishers: [:]),
@@ -270,7 +270,7 @@ struct RecetaTests {
 
         let traza = try #require(trazas(eventos).first)
         #expect(traza.error?.contains("se rompio en la linea 3") == true)
-        #expect(traza.logs == ["antes de romper"])
+        #expect(traza.logs.map(\.text) == ["antes de romper"])
         #expect(ledger.failures["a"]?.contains("se rompio en la linea 3") == true)
     }
 

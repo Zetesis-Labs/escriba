@@ -117,6 +117,14 @@ interface Escriba {
 interface ErrorDeEscriba extends Error {
   readonly codigo: "no-disponible" | "fallo"
 }
+
+declare const console: {
+  log(...valores: unknown[]): void
+  info(...valores: unknown[]): void
+  warn(...valores: unknown[]): void
+  error(...valores: unknown[]): void
+  debug(...valores: unknown[]): void
+}
 """##
 
     public static let tsconfig = ##"""
@@ -181,7 +189,10 @@ Lo que puede pedir, con los tipos completos en `escriba-recetas.d.ts`:
   formulario de la app, y `escriba.receta(claveONombre).procesar(audio)` le
   pasa la grabación a otra: hace su recorrido entero y su `guardar()` vale
   para las dos. Como mucho 4 recetas encadenadas y sin ciclos.
-- `escriba.log(texto)` escribe en la traza de la nota.
+- `console.log`, `info`, `warn`, `error` y `debug` (y `escriba.log(texto)`,
+  que es como `console.log`) escriben en la traza de la nota con su nivel; un
+  objeto sale como JSON. Escriba guarda cada ejecución con sus pasos y su log,
+  y se ven en la ficha de la receta y en la sección Registro.
 
 ```ts
 export const receta = { nombre: "Ideas" }

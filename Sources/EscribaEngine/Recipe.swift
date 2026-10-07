@@ -65,7 +65,7 @@ public struct RecipeBridge: Sendable {
     public var save: @Sendable () async throws -> Void
     public var publish: @Sendable (String) async throws -> Void
     public var process: @Sendable (String) async throws -> Void
-    public var log: @Sendable (String) -> Void
+    public var log: @Sendable (RecipeLogLevel, String) -> Void
 
     public init(
         audio: RecipeAudio,
@@ -81,7 +81,7 @@ public struct RecipeBridge: Sendable {
         process: @escaping @Sendable (String) async throws -> Void = { _ in
             throw RecipeError.unavailable("aquí no se puede pasar la grabación a otra receta")
         },
-        log: @escaping @Sendable (String) -> Void
+        log: @escaping @Sendable (RecipeLogLevel, String) -> Void
     ) {
         self.audio = audio
         self.parameters = parameters

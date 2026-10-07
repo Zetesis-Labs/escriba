@@ -120,7 +120,7 @@ struct PasarGrabacionTests {
                 do {
                     try await escriba.process("nada")
                 } catch {
-                    escriba.log("sigo yo: \(error)")
+                    escriba.log(.info, "sigo yo: \(error)")
                 }
                 try await transcribeYGuarda(escriba)
             }),
@@ -129,7 +129,7 @@ struct PasarGrabacionTests {
         #expect(ledger.doneKeys == ["a"])
         #expect(traza?.steps.first?.title == "receta · nada")
         #expect(traza?.steps.first?.error == "no hay ninguna receta «nada»")
-        #expect(traza?.logs == ["sigo yo: no hay ninguna receta «nada»"])
+        #expect(traza?.logs.map(\.text) == ["sigo yo: no hay ninguna receta «nada»"])
     }
 
     @Test("dos recetas que se llaman en circulo fallan con la cadena, y la nota queda fallida")
