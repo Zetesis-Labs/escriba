@@ -81,3 +81,100 @@ struct RecetaContratoTests {
         #expect(segmento["hablante"] is NSNull)
     }
 }
+
+private func opciones(_ json: String) throws -> RecipeTranscription {
+    try JSONDecoder().decode(RecipeTranscription.self, from: Data(json.utf8))
+}
+
+private let resolutores = [
+    RecipeResolver(key: "whisper", name: "Whisper en este Mac", isLocal: true, isFavorite: true),
+    RecipeResolver(key: "A1", name: "OpenAI", isLocal: false, isFavorite: false),
+    RecipeResolver(key: "B2", name: "Groq", isLocal: false, isFavorite: false),
+    RecipeResolver(key: "C3", name: "groq", isLocal: false, isFavorite: false),
+]
+
+@Suite("Lo que una receta elige")
+struct RecetaEleccionTests {
+    @Test("un STT, un LLM o un conector se piden por su clave o por su nombre, sin distinguir mayusculas")
+    func busqueda() throws {
+        #expect(try recipeLookup("whisper", in: resolutores, kind: "STT", key: \.key, name: \.name).key == "whisper")
+        #expect(try recipeLookup("openai", in: resolutores, kind: "STT", key: \.key, name: \.name).key == "A1")
+        #expect(try recipeLookup("B2", in: resolutores, kind: "STT", key: \.key, name: \.name).name == "Groq")
+    }
+
+    @Test("lo que no existe falla diciendo que, y un nombre repetido pide la clave")
+    func busquedaFallida() {
+        #expect(throws: RecipeLookupError.missing(kind: "STT", query: "Deepgram")) {
+            try recipeLookup("Deepgram", in: resolutores, kind: "STT", key: \.key, name: \.name)
+        }
+        #expect(throws: RecipeLookupError.ambiguous(kind: "STT", query: "GROQ")) {
+            try recipeLookup("GROQ", in: resolutores, kind: "STT", key: \.key, name: \.name)
+        }
+        #expect("\(RecipeLookupError.missing(kind: "conector", query: "x"))" == "no hay ningún conector «x»")
+        #expect("\(RecipeLookupError.ambiguous(kind: "LLM", query: "x"))" == "el nombre «x» lo llevan varios: usa su clave")
+    }
+
+    @Test("sin opciones se transcribe con lo de la carpeta")
+    func sinOpciones() throws {
+        let carpeta = TranscriptionOptions(language: "es", diarize: true, speakerCount: 3)
+
+        #expect(try opciones("{}").isDefault)
+        #expect(try opciones("{}").options(over: carpeta) == carpeta)
+    }
+
+    @Test("el idioma tiene tres estados: el de la carpeta, automatico con null o uno concreto")
+    func idioma() throws {
+        let carpeta = TranscriptionOptions(language: "es")
+
+        #expect(try opciones("{}").options(over: carpeta).language == "es")
+        #expect(try opciones(#"{"idioma": null}"#).options(over: carpeta).language == nil)
+        #expect(try opciones(#"{"idioma": "en"}"#).options(over: carpeta).language == "en")
+        #expect(try !opciones(#"{"idioma": null}"#).isDefault)
+    }
+
+    @Test("los hablantes se detectan o no, y se puede fijar cuantos")
+    func hablantes() throws {
+        let carpeta = TranscriptionOptions(language: "es", diarize: true, speakerCount: 3)
+
+        #expect(try opciones(#"{"hablantes": {"detectar": false}}"#).options(over: carpeta)
+            == TranscriptionOptions(language: "es"))
+        #expect(try opciones(#"{"hablantes": {"detectar": true, "cuantos": 2}}"#).options(over: carpeta)
+            == TranscriptionOptions(language: "es", diarize: true, speakerCount: 2))
+        #expect(try opciones(#"{"hablantes": {"detectar": true}}"#).options(over: TranscriptionOptions())
+            == TranscriptionOptions(diarize: true))
+    }
+
+    @Test("el STT elegido viaja en las opciones")
+    func sttElegido() throws {
+        #expect(try opciones(#"{"stt": "groq"}"#).stt == "groq")
+        #expect(try !opciones(#"{"stt": "groq"}"#).isDefault)
+    }
+
+    @Test("un STT remoto no detecta hablantes: pedirlo es un error, no texto sin hablantes")
+    func remotoSinHablantes() {
+        #expect(transcriptionProblem(isLocal: false, options: TranscriptionOptions(diarize: true)) != nil)
+        #expect(transcriptionProblem(isLocal: false, options: TranscriptionOptions(language: "es")) == nil)
+        #expect(transcriptionProblem(isLocal: true, options: TranscriptionOptions(diarize: true)) == nil)
+    }
+
+    @Test("resumir sin opciones usa lo de la carpeta; con LLM o prompt, lo pedido")
+    func resumen() throws {
+        let decoder = JSONDecoder()
+        #expect(try decoder.decode(RecipeSummaryRequest.self, from: Data("{}".utf8)).isDefault)
+        let pedido = try decoder.decode(RecipeSummaryRequest.self, from: Data(#"{"llm": "apple", "prompt": "breve"}"#.utf8))
+        #expect(pedido == RecipeSummaryRequest(llm: "apple", prompt: "breve"))
+        #expect(!pedido.isDefault)
+    }
+
+    @Test("los resolutores y los conectores llegan a JavaScript con los nombres del contrato, sin claves de API")
+    func catalogo() throws {
+        let stt = try objeto(try recipeJSON(resolutores[0]))
+        let conector = try objeto(try recipeJSON(RecipeConnector(key: "K", name: "Notion trabajo", kind: "notion")))
+
+        #expect(Set(stt.keys) == ["clave", "nombre", "local", "favorito"])
+        #expect(stt["local"] as? Bool == true)
+        #expect(conector["clave"] as? String == "K")
+        #expect(conector["nombre"] as? String == "Notion trabajo")
+        #expect(conector["tipo"] as? String == "notion")
+    }
+}

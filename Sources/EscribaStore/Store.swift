@@ -610,15 +610,14 @@ public final class Store: Sendable {
             : Transcript(segments: segments.map(\.segment))
     }
 
-    public func memory(inputs: @escaping @Sendable (Recording) -> TranscriptionInputs) -> NoteMemory {
+    public func memory() -> NoteMemory {
         NoteMemory(
-            recall: { recording in
-                try await self.remembered(recording.key, matching: inputs(recording))
+            recall: { recording, inputs in
+                try await self.remembered(recording.key, matching: inputs)
             },
-            keepTranscript: { recording, transcript in
-                let wanted = inputs(recording)
-                return try self.write(
-                    recording, transcript, backend: wanted.backend, options: wanted.options, digest: nil
+            keepTranscript: { recording, transcript, inputs in
+                try self.write(
+                    recording, transcript, backend: inputs.backend, options: inputs.options, digest: nil
                 ).version
             },
             keepDigest: { recording, version, digest in

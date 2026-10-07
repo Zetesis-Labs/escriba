@@ -11,14 +11,14 @@ private func runtime(_ body: @escaping @Sendable (RecipeBridge) async throws -> 
 }
 
 private let porDefecto: @Sendable (RecipeBridge) async throws -> Void = { escriba in
-    _ = try await escriba.transcribe()
-    _ = try await escriba.summarize()
+    _ = try await escriba.transcribe(RecipeTranscription())
+    _ = try await escriba.summarize(RecipeSummaryRequest())
     try await escriba.save()
-    for clave in escriba.connectors {
+    for conector in escriba.connectors {
         do {
-            try await escriba.publish(clave)
+            try await escriba.publish(conector.key)
         } catch {
-            escriba.log("no se pudo publicar en \(clave): \(error)")
+            escriba.log("no se pudo publicar en \(conector.name): \(error)")
         }
     }
 }
@@ -204,7 +204,7 @@ struct RecetaTests {
             source: source([recording("a")]), ledger: ledger.port,
             backend: transcribe(Trace()), sink: guarda(Trace()),
             recipe: Recipe(
-                package: paquete, runtime: runtime { escriba in _ = try await escriba.transcribe() },
+                package: paquete, runtime: runtime { escriba in _ = try await escriba.transcribe(RecipeTranscription()) },
                 publishers: [:]))
 
         try await pipeline.runOnce()
@@ -239,7 +239,7 @@ struct RecetaTests {
             recipe: Recipe(
                 package: paquete,
                 runtime: runtime { escriba in
-                    _ = try await escriba.transcribe()
+                    _ = try await escriba.transcribe(RecipeTranscription())
                     try await escriba.save()
                     try await escriba.publish("nada")
                 },
@@ -284,8 +284,8 @@ struct RecetaTests {
                 package: paquete,
                 runtime: runtime { escriba in
                     recibido.append(escriba.audio.key)
-                    recibido.append(escriba.connectors.sorted().joined(separator: ","))
-                    _ = try await escriba.transcribe()
+                    recibido.append(escriba.connectors.map(\.key).sorted().joined(separator: ","))
+                    _ = try await escriba.transcribe(RecipeTranscription())
                     try await escriba.save()
                 },
                 publishers: ["okf": publica(Trace(), en: "okf"), "notion": publica(Trace(), en: "notion")]))
@@ -293,5 +293,212 @@ struct RecetaTests {
         try await pipeline.runOnce()
 
         #expect(recibido.values == ["a", "notion,okf"])
+    }
+
+    @Test("la receta transcribe con otro STT y otros criterios, y la memoria distingue cada eleccion")
+    func otroSTT() async throws {
+        let llamadas = Trace<String>()
+        let memoria = MemoryNotes()
+        let catalogo = RecipeCatalog(
+            transcriber: { _, pedido in
+                let elegido = pedido.stt ?? "carpeta"
+                return TranscriptionBackend(
+                    name: elegido,
+                    transcribe: { _ in
+                        llamadas.append(elegido)
+                        return Transcript(text: elegido)
+                    },
+                    inputs: { _ in TranscriptionInputs(backend: elegido, options: pedido.options(over: .automatic)) })
+            })
+        let textos = Trace<String>()
+        let pipeline = Pipeline(
+            source: source([recording("a")]), ledger: MemoryLedger().port,
+            backend: backend { _ in
+                llamadas.append("carpeta")
+                return Transcript(text: "carpeta")
+            },
+            sink: guarda(Trace()), memory: memoria.port,
+            recipe: Recipe(
+                package: paquete,
+                runtime: runtime { escriba in
+                    textos.append(try await escriba.transcribe(RecipeTranscription()).transcript.text)
+                    textos.append(try await escriba.transcribe(RecipeTranscription(stt: "groq")).transcript.text)
+                    textos.append(try await escriba.transcribe(RecipeTranscription(stt: "groq")).transcript.text)
+                    try await escriba.save()
+                },
+                publishers: [:], catalog: catalogo))
+
+        try await pipeline.runOnce()
+
+        #expect(llamadas.values == ["carpeta", "groq"])
+        #expect(textos.values == ["carpeta", "groq", "groq"])
+        #expect(memoria.count == 2)
+    }
+
+    @Test("pedir un STT que no existe deja la nota fallida diciendo cual")
+    func sttInexistente() async throws {
+        let ledger = MemoryLedger()
+        let pipeline = Pipeline(
+            source: source([recording("a")]), ledger: ledger.port,
+            backend: transcribe(Trace()), sink: guarda(Trace()),
+            recipe: Recipe(
+                package: paquete,
+                runtime: runtime { escriba in _ = try await escriba.transcribe(RecipeTranscription(stt: "nada")) },
+                publishers: [:],
+                catalog: RecipeCatalog(transcriber: { _, _ in
+                    throw RecipeLookupError.missing(kind: "STT", query: "nada")
+                })))
+
+        try await pipeline.runOnce()
+
+        #expect(ledger.failures["a"]?.contains("no hay ningún STT «nada»") == true)
+    }
+
+    @Test("la traza dice con que se transcribio")
+    func trazaDeLaTranscripcion() async throws {
+        let eventos = Trace<PipelineEvent>()
+        let pipeline = Pipeline(
+            source: source([recording("a")]), ledger: MemoryLedger().port,
+            backend: TranscriptionBackend(
+                name: "whisper", transcribe: { _ in Transcript(text: "hola") },
+                inputs: { _ in
+                    TranscriptionInputs(
+                        backend: "WhisperKit", options: TranscriptionOptions(language: "es", diarize: true, speakerCount: 2))
+                }),
+            sink: guarda(Trace()),
+            recipe: Recipe(package: paquete, runtime: runtime(porDefecto), publishers: [:]),
+            onEvent: { eventos.append($0) })
+
+        try await pipeline.runOnce()
+
+        #expect(trazas(eventos).first?.steps.first?.detail == "WhisperKit · ES · 2 hablantes")
+    }
+
+    @Test("resumir con un LLM elegido resume aunque el resumen por defecto este apagado, y la traza dice con cual")
+    func otroLLM() async throws {
+        let pasos = Trace<String>()
+        let eventos = Trace<PipelineEvent>()
+        let pipeline = Pipeline(
+            source: source([recording("a")]), ledger: MemoryLedger().port,
+            backend: transcribe(pasos), sink: guarda(pasos),
+            recipe: Recipe(
+                package: paquete,
+                runtime: runtime { escriba in
+                    _ = try await escriba.transcribe(RecipeTranscription())
+                    _ = try await escriba.summarize(RecipeSummaryRequest(llm: "apple", prompt: "breve"))
+                    try await escriba.save()
+                },
+                publishers: [:],
+                catalog: RecipeCatalog(summarizer: { _, pedido in
+                    ChosenSummarizer(label: "Apple Intelligence · prompt propio", enrich: resumidor(pasos))
+                })),
+            onEvent: { eventos.append($0) })
+
+        try await pipeline.runOnce()
+
+        #expect(pasos.values.contains("resume"))
+        #expect(trazas(eventos).first?.steps[1].detail == "Apple Intelligence · prompt propio")
+    }
+
+    @Test("un resumen que ya estaba se recuerda en vez de pedirlo otra vez, y la traza lo dice")
+    func resumenRecordado() async throws {
+        let pasos = Trace<String>()
+        let memoria = MemoryNotes()
+        memoria.remember("a", Transcript(text: "hola"), digest: Digest(title: "t", summary: "s", tags: []))
+        let eventos = Trace<PipelineEvent>()
+        let pipeline = Pipeline(
+            source: source([recording("a")]), ledger: MemoryLedger().port,
+            backend: transcribe(pasos), sink: guarda(pasos), memory: memoria.port,
+            recipe: Recipe(
+                package: paquete,
+                runtime: runtime { escriba in
+                    _ = try await escriba.transcribe(RecipeTranscription())
+                    _ = try await escriba.summarize(RecipeSummaryRequest(llm: "apple"))
+                    try await escriba.save()
+                },
+                publishers: [:],
+                catalog: RecipeCatalog(summarizer: { _, _ in
+                    ChosenSummarizer(label: "Apple Intelligence", enrich: resumidor(pasos))
+                })),
+            onEvent: { eventos.append($0) })
+
+        try await pipeline.runOnce()
+
+        #expect(!pasos.values.contains("resume"))
+        #expect(trazas(eventos).first?.steps[1].detail == "Apple Intelligence · recordado")
+    }
+
+    @Test("la receta publica en un conector por su nombre")
+    func conectorPorNombre() async throws {
+        let pasos = Trace<String>()
+        let pipeline = Pipeline(
+            source: source([recording("a")]), ledger: MemoryLedger().port,
+            backend: transcribe(Trace()), sink: guarda(Trace()),
+            recipe: Recipe(
+                package: paquete,
+                runtime: runtime { escriba in
+                    _ = try await escriba.transcribe(RecipeTranscription())
+                    try await escriba.save()
+                    try await escriba.publish("notion trabajo")
+                },
+                publishers: ["K1": publica(pasos, en: "K1"), "K2": publica(pasos, en: "K2")],
+                catalog: RecipeCatalog(connectors: [
+                    RecipeConnector(key: "K1", name: "Notion casa", kind: "notion"),
+                    RecipeConnector(key: "K2", name: "Notion trabajo", kind: "notion"),
+                ])))
+
+        try await pipeline.runOnce()
+
+        #expect(pasos.values == ["publica K2"])
+    }
+
+    @Test("un nombre de conector que llevan varios pide la clave")
+    func conectorAmbiguo() async throws {
+        let ledger = MemoryLedger()
+        let pipeline = Pipeline(
+            source: source([recording("a")]), ledger: ledger.port,
+            backend: transcribe(Trace()), sink: guarda(Trace()),
+            recipe: Recipe(
+                package: paquete,
+                runtime: runtime { escriba in
+                    _ = try await escriba.transcribe(RecipeTranscription())
+                    try await escriba.save()
+                    try await escriba.publish("Notion")
+                },
+                publishers: ["K1": publica(Trace(), en: "K1"), "K2": publica(Trace(), en: "K2")],
+                catalog: RecipeCatalog(connectors: [
+                    RecipeConnector(key: "K1", name: "Notion", kind: "notion"),
+                    RecipeConnector(key: "K2", name: "Notion", kind: "notion"),
+                ])))
+
+        try await pipeline.runOnce()
+
+        #expect(ledger.failures["a"]?.contains("lo llevan varios: usa su clave") == true)
+    }
+
+    @Test("la receta ve los STT, los LLM y los conectores del catalogo")
+    func catalogoVisible() async throws {
+        let visto = Trace<String>()
+        let pipeline = Pipeline(
+            source: source([recording("a")]), ledger: MemoryLedger().port,
+            backend: transcribe(Trace()), sink: guarda(Trace()),
+            recipe: Recipe(
+                package: paquete,
+                runtime: runtime { escriba in
+                    visto.append(escriba.stts.map(\.key).joined(separator: ","))
+                    visto.append(escriba.llms.map(\.key).joined(separator: ","))
+                    visto.append(escriba.connectors.map(\.name).joined(separator: ","))
+                    _ = try await escriba.transcribe(RecipeTranscription())
+                    try await escriba.save()
+                },
+                publishers: ["K1": publica(Trace(), en: "K1")],
+                catalog: RecipeCatalog(
+                    stts: [RecipeResolver(key: "whisper", name: "Whisper en este Mac", isLocal: true, isFavorite: true)],
+                    llms: [RecipeResolver(key: "apple", name: "Apple Intelligence", isLocal: true, isFavorite: true)],
+                    connectors: [RecipeConnector(key: "K1", name: "Notion", kind: "notion")])))
+
+        try await pipeline.runOnce()
+
+        #expect(visto.values == ["whisper", "apple", "Notion"])
     }
 }

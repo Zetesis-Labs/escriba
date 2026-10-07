@@ -138,7 +138,8 @@ public struct Pipeline: Sendable {
         _ recording: Recording, with recipe: Recipe, _ capabilities: Capabilities
     ) async throws -> (transcript: Transcript, output: URL) {
         let session = RecipeSession(
-            recording: recording, capabilities: capabilities, save: sink, publishers: recipe.publishers)
+            recording: recording, capabilities: capabilities, save: sink, publishers: recipe.publishers,
+            catalog: recipe.catalog)
         do {
             try await recipe.runtime.run(recipe.package, session.bridge)
             guard let delivered = session.delivered else { throw RecipeError.notSaved }

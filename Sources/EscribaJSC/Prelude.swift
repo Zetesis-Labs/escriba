@@ -3,7 +3,11 @@ let preludeSource = #"""
   "use strict"
   const puente = globalThis.__puente
   delete globalThis.__puente
-  const conectores = Object.freeze(JSON.parse(puente.conectores))
+  const lista = (json) => Object.freeze(JSON.parse(json).map((elemento) => Object.freeze(elemento)))
+  const stts = lista(puente.stts)
+  const llms = lista(puente.llms)
+  const conectores = lista(puente.conectores)
+  const opciones = (valor) => JSON.stringify(valor ?? {})
   const pendientes = new Map()
   const pedir = (id) => new Promise((resolve, reject) => pendientes.set(id, { resolve, reject }))
   const soltar = (id) => {
@@ -17,8 +21,8 @@ let preludeSource = #"""
       Object.assign(this, datos)
     }
 
-    async resumir() {
-      Object.assign(this, JSON.parse(await pedir(puente.resumir())))
+    async resumir(pedido) {
+      Object.assign(this, JSON.parse(await pedir(puente.resumir(opciones(pedido)))))
       return this
     }
 
@@ -29,15 +33,23 @@ let preludeSource = #"""
   }
 
   const escriba = Object.freeze({
+    stts,
+    llms,
     conectores,
-    async transcribir(audio) {
-      return new Nota(JSON.parse(await pedir(puente.transcribir())))
+    async transcribir(audio, pedido) {
+      return new Nota(JSON.parse(await pedir(puente.transcribir(opciones(pedido)))))
     },
-    conector(clave) {
+    conector(referencia) {
+      const texto = String(referencia)
+      const info =
+        conectores.find((conector) => conector.clave === texto) ??
+        conectores.find((conector) => conector.nombre.toLowerCase() === texto.toLowerCase())
       return Object.freeze({
-        clave: String(clave),
+        clave: info?.clave ?? texto,
+        nombre: info?.nombre ?? texto,
+        tipo: info?.tipo ?? null,
         async publicar(nota) {
-          await pedir(puente.publicar(String(clave)))
+          await pedir(puente.publicar(texto))
         },
       })
     },

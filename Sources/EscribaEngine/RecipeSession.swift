@@ -14,21 +14,28 @@ final class RecipeSession: Sendable {
     private let capabilities: Capabilities
     private let save: Sink
     private let publishers: [String: Sink]
+    private let catalog: RecipeCatalog
     private let state = Mutex(State())
 
-    init(recording: Recording, capabilities: Capabilities, save: @escaping Sink, publishers: [String: Sink]) {
+    init(
+        recording: Recording, capabilities: Capabilities, save: @escaping Sink, publishers: [String: Sink],
+        catalog: RecipeCatalog
+    ) {
         self.recording = recording
         self.capabilities = capabilities
         self.save = save
         self.publishers = publishers
+        self.catalog = catalog
     }
 
     var bridge: RecipeBridge {
         RecipeBridge(
             audio: recipeAudio(recording),
-            connectors: publishers.keys.sorted(),
-            transcribe: { try await self.transcribe() },
-            summarize: { try await self.summarize() },
+            stts: catalog.stts,
+            llms: catalog.llms,
+            connectors: catalog.connectors,
+            transcribe: { try await self.transcribe($0) },
+            summarize: { try await self.summarize($0) },
             save: { try await self.saveNote() },
             publish: { try await self.publish(to: $0) },
             log: { self.log($0) })
@@ -49,22 +56,40 @@ final class RecipeSession: Sendable {
         }
     }
 
-    private func transcribe() async throws -> RecipeNote {
-        let take = try await step("transcribir") { try await capabilities.transcribe(recording) }
+    private func transcribe(_ request: RecipeTranscription) async throws -> RecipeNote {
+        let chosen: TranscriptionBackend?
+        do {
+            chosen = request.isDefault ? nil : try catalog.transcriber(recording, request)
+        } catch {
+            record(RecipeStep(capability: "transcribir", detail: request.stt, seconds: 0, error: "\(error)"))
+            throw error
+        }
+        let inputs = (chosen ?? capabilities.backend).inputs(recording.url)
+        let take = try await step("transcribir", detail: "\(inputs.backend) · \(inputs.options.label)") {
+            try await capabilities.transcribe(recording, with: chosen)
+        }
         state.withLock { $0.take = take }
         return note(take)
     }
 
-    private func summarize() async throws -> RecipeNote {
+    private func summarize(_ request: RecipeSummaryRequest) async throws -> RecipeNote {
         let transcribed = try current(for: "resumir")
-        guard capabilities.enrich != nil else {
+        let chosen: ChosenSummarizer?
+        do {
+            chosen = request.isDefault ? nil : try catalog.summarizer(recording, request)
+        } catch {
+            record(RecipeStep(capability: "resumir", detail: request.llm, seconds: 0, error: "\(error)"))
+            throw error
+        }
+        guard chosen != nil || capabilities.enrich != nil else {
             record(RecipeStep(capability: "resumir", detail: "apagado en Ajustes", seconds: 0, error: nil))
             return note(transcribed)
         }
         let started = Date()
-        let summarized = try await capabilities.summarize(recording, transcribed)
+        let summarized = try await capabilities.summarize(recording, transcribed, with: chosen?.enrich)
         record(RecipeStep(
-            capability: "resumir", detail: summarized.digest == nil ? "sin resumen" : nil,
+            capability: "resumir",
+            detail: summaryDetail(label: chosen?.label, remembered: transcribed.digest != nil, got: summarized.digest != nil),
             seconds: Date().timeIntervalSince(started), error: nil))
         state.withLock { $0.take = summarized }
         return note(summarized)
@@ -76,14 +101,19 @@ final class RecipeSession: Sendable {
         state.withLock { $0.output = output }
     }
 
-    private func publish(to key: String) async throws {
+    private func publish(to target: String) async throws {
         let take = try current(for: "publicar")
-        guard let publisher = publishers[key] else {
-            let error = RecipeError.unknownConnector(key)
-            record(RecipeStep(capability: "publicar", detail: key, seconds: 0, error: "\(error)"))
+        let publisher: Sink
+        let connector: RecipeConnector
+        do {
+            connector = try recipeLookup(target, in: catalog.connectors, kind: "conector", key: \.key, name: \.name)
+            guard let found = publishers[connector.key] else { throw RecipeError.unknownConnector(target) }
+            publisher = found
+        } catch {
+            record(RecipeStep(capability: "publicar", detail: target, seconds: 0, error: "\(error)"))
             throw error
         }
-        _ = try await step("publicar", detail: key) { try await publisher(delivery(take)) }
+        _ = try await step("publicar", detail: connector.name) { try await publisher(delivery(take)) }
     }
 
     private func log(_ text: String) {
@@ -124,4 +154,10 @@ final class RecipeSession: Sendable {
     private func delivery(_ take: Take) -> Note {
         Note(recording: recording, transcript: take.transcript, digest: take.digest)
     }
+}
+
+private func summaryDetail(label: String?, remembered: Bool, got: Bool) -> String? {
+    let outcome = remembered ? "recordado" : got ? nil : "sin resumen"
+    let parts = [label, outcome].compactMap { $0 }
+    return parts.isEmpty ? nil : parts.joined(separator: " · ")
 }

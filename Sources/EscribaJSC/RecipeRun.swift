@@ -91,11 +91,27 @@ actor RecipeRun {
     private func puente(in context: JSContext) -> JSValue {
         let puente = JSValue(newObjectIn: context)!
         let bridge = bridge
+        puente.setObject(try? recipeJSON(bridge.stts), forKeyedSubscript: "stts" as NSString)
+        puente.setObject(try? recipeJSON(bridge.llms), forKeyedSubscript: "llms" as NSString)
         puente.setObject(try? recipeJSON(bridge.connectors), forKeyedSubscript: "conectores" as NSString)
-        puente.setObject(
-            asking { try recipeJSON(try await bridge.transcribe()) }, forKeyedSubscript: "transcribir" as NSString)
-        puente.setObject(
-            asking { try recipeJSON(try await bridge.summarize()) }, forKeyedSubscript: "resumir" as NSString)
+        let transcribe: @convention(block) (String) -> Int = { [weak self] options in
+            self?.assumeIsolated { run in
+                run.ask {
+                    let request = try decodeOptions(RecipeTranscription.self, options, for: "transcribir")
+                    return try recipeJSON(try await bridge.transcribe(request))
+                }
+            } ?? 0
+        }
+        puente.setObject(transcribe, forKeyedSubscript: "transcribir" as NSString)
+        let summarize: @convention(block) (String) -> Int = { [weak self] options in
+            self?.assumeIsolated { run in
+                run.ask {
+                    let request = try decodeOptions(RecipeSummaryRequest.self, options, for: "resumir")
+                    return try recipeJSON(try await bridge.summarize(request))
+                }
+            } ?? 0
+        }
+        puente.setObject(summarize, forKeyedSubscript: "resumir" as NSString)
         puente.setObject(
             asking {
                 try await bridge.save()
@@ -185,6 +201,16 @@ actor RecipeRun {
     private func swiftError(token: Int?, message: String) -> any Error {
         if let token, let original = swiftErrors[token] { return original }
         return RecipeError.failed(message)
+    }
+}
+
+private func decodeOptions<Options: Decodable>(
+    _ type: Options.Type, _ json: String, for capability: String
+) throws -> Options {
+    do {
+        return try JSONDecoder().decode(type, from: Data(json.utf8))
+    } catch {
+        throw RecipeError.failed("las opciones de \(capability) no son válidas: \(error)")
     }
 }
 

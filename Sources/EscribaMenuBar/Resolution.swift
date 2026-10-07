@@ -53,22 +53,69 @@ nonisolated func routedTranscriber(
         },
         route: { source in
             routing.resolver(.stt, forSource: source.path(percentEncoded: false)).id.uuidString
+        },
+        inputs: { source in
+            let stt = routing.resolver(.stt, forSource: source.path(percentEncoded: false))
+            return TranscriptionInputs(backend: backendLabel(stt), options: options)
         })
+}
+
+nonisolated func recipeCatalog(
+    routing: ResolverRouting, stts: ResolverSet, llms: ResolverSet, connectors: [RecipeConnector],
+    folderOptions: TranscriptionOptions, language: String?, engine: WhisperKitEngine
+) -> RecipeCatalog {
+    RecipeCatalog(
+        stts: recipeResolvers(stts),
+        llms: recipeResolvers(llms),
+        connectors: connectors,
+        transcriber: { recording, request in
+            let resolver = try request.stt.map { try lookupResolver($0, in: stts) }
+                ?? routing.resolver(.stt, forSource: recording.url.path(percentEncoded: false))
+            let options = request.options(over: folderOptions)
+            if let problem = transcriptionProblem(isLocal: resolver.kind == .local, options: options) {
+                throw RecipeError.failed(problem)
+            }
+            let chosen = transcriber(for: resolver, options: options, engine: engine)
+            return TranscriptionBackend(
+                name: chosen.name, transcribe: chosen.transcribe,
+                route: { _ in resolver.id.uuidString },
+                inputs: { _ in TranscriptionInputs(backend: backendLabel(resolver), options: options) })
+        },
+        summarizer: { recording, request in
+            let resolver = try request.llm.map { try lookupResolver($0, in: llms) }
+                ?? routing.resolver(.llm, forSource: recording.url.path(percentEncoded: false))
+            let chosen = summarizer(for: resolver).prompted(request.prompt ?? resolver.prompt)
+            let label = [resolver.name, request.prompt == nil ? nil : "prompt propio"]
+                .compactMap { $0 }.joined(separator: " · ")
+            return ChosenSummarizer(label: label, enrich: enricher(chosen, language: language))
+        })
+}
+
+nonisolated func recipeKey(_ resolver: Resolver, role: ResolverRole) -> String {
+    switch resolver.kind {
+    case .local: role == .stt ? "whisper" : "apple"
+    case .remote: resolver.id.uuidString
+    }
+}
+
+nonisolated private func recipeResolvers(_ set: ResolverSet) -> [RecipeResolver] {
+    set.resolvers.map { resolver in
+        RecipeResolver(
+            key: recipeKey(resolver, role: set.role), name: resolver.name, isLocal: resolver.kind == .local,
+            isFavorite: resolver.id == set.favorite)
+    }
+}
+
+nonisolated private func lookupResolver(_ query: String, in set: ResolverSet) throws -> Resolver {
+    try recipeLookup(
+        query, in: set.resolvers, kind: set.role == .stt ? "STT" : "LLM",
+        key: { recipeKey($0, role: set.role) }, name: \.name)
 }
 
 nonisolated func routedEnricher(_ routing: ResolverRouting, language: String?) -> Enricher {
     { recording, transcript in
         let llm = routing.resolver(.llm, forSource: recording.url.path(percentEncoded: false))
         return await enricher(summarizer(for: llm), language: language)(recording, transcript)
-    }
-}
-
-nonisolated func routedInputs(
-    _ routing: ResolverRouting, options: TranscriptionOptions
-) -> @Sendable (Recording) -> TranscriptionInputs {
-    { recording in
-        let stt = routing.resolver(.stt, forSource: recording.url.path(percentEncoded: false))
-        return TranscriptionInputs(backend: backendLabel(stt), options: options)
     }
 }
 

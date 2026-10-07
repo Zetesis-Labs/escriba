@@ -51,16 +51,19 @@ public struct TranscriptionBackend: Sendable {
     public let transcribe: @Sendable (URL) async throws(TranscriptionError) -> Transcript
     public let preflight: @Sendable () throws(TranscriptionError) -> Void
     public let route: @Sendable (URL) -> String
+    public let inputs: @Sendable (URL) -> TranscriptionInputs
 
     public init(
         name: String,
         transcribe: @escaping @Sendable (URL) async throws(TranscriptionError) -> Transcript,
         preflight: @escaping @Sendable () throws(TranscriptionError) -> Void = {},
-        route: (@Sendable (URL) -> String)? = nil
+        route: (@Sendable (URL) -> String)? = nil,
+        inputs: (@Sendable (URL) -> TranscriptionInputs)? = nil
     ) {
         self.name = name
         self.transcribe = transcribe
         self.preflight = preflight
         self.route = route ?? { _ in name }
+        self.inputs = inputs ?? { _ in TranscriptionInputs(backend: name, options: .automatic) }
     }
 }

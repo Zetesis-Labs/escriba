@@ -169,15 +169,27 @@ final class AppRuntime {
             reconcileLibrary(store: store, ledger: ledger)
             let summarize = settings.summarize
             let language = settings.languageCode
-            let recipe = defaultRecipe(publishers: publishers(for: store))
+            let recipes = recipeRuntime()
+            let publishers = publishers(for: store)
+            let connectors = settings.liveConnectors
+                .filter { publishers[$0.key] != nil }
+                .map { RecipeConnector(key: $0.key, name: $0.name, kind: $0.kind.rawValue) }
+            let (stts, llms) = (settings.sttResolvers, settings.llmResolvers)
             controllers = pipelineSources.map { entry in
+                let recipe = recipes.map { runtime in
+                    Recipe(
+                        package: .defaultRecipe, runtime: runtime, publishers: publishers,
+                        catalog: recipeCatalog(
+                            routing: routing, stts: stts, llms: llms, connectors: connectors,
+                            folderOptions: entry.options, language: language, engine: engine))
+                }
                 let pipeline = Pipeline(
                     source: entry.source,
                     ledger: ledger,
                     backend: entry.backend,
                     sink: recipe == nil ? sink(for: store) : saveSink(for: store),
                     enrich: summarize ? routedEnricher(routing, language: language) : nil,
-                    memory: store.memory(inputs: routedInputs(routing, options: entry.options)),
+                    memory: store.memory(),
                     recipe: recipe,
                     onEvent: { continuation.yield($0) }
                 )
@@ -292,11 +304,11 @@ final class AppRuntime {
         }
     }
 
-    private func defaultRecipe(publishers: [String: Sink]) -> Recipe? {
+    private func recipeRuntime() -> RecipeRuntime? {
         do {
             let runtime = try javaScriptCoreRuntime()
             Log.info("recetas: «\(RecipePackage.defaultRecipe.key)» \(RecipePackage.defaultRecipe.fingerprint) en \(runtime.name)")
-            return Recipe(package: .defaultRecipe, runtime: runtime, publishers: publishers)
+            return runtime
         } catch {
             Log.error("las recetas no arrancan, se procesa sin receta: \(error)")
             Notifier.problem(

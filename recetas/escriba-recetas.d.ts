@@ -24,6 +24,30 @@ interface Resumen {
   readonly etiquetas: readonly string[]
 }
 
+interface Resolutor {
+  readonly clave: string
+  readonly nombre: string
+  readonly local: boolean
+  readonly favorito: boolean
+}
+
+interface InfoDeConector {
+  readonly clave: string
+  readonly nombre: string
+  readonly tipo: "notion" | "okf"
+}
+
+interface OpcionesDeTranscripcion {
+  stt?: string
+  idioma?: string | null
+  hablantes?: { detectar: boolean; cuantos?: number }
+}
+
+interface OpcionesDeResumen {
+  llm?: string
+  prompt?: string
+}
+
 interface Nota {
   readonly clave: string
   readonly version: number | null
@@ -31,19 +55,23 @@ interface Nota {
   readonly hablantes: readonly string[]
   readonly segmentos: readonly Segmento[]
   readonly resumen: Resumen | null
-  resumir(): Promise<Nota>
+  resumir(opciones?: OpcionesDeResumen): Promise<Nota>
   guardar(): Promise<Nota>
 }
 
 interface Conector {
   readonly clave: string
+  readonly nombre: string
+  readonly tipo: "notion" | "okf" | null
   publicar(nota: Nota): Promise<void>
 }
 
 interface Escriba {
-  readonly conectores: readonly string[]
-  transcribir(audio: Audio): Promise<Nota>
-  conector(clave: string): Conector
+  readonly stts: readonly Resolutor[]
+  readonly llms: readonly Resolutor[]
+  readonly conectores: readonly InfoDeConector[]
+  transcribir(audio: Audio, opciones?: OpcionesDeTranscripcion): Promise<Nota>
+  conector(claveONombre: string): Conector
   log(texto: string): void
 }
 

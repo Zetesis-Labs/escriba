@@ -24,13 +24,14 @@ private struct Sandbox {
         return Recording(url: url, startedAt: Date(timeIntervalSince1970: 1_000_000), key: key)
     }
 
-    func memory(_ backend: String = "wk", _ options: TranscriptionOptions = es) -> NoteMemory {
-        store.memory { _ in TranscriptionInputs(backend: backend, options: options) }
+    func memory() -> NoteMemory {
+        store.memory()
     }
 }
 
 private let es = TranscriptionOptions(language: "es")
 private let dos = TranscriptionOptions(language: "es", diarize: true, speakerCount: 2)
+private let entradas = TranscriptionInputs(backend: "wk", options: es)
 private let resumen = Digest(title: "Hola", summary: "Adiós", tags: ["x"])
 
 private let conversacion = Transcript(segments: [
@@ -56,7 +57,7 @@ struct MemoriaTests {
         try await sandbox.store.addTranscript(conversacion, for: "a", backend: "wk", options: es, digest: resumen)
         try await sandbox.store.addTranscript(Transcript(text: "v4"), for: "a", backend: "wk", options: dos)
 
-        let recordada = try await sandbox.memory().recall(recording)
+        let recordada = try await sandbox.memory().recall(recording, entradas)
         let versiones = try await sandbox.store.versions(for: "a")
 
         #expect(recordada?.version == versiones[2].id)
@@ -72,14 +73,14 @@ struct MemoriaTests {
         try await sandbox.store.addTranscript(Transcript(text: "otro motor"), for: "a", backend: "Groq", options: es)
         try await sandbox.store.addTranscript(Transcript(text: "otros criterios"), for: "a", backend: "wk", options: dos)
 
-        #expect(try await sandbox.memory().recall(recording) == nil)
+        #expect(try await sandbox.memory().recall(recording, entradas) == nil)
     }
 
     @Test("sin la grabacion en la biblioteca no hay nada que recordar")
     func grabacionNueva() async throws {
         let sandbox = try Sandbox()
 
-        #expect(try await sandbox.memory().recall(try sandbox.recording("a")) == nil)
+        #expect(try await sandbox.memory().recall(try sandbox.recording("a"), entradas) == nil)
     }
 
     @Test("lo transcrito se guarda en cuanto llega: version vigente, con sus criterios y la copia del audio")
@@ -87,7 +88,7 @@ struct MemoriaTests {
         let sandbox = try Sandbox()
         let recording = try sandbox.recording("a")
 
-        let version = try await sandbox.memory().keepTranscript(recording, conversacion)
+        let version = try await sandbox.memory().keepTranscript(recording, conversacion, entradas)
 
         let versiones = try await sandbox.store.versions(for: "a")
         let guardada = try sandbox.store.recording(for: "a")
@@ -106,10 +107,10 @@ struct MemoriaTests {
         let recording = try sandbox.recording("a")
         let memoria = sandbox.memory()
 
-        let version = try await memoria.keepTranscript(recording, conversacion)
+        let version = try await memoria.keepTranscript(recording, conversacion, entradas)
         try await memoria.keepDigest(recording, version, resumen)
 
-        #expect(try await memoria.recall(recording)
+        #expect(try await memoria.recall(recording, entradas)
             == Remembered(version: version, transcript: conversacion, digest: resumen))
     }
 
@@ -118,12 +119,12 @@ struct MemoriaTests {
         let sandbox = try Sandbox()
         let recording = try sandbox.recording("a")
         let memoria = sandbox.memory()
-        let version = try await memoria.keepTranscript(recording, Transcript(text: "v1"))
+        let version = try await memoria.keepTranscript(recording, Transcript(text: "v1"), entradas)
         try await sandbox.store.addTranscript(Transcript(text: "v2"), for: "a", backend: "wk", options: dos)
 
         try await memoria.keepDigest(recording, version, resumen)
 
-        #expect(try await memoria.recall(recording)?.digest == resumen)
+        #expect(try await memoria.recall(recording, entradas)?.digest == resumen)
         #expect(try await sandbox.store.digest(for: "a") == nil)
     }
 
@@ -131,7 +132,7 @@ struct MemoriaTests {
     func salidaSinTexto() async throws {
         let sandbox = try Sandbox()
         let recording = try sandbox.recording("a")
-        _ = try await sandbox.memory().keepTranscript(recording, Transcript(text: "hola"))
+        _ = try await sandbox.memory().keepTranscript(recording, Transcript(text: "hola"), entradas)
 
         let salida = try await sandbox.store.audioCopySink()(Note(recording: recording, transcript: Transcript(text: "hola")))
 
