@@ -107,25 +107,16 @@ private struct AppLog: View {
                 TextField("Filtrar", text: $text)
                     .textFieldStyle(.roundedBorder)
                 Toggle("Solo errores", isOn: $onlyErrors)
+                Button("Copiar") { copyToPasteboard(logPlainText(visible)) }
+                    .help("Copia las líneas que se ven, con el filtro aplicado")
                 Button("Abrir el fichero") { NSWorkspace.shared.open(Paths.logFile) }
             }
             .padding(12)
             if let problem = model.problem {
                 Text(problem).foregroundStyle(.orange).padding(.horizontal, 12)
             }
-            ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 2) {
-                        ForEach(Array(visible.enumerated()), id: \.offset) { index, line in
-                            AppLogRow(line: line).id(index)
-                        }
-                    }
-                    .padding(12)
-                }
-                .onChange(of: visible.count) { _, count in
-                    if count > 0 { proxy.scrollTo(count - 1, anchor: .bottom) }
-                }
-            }
+            Divider()
+            SelectableLogView(lines: visible)
         }
         .onAppear { model.start() }
         .onDisappear { model.stop() }
@@ -137,22 +128,5 @@ private struct AppLog: View {
             (!onlyErrors || line.level == .error)
                 && (query.isEmpty || line.message.localizedCaseInsensitiveContains(query))
         }
-    }
-}
-
-private struct AppLogRow: View {
-    let line: LogEntry
-
-    var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            if let time = line.time {
-                Text(time).foregroundStyle(.tertiary)
-            }
-            Text(line.message)
-                .foregroundStyle(line.level == .error ? Color.red : line.level == .debug ? .secondary : .primary)
-                .textSelection(.enabled)
-        }
-        .font(.caption.monospaced())
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }

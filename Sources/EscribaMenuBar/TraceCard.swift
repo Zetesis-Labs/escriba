@@ -24,6 +24,12 @@ struct TraceDetail: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Spacer()
+                Button("Copiar") { copyToPasteboard(recipeTraceText(trace)) }
+                    .controlSize(.small)
+                    .help("Copia la traza entera como texto")
+            }
             ForEach(Array(trace.steps.enumerated()), id: \.offset) { _, step in
                 StepRow(step: step)
             }
