@@ -24,7 +24,18 @@ struct RecipesPane: View {
                 List(selection: $selected) {
                     Section("De formulario") {
                         ForEach(listing.filter { $0.kind == .form }) { recipe in
-                            RecipeRow(recipe: recipe, subtitle: "Se configura aquí").tag(recipe.key)
+                            RecipeRow(recipe: recipe, subtitle: "Se configura aquí")
+                                .tag(recipe.key)
+                                .contextMenu {
+                                    Button("Duplicar") {
+                                        selected = settings.recipeBook.duplicate(recipe.key, as: UUID().uuidString)?.key
+                                    }
+                                    Button("Usar por defecto") { settings.recipeBook.makeDefault(recipe.key) }
+                                        .disabled(recipe.isDefault)
+                                    Divider()
+                                    Button("Quitar…") { removing = book.form(recipe.key) }
+                                        .disabled(book.forms.count < 2)
+                                }
                         }
                     }
                     Section("De código") {
@@ -50,12 +61,6 @@ struct RecipesPane: View {
                         ).key
                     } label: { Image(systemName: "plus") }
                     .help("Nueva receta de formulario")
-                    Button {
-                        guard let selected else { return }
-                        self.selected = settings.recipeBook.duplicate(selected, as: UUID().uuidString)?.key
-                    } label: { Image(systemName: "plus.square.on.square") }
-                    .help("Duplicar")
-                    .disabled(selectedForm == nil)
                     Button {
                         removing = selectedForm
                     } label: { Image(systemName: "minus") }
