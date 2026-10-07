@@ -1,7 +1,14 @@
+interface Origen {
+  readonly tipo: "bandeja" | "carpeta"
+  readonly nombre: string
+  readonly ruta: string
+}
+
 interface Audio {
   readonly clave: string
   readonly nombre: string
   readonly fecha: string
+  readonly origen: Origen | null
 }
 
 interface Palabra {
