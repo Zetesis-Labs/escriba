@@ -24,8 +24,6 @@ cosa grande tiene su documento con el análisis y los criterios de salida.
 
 ## Pendientes pequeños
 
-- **El resumen no llega al `.txt`**: va a la biblioteca y a los conectores,
-  pero `writeSidecarText` solo escribe la transcripción.
 - **Publicar en Notion con el editor de conectores nuevo** (columna a valor
   con datos, cuerpo de texto a bloques) sin probar todavía contra una base de
   verdad.

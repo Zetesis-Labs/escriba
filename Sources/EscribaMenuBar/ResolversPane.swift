@@ -14,13 +14,6 @@ struct ResolversPane: View {
     var body: some View {
         ListDetailLayout(listWidth: 250) {
             VStack(spacing: 0) {
-                if role == .llm {
-                    Toggle("Resumir cada nota", isOn: $settings.summarize)
-                        .toggleStyle(.switch)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                    Divider()
-                }
                 List(resolvers.resolvers, selection: $selected) { resolver in
                     ResolverRow(
                         resolver: resolver, isFavorite: resolver.id == resolvers.favorite,
@@ -164,23 +157,6 @@ private struct ResolverEditor: View {
                 remoteSection
             }
 
-            if role == .llm {
-                Section {
-                    TextEditor(text: $editor.prompt)
-                        .font(.body)
-                        .frame(minHeight: 150)
-                    HStack {
-                        Spacer()
-                        Button("Restaurar el de serie") { editor.restoreStandardPrompt() }
-                            .disabled(editor.usesStandardPrompt)
-                    }
-                } header: {
-                    Text("Prompt del resumen")
-                } footer: {
-                    Text("Escriba añade al final en qué idioma responder y siempre pide título, resumen y etiquetas.")
-                }
-            }
-
             if role == .llm || !editor.isLocal {
                 trialSection
             }
@@ -286,71 +262,6 @@ private struct ResolverEditor: View {
                 guard let preset = remotePresets(for: role).first(where: { $0.name == name }) else { return }
                 editor.apply(preset)
             })
-    }
-}
-
-struct ResolverPickers: View {
-    @Binding var choice: ResolverChoice
-    let settings: AppSettings
-
-    var body: some View {
-        HStack(spacing: 16) {
-            ResolverPicker(
-                title: "Transcribe con", role: .stt, choice: $choice, settings: settings,
-                fallback: settings.resolvers(.stt).favoriteResolver, fallbackLabel: "Favorito")
-            ResolverPicker(
-                title: "Resume con", role: .llm, choice: $choice, settings: settings,
-                fallback: settings.resolvers(.llm).favoriteResolver, fallbackLabel: "Favorito")
-        }
-        .font(.caption)
-        .controlSize(.small)
-    }
-}
-
-struct ResolverPicker: View {
-    let title: String
-    let role: ResolverRole
-    @Binding var choice: ResolverChoice
-    let settings: AppSettings
-    let fallback: Resolver
-    var fallbackLabel = "Por defecto"
-
-    var body: some View {
-        Picker(title, selection: selection) {
-            Text("\(fallbackLabel) (\(fallback.name))").tag(UUID?.none)
-            ForEach(settings.resolvers(role).resolvers) { resolver in
-                Text(resolver.name).tag(UUID?.some(resolver.id))
-            }
-        }
-        .fixedSize()
-    }
-
-    private var selection: Binding<UUID?> {
-        Binding(
-            get: { choice[role].flatMap { settings.resolvers(role).contains($0) ? $0 : nil } },
-            set: { choice[role] = $0 })
-    }
-}
-
-struct ResolverChoiceButton: View {
-    @Binding var choice: ResolverChoice
-    let settings: AppSettings
-    let origin: ResolverChoice
-    let help: String
-    @State private var open = false
-
-    var body: some View {
-        Button {
-            open.toggle()
-        } label: {
-            Label(
-                resolverChoiceLabel(choice, settings: settings) ?? "Con qué procesar",
-                systemImage: choice.isEmpty ? "chevron.down.circle" : "chevron.down.circle.fill")
-        }
-        .help(help)
-        .popover(isPresented: $open, arrowEdge: .bottom) {
-            ResolverChoiceForm(choice: $choice, settings: settings, origin: origin)
-        }
     }
 }
 

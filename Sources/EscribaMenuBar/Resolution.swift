@@ -26,7 +26,21 @@ nonisolated func summarizer(
         openAISummarizer(
             name: resolver.name, endpoint: openAIEndpoint(resolver, apiKey: apiKey), transport: remoteTransport)
     }
-    return base.prompted(resolver.prompt)
+    return base
+}
+
+nonisolated func recipeResolver(_ set: ResolverSet, key: String) -> Resolver {
+    set.resolvers.first { $0.recipeKey(role: set.role) == key } ?? set.favoriteResolver
+}
+
+nonisolated func recipeTranscriber(
+    _ stt: Resolver, options: TranscriptionOptions, engine: WhisperKitEngine
+) -> TranscriptionBackend {
+    let chosen = transcriber(for: stt, options: options, engine: engine)
+    return TranscriptionBackend(
+        name: chosen.name, transcribe: chosen.transcribe,
+        route: { _ in stt.id.uuidString },
+        inputs: { _ in TranscriptionInputs(backend: backendLabel(stt), options: options) })
 }
 
 nonisolated func transcriber(
@@ -40,24 +54,6 @@ nonisolated func transcriber(
             name: resolver.name, endpoint: openAIEndpoint(resolver), language: options.language,
             transport: remoteTransport)
     }
-}
-
-nonisolated func routedTranscriber(
-    _ routing: ResolverRouting, options: TranscriptionOptions, engine: WhisperKitEngine
-) -> TranscriptionBackend {
-    TranscriptionBackend(
-        name: "según la grabación",
-        transcribe: { source async throws(TranscriptionError) in
-            let stt = routing.resolver(.stt, forSource: source.path(percentEncoded: false))
-            return try await transcriber(for: stt, options: options, engine: engine).transcribe(source)
-        },
-        route: { source in
-            routing.resolver(.stt, forSource: source.path(percentEncoded: false)).id.uuidString
-        },
-        inputs: { source in
-            let stt = routing.resolver(.stt, forSource: source.path(percentEncoded: false))
-            return TranscriptionInputs(backend: backendLabel(stt), options: options)
-        })
 }
 
 nonisolated func recipeCatalog(
@@ -84,7 +80,7 @@ nonisolated func recipeCatalog(
         summarizer: { recording, request in
             let resolver = try request.llm.map { try lookupResolver($0, in: llms) }
                 ?? routing.resolver(.llm, forSource: recording.url.path(percentEncoded: false))
-            let chosen = summarizer(for: resolver).prompted(request.prompt ?? resolver.prompt)
+            let chosen = summarizer(for: resolver).prompted(request.prompt)
             let label = [resolver.name, request.prompt == nil ? nil : "prompt propio"]
                 .compactMap { $0 }.joined(separator: " · ")
             return ChosenSummarizer(label: label, enrich: enricher(chosen, language: language))
@@ -98,8 +94,7 @@ nonisolated private func recipeResolvers(_ set: ResolverSet) -> [RecipeResolver]
             key: resolver.recipeKey(role: set.role), name: resolver.name, isLocal: !remote,
             isFavorite: resolver.id == set.favorite,
             model: remote && !resolver.model.isEmpty ? resolver.model : nil,
-            baseURL: remote && !resolver.baseURL.isEmpty ? resolver.baseURL : nil,
-            prompt: set.role == .llm ? resolver.prompt : nil)
+            baseURL: remote && !resolver.baseURL.isEmpty ? resolver.baseURL : nil)
     }
 }
 

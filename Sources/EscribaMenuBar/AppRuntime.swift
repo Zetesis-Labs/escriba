@@ -12,11 +12,9 @@ import EscribaStore
 import EscribaWhisper
 import Observation
 
-private func digester(_ routing: ResolverRouting, enabled: Bool, language: String?) -> Digester? {
-    guard enabled else { return nil }
-    return { recording, transcript in
-        try await summarizer(for: routing.resolver(.llm, forSource: recording.sourceURL.path(percentEncoded: false)))
-            .digest(of: transcript.rendered, language: language)
+private func recipeDigester(_ llm: Resolver, prompt: String?, language: String?) -> Digester {
+    { _, transcript in
+        try await summarizer(for: llm).prompted(prompt).digest(of: transcript.rendered, language: language)
     }
 }
 
@@ -42,13 +40,6 @@ private final class WakeRelay {
 
 private func fingerprint(of connectors: [Connector]) -> String {
     connectors.map { "\($0)" }.joined(separator: ";")
-}
-
-private func textWriter(into folder: URL?) -> TranscriptWriter? {
-    guard let folder else { return nil }
-    return { key, transcript in
-        try writeSidecarText(outputRoot: folder, key: key, transcript: transcript)
-    }
 }
 
 @Observable
@@ -139,19 +130,22 @@ final class AppRuntime {
 
         do {
             let store = try Store(root: Paths.defaultLibrary)
-            let engine = WhisperKitEngine(language: settings.languageCode)
+            let recipeSettings = settings.defaultRecipe
+            let stt = recipeResolver(settings.sttResolvers, key: recipeSettings.stt)
+            let llm = recipeResolver(settings.llmResolvers, key: recipeSettings.llm)
+            let recipeOptions = TranscriptionOptions(
+                language: recipeSettings.language, diarize: recipeSettings.detectSpeakers,
+                speakerCount: recipeSettings.speakerCount)
+            let engine = WhisperKitEngine(language: recipeSettings.language)
             let routing = settings.routing(inbox: Paths.inbox.path(percentEncoded: false), overrides: choices)
-            let pipelineSources = sources(engine: engine, routing: routing)
+            let pipelineSources = sources(engine: engine, stt: stt, llm: llm, options: recipeOptions)
 
             let model = LibraryModel(
                 store: store,
                 reprocess: { [engine] recording, options in
-                    let stt = routing.resolver(.stt, forSource: recording.sourceURL.path(percentEncoded: false))
-                    return try await transcriber(for: stt, options: options, engine: engine)
-                        .transcribe(recording.audioURL)
+                    try await transcriber(for: stt, options: options, engine: engine).transcribe(recording.audioURL)
                 },
-                digester: digester(routing, enabled: settings.summarize, language: settings.languageCode),
-                writeText: textWriter(into: settings.txtFolder),
+                digester: recipeDigester(llm, prompt: recipeSettings.prompt, language: recipeSettings.language),
                 publishers: publishers(for: store),
                 unpublishers: unpublishers(),
                 choices: choices)
@@ -172,8 +166,7 @@ final class AppRuntime {
 
             let ledger = try Ledger(path: Paths.defaultState)
             reconcileLibrary(store: store, ledger: ledger)
-            let summarize = settings.summarize
-            let language = settings.languageCode
+            let language = recipeSettings.language
             let recipes = recipeRuntime()
             let publishers = publishers(for: store)
             let connectors = settings.connectors.map {
@@ -195,7 +188,8 @@ final class AppRuntime {
                     ledger: ledger,
                     backend: entry.backend,
                     sink: recipe == nil ? sink(for: store) : saveSink(for: store),
-                    enrich: summarize ? routedEnricher(routing, language: language) : nil,
+                    enrich: recipeSettings.summarize
+                        ? enricher(summarizer(for: llm).prompted(recipeSettings.prompt), language: language) : nil,
                     memory: store.memory(),
                     recipe: recipe,
                     onEvent: { continuation.yield($0) }
@@ -215,23 +209,23 @@ final class AppRuntime {
             Notifier.problem(title: "No se pudo arrancar", detail: "\(error)")
         }
 
-        func sources(engine: WhisperKitEngine, routing: ResolverRouting) -> [PipelineSource] {
+        func sources(
+            engine: WhisperKitEngine, stt: Resolver, llm: Resolver, options recipeOptions: TranscriptionOptions
+        ) -> [PipelineSource] {
             var result: [PipelineSource] = []
             var prefixes: Set<String> = [inboxPrefix]
 
-            func entry(_ source: RecordingSource, _ choice: ResolverChoice, _ options: TranscriptionOptions) -> PipelineSource {
+            func entry(_ source: RecordingSource) -> PipelineSource {
                 PipelineSource(
-                    source: source, backend: routedTranscriber(routing, options: options, engine: engine),
-                    options: options, stt: settings.sttResolvers.resolver(choice.stt),
-                    llm: settings.llmResolvers.resolver(choice.llm))
+                    source: source, backend: recipeTranscriber(stt, options: recipeOptions, engine: engine),
+                    options: recipeOptions, stt: stt, llm: llm)
             }
 
             do {
                 try FileManager.default.createDirectory(at: Paths.inbox, withIntermediateDirectories: true)
-                let options = settings.transcriptionOptions(for: WatchedFolder(path: Paths.inbox.path(percentEncoded: false)))
                 result.append(entry(
                     namespaced(folderSource(name: inboxPrefix, root: Paths.inbox), prefix: inboxPrefix),
-                    settings.inboxResolvers, options))
+                    ))
             } catch {
                 Log.error("no se pudo preparar la bandeja de Escriba: \(error)")
             }
@@ -244,18 +238,16 @@ final class AppRuntime {
                     continue
                 }
 
-                let options = settings.transcriptionOptions(for: folder)
-
                 switch folder.style {
                 case .justPressRecord:
-                    result.append(entry(justPressRecordSource(root: folderRoot), folder.resolvers, options))
+                    result.append(entry(justPressRecordSource(root: folderRoot), ))
                     continue
                 case .voiceMemos:
                     result.append(entry(
                         namespaced(
-                            voiceMemosSource(root: folderRoot, expectedSpeakers: folder.speakers),
+                            voiceMemosSource(root: folderRoot, expectedSpeakers: nil),
                             prefix: "Notas de Voz"),
-                        folder.resolvers, options))
+                        ))
                     continue
                 case .any:
                     break
@@ -270,9 +262,9 @@ final class AppRuntime {
                 result.append(entry(
                     namespaced(
                         folderSource(
-                            name: prefix, root: folderRoot, expectedSpeakers: folder.speakers),
+                            name: prefix, root: folderRoot, expectedSpeakers: nil),
                         prefix: prefix),
-                    folder.resolvers, options))
+                    ))
             }
             return result
         }
@@ -288,7 +280,7 @@ final class AppRuntime {
             Log.error("no se puede transcribir con \(resolver.name): \(problem)")
             Notifier.problem(title: "No se puede transcribir con \(resolver.name)", detail: problem)
         }
-        guard settings.summarize else { return }
+        guard settings.defaultRecipe.summarize else { return }
         for resolver in sources.map(\.llm) where warned.insert(resolver.id).inserted {
             guard let problem = summarizer(for: resolver).availability().problem else { continue }
             Log.error("los resumenes estan activados pero \(resolver.name): \(problem)")
@@ -330,9 +322,7 @@ final class AppRuntime {
     }
 
     private func saveSink(for store: Store) -> Sink {
-        settings.writeTxt
-            ? sidecarTextSink(outputRoot: URL(fileURLWithPath: settings.txtFolderPath))
-            : store.audioCopySink()
+        store.audioCopySink()
     }
 
     private func publishers(for store: Store) -> [String: Sink] {
@@ -438,16 +428,9 @@ final class AppRuntime {
             guard let settings = self?.settings else { return }
             let changes = Observations {
                 [
-                    settings.language,
-                    "\(settings.diarization.storageValue)",
-                    "\(settings.writeTxt)",
-                    settings.txtFolderPath,
-                    "\(settings.summarize)",
-                    settings.watchedFolders
-                        .map { "\($0.path):\($0.speakers ?? 0):\($0.resolvers)" }.joined(separator: ","),
+                    settings.watchedFolders.map(\.path).joined(separator: ","),
                     "\(settings.sttResolvers)",
                     "\(settings.llmResolvers)",
-                    "\(settings.inboxResolvers)",
                     fingerprint(of: settings.connectors),
                     "\(settings.defaultRecipe)",
                 ].joined(separator: "|")

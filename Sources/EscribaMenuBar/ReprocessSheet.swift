@@ -35,12 +35,6 @@ struct ReprocessSheet: View {
             Text("Reprocesar con otros criterios")
                 .font(.headline)
             Form {
-                ResolverPicker(
-                    title: "Transcribir con", role: .stt, choice: $resolvers, settings: settings,
-                    fallback: settings.resolvers(.stt).resolver(origin.stt), fallbackLabel: "Su origen")
-                ResolverPicker(
-                    title: "Resumir con", role: .llm, choice: $resolvers, settings: settings,
-                    fallback: settings.resolvers(.llm).resolver(origin.llm), fallbackLabel: "Su origen")
                 Picker("Idioma", selection: $language) {
                     Text("Detectar").tag("auto")
                     Text("Español").tag("es")
@@ -52,7 +46,9 @@ struct ReprocessSheet: View {
                         Text("Automático").tag(0)
                         ForEach(2...6, id: \.self) { Text("\($0)").tag($0) }
                     }
-                    if settings.resolvers(.stt).resolver(resolvers.stt ?? origin.stt).kind == .remote {
+                    if settings.sttResolvers.resolvers.first(where: {
+                        $0.recipeKey(role: .stt) == settings.defaultRecipe.stt
+                    })?.kind == .remote {
                         Text("Con un servicio remoto no se detectan hablantes.")
                             .font(.caption)
                             .foregroundStyle(.orange)
@@ -60,7 +56,7 @@ struct ReprocessSheet: View {
                 }
             }
             .formStyle(.grouped)
-            Text("El resultado se guarda como una versión nueva; la original se conserva y puedes volver a ella. Lo que elijas para transcribir y resumir se queda para esta grabación.")
+            Text("Se transcribe con el STT de la receta por defecto. El resultado se guarda como una versión nueva; la original se conserva y puedes volver a ella.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
             HStack {

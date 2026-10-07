@@ -63,7 +63,6 @@ struct MainWindow: View {
                     problem: runtime.startupProblem,
                     folders: runtime.settings.watchedFolders,
                     connectors: runtime.settings.connectors,
-                    txtFolder: runtime.settings.txtFolder,
                     defaultOptions: runtime.settings.transcriptionDefaults,
                     recorder: runtime.recorder,
                     inbox: runtime.inbox,

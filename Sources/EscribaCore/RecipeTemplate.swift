@@ -33,7 +33,6 @@ interface Resolutor {
   readonly favorito: boolean
   readonly modelo: string | null
   readonly url: string | null
-  readonly prompt: string | null
 }
 
 interface InfoDeConector {

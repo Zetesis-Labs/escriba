@@ -119,35 +119,4 @@ struct SidecarPathTests {
             sidecarTextURL(outputRoot: raiz, key: "2026-08-31/10-00-00").path(percentEncoded: false)
                 == "/Users/ruben/Documents/Transcripciones/2026-08-31/10-00-00.txt")
     }
-
-    @Test("si el fichero esta, se revela el fichero")
-    func ficheroPresente() {
-        let objetivo = revealTarget(txtFolder: raiz, key: "2026-08-31/10-00-00") { _ in true }
-
-        #expect(objetivo == .file(sidecarTextURL(outputRoot: raiz, key: "2026-08-31/10-00-00")))
-    }
-
-    @Test("sin el fichero pero con su carpeta, se abre la carpeta")
-    func soloCarpeta() throws {
-        let carpeta = raiz.appending(path: "2026-08-31")
-        let objetivo = revealTarget(txtFolder: raiz, key: "2026-08-31/10-00-00") {
-            $0.pathComponents == carpeta.pathComponents
-        }
-
-        guard case .folder(let abierta) = objetivo else {
-            Issue.record("esperaba la carpeta, llego \(objetivo)")
-            return
-        }
-        #expect(abierta.pathComponents == carpeta.pathComponents)
-    }
-
-    @Test("sin fichero ni carpeta no hay nada que abrir")
-    func nada() {
-        #expect(revealTarget(txtFolder: raiz, key: "x/y") { _ in false } == .unavailable)
-    }
-
-    @Test("con los .txt desactivados tampoco hay nada que abrir")
-    func sinTxt() {
-        #expect(revealTarget(txtFolder: nil, key: "x/y") { _ in true } == .unavailable)
-    }
 }
