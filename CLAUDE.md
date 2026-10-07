@@ -37,9 +37,12 @@ enrutado por carpeta y por grabación y a los editores de mapeo de los
 conectores. Runtime: **JavaScriptCore detrás de un puerto**, para cambiarlo
 por WebAssembly cuando compense; el tiempo límite usa
 `JSContextGroupSetExecutionTimeLimit` (API privada, cargada con `dlsym`,
-probada en macOS 26) y no cuenta las esperas. Editor de recetas decidido:
-**Monaco** en un `WKWebView`; recetas en JavaScript o TypeScript, que la app
-traduce con el compilador de TypeScript corriendo dentro de JavaScriptCore. Los
+probada en macOS 26) y no cuenta las esperas. El proyecto de recetas vive en
+una carpeta que elige el usuario (la edita Monaco en un `WKWebView`, un agente
+o su editor; git y GitHub son cosa suya) y la app la compila con **esbuild en
+WebAssembly** a paquetes: el motor solo ejecuta paquetes y no lleva compilador.
+Monaco y esbuild se descargan la primera vez que alguien crea una receta propia
+(Rubén, 2026-10-07). Los
 conectores como plugins wasm se exploraron y se archivaron el 2026-10-06
 (viable, pero no merece la pena ahora): conclusiones y medidas en
 `docs/exploracion-plugins-wasm.md`, código en el PR en borrador #3.

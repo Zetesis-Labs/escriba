@@ -1,7 +1,9 @@
 # Requisito funcional: recetas
 
 Estado: **propuesto por Rubén el 2026-10-06**, en construcción desde el
-2026-10-07 por la fase 1 (la memoria vive en la biblioteca, ver `CLAUDE.md`). Sustituye a
+2026-10-07 por la fase 1 (la memoria vive en la biblioteca, ver `CLAUDE.md`). El
+mismo día Rubén rediseñó cómo se escriben: un proyecto en una carpeta que elige
+el usuario, que la app compila a paquetes (RF-4, RF-16, RF-18). Sustituye a
 `docs/requisito-hooks.md` (los tres eventos con N hooks pasan a ser recetas) y,
 cuando se construya, al enrutado actual por carpeta y por grabación, a la
 selección de conectores y a los editores de mapeo de Notion y OKF.
@@ -16,13 +18,17 @@ publica y con qué datos. El usuario tiene N recetas y elige cuál se aplica a
 cada carpeta vigilada o a cada grabación. Una receta puede pasar la nota a
 otra.
 
-Las recetas viven en un **proyecto de código**: una carpeta con una
-subcarpeta por receta y carpetas comunes que cualquier receta importa.
+Las recetas viven en un **proyecto de código**, en una carpeta que elige el
+usuario: una subcarpeta por receta y carpetas comunes que cualquier receta
+importa. Lo edita una persona dentro de la app, un agente o el editor del
+usuario, y la app lo compila a **paquetes**, que es lo único que ejecuta.
 
 ```
-recetas/                          el proyecto
+mis-recetas/                      el proyecto, donde elija el usuario
 ├── escriba-recetas.d.ts          tipos del contrato (los escribe la app)
-├── tsconfig.json                 para abrirlo también en VS Code (lo escribe la app)
+├── tsconfig.json                 para el editor del usuario (lo escribe la app)
+├── AGENTS.md, CLAUDE.md          el contrato explicado a cualquier agente (los escribe la app)
+├── .escriba/estado.json          resultado de compilar, por fichero y línea (lo escribe la app)
 ├── comun/
 │   ├── glosario.ts
 │   └── categorias.ts
@@ -76,7 +82,7 @@ export async function publicar(nota: Nota, escriba: Escriba) {
   redirecciones usan la clave, y la app la escribe en los tipos para que una
   clave mal escrita sea un error de tipos.
 - Una receta se exporta como su carpeta más los ficheros comunes que importa
-  (la app conoce el grafo de imports) y se importa descomprimiéndola en el
+  (la compilación da el grafo de imports) y se importa descomprimiéndola en el
   proyecto. Si ya existe una carpeta con esa clave, pide reemplazar o
   duplicar.
 
@@ -98,13 +104,12 @@ la receta en `audio.eleccion`.
 
 - **Generada**: se edita con un formulario (STT, idioma, hablantes, resumir y
   con qué LLM y prompt, a qué conectores publicar) y la app escribe su
-  JavaScript. Editar el formulario reescribe el fichero.
-- **Manual**: JavaScript escrito a mano. Su formulario se bloquea y lo dice.
-- Una receta es manual cuando su fichero ya no coincide con lo que generaría
-  su formulario (la app guarda los parámetros y la huella del fichero
-  generado).
-- «Convertir en manual» parte de lo generado; «Volver a generada» descarta el
-  JavaScript a mano, con confirmación.
+  JavaScript. Vive en la app: no necesita proyecto ni entorno de desarrollo.
+- **Manual**: TypeScript o JavaScript escrito a mano, por una persona o por un
+  agente, en el proyecto de recetas (RF-18). No tiene formulario.
+- «Convertir en manual» copia la receta generada al proyecto como TypeScript
+  (si aún no hay proyecto, pregunta dónde crearlo) y desde ahí es manual.
+  «Volver a generada» descarta la manual, con confirmación.
 - La app trae una **receta por defecto** generada que reproduce el
   comportamiento actual de Escriba.
 
@@ -121,15 +126,24 @@ El fichero de entrada de cada receta (`recetas/<clave>/receta.ts` o
 | `datos` | No | Esquema de los metadatos propios de la receta (RF-7) |
 
 - Se escribe con **módulos normales**: `import` y `export` entre ficheros del
-  proyecto, en **JavaScript o TypeScript**. JavaScriptCore no admite módulos en
-  su API pública (verificado en las cabeceras de macOS 26), así que la app
-  traduce cada fichero con el compilador de TypeScript y los carga con un
-  `require` propio que resuelve rutas relativas dentro del proyecto (RF-18).
+  proyecto, en **TypeScript o JavaScript**. Solo se importan ficheros del
+  proyecto: un import de un paquete de npm es un error de compilación.
+- **La app compila y el motor ejecuta** (Rubén, 2026-10-07). JavaScriptCore no
+  admite módulos en su API pública (verificado en las cabeceras de macOS 26),
+  así que la app compila cada receta con **esbuild** a un **paquete**: un solo
+  fichero de JavaScript con el código común que importa ya dentro. El motor
+  solo carga paquetes; no lleva compilador ni cargador de módulos. Antes se
+  pensó traducir fichero a fichero con el compilador de TypeScript y enlazarlos
+  con un `require` propio.
 - Cada receta se ejecuta en su propio contexto de JavaScript.
 - Los tipos del contrato viven en un solo fichero, `escriba-recetas.d.ts`, que
   usan el editor de la app, el MCP (RF-17) y el editor propio del usuario. Un
   test lo compara con los tipos del contrato en Swift para que no se
   desincronicen.
+- **Paquete de npm opcional**, `@zetesis/escriba-recipes`: los mismos tipos, un
+  simulador para probar una receta sin la app y la misma compilación, para
+  quien quiera CI o desarrollar fuera. Nunca hace falta, porque la app compila,
+  y el usuario nunca publica nada en npm. Sin fase asignada.
 - Se publica una galería de recetas de ejemplo.
 
 ### RF-5. Lo que una receta puede pedir (`escriba` y `nota`)
@@ -298,40 +312,41 @@ En la sección de recetas, «Probar con…» ejecuta la receta sobre una grabaci
 de la biblioteca **sin publicar** (los conectores registran lo que habrían
 mandado) y enseña la traza, los datos y las cargas de cada conector.
 
-### RF-16. Editor de recetas: Monaco
+### RF-16. Entorno de desarrollo dentro de la app: Monaco y esbuild
 
-Decisión de Rubén el 2026-10-06: el editor de recetas manuales es **Monaco**,
-el editor de VS Code, dentro de una vista web (`WKWebView`).
+Decisiones de Rubén: el editor es **Monaco** (2026-10-06); se compila con
+**esbuild** y el editor marca **errores de tipos** dentro de la app
+(2026-10-07). Por eso Monaco y no CodeMirror 6, que pesa menos de 1 MB pero
+sin el servicio de TypeScript solo marca sintaxis e imports.
 
-- **Va dentro de la app, sin conexión**: Monaco 0.57.0 (2026-09-24) ocupa
-  25 MB en su versión mínima con todos los lenguajes, y se recorta a
-  JavaScript y TypeScript. Por verificar en la fase: que sus *web workers*
-  carguen sirviendo los ficheros con un esquema de URL propio de la app en vez
-  de `file://`.
-- **Ayudas al desarrollador** con el servicio de TypeScript de Monaco y
-  `escriba-recetas.d.ts`: autocompletado de `escriba.` y `nota.`, errores de
-  tipos y de sintaxis subrayados mientras se escribe, firma y documentación al
-  pasar el ratón, y saltar a la definición, **también entre ficheros**: Monaco
-  recibe todos los ficheros del proyecto, así que autocompleta lo que exporta
-  `comun/` y marca un import roto.
+| Pieza | Para qué | Tamaño |
+|---|---|---|
+| Monaco 0.57.0 | Editor, con el servicio de lenguaje de TypeScript: autocompletado de `escriba.` y `nota.`, errores de tipos y de sintaxis mientras se escribe, documentación al pasar el ratón y saltar a la definición, también entre ficheros | 25 MB con todos los lenguajes (medido el 2026-10-06); se recorta a JavaScript y TypeScript |
+| esbuild 0.28.2 en WebAssembly | Compilar el proyecto a paquetes (RF-4) | 14 MB de `esbuild.wasm` y 53 KB de JavaScript |
+
+- **Va en una vista web** (`WKWebView`), sin conexión.
+- **Se descarga la primera vez que alguien crea una receta propia**, como el
+  modelo de Whisper. Quien solo usa recetas generadas no lo baja y la app sigue
+  pesando lo de hoy (15 MB).
 - **Árbol del proyecto** a la izquierda (nativo, en SwiftUI) y pestañas en
   Monaco: crear, renombrar, mover y borrar ficheros y carpetas.
-- **El texto vive en Swift**: la vista web solo edita; guardar, validar y
-  traducir lo hace la app, por el mismo camino que una receta importada o
-  escrita por MCP.
-- **Validar y traducir sin editor**: el compilador de TypeScript, que es
-  JavaScript puro, corre dentro de JavaScriptCore en su propio contexto.
-  Medido el 2026-10-06 con TypeScript 5.9.3: cargarlo, 75 ms; errores de
-  tipos de una receta, 15 ms; traducir TypeScript a JavaScript, 7,5 ms. Con
-  él se validan también las recetas que llegan importadas o por MCP.
-- **Al guardar**: un error de sintaxis impide guardar; un error de tipos se
-  avisa pero no bloquea, como en TypeScript.
+- **El texto vive en la carpeta del proyecto** (RF-18): Monaco lee y escribe
+  ficheros de verdad y se refresca si los cambia un agente o el editor del
+  usuario.
+- **Al guardar**: un error de sintaxis o un import roto impide generar el
+  paquete; un error de tipos se avisa pero no bloquea, como en TypeScript.
+- **Por verificar en la fase**: que los *web workers* de Monaco y
+  `esbuild.wasm` carguen con un esquema de URL propio de la app en vez de
+  `file://`; y compilar con el editor cerrado, cuando edita un agente, con
+  esbuild en una vista web oculta o en JavaScriptCore si admite WebAssembly.
+  Sin el editor no hay servicio de TypeScript, así que ese informe trae
+  sintaxis e imports; si el servicio se puede cargar en la misma vista oculta,
+  también tipos.
 - **Firma**: hoy la app se firma sin el modo endurecido de macOS. Si se
   notariza para publicarla, hará falta el permiso
   `com.apple.security.cs.allow-jit` para que JavaScriptCore compile a código
   nativo.
-- **Memoria**: no medida. Monaco y el compilador de TypeScript se cargan solo
-  mientras el editor está abierto.
+- **Memoria**: no medida. Monaco y esbuild se cargan solo mientras hacen falta.
 
 ### RF-17. Acceso por MCP (propuesta, sin decidir)
 
@@ -349,11 +364,14 @@ resultados.
   |---|---|
   | `proyecto_listar`, `fichero_leer` | El árbol del proyecto y el contenido de un fichero |
   | `receta_tipos` | `escriba-recetas.d.ts`, para que el agente sepa qué puede pedir |
-  | `fichero_escribir`, `fichero_borrar` | Cambiar ficheros del proyecto; cada cambio comprueba el proyecto entero (RF-18) y devuelve sus errores |
+  | `fichero_escribir`, `fichero_borrar` | Cambiar ficheros del proyecto; cada cambio se compila (RF-18) y devuelve sus errores |
   | `receta_probar` | Ejecutarla sobre una grabación sin publicar (RF-15) y devolver la traza, los datos y las cargas de cada conector |
   | `notas_buscar` | Por texto, fechas, receta o metadatos propios |
   | `nota_leer` | Transcripción con hablantes, resumen, datos, traza y dónde se publicó |
 
+- **Sin MCP**, un agente también trabaja directamente en la carpeta: lee
+  `escriba-recetas.d.ts` y `AGENTS.md`, guarda y lee el resultado en
+  `.escriba/estado.json`.
 - **Una receta escrita por MCP entra como borrador**: se puede probar, pero no
   procesa grabaciones hasta que una persona la activa en la app.
 - **Nunca expone** credenciales ni huellas de voz.
@@ -366,34 +384,40 @@ resultados.
 
 ### RF-18. El proyecto de recetas
 
-- Es una **carpeta normal**: por defecto
-  `~/Library/Application Support/escriba/recetas`, y el usuario puede elegir
-  otra (por ejemplo, dentro de su carpeta de desarrollo) para versionarla con
-  git o abrirla en VS Code. La app escribe y mantiene `escriba-recetas.d.ts` y
-  `tsconfig.json`; el resto es del usuario.
+Rediseñado por Rubén el 2026-10-07.
+
+- **Es una carpeta normal que elige el usuario.** La primera vez que crea una
+  receta propia, la app pregunta dónde guardar el proyecto, con una carpeta
+  sugerida, y lo crea desde la plantilla: `escriba-recetas.d.ts`,
+  `tsconfig.json`, `.gitignore`, y un `AGENTS.md` y un `CLAUDE.md` que explican
+  el contrato para que cualquier agente sepa programarlo. La app mantiene esos
+  ficheros; el resto es del usuario.
+- **La carpeta manda.** Se edita con Monaco dentro de la app (RF-16), con un
+  agente o con el editor del usuario. La app la vigila: cuando cambia un
+  fichero, compila las recetas afectadas, las valida (exportan `receta` y
+  `flujo`, cargan sin errores) e instala su paquete.
+- **El resultado de cada compilación**, con los errores por fichero y línea, se
+  escribe en `.escriba/estado.json` dentro del proyecto, ignorado por git. Un
+  agente guarda, lo lee y corrige sin pasar por la app.
+- **Git y GitHub son cosa del usuario.** Para la app es una carpeta: si el
+  usuario quiere, la versiona y la sube a GitHub, a un repo privado o a donde
+  quiera, con sus herramientas, y un `git pull` en la carpeta se compila solo.
+  La app no ejecuta `git` ni habla con GitHub. Si la carpeta es un repo, la app
+  lee el commit actual de `.git` y lo guarda en la traza de cada nota (RF-14).
 - **Estructura**: `recetas/<clave>/receta.ts` es una receta; cualquier otra
   carpeta (`comun/`, `lib/`, la que sea) es código compartido. Una receta
   puede tener ficheros propios en su carpeta.
 - **Imports**: rutas relativas entre ficheros del proyecto. Sin paquetes de
-  npm ni `node_modules` en la primera versión.
-- **Comprobación del proyecto entero** al guardar cualquier fichero: un error
-  en `comun/` aparece en las recetas que lo importan. Un error de sintaxis
-  desactiva las recetas afectadas hasta que se arregle (las demás siguen
-  procesando); un error de tipos avisa pero no bloquea.
-- **Recarga en caliente**: la app vigila la carpeta y vuelve a traducir solo
-  lo que cambió. Una nota que ya está en marcha termina con el código con el
-  que empezó; la traza guarda la huella del grafo de ficheros que usó.
-- Las recetas generadas por el formulario también son carpetas del proyecto;
-  editar a mano cualquiera de sus ficheros la convierte en manual.
-- Probado el 2026-10-06 con un proyecto de cinco ficheros (dos recetas en
-  subcarpetas y una carpeta común):
-
-  | Prueba | Resultado |
-  |---|---|
-  | Comprobar los tipos del proyecto entero | 385 ms la primera vez, sin errores |
-  | Traducir cada fichero para cargarlo | 18 ms |
-  | La receta general importa de `comun/`, pregunta, y pasa la nota a la de reuniones, que también importa de `comun/` | Funciona, 0,5 ms sin contar las capacidades |
-  | Renombrar mal un import | Error detectado entre ficheros en 8,5 ms |
+  npm ni `node_modules`.
+- **Un error en `comun/` aparece en las recetas que lo importan.** Un error de
+  compilación desactiva las recetas afectadas hasta que se arregle; las demás
+  siguen procesando.
+- **Recarga en caliente**: una nota que ya está en marcha termina con el
+  paquete con el que empezó; la traza guarda la huella del paquete y, si lo
+  hay, el commit.
+- El 2026-10-06 se probó la versión anterior, con el compilador de TypeScript
+  dentro de JavaScriptCore: cinco ficheros, imports entre carpetas y
+  redirección entre recetas funcionaron. Ese camino lo sustituye esbuild.
 
 ## Arquitectura
 
@@ -406,12 +430,14 @@ resultados.
   siendo la fuente de verdad del pipeline y la biblioteca su espejo.
 - **Puerto `RecipeRuntime`** en `EscribaEngine`: ejecutar una receta con unas
   capacidades. Adaptador **JavaScriptCore** en macOS (un hilo propio, nunca el
-  principal; un contexto por receta) con un cargador de módulos propio: cada
-  fichero del proyecto traducido a CommonJS y un `require` que resuelve rutas
-  relativas dentro del proyecto. El puerto permite cambiar
+  principal; un contexto por receta) que carga el paquete de cada receta, un
+  solo fichero sin módulos. El puerto permite cambiar
   JavaScriptCore por otro runtime (por ejemplo, un motor de JavaScript
   compilado a WebAssembly) sin tocar las recetas.
-- La app no compila nada ni lanza procesos.
+- **Puerto `RecipeBuilder`**: compilar el proyecto a paquetes y devolver los
+  errores por fichero y línea. Adaptador esbuild en WebAssembly (RF-16).
+- La app no lanza procesos: compila con esbuild en WebAssembly, dentro de la
+  app.
 
 ## Migración
 
@@ -432,13 +458,15 @@ Cada fase termina en la app, con tests, y la prueba Rubén.
 1. **Capacidades con memoria, sin cambio visible.** El pipeline actual
    reescrito como capacidades que recuerdan lo hecho; misma conducta,
    mismos tests.
-2. **Runtime y receta por defecto.** Adaptador de JavaScriptCore, contrato,
-   tiempo límite, traza; la receta por defecto procesa igual que hoy (paridad
+2. **Runtime y receta por defecto.** Adaptador de JavaScriptCore que carga
+   paquetes, contrato, tiempo límite, traza; la receta por defecto, escrita en
+   TypeScript y compilada dentro de la app, procesa igual que hoy (paridad
    comprobada con grabaciones reales).
 3. **N recetas y enrutado.** Lista como los resolutores, generadas y manuales,
    receta por carpeta y en la flecha de grabar e importar, «Personalizar»,
    migración de los ajustes por carpeta, «Probar con…», el proyecto de recetas
-   con carpetas comunes (RF-18) y el editor Monaco con TypeScript (RF-16).
+   en la carpeta del usuario, compilado con esbuild (RF-18), y el entorno de
+   desarrollo descargable con Monaco (RF-16).
 4. **Preguntar y metadatos.** `preguntar` con esquema en los dos tipos de LLM,
    `datos` por versión, la biblioteca los muestra y filtra.
 5. **Conectores decididos por la receta.** Cargas por tipo de conector,
@@ -460,6 +488,8 @@ las grandes.
 - **El mapeo visual de columnas** para quien no programa. Se mitiga con el
   mapeo automático de las recetas generadas, la galería de ejemplos y la
   fase 7.
+- **Escribir recetas a mano sin descargar nada**: la primera receta propia baja
+  unos 40 MB de entorno de desarrollo (RF-16).
 - **Ejecutar fuera de macOS**: JavaScriptCore es del sistema. No es un
   objetivo (el escritorio fuera de Apple y el núcleo en Kubernetes están
   descartados).
@@ -478,3 +508,5 @@ las grandes.
   saltarla esta vez?
 - ¿Se le da a la receta acceso de solo lectura al audio (para medir silencios)?
 - ¿Paquetes de npm puros (sin APIs de Node) en una versión posterior?
+- Una receta que deja de compilar, ¿se desactiva (como dice RF-18) o sigue con
+  su último paquete bueno hasta que se arregle?
