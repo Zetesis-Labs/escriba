@@ -294,9 +294,14 @@ final class AppRuntime {
 
     private func defaultRecipe(publishers: [String: Sink]) -> Recipe? {
         do {
-            return Recipe(package: .defaultRecipe, runtime: try javaScriptCoreRuntime(), publishers: publishers)
+            let runtime = try javaScriptCoreRuntime()
+            Log.info("recetas: «\(RecipePackage.defaultRecipe.key)» \(RecipePackage.defaultRecipe.fingerprint) en \(runtime.name)")
+            return Recipe(package: .defaultRecipe, runtime: runtime, publishers: publishers)
         } catch {
             Log.error("las recetas no arrancan, se procesa sin receta: \(error)")
+            Notifier.problem(
+                title: "Las recetas no arrancan",
+                detail: "\(error). Las notas se procesan sin receta, como antes.")
             return nil
         }
     }
