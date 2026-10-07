@@ -14,10 +14,7 @@ struct TraceCard: View {
                 if !trace.logs.isEmpty {
                     Divider()
                     ForEach(Array(trace.logs.enumerated()), id: \.offset) { _, line in
-                        Text(line)
-                            .font(.caption.monospaced())
-                            .foregroundStyle(.secondary)
-                            .textSelection(.enabled)
+                        LogLineRow(line: line)
                     }
                 }
                 if let error = trace.error {
@@ -59,6 +56,41 @@ private struct StepRow: View {
                     .foregroundStyle(.secondary)
                     .textSelection(.enabled)
             }
+        }
+    }
+}
+
+struct LogLineRow: View {
+    let line: RecipeLogLine
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text("+\(line.seconds.formatted(.number.precision(.fractionLength(1)))) s")
+                .foregroundStyle(.tertiary)
+                .monospacedDigit()
+            Text(prefix + line.text)
+                .foregroundStyle(color)
+                .textSelection(.enabled)
+        }
+        .font(.caption.monospaced())
+    }
+
+    private var prefix: String {
+        let level = switch line.level {
+        case .warn: "aviso "
+        case .error: "error "
+        case .debug: "debug "
+        case .info: ""
+        }
+        return level + (line.origin.map { "\($0) › " } ?? "")
+    }
+
+    private var color: Color {
+        switch line.level {
+        case .error: .red
+        case .warn: .orange
+        case .info: .primary
+        case .debug: .secondary
         }
     }
 }

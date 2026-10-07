@@ -8,7 +8,8 @@ final class RecipeSession: Sendable {
         var language: String?
         var output: URL?
         var steps: [RecipeStep] = []
-        var logs: [String] = []
+        var logs: [RecipeLogLine] = []
+        var recipes: [String] = []
     }
 
     private let recording: Recording
@@ -17,6 +18,8 @@ final class RecipeSession: Sendable {
     private let save: Sink
     private let recipe: Recipe
     private let target: RecipeTarget
+    private let startedAt = Date()
+    private let clock = ContinuousClock.now
     private let state = Mutex(State())
 
     private var publishers: [String: Sink] { recipe.publishers }
@@ -32,6 +35,7 @@ final class RecipeSession: Sendable {
         self.save = save
         self.recipe = recipe
         self.target = target
+        state.withLock { $0.recipes = [target.key] }
     }
 
     var bridge: RecipeBridge { bridge(for: target, chain: [target.info]) }
@@ -50,7 +54,7 @@ final class RecipeSession: Sendable {
             save: { try await self.saveNote(origin: origin) },
             publish: { try await self.publish(to: $0, origin: origin) },
             process: { try await self.process($0, chain: chain, origin: origin) },
-            log: { self.log($0, origin: origin) })
+            log: { self.log($0, $1, origin: origin) })
     }
 
     private func availableRecipes() -> [RecipeInfo] {
@@ -70,11 +74,18 @@ final class RecipeSession: Sendable {
     }
 
     func trace(error: (any Error)?) -> RecipeTrace {
-        state.withLock { state in
+        let seconds = elapsed()
+        return state.withLock { state in
             RecipeTrace(
                 recipe: target.key, name: target.name, fingerprint: target.package.fingerprint, steps: state.steps,
-                logs: state.logs, error: error.map { "\($0)" })
+                logs: state.logs, error: error.map { "\($0)" }, outcome: recipeOutcome(error), recipes: state.recipes,
+                startedAt: startedAt, seconds: seconds)
         }
+    }
+
+    private func elapsed() -> Double {
+        let duration = ContinuousClock.now - clock
+        return Double(duration.components.seconds) + Double(duration.components.attoseconds) / 1e18
     }
 
     private func transcribe(_ request: RecipeTranscription, origin: String?) async throws -> RecipeNote {
@@ -157,15 +168,24 @@ final class RecipeSession: Sendable {
             record(RecipeStep(capability: "receta", detail: query, seconds: 0, error: "\(error)", origin: origin))
             throw error
         }
+        state.withLock { state in
+            if !state.recipes.contains(next.key) { state.recipes.append(next.key) }
+        }
         try await step("receta", detail: next.name, origin: origin) {
             try await recipe.runtime.run(next.package, bridge(for: next, chain: chain + [next.info]))
         }
     }
 
-    private func log(_ text: String, origin: String?) {
-        let line = origin.map { "\($0): \(text)" } ?? text
-        Log.info("\(recording.key) [receta] \(line)")
-        state.withLock { $0.logs.append(line) }
+    private func log(_ level: RecipeLogLevel, _ text: String, origin: String?) {
+        let line = "\(recording.key) [receta] \(origin.map { "\($0): " } ?? "")\(text)"
+        switch level {
+        case .error: Log.error(line)
+        case .warn: Log.info("aviso: \(line)")
+        case .info: Log.info(line)
+        case .debug: Log.debug(line)
+        }
+        let entry = RecipeLogLine(level: level, text: text, origin: origin, seconds: elapsed())
+        state.withLock { $0.logs.append(entry) }
     }
 
     private func current(for capability: String) throws -> Take {
@@ -208,4 +228,10 @@ private func summaryDetail(label: String?, remembered: Bool, got: Bool) -> Strin
     let outcome = remembered ? "recordado" : got ? nil : "sin resumen"
     let parts = [label, outcome].compactMap { $0 }
     return parts.isEmpty ? nil : parts.joined(separator: " · ")
+}
+
+private func recipeOutcome(_ error: (any Error)?) -> RecipeRunOutcome {
+    guard let error else { return .ok }
+    if let transcription = error as? TranscriptionError, transcription.isBackendUnavailable { return .waiting }
+    return .failed
 }

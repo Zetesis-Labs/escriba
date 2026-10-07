@@ -14,6 +14,26 @@ let preludeSource = #"""
     return Object.freeze(valor)
   }
   const parametros = congelar(JSON.parse(puente.parametros))
+  const formatear = (valor) => {
+    if (typeof valor === "string") return valor
+    if (valor instanceof Error) return `${valor.name}: ${valor.message}`
+    try {
+      const json = JSON.stringify(valor, null, 2)
+      return json === undefined ? String(valor) : json
+    } catch {
+      return String(valor)
+    }
+  }
+  const escribir = (nivel) => (...valores) => puente.log(nivel, valores.map(formatear).join(" "))
+  Object.defineProperty(globalThis, "console", {
+    value: Object.freeze({
+      log: escribir("info"),
+      info: escribir("info"),
+      warn: escribir("warn"),
+      error: escribir("error"),
+      debug: escribir("debug"),
+    }),
+  })
   const pendientes = new Map()
   const pedir = (id) => new Promise((resolve, reject) => pendientes.set(id, { resolve, reject }))
   const soltar = (id) => {
@@ -76,7 +96,7 @@ let preludeSource = #"""
       })
     },
     log(texto) {
-      puente.log(String(texto))
+      puente.log("info", String(texto))
     },
   })
 

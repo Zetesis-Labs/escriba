@@ -115,3 +115,11 @@ interface Escriba {
 interface ErrorDeEscriba extends Error {
   readonly codigo: "no-disponible" | "fallo"
 }
+
+declare const console: {
+  log(...valores: unknown[]): void
+  info(...valores: unknown[]): void
+  warn(...valores: unknown[]): void
+  error(...valores: unknown[]): void
+  debug(...valores: unknown[]): void
+}

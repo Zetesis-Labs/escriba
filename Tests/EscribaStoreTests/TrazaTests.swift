@@ -29,7 +29,7 @@ private func traza(_ error: String? = nil, logs: [String] = []) -> RecipeTrace {
             RecipeStep(capability: "transcribir", detail: nil, seconds: 1.5, error: nil),
             RecipeStep(capability: "publicar", detail: "notion", seconds: 0.4, error: "sin red"),
         ],
-        logs: logs, error: error)
+        logs: logs.map { RecipeLogLine(level: .info, text: $0, origin: nil, seconds: 0) }, error: error)
 }
 
 @Suite("La biblioteca guarda como se proceso cada nota")
