@@ -56,10 +56,12 @@ public struct RecipeBridge: Sendable {
     public var stts: [RecipeResolver]
     public var llms: [RecipeResolver]
     public var connectors: [RecipeConnector]
+    public var recipes: [RecipeInfo]
     public var transcribe: @Sendable (RecipeTranscription) async throws -> RecipeNote
     public var summarize: @Sendable (RecipeSummaryRequest) async throws -> RecipeNote
     public var save: @Sendable () async throws -> Void
     public var publish: @Sendable (String) async throws -> Void
+    public var process: @Sendable (String) async throws -> Void
     public var log: @Sendable (String) -> Void
 
     public init(
@@ -68,10 +70,14 @@ public struct RecipeBridge: Sendable {
         stts: [RecipeResolver] = [],
         llms: [RecipeResolver] = [],
         connectors: [RecipeConnector],
+        recipes: [RecipeInfo] = [],
         transcribe: @escaping @Sendable (RecipeTranscription) async throws -> RecipeNote,
         summarize: @escaping @Sendable (RecipeSummaryRequest) async throws -> RecipeNote,
         save: @escaping @Sendable () async throws -> Void,
         publish: @escaping @Sendable (String) async throws -> Void,
+        process: @escaping @Sendable (String) async throws -> Void = { _ in
+            throw RecipeError.unavailable("aquí no se puede pasar la grabación a otra receta")
+        },
         log: @escaping @Sendable (String) -> Void
     ) {
         self.audio = audio
@@ -79,10 +85,12 @@ public struct RecipeBridge: Sendable {
         self.stts = stts
         self.llms = llms
         self.connectors = connectors
+        self.recipes = recipes
         self.transcribe = transcribe
         self.summarize = summarize
         self.save = save
         self.publish = publish
+        self.process = process
         self.log = log
     }
 }

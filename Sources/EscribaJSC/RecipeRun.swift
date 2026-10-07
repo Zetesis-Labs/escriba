@@ -96,6 +96,7 @@ actor RecipeRun {
         puente.setObject(try? recipeJSON(bridge.stts), forKeyedSubscript: "stts" as NSString)
         puente.setObject(try? recipeJSON(bridge.llms), forKeyedSubscript: "llms" as NSString)
         puente.setObject(try? recipeJSON(bridge.connectors), forKeyedSubscript: "conectores" as NSString)
+        puente.setObject(try? recipeJSON(bridge.recipes), forKeyedSubscript: "recetas" as NSString)
         let transcribe: @convention(block) (String) -> Int = { [weak self] options in
             self?.assumeIsolated { run in
                 run.ask {
@@ -128,6 +129,15 @@ actor RecipeRun {
             } ?? 0
         }
         puente.setObject(publish, forKeyedSubscript: "publicar" as NSString)
+        let process: @convention(block) (String) -> Int = { [weak self] key in
+            self?.assumeIsolated { run in
+                run.ask {
+                    try await bridge.process(key)
+                    return "null"
+                }
+            } ?? 0
+        }
+        puente.setObject(process, forKeyedSubscript: "procesar" as NSString)
         let log: @convention(block) (String) -> Void = { bridge.log($0) }
         puente.setObject(log, forKeyedSubscript: "log" as NSString)
         return puente

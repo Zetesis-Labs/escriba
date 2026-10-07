@@ -43,6 +43,12 @@ interface InfoDeConector {
   readonly carpeta: string | null
 }
 
+interface InfoDeReceta {
+  readonly clave: string
+  readonly nombre: string
+  readonly tipo: "formulario" | "codigo"
+}
+
 interface OpcionesDeTranscripcion {
   stt?: string
   idioma?: string | null
@@ -82,13 +88,22 @@ interface Conector {
   publicar(nota: Nota): Promise<void>
 }
 
+interface Receta {
+  readonly clave: string
+  readonly nombre: string
+  readonly tipo: "formulario" | "codigo" | null
+  procesar(audio: Audio): Promise<void>
+}
+
 interface Escriba {
   readonly parametros: ParametrosDeReceta | null
   readonly stts: readonly Resolutor[]
   readonly llms: readonly Resolutor[]
   readonly conectores: readonly InfoDeConector[]
+  readonly recetas: readonly InfoDeReceta[]
   transcribir(audio: Audio, opciones?: OpcionesDeTranscripcion): Promise<Nota>
   conector(claveONombre: string): Conector
+  receta(claveONombre: string): Receta
   log(texto: string): void
 }
 
@@ -142,13 +157,18 @@ Cada `receta.ts` exporta:
 Lo que puede pedir, con los tipos completos en `escriba-recetas.d.ts`:
 
 - `escriba.transcribir(audio, { stt, idioma, hablantes })` devuelve la nota.
-  Sin opciones, usa lo de la carpeta de la grabación.
-- `nota.resumir({ llm, prompt })` añade título, resumen y etiquetas.
+  Lo que no elijas va al local: Whisper, idioma automático y sin hablantes.
+- `nota.resumir({ llm, prompt })` añade título, resumen y etiquetas. Sin
+  `llm`, Apple Intelligence; sin `prompt`, el de serie.
 - `nota.guardar()` es obligatorio: una receta que termina sin guardar deja la
   nota fallida.
 - `escriba.conector(claveONombre).publicar(nota)` publica en un conector.
 - `escriba.stts`, `escriba.llms` y `escriba.conectores` listan lo configurado,
   con su clave, su nombre y su configuración, sin secretos.
+- `escriba.recetas` lista todas las recetas, las de este proyecto y las de
+  formulario de la app, y `escriba.receta(claveONombre).procesar(audio)` le
+  pasa la grabación a otra: hace su recorrido entero y su `guardar()` vale
+  para las dos. Como mucho 4 recetas encadenadas y sin ciclos.
 - `escriba.log(texto)` escribe en la traza de la nota.
 
 ```ts

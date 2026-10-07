@@ -41,6 +41,12 @@ interface InfoDeConector {
   readonly carpeta: string | null
 }
 
+interface InfoDeReceta {
+  readonly clave: string
+  readonly nombre: string
+  readonly tipo: "formulario" | "codigo"
+}
+
 interface OpcionesDeTranscripcion {
   stt?: string
   idioma?: string | null
@@ -80,13 +86,22 @@ interface Conector {
   publicar(nota: Nota): Promise<void>
 }
 
+interface Receta {
+  readonly clave: string
+  readonly nombre: string
+  readonly tipo: "formulario" | "codigo" | null
+  procesar(audio: Audio): Promise<void>
+}
+
 interface Escriba {
   readonly parametros: ParametrosDeReceta | null
   readonly stts: readonly Resolutor[]
   readonly llms: readonly Resolutor[]
   readonly conectores: readonly InfoDeConector[]
+  readonly recetas: readonly InfoDeReceta[]
   transcribir(audio: Audio, opciones?: OpcionesDeTranscripcion): Promise<Nota>
   conector(claveONombre: string): Conector
+  receta(claveONombre: string): Receta
   log(texto: string): void
 }
 

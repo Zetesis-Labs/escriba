@@ -168,3 +168,26 @@ public func nextRecipeName(_ base: String, taken: [String]) -> String {
     guard taken.contains(base) else { return base }
     return (2...).lazy.map { "\(base) \($0)" }.first { !taken.contains($0) } ?? base
 }
+
+public let recipeCallLimit = 4
+
+public enum RecipeCallProblem: Error, Sendable, Equatable, CustomStringConvertible {
+    case cycle([String])
+    case tooDeep([String])
+
+    public var description: String {
+        switch self {
+        case .cycle(let names):
+            "las recetas se llaman en círculo: \(names.joined(separator: " → "))"
+        case .tooDeep(let names):
+            "demasiadas recetas encadenadas (como mucho \(recipeCallLimit)): \(names.joined(separator: " → "))"
+        }
+    }
+}
+
+public func recipeCallProblem(chain: [RecipeInfo], next: RecipeInfo) -> RecipeCallProblem? {
+    let names = (chain + [next]).map(\.name)
+    if chain.contains(where: { $0.key == next.key }) { return .cycle(names) }
+    if chain.count >= recipeCallLimit { return .tooDeep(names) }
+    return nil
+}
