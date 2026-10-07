@@ -17,3 +17,11 @@ public func logTail(of url: URL, maxBytes: Int) throws -> [String] {
 public func fileSize(of url: URL) -> Int? {
     (try? FileManager.default.attributesOfItem(atPath: url.path(percentEncoded: false)))?[.size] as? Int
 }
+
+public func rotateLog(at url: URL, maxBytes: Int) throws {
+    guard let size = fileSize(of: url), size > maxBytes else { return }
+    let previous = url.deletingPathExtension().appendingPathExtension("1").appendingPathExtension(url.pathExtension)
+    let manager = FileManager.default
+    if manager.fileExists(atPath: previous.path(percentEncoded: false)) { try manager.removeItem(at: previous) }
+    try manager.moveItem(at: url, to: previous)
+}

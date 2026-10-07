@@ -46,9 +46,6 @@ cosa grande tiene su documento con el análisis y los criterios de salida.
 - **Publicar en Notion con el editor de conectores nuevo** (columna a valor
   con datos, cuerpo de texto a bloques) sin probar todavía contra una base de
   verdad. Con la fase 5 ese editor desaparece.
-- **Rotar el log de la app** (`~/Library/Logs/escriba.log`): no se rota y
-  pasaba de 50 MB, casi todo por el reintento de grabaciones vacías y
-  descartadas, ya arreglado el 2026-10-08.
 
 ## Esperando una decisión
 

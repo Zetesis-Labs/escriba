@@ -82,8 +82,10 @@ final class AppRuntime {
     }
 
     init() {
+        let rotation = Result { try rotateLog(at: Paths.logFile, maxBytes: 5 * 1024 * 1024) }
         Log.mirrorToFile(Paths.logFile)
         Log.info("Escriba arrancando")
+        if case .failure(let error) = rotation { Log.error("no se pudo rotar el log: \(error)") }
         LegacyMigration.run()
         AppSettings.adoptLegacyDefaults(from: UserDefaults(suiteName: "dev.ruben.jpr-transcribe"))
         settings = AppSettings()
