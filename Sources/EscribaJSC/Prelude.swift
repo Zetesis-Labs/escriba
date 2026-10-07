@@ -8,6 +8,11 @@ let preludeSource = #"""
   const llms = lista(puente.llms)
   const conectores = lista(puente.conectores)
   const opciones = (valor) => JSON.stringify(valor ?? {})
+  const congelar = (valor) => {
+    if (valor && typeof valor === "object") Object.values(valor).forEach(congelar)
+    return Object.freeze(valor)
+  }
+  const parametros = congelar(JSON.parse(puente.parametros))
   const pendientes = new Map()
   const pedir = (id) => new Promise((resolve, reject) => pendientes.set(id, { resolve, reject }))
   const soltar = (id) => {
@@ -33,6 +38,7 @@ let preludeSource = #"""
   }
 
   const escriba = Object.freeze({
+    parametros,
     stts,
     llms,
     conectores,

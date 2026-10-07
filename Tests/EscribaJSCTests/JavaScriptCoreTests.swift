@@ -27,14 +27,24 @@ private func nota(_ texto: String = "hola", digest: Digest? = nil) -> RecipeNote
     RecipeNote(key: "a", version: 1, transcript: Transcript(text: texto), digest: digest)
 }
 
+private func formulario(
+    conectores: [String] = [], resumir: Bool = true, prompt: String? = nil
+) -> DefaultRecipeSettings {
+    DefaultRecipeSettings(
+        stt: "whisper", language: "es", detectSpeakers: true, speakerCount: 2, summarize: resumir, llm: "apple",
+        prompt: prompt, connectors: conectores)
+}
+
 private func puente(
     _ registro: Registro,
     connectors: [String] = [],
+    parametros: DefaultRecipeSettings? = nil,
     transcribe: @escaping @Sendable (RecipeTranscription) async throws -> RecipeNote = { _ in nota() },
     summarize: @escaping @Sendable (RecipeSummaryRequest) async throws -> RecipeNote = { _ in nota() }
 ) -> RecipeBridge {
     RecipeBridge(
         audio: recipeAudio(grabacion),
+        parameters: parametros ?? formulario(conectores: connectors),
         stts: [
             RecipeResolver(key: "whisper", name: "Whisper en este Mac", isLocal: true, isFavorite: true),
             RecipeResolver(
@@ -75,13 +85,59 @@ struct JavaScriptCoreTests {
         #expect(registro.values == ["transcribe", "resume", "guarda", "publica notion", "publica okf"])
     }
 
-    @Test("la receta por defecto no publica en los conectores apagados")
-    func conectorApagado() async throws {
+    @Test("la receta por defecto publica solo en los conectores marcados en su formulario")
+    func conectoresDelFormulario() async throws {
         let registro = Registro()
 
-        try await ejecutar(.defaultRecipe, puente(registro, connectors: ["notion", "apagado-okf"]))
+        try await ejecutar(
+            .defaultRecipe, puente(registro, connectors: ["notion", "okf"], parametros: formulario(conectores: ["okf"])))
 
-        #expect(registro.values == ["transcribe", "resume", "guarda", "publica notion"])
+        #expect(registro.values == ["transcribe", "resume", "guarda", "publica okf"])
+    }
+
+    @Test("la receta por defecto transcribe y resume con lo que dice su formulario")
+    func loDelFormulario() async throws {
+        let pedidos = Registro()
+        let bridge = puente(
+            Registro(), parametros: formulario(prompt: "Breve"),
+            transcribe: { pedido in
+                pedidos.append("\(pedido)")
+                return nota()
+            },
+            summarize: { pedido in
+                pedidos.append("\(pedido)")
+                return nota()
+            })
+
+        try await ejecutar(.defaultRecipe, bridge)
+
+        #expect(pedidos.values == [
+            "\(RecipeTranscription(stt: "whisper", language: .code("es"), speakers: .init(detect: true, count: 2)))",
+            "\(RecipeSummaryRequest(llm: "apple", prompt: "Breve"))",
+        ])
+    }
+
+    @Test("con resumir apagado en el formulario no se resume")
+    func sinResumir() async throws {
+        let registro = Registro()
+
+        try await ejecutar(.defaultRecipe, puente(registro, parametros: formulario(resumir: false)))
+
+        #expect(registro.values == ["transcribe", "guarda"])
+    }
+
+    @Test("la receta ve sus parametros y no puede cambiarlos")
+    func parametrosCongelados() async throws {
+        let registro = Registro()
+
+        try await ejecutar(
+            paquete("""
+                try { escriba.parametros.hablantes.cuantos = 9 } catch (e) {}
+                escriba.log(`${escriba.parametros.stt} ${escriba.parametros.hablantes.cuantos}`)
+                """),
+            puente(registro))
+
+        #expect(registro.values == ["log whisper 2"])
     }
 
     @Test("la receta ve la configuracion de los STT, los LLM y los conectores")

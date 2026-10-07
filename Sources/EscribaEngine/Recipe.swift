@@ -51,6 +51,7 @@ public struct RecipeCatalog: Sendable {
 
 public struct RecipeBridge: Sendable {
     public var audio: RecipeAudio
+    public var parameters: DefaultRecipeSettings?
     public var stts: [RecipeResolver]
     public var llms: [RecipeResolver]
     public var connectors: [RecipeConnector]
@@ -62,6 +63,7 @@ public struct RecipeBridge: Sendable {
 
     public init(
         audio: RecipeAudio,
+        parameters: DefaultRecipeSettings? = nil,
         stts: [RecipeResolver] = [],
         llms: [RecipeResolver] = [],
         connectors: [RecipeConnector],
@@ -72,6 +74,7 @@ public struct RecipeBridge: Sendable {
         log: @escaping @Sendable (String) -> Void
     ) {
         self.audio = audio
+        self.parameters = parameters
         self.stts = stts
         self.llms = llms
         self.connectors = connectors
@@ -98,14 +101,16 @@ public struct Recipe: Sendable {
     public let runtime: RecipeRuntime
     public let publishers: [String: Sink]
     public let catalog: RecipeCatalog
+    public let parameters: DefaultRecipeSettings?
 
     public init(
         package: RecipePackage, runtime: RecipeRuntime, publishers: [String: Sink],
-        catalog: RecipeCatalog = RecipeCatalog()
+        catalog: RecipeCatalog = RecipeCatalog(), parameters: DefaultRecipeSettings? = nil
     ) {
         self.package = package
         self.runtime = runtime
         self.publishers = publishers
+        self.parameters = parameters
         var catalog = catalog
         if catalog.connectors.isEmpty {
             catalog.connectors = publishers.keys.sorted().map { RecipeConnector(key: $0, name: $0, kind: "") }

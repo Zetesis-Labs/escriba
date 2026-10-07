@@ -15,22 +15,25 @@ final class RecipeSession: Sendable {
     private let save: Sink
     private let publishers: [String: Sink]
     private let catalog: RecipeCatalog
+    private let parameters: DefaultRecipeSettings?
     private let state = Mutex(State())
 
     init(
         recording: Recording, capabilities: Capabilities, save: @escaping Sink, publishers: [String: Sink],
-        catalog: RecipeCatalog
+        catalog: RecipeCatalog, parameters: DefaultRecipeSettings?
     ) {
         self.recording = recording
         self.capabilities = capabilities
         self.save = save
         self.publishers = publishers
         self.catalog = catalog
+        self.parameters = parameters
     }
 
     var bridge: RecipeBridge {
         RecipeBridge(
             audio: recipeAudio(recording),
+            parameters: parameters,
             stts: catalog.stts,
             llms: catalog.llms,
             connectors: catalog.connectors,

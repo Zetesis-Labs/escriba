@@ -2,6 +2,7 @@ import Foundation
 import Testing
 
 @testable import EscribaModel
+import EscribaCore
 
 private func freshDefaults() -> UserDefaults {
     let name = "jpr-settings-tests-\(UUID().uuidString)"
@@ -34,6 +35,45 @@ struct AppSettingsTests {
 
         settings.writeTxt = false
         #expect(settings.txtFolder == nil)
+    }
+
+    @Test("la primera vez, la receta por defecto nace de los ajustes de hoy y se guarda")
+    func recetaPorDefectoMigrada() {
+        let defaults = freshDefaults()
+        let antes = AppSettings(defaults: defaults, voiceMemos: nil)
+        antes.language = "en"
+        antes.diarization = Diarization(storageValue: 2)
+        antes.summarize = true
+        defaults.removeObject(forKey: "defaultRecipe")
+
+        let ahora = AppSettings(defaults: defaults, voiceMemos: nil)
+
+        #expect(ahora.defaultRecipe == DefaultRecipeSettings(
+            stt: "whisper", language: "en", detectSpeakers: true, speakerCount: 2, summarize: true, llm: "apple",
+            prompt: nil, connectors: []))
+        #expect(defaults.data(forKey: "defaultRecipe") != nil)
+    }
+
+    @Test("lo que se cambia en el formulario de la receta por defecto sobrevive a una instancia nueva")
+    func recetaPorDefectoPersiste() {
+        let defaults = freshDefaults()
+        let settings = AppSettings(defaults: defaults, voiceMemos: nil)
+        settings.defaultRecipe.prompt = "Breve"
+        settings.defaultRecipe.connectors = ["K1"]
+
+        let otra = AppSettings(defaults: defaults, voiceMemos: nil)
+
+        #expect(otra.defaultRecipe.prompt == "Breve")
+        #expect(otra.defaultRecipe.connectors == ["K1"])
+    }
+
+    @Test("la clave de un resolutor para las recetas: fija en los locales, su id en los remotos")
+    func claveDeResolutor() {
+        let remoto = Resolver(name: "Groq", kind: .remote)
+
+        #expect(Resolver.local(.stt).recipeKey(role: .stt) == "whisper")
+        #expect(Resolver.local(.llm).recipeKey(role: .llm) == "apple")
+        #expect(remoto.recipeKey(role: .llm) == remoto.id.uuidString)
     }
 
     @Test("lo cambiado sobrevive a una instancia nueva")

@@ -180,13 +180,15 @@ final class AppRuntime {
                 recipeConnector($0, isActive: publishers[$0.key] != nil)
             }
             let (stts, llms) = (settings.sttResolvers, settings.llmResolvers)
+            let parameters = settings.defaultRecipe
             controllers = pipelineSources.map { entry in
                 let recipe = recipes.map { runtime in
                     Recipe(
                         package: .defaultRecipe, runtime: runtime, publishers: publishers,
                         catalog: recipeCatalog(
                             routing: routing, stts: stts, llms: llms, connectors: connectors,
-                            folderOptions: entry.options, language: language, engine: engine))
+                            folderOptions: entry.options, language: language, engine: engine),
+                        parameters: parameters)
                 }
                 let pipeline = Pipeline(
                     source: entry.source,
@@ -447,6 +449,7 @@ final class AppRuntime {
                     "\(settings.llmResolvers)",
                     "\(settings.inboxResolvers)",
                     fingerprint(of: settings.connectors),
+                    "\(settings.defaultRecipe)",
                 ].joined(separator: "|")
             }
 

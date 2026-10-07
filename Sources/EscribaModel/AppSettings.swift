@@ -149,6 +149,9 @@ public final class AppSettings {
     public var recipesFolderPath: String? {
         didSet { defaults.set(recipesFolderPath, forKey: Keys.recipesFolder) }
     }
+    public var defaultRecipe: DefaultRecipeSettings {
+        didSet { persist(defaultRecipe, forKey: Keys.defaultRecipe) }
+    }
     public var watchedFolders: [WatchedFolder] {
         didSet { persist(watchedFolders, forKey: Keys.watchedFolders) }
     }
@@ -188,11 +191,20 @@ public final class AppSettings {
                 [WatchedFolder(path: $0.path(percentEncoded: false), style: .justPressRecord)]
             } ?? []
 
-        connectors = Self.restore([Connector].self, from: defaults, key: Keys.connectors) ?? []
-        sttResolvers = Self.restore(ResolverSet.self, from: defaults, key: Keys.sttResolvers)
-            ?? ResolverSet(role: .stt)
-        llmResolvers = Self.restore(ResolverSet.self, from: defaults, key: Keys.llmResolvers)
-            ?? ResolverSet(role: .llm)
+        let storedConnectors = Self.restore([Connector].self, from: defaults, key: Keys.connectors) ?? []
+        let stt = Self.restore(ResolverSet.self, from: defaults, key: Keys.sttResolvers) ?? ResolverSet(role: .stt)
+        let llm = Self.restore(ResolverSet.self, from: defaults, key: Keys.llmResolvers) ?? ResolverSet(role: .llm)
+        connectors = storedConnectors
+        sttResolvers = stt
+        llmResolvers = llm
+        defaultRecipe = Self.restore(DefaultRecipeSettings.self, from: defaults, key: Keys.defaultRecipe)
+            ?? migratedDefaultRecipe(
+                stt: stt.favoriteResolver.recipeKey(role: .stt), llm: llm.favoriteResolver.recipeKey(role: .llm),
+                llmPrompt: llm.favoriteResolver.prompt,
+                language: defaults.string(forKey: Keys.language) ?? "es",
+                diarization: defaults.object(forKey: Keys.diarization) as? Int ?? -1,
+                summarize: defaults.object(forKey: Keys.summarize) as? Bool ?? false,
+                connectors: storedConnectors.filter(\.isLive).map(\.key))
         inboxResolvers = Self.restore(ResolverChoice.self, from: defaults, key: Keys.inboxResolvers)
             ?? ResolverChoice()
         watchedFolders = seededWithVoiceMemos(
@@ -201,6 +213,7 @@ public final class AppSettings {
             alreadySeeded: defaults.bool(forKey: Keys.voiceMemosSeeded))
         if voiceMemos != nil { defaults.set(true, forKey: Keys.voiceMemosSeeded) }
         persist(watchedFolders, forKey: Keys.watchedFolders)
+        persist(defaultRecipe, forKey: Keys.defaultRecipe)
     }
 
     private static func restore<Value: Decodable>(
@@ -315,6 +328,7 @@ public final class AppSettings {
         static let writeTxt = "writeTxt"
         static let txtFolder = "txtFolder"
         static let recipesFolder = "recipesFolder"
+        static let defaultRecipe = "defaultRecipe"
         static let watchedFolders = "watchedFolders"
         static let voiceMemosSeeded = "voiceMemosSeeded"
         static let connectors = "connectors"

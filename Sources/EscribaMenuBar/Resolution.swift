@@ -91,18 +91,11 @@ nonisolated func recipeCatalog(
         })
 }
 
-nonisolated func recipeKey(_ resolver: Resolver, role: ResolverRole) -> String {
-    switch resolver.kind {
-    case .local: role == .stt ? "whisper" : "apple"
-    case .remote: resolver.id.uuidString
-    }
-}
-
 nonisolated private func recipeResolvers(_ set: ResolverSet) -> [RecipeResolver] {
     set.resolvers.map { resolver in
         let remote = resolver.kind == .remote
         return RecipeResolver(
-            key: recipeKey(resolver, role: set.role), name: resolver.name, isLocal: !remote,
+            key: resolver.recipeKey(role: set.role), name: resolver.name, isLocal: !remote,
             isFavorite: resolver.id == set.favorite,
             model: remote && !resolver.model.isEmpty ? resolver.model : nil,
             baseURL: remote && !resolver.baseURL.isEmpty ? resolver.baseURL : nil,
@@ -120,7 +113,7 @@ func recipeConnector(_ connector: Connector, isActive: Bool) -> RecipeConnector 
 nonisolated private func lookupResolver(_ query: String, in set: ResolverSet) throws -> Resolver {
     try recipeLookup(
         query, in: set.resolvers, kind: set.role == .stt ? "STT" : "LLM",
-        key: { recipeKey($0, role: set.role) }, name: \.name)
+        key: { $0.recipeKey(role: set.role) }, name: \.name)
 }
 
 nonisolated func routedEnricher(_ routing: ResolverRouting, language: String?) -> Enricher {

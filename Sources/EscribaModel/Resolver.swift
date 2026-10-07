@@ -240,3 +240,12 @@ nonisolated public func nextResolverName(_ base: String, in set: ResolverSet) ->
 nonisolated public func resolverTokenStore(_ id: UUID) -> TokenStore {
     fileTokenStore(account: "resolver-\(id.uuidString)")
 }
+
+extension Resolver {
+    nonisolated public func recipeKey(role: ResolverRole) -> String {
+        switch kind {
+        case .local: role == .stt ? "whisper" : "apple"
+        case .remote: id.uuidString
+        }
+    }
+}

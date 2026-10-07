@@ -46,12 +46,22 @@ interface InfoDeConector {
 interface OpcionesDeTranscripcion {
   stt?: string
   idioma?: string | null
-  hablantes?: { detectar: boolean; cuantos?: number }
+  hablantes?: { detectar: boolean; cuantos?: number | null }
 }
 
 interface OpcionesDeResumen {
   llm?: string
-  prompt?: string
+  prompt?: string | null
+}
+
+interface ParametrosDeReceta {
+  readonly stt: string
+  readonly idioma: string | null
+  readonly hablantes: { readonly detectar: boolean; readonly cuantos: number | null }
+  readonly resumir: boolean
+  readonly llm: string
+  readonly prompt: string | null
+  readonly conectores: readonly string[]
 }
 
 interface Nota {
@@ -73,6 +83,7 @@ interface Conector {
 }
 
 interface Escriba {
+  readonly parametros: ParametrosDeReceta | null
   readonly stts: readonly Resolutor[]
   readonly llms: readonly Resolutor[]
   readonly conectores: readonly InfoDeConector[]
