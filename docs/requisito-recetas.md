@@ -466,6 +466,12 @@ las grandes.
 
 ## Preguntas abiertas
 
+- La memoria recuerda la última versión con las mismas entradas aunque no sea
+  la vigente. Si una pasada se interrumpe, Rubén reprocesa a mano con otros
+  criterios y luego el demonio retoma la grabación, se publica la versión
+  recordada y no la vigente. Se resuelve en la fase 5, cuando la receta decida
+  qué publica.
+
 - ¿Se procesan varias notas a la vez con recetas distintas, o se mantiene una
   a una como hoy?
 - ¿Puede una receta de `flujo` descartar una grabación para siempre, o solo

@@ -86,7 +86,8 @@ public final class LibraryModel {
             status = .working(pending: pending)
         case .transcribing(let key):
             await mirror("marcar \(key) en proceso") { try await store.markProcessing(key) }
-        case .transcribed:
+        case .transcribed(let key, _, _):
+            await mirror("marcar \(key) como hecha") { try await store.markDone(key) }
             if case .problem = status {} else { status = .watching }
         case .failed(let key, let reason):
             await mirror("anotar el fallo de \(key)") {
