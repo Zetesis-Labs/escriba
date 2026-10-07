@@ -11,13 +11,14 @@ struct RecipesPane: View {
 
     var body: some View {
         Form {
-            Section("Integradas") {
+            Section("Receta por defecto") {
                 RecipeStatusRow(status: RecipeStatus(
                     key: RecipePackage.defaultRecipe.key, name: "Por defecto",
                     active: RecipePackage.defaultRecipe.fingerprint, activeSince: nil, issues: []))
-                Text("Viene con Escriba y hace lo de siempre: transcribe, resume, guarda y publica en los conectores activos.")
+                Text("Procesa todas las notas. Se configura aquí y funciona por interfaz.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                DefaultRecipeForm(settings: settings)
             }
             Section("Proyecto") {
                 LabeledContent("Carpeta") {
@@ -103,5 +104,89 @@ private struct RecipeStatusRow: View {
                     .textSelection(.enabled)
             }
         }
+    }
+}
+
+private struct DefaultRecipeForm: View {
+    @Bindable var settings: AppSettings
+
+    var body: some View {
+        Picker("Transcribe con", selection: $settings.defaultRecipe.stt) {
+            ForEach(settings.sttResolvers.resolvers) { resolver in
+                Text(resolver.name).tag(resolver.recipeKey(role: .stt))
+            }
+        }
+        Picker("Idioma", selection: $settings.defaultRecipe.language) {
+            Text("Español").tag(String?.some("es"))
+            Text("English").tag(String?.some("en"))
+            Text("Detectar en cada nota").tag(String?.none)
+        }
+        Picker("Hablantes", selection: speakers) {
+            Text("No detectar").tag(-1)
+            Text("Detectar").tag(0)
+            ForEach(2...6, id: \.self) { count in
+                Text("\(count) hablantes").tag(count)
+            }
+        }
+        if let problem {
+            Text(problem)
+                .font(.caption)
+                .foregroundStyle(.orange)
+        }
+        Toggle("Resumir", isOn: $settings.defaultRecipe.summarize)
+        if settings.defaultRecipe.summarize {
+            Picker("Resume con", selection: $settings.defaultRecipe.llm) {
+                ForEach(settings.llmResolvers.resolvers) { resolver in
+                    Text(resolver.name).tag(resolver.recipeKey(role: .llm))
+                }
+            }
+            TextField("Prompt", text: prompt, prompt: Text("El de serie"), axis: .vertical)
+                .lineLimit(3...8)
+        }
+        LabeledContent("Publica en") {
+            VStack(alignment: .trailing, spacing: 4) {
+                if settings.connectors.isEmpty {
+                    Text("No hay conectores").foregroundStyle(.secondary)
+                }
+                ForEach(settings.connectors) { connector in
+                    Toggle(connector.isLive ? connector.name : "\(connector.name) (apagado)", isOn: publishes(connector.key))
+                }
+            }
+        }
+    }
+
+    private var speakers: Binding<Int> {
+        Binding(
+            get: {
+                let recipe = settings.defaultRecipe
+                return recipe.detectSpeakers ? recipe.speakerCount ?? 0 : -1
+            },
+            set: { value in
+                settings.defaultRecipe.detectSpeakers = value >= 0
+                settings.defaultRecipe.speakerCount = value > 0 ? value : nil
+            })
+    }
+
+    private var prompt: Binding<String> {
+        Binding(
+            get: { settings.defaultRecipe.prompt ?? "" },
+            set: { settings.defaultRecipe.prompt = $0.isEmpty ? nil : $0 })
+    }
+
+    private func publishes(_ key: String) -> Binding<Bool> {
+        Binding(
+            get: { settings.defaultRecipe.connectors.contains(key) },
+            set: { on in
+                settings.defaultRecipe.connectors.removeAll { $0 == key }
+                if on { settings.defaultRecipe.connectors.append(key) }
+            })
+    }
+
+    private var problem: String? {
+        let recipe = settings.defaultRecipe
+        let stt = settings.sttResolvers.resolvers.first { $0.recipeKey(role: .stt) == recipe.stt }
+        return transcriptionProblem(
+            isLocal: stt?.kind != .remote,
+            options: TranscriptionOptions(language: recipe.language, diarize: recipe.detectSpeakers))
     }
 }

@@ -91,6 +91,8 @@ actor RecipeRun {
     private func puente(in context: JSContext) -> JSValue {
         let puente = JSValue(newObjectIn: context)!
         let bridge = bridge
+        puente.setObject(
+            bridge.parameters.flatMap { try? recipeJSON($0) } ?? "null", forKeyedSubscript: "parametros" as NSString)
         puente.setObject(try? recipeJSON(bridge.stts), forKeyedSubscript: "stts" as NSString)
         puente.setObject(try? recipeJSON(bridge.llms), forKeyedSubscript: "llms" as NSString)
         puente.setObject(try? recipeJSON(bridge.connectors), forKeyedSubscript: "conectores" as NSString)
