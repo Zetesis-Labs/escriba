@@ -58,17 +58,19 @@ public struct RecipeProjectDisk: Sendable {
 
 public let recipeStatePath = ".escriba/estado.json"
 
-public func rebuildRecipeProject(
-    disk: RecipeProjectDisk, toolchain: RecipeToolchain, now: Date
-) async throws -> RecipeBuildReport {
-    var snapshot = try disk.snapshot()
-    let template = templateWrites(paths: snapshot.paths, contents: snapshot.sources)
+@discardableResult
+public func createRecipeProject(disk: RecipeProjectDisk) throws -> [String] {
+    let template = templateWrites(paths: try disk.snapshot().paths)
     for file in template {
         try disk.write(file.path, file.contents)
     }
-    if !template.isEmpty {
-        snapshot = try disk.snapshot()
-    }
+    return template.map(\.path)
+}
+
+public func rebuildRecipeProject(
+    disk: RecipeProjectDisk, toolchain: RecipeToolchain, now: Date
+) async throws -> RecipeBuildReport {
+    let snapshot = try disk.snapshot()
 
     let paths = snapshot.paths.filter { !ignoredByRecipes($0) }
     let sources = snapshot.sources.filter { !ignoredByRecipes($0.key) }

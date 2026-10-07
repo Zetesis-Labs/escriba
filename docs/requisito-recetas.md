@@ -443,12 +443,15 @@ resultados.
 
 Rediseñado por Rubén el 2026-10-07.
 
-- **Es una carpeta normal que elige el usuario.** La primera vez que crea una
-  receta propia, la app pregunta dónde guardar el proyecto, con una carpeta
-  sugerida, y lo crea desde la plantilla: `escriba-recetas.d.ts`,
-  `tsconfig.json`, `.gitignore`, y un `AGENTS.md` y un `CLAUDE.md` que explican
-  el contrato para que cualquier agente sepa programarlo. La app mantiene esos
-  ficheros; el resto es del usuario.
+- **Es una carpeta normal que elige el usuario.** La primera vez, la app
+  pregunta dónde guardar el proyecto, con una carpeta sugerida, y si no tiene
+  proyecto lo crea desde la plantilla: `escriba-recetas.d.ts`,
+  `tsconfig.json`, `.gitignore`, una receta de ejemplo, y un `AGENTS.md` y un
+  `CLAUDE.md` que explican el contrato para que cualquier agente sepa
+  programarlo. **La plantilla se escribe solo al crear el proyecto** (Rubén,
+  2026-10-07): después la carpeta es del usuario y la app solo escribe en
+  `.escriba/`. Actualizar el contrato en un proyecto existente queda como
+  acción explícita, sin construir todavía.
 - **La carpeta manda.** Se edita con Monaco dentro de la app (RF-16), con un
   agente o con el editor del usuario. La app la vigila: cuando cambia un
   fichero, compila las recetas afectadas, las valida (exportan `receta` y

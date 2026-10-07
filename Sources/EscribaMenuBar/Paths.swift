@@ -27,6 +27,18 @@ enum Paths {
         home.appending(path: ".local/state/escriba/instance.lock")
     }
 
+    static var applicationSupport: URL {
+        home.appending(path: "Library/Application Support/escriba")
+    }
+
+    static var installedRecipes: URL {
+        applicationSupport.appending(path: "recetas-instaladas.json")
+    }
+
+    static var documents: URL {
+        home.appending(path: "Documents")
+    }
+
     static var logFile: URL {
         home.appending(path: "Library/Logs/escriba.log")
     }

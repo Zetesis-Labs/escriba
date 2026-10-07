@@ -52,6 +52,12 @@ private func reconstruir(_ disco: DiscoFalso, _ fecha: Date = ahora) async throw
     try await rebuildRecipeProject(disk: disco.puerto, toolchain: herramientas, now: fecha)
 }
 
+private func creado() throws -> DiscoFalso {
+    let disco = DiscoFalso()
+    try createRecipeProject(disk: disco.puerto)
+    return disco
+}
+
 private func estado(_ disco: DiscoFalso) throws -> [String: Any] {
     let texto = try #require(disco[".escriba/estado.json"])
     return try #require(try JSONSerialization.jsonObject(with: Data(texto.utf8)) as? [String: Any])
@@ -59,9 +65,9 @@ private func estado(_ disco: DiscoFalso) throws -> [String: Any] {
 
 @Suite("Compilar el proyecto de recetas")
 struct ProyectoTests {
-    @Test("un proyecto vacio recibe la plantilla, compila la receta de ejemplo y la instala")
+    @Test("un proyecto recien creado tiene la plantilla, compila la receta de ejemplo y la instala")
     func proyectoNuevo() async throws {
-        let disco = DiscoFalso()
+        let disco = try creado()
 
         let informe = try await reconstruir(disco)
 
@@ -75,7 +81,7 @@ struct ProyectoTests {
 
     @Test("una receta que se rompe sigue con su ultimo paquete bueno y el estado dice donde falla")
     func seRompe() async throws {
-        let disco = DiscoFalso()
+        let disco = try creado()
         _ = try await reconstruir(disco)
         let buena = try #require(disco.instaladasAhora["mi-receta"])
         disco.cambiar("recetas/mi-receta/receta.ts", "ROMPE")
@@ -89,7 +95,7 @@ struct ProyectoTests {
 
     @Test("al arreglarla se instala la nueva")
     func seArregla() async throws {
-        let disco = DiscoFalso()
+        let disco = try creado()
         _ = try await reconstruir(disco)
         disco.cambiar("recetas/mi-receta/receta.ts", "ROMPE")
         _ = try await reconstruir(disco)
@@ -112,22 +118,31 @@ struct ProyectoTests {
         #expect(informe.recipes.first { $0.key == "vacia" }?.issues.first?.file == "recetas/vacia/receta.ts")
     }
 
-    @Test("lo que el usuario edito no se pisa; el contrato desfasado se reescribe")
-    func respetaLoEditado() async throws {
-        let disco = DiscoFalso()
-        _ = try await reconstruir(disco)
+    @Test("compilar no toca la plantilla: una vez creado, el proyecto es del usuario")
+    func compilarNoEscribePlantilla() async throws {
+        let disco = try creado()
         disco.cambiar("AGENTS.md", "mis notas")
-        disco.cambiar("escriba-recetas.d.ts", "interface Viejo {}")
+        disco.cambiar("escriba-recetas.d.ts", "interface Mio {}")
+        disco.cambiar("CLAUDE.md", nil)
 
         _ = try await reconstruir(disco)
 
         #expect(disco["AGENTS.md"] == "mis notas")
-        #expect(disco["escriba-recetas.d.ts"] == RecipeTemplate.contract + "\n")
+        #expect(disco["escriba-recetas.d.ts"] == "interface Mio {}")
+        #expect(disco["CLAUDE.md"] == nil)
+    }
+
+    @Test("crear un proyecto donde ya hay uno no escribe nada")
+    func crearSobreProyecto() throws {
+        let disco = DiscoFalso(["escriba-recetas.d.ts": "interface Mio {}", "recetas/a/receta.ts": "x"])
+
+        #expect(try createRecipeProject(disk: disco.puerto).isEmpty)
+        #expect(disco.escrituras.values.isEmpty)
     }
 
     @Test("una receta borrada del proyecto deja de estar instalada")
     func recetaBorrada() async throws {
-        let disco = DiscoFalso()
+        let disco = try creado()
         _ = try await reconstruir(disco)
         disco.cambiar("recetas/mi-receta/receta.ts", nil)
 
@@ -139,7 +154,7 @@ struct ProyectoTests {
 
     @Test("recompilar sin cambios solo reescribe el estado")
     func sinCambios() async throws {
-        let disco = DiscoFalso()
+        let disco = try creado()
         _ = try await reconstruir(disco)
         let antes = disco.escrituras.count
 

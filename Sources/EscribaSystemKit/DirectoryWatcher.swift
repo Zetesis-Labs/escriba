@@ -5,12 +5,18 @@ import Synchronization
 
 public final class DirectoryWatcher: Sendable {
     private let root: URL
+    private let isRelevant: @Sendable (String) -> Bool
     private let onRelevantChange: @Sendable () -> Void
     private let queue = DispatchQueue(label: "dev.ruben.escriba.fsevents")
     private let stream = Mutex<FSEventStreamRef?>(nil)
 
-    public init(root: URL, onRelevantChange: @escaping @Sendable () -> Void) {
+    public init(
+        root: URL,
+        isRelevant: @escaping @Sendable (String) -> Bool = { $0.lowercased().hasSuffix(".m4a") },
+        onRelevantChange: @escaping @Sendable () -> Void
+    ) {
         self.root = root
+        self.isRelevant = isRelevant
         self.onRelevantChange = onRelevantChange
     }
 
@@ -39,7 +45,7 @@ public final class DirectoryWatcher: Sendable {
             let watcher = Unmanaged<DirectoryWatcher>.fromOpaque(info).takeUnretainedValue()
 
             let cPaths = paths.bindMemory(to: UnsafePointer<CChar>.self, capacity: count)
-            for index in 0..<count where String(cString: cPaths[index]).lowercased().hasSuffix(".m4a") {
+            for index in 0..<count where watcher.isRelevant(String(cString: cPaths[index])) {
                 watcher.onRelevantChange()
                 return
             }

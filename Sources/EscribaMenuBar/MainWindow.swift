@@ -72,7 +72,7 @@ struct MainWindow: View {
             case .llms:
                 ResolversPane(resolvers: runtime.llm, settings: runtime.settings)
             case .settings:
-                SettingsPane(settings: runtime.settings)
+                SettingsPane(settings: runtime.settings, recipes: runtime.recipes)
             }
         }
         .frame(minWidth: 960, minHeight: 600)
