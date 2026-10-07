@@ -15,10 +15,6 @@ enum Paths {
         home.appending(path: "Library/Application Support/escriba/library")
     }
 
-    static var choices: URL {
-        home.appending(path: "Library/Application Support/escriba/elecciones.json")
-    }
-
     static var inbox: URL {
         home.appending(path: "Library/Application Support/escriba/bandeja")
     }

@@ -12,31 +12,23 @@ nonisolated public struct WatchedFolder: Codable, Sendable, Equatable, Identifia
     }
 
     public var path: String
-    public var speakers: Int?
     public var style: Style
-    public var resolvers: ResolverChoice
 
     public var id: String { path }
 
-    public init(
-        path: String, speakers: Int? = nil, style: Style = .any, resolvers: ResolverChoice = ResolverChoice()
-    ) {
+    public init(path: String, style: Style = .any) {
         self.path = path
-        self.speakers = speakers
         self.style = style
-        self.resolvers = resolvers
     }
 
     private enum CodingKeys: String, CodingKey {
-        case path, speakers, style, resolvers
+        case path, style
     }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         path = try container.decode(String.self, forKey: .path)
-        speakers = try container.decodeIfPresent(Int.self, forKey: .speakers)
         style = try container.decodeIfPresent(Style.self, forKey: .style) ?? .any
-        resolvers = try container.decodeIfPresent(ResolverChoice.self, forKey: .resolvers) ?? ResolverChoice()
     }
 }
 
@@ -111,46 +103,10 @@ public func liveRecorderRoot() -> URL? {
         home: FileManager.default.homeDirectoryForCurrentUser)
 }
 
-public enum Diarization: Equatable, Sendable {
-    case off
-    case auto
-    case fixed(Int)
-
-    public var storageValue: Int {
-        switch self {
-        case .off: -1
-        case .auto: 0
-        case .fixed(let count): count
-        }
-    }
-
-    public init(storageValue: Int) {
-        switch storageValue {
-        case ..<0: self = .off
-        case 0: self = .auto
-        default: self = .fixed(storageValue)
-        }
-    }
-
-    public var speakerCount: Int? {
-        if case .fixed(let count) = self { return count }
-        return nil
-    }
-}
-
 @Observable
 public final class AppSettings {
-    public var language: String {
-        didSet { defaults.set(language, forKey: Keys.language) }
-    }
-    public var diarization: Diarization {
-        didSet { defaults.set(diarization.storageValue, forKey: Keys.diarization) }
-    }
     public var notifyEveryNote: Bool {
         didSet { defaults.set(notifyEveryNote, forKey: Keys.notifyEveryNote) }
-    }
-    public var summarize: Bool {
-        didSet { defaults.set(summarize, forKey: Keys.summarize) }
     }
     public var recipesFolderPath: String? {
         didSet { defaults.set(recipesFolderPath, forKey: Keys.recipesFolder) }
@@ -170,9 +126,6 @@ public final class AppSettings {
     public var llmResolvers: ResolverSet {
         didSet { persist(llmResolvers, forKey: Keys.llmResolvers) }
     }
-    public var inboxResolvers: ResolverChoice {
-        didSet { persist(inboxResolvers, forKey: Keys.inboxResolvers) }
-    }
 
     @ObservationIgnored private let defaults: UserDefaults
 
@@ -182,11 +135,7 @@ public final class AppSettings {
         voiceMemos: URL? = liveVoiceMemosRoot()
     ) {
         self.defaults = defaults
-        language = defaults.string(forKey: Keys.language) ?? "es"
-        diarization = Diarization(
-            storageValue: defaults.object(forKey: Keys.diarization) as? Int ?? -1)
         notifyEveryNote = defaults.object(forKey: Keys.notifyEveryNote) as? Bool ?? true
-        summarize = defaults.object(forKey: Keys.summarize) as? Bool ?? false
         recipesFolderPath = defaults.string(forKey: Keys.recipesFolder)
         let stored = Self.restore([WatchedFolder].self, from: defaults, key: Keys.watchedFolders)
             ?? recorderRoot.map {
@@ -210,8 +159,6 @@ public final class AppSettings {
                 connectors: storedConnectors.filter(\.isLive).map(\.key))
         recipeBook = Self.restore(RecipeBook.self, from: defaults, key: Keys.recipeBook)
             ?? RecipeBook(migrating: savedDefaultRecipe, key: UUID().uuidString)
-        inboxResolvers = Self.restore(ResolverChoice.self, from: defaults, key: Keys.inboxResolvers)
-            ?? ResolverChoice()
         watchedFolders = seededWithVoiceMemos(
             stored,
             root: voiceMemos,
@@ -239,23 +186,6 @@ public final class AppSettings {
         } catch {
             Log.error("no se pudo guardar el ajuste \(key): \(error)")
         }
-    }
-
-    public var languageCode: String? {
-        language == "auto" ? nil : language
-    }
-
-    public var transcriptionDefaults: TranscriptionOptions {
-        TranscriptionOptions(
-            language: languageCode, diarize: diarization != .off,
-            speakerCount: diarization.speakerCount)
-    }
-
-    public func transcriptionOptions(for folder: WatchedFolder) -> TranscriptionOptions {
-        TranscriptionOptions(
-            language: languageCode,
-            diarize: folder.speakers != nil || diarization != .off,
-            speakerCount: folder.speakers ?? diarization.speakerCount)
     }
 
     public var liveConnectors: [Connector] { connectors.filter(\.isLive) }
@@ -287,26 +217,6 @@ public final class AppSettings {
     public func forget(resolver id: UUID, as role: ResolverRole) {
         recipeBook = recipeBook.forgettingResolver(
             id.uuidString, stt: sttResolvers.local.recipeKey(role: .stt), llm: llmResolvers.local.recipeKey(role: .llm))
-        inboxResolvers = inboxResolvers.forgetting(id, as: role)
-        watchedFolders = watchedFolders.map { folder in
-            var folder = folder
-            folder.resolvers = folder.resolvers.forgetting(id, as: role)
-            return folder
-        }
-    }
-
-    public func routing(inbox: String, overrides: ChoiceStore = .inMemory()) -> ResolverRouting {
-        ResolverRouting(
-            stt: sttResolvers, llm: llmResolvers, folders: watchedFolders, inbox: inbox,
-            inboxChoice: inboxResolvers, overrides: overrides)
-    }
-
-    public func resolverChoice(forSource path: String, inbox: String) -> ResolverChoice {
-        routing(inbox: inbox).choice(forSource: path)
-    }
-
-    public func resolver(_ role: ResolverRole, forSource path: String, inbox: String) -> Resolver {
-        routing(inbox: inbox).resolver(role, forSource: path)
     }
 
     public static func adoptLegacyDefaults(
@@ -336,6 +246,5 @@ public final class AppSettings {
         static let connectors = "connectors"
         static let sttResolvers = "sttResolvers"
         static let llmResolvers = "llmResolvers"
-        static let inboxResolvers = "inboxResolvers"
     }
 }

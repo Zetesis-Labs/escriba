@@ -68,7 +68,6 @@ final class AppRuntime {
     @ObservationIgnored private var recipeBookWatch: Task<Void, Never>?
     @ObservationIgnored private let microphone: MicrophoneRecorder
     @ObservationIgnored private var recordingItem: RecordingStatusItem?
-    @ObservationIgnored private let choices = fileChoiceStore(Paths.choices)
     @ObservationIgnored private let recipeBook: Shared<RecipeBook>
 
     var symbolName: String {
@@ -98,9 +97,9 @@ final class AppRuntime {
         let microphone = MicrophoneRecorder()
         self.microphone = microphone
         recorder = RecorderModel(
-            recorder: microphone.port(), inbox: box, choices: choices, wake: { relay.wake() },
+            recorder: microphone.port(), inbox: box, wake: { relay.wake() },
             keepAwake: keepRecordingAwake)
-        inbox = InboxModel(inbox: box, choices: choices, wake: { relay.wake() })
+        inbox = InboxModel(inbox: box, wake: { relay.wake() })
         recipes = recipeProjectModel()
         if let path = settings.recipesFolderPath {
             Task { [recipes] in await recipes.open(URL(fileURLWithPath: path)) }

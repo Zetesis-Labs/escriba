@@ -85,33 +85,7 @@ struct ResolutoresTests {
         #expect(remotePresets(for: .llm).allSatisfy { $0.baseURL.isEmpty || $0.baseURL.hasSuffix("/v1") })
     }
 
-    @Test("una carpeta vigilada guardada antes de los resolutores se lee sin eleccion")
-    func carpetaAntigua() throws {
-        let antigua = #"{"path":"/tmp/llamadas","speakers":2,"style":"any"}"#
-
-        let carpeta = try JSONDecoder().decode(WatchedFolder.self, from: Data(antigua.utf8))
-
-        #expect(carpeta.resolvers == ResolverChoice())
-    }
-
-    @Test("lo que usa cada grabacion se decide por su origen: la bandeja, su carpeta o ninguno")
-    func porOrigen() {
-        let settings = ajustes()
-        let deGroq = UUID()
-        let deOpenAI = UUID()
-        settings.watchedFolders = [
-            WatchedFolder(path: "/notas/llamadas", resolvers: ResolverChoice(stt: deGroq)),
-            WatchedFolder(path: "/notas"),
-        ]
-        settings.inboxResolvers = ResolverChoice(llm: deOpenAI)
-
-        #expect(settings.resolverChoice(forSource: "/notas/llamadas/a.m4a", inbox: "/bandeja") == ResolverChoice(stt: deGroq))
-        #expect(settings.resolverChoice(forSource: "/notas/b.m4a", inbox: "/bandeja") == ResolverChoice())
-        #expect(settings.resolverChoice(forSource: "/bandeja/c.m4a", inbox: "/bandeja") == ResolverChoice(llm: deOpenAI))
-        #expect(settings.resolverChoice(forSource: "/otra/d.m4a", inbox: "/bandeja") == ResolverChoice())
-    }
-
-    @Test("resolutores y eleccion de cada origen sobreviven a una instancia nueva")
+    @Test("los resolutores sobreviven a una instancia nueva")
     func persiste() {
         let defaults = nuevos()
         let settings = ajustes(defaults)
@@ -119,14 +93,10 @@ struct ResolutoresTests {
         let remoto = Resolver.remote(groq, role: .stt, name: "Groq")
         lista.add(remoto)
         settings.setResolvers(lista, for: .stt)
-        settings.inboxResolvers = ResolverChoice(stt: ResolverRole.stt.localID)
-        settings.watchedFolders = [WatchedFolder(path: "/notas", resolvers: ResolverChoice(llm: UUID()))]
 
         let otra = ajustes(defaults)
 
         #expect(otra.resolvers(.stt) == lista)
-        #expect(otra.inboxResolvers == settings.inboxResolvers)
-        #expect(otra.watchedFolders == settings.watchedFolders)
     }
 }
 
@@ -197,15 +167,13 @@ struct PanelDeResolutoresTests {
         #expect(nuevo.model == groq.model)
     }
 
-    @Test("quitar un resolutor borra su clave, suelta a los origenes que lo usaban y devuelve al local a la receta")
+    @Test("quitar un resolutor borra su clave y devuelve al local las recetas que lo usaban")
     func quitar() {
         let settings = ajustes()
         let claves = Claves()
         let modelo = panel(.llm, settings, claves: claves)
         let nuevo = modelo.add(openAI)
         claves[nuevo.id] = "sk-1"
-        settings.watchedFolders = [WatchedFolder(path: "/notas", resolvers: ResolverChoice(stt: UUID(), llm: nuevo.id))]
-        settings.inboxResolvers = ResolverChoice(llm: nuevo.id)
         let receta = settings.recipeBook.forms[0]
         var parametros = receta.settings
         parametros.llm = nuevo.recipeKey(role: .llm)
@@ -215,9 +183,6 @@ struct PanelDeResolutoresTests {
 
         #expect(settings.resolvers(.llm).resolvers.count == 1)
         #expect(claves[nuevo.id] == nil)
-        #expect(settings.watchedFolders[0].resolvers.llm == nil)
-        #expect(settings.watchedFolders[0].resolvers.stt != nil)
-        #expect(settings.inboxResolvers.llm == nil)
         #expect(settings.recipeBook.forms[0].settings.llm == "apple")
     }
 
@@ -244,27 +209,6 @@ struct PanelDeResolutoresTests {
         editor.baseURL = "https://otro.example.com/v1"
         editor.discard()
         #expect(editor.baseURL == openAI.baseURL)
-        #expect(!editor.isDirty)
-    }
-
-    @Test("el prompt muestra el de serie; tocarlo lo guarda y restaurarlo vuelve a seguir al de serie")
-    func prompt() {
-        let settings = ajustes()
-        let editor = panel(.llm, settings).editor(for: ResolverRole.llm.localID)
-
-        #expect(editor.prompt == DigestPrompt.standard)
-        #expect(editor.usesStandardPrompt)
-
-        editor.prompt = "Resume como un acta."
-        editor.save()
-        #expect(settings.resolvers(.llm).local.prompt == "Resume como un acta.")
-        #expect(!editor.usesStandardPrompt)
-
-        editor.restoreStandardPrompt()
-        editor.save()
-        #expect(settings.resolvers(.llm).local.prompt == nil)
-
-        editor.prompt = DigestPrompt.standard + "\n"
         #expect(!editor.isDirty)
     }
 
@@ -319,13 +263,12 @@ struct PanelDeResolutoresTests {
         let modelo = panel(.llm, settings, servicios)
         let editor = modelo.editor(for: modelo.add(openAI).id)
         editor.model = "gpt-a"
-        editor.prompt = "Acta."
         editor.key = "sk-1"
 
         await editor.tryIt()
 
         #expect(editor.trial == .digest(Digest(title: "Lanzamiento", summary: "Se aplaza.", tags: ["plan"])))
-        #expect(servicios.llamadas.withLock { $0 } == ["resume:gpt-a:sk-1:Acta."])
+        #expect(servicios.llamadas.withLock { $0 } == ["resume:gpt-a:sk-1:serie"])
         #expect(settings.resolvers(.llm).resolver(editor.id).model == openAI.model)
     }
 

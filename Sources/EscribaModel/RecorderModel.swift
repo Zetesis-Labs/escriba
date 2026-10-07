@@ -41,11 +41,9 @@ public final class RecorderModel {
     public private(set) var state: State = .idle
     public private(set) var level: Double = 0
     public private(set) var elapsed: TimeInterval = 0
-    public var choice = ResolverChoice()
 
     @ObservationIgnored private let recorder: AudioRecorder
     @ObservationIgnored private let inbox: Inbox
-    @ObservationIgnored private let choices: ChoiceStore
     @ObservationIgnored private let wake: () -> Void
     @ObservationIgnored private let keepAwake: () -> () -> Void
     @ObservationIgnored private var release: (() -> Void)?
@@ -56,13 +54,12 @@ public final class RecorderModel {
     @ObservationIgnored private var ticker: Task<Void, Never>?
 
     public init(
-        recorder: AudioRecorder, inbox: Inbox, choices: ChoiceStore = .inMemory(), wake: @escaping () -> Void,
+        recorder: AudioRecorder, inbox: Inbox, wake: @escaping () -> Void,
         keepAwake: @escaping () -> () -> Void = { {} },
         now: @escaping () -> Date = Date.init, timeZone: TimeZone = .current, ticks: Bool = true
     ) {
         self.recorder = recorder
         self.inbox = inbox
-        self.choices = choices
         self.wake = wake
         self.keepAwake = keepAwake
         self.now = now
@@ -114,16 +111,11 @@ public final class RecorderModel {
         recorder.stop()
         finish()
         let name = recordingName(startedAt: startedAt, timeZone: timeZone)
-        let destination = inbox.root.appending(path: name).path(percentEncoded: false)
-        let chosen = choice
-        choice = ResolverChoice()
-        if !chosen.isEmpty { choices.write(destination, chosen) }
         do {
             try inbox.finishRecording(file, name, startedAt)
             state = .idle
             wake()
         } catch {
-            if !chosen.isEmpty { choices.write(destination, nil) }
             state = .failed("No se pudo guardar la grabación: \(error.localizedDescription)")
         }
     }

@@ -18,15 +18,12 @@ public struct ImportOutcome: Equatable, Sendable {
 @Observable
 public final class InboxModel {
     public private(set) var notice: String?
-    public var choice = ResolverChoice()
 
     @ObservationIgnored private let inbox: Inbox
-    @ObservationIgnored private let choices: ChoiceStore
     @ObservationIgnored private let wake: () -> Void
 
-    public init(inbox: Inbox, choices: ChoiceStore = .inMemory(), wake: @escaping () -> Void) {
+    public init(inbox: Inbox, wake: @escaping () -> Void) {
         self.inbox = inbox
-        self.choices = choices
         self.wake = wake
     }
 
@@ -35,16 +32,11 @@ public final class InboxModel {
         let plan = dropPlan(urls, taken: (try? inbox.names()) ?? [])
         var added: [String] = []
         var failed: [String] = []
-        let chosen = choice
-        choice = ResolverChoice()
         for file in plan.accepted {
-            let destination = inbox.root.appending(path: file.name).path(percentEncoded: false)
-            if !chosen.isEmpty { choices.write(destination, chosen) }
             do {
                 try inbox.importFile(file.source, file.name)
                 added.append(file.name)
             } catch {
-                if !chosen.isEmpty { choices.write(destination, nil) }
                 failed.append(file.source.lastPathComponent)
             }
         }
