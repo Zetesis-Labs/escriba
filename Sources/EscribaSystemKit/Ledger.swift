@@ -28,6 +28,7 @@ public struct LedgerFailure: Sendable {
 
 public final class Ledger: Sendable {
     public static let maxAttempts = 5
+    static let busyTimeoutMilliseconds: Int32 = 5_000
     public static let retryBackoff: TimeInterval = 600
 
     public var port: LedgerPort {
@@ -47,6 +48,7 @@ public final class Ledger: Sendable {
         guard sqlite3_open(path.path(percentEncoded: false), &handle) == SQLITE_OK,
               let handle
         else { throw LedgerError.cannotOpen(path.path(percentEncoded: false)) }
+        sqlite3_busy_timeout(handle, Ledger.busyTimeoutMilliseconds)
         connection = Mutex(handle)
 
         try execute("PRAGMA journal_mode=WAL")

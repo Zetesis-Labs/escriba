@@ -205,6 +205,7 @@ final class AppRuntime {
                 model.status = .watching
             }
         } catch {
+            Log.error("no se pudo arrancar el pipeline: \(error)")
             startupProblem = "\(error)"
             Notifier.problem(title: "No se pudo arrancar", detail: "\(error)")
         }
