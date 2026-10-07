@@ -16,6 +16,7 @@ public final class LibraryModel {
     public private(set) var reprocessing: Set<String> = []
     public private(set) var summarizing: Set<String> = []
     public private(set) var publishing: Set<String> = []
+    private var traceRevisions: [String: Int] = [:]
     public var status: WatcherStatus = .starting
     public private(set) var scanned = 0
 
@@ -91,6 +92,7 @@ public final class LibraryModel {
             if case .problem = status {} else { status = .watching }
         case .traced(let key, let trace):
             await mirror("guardar la traza de \(key)") { try await store.saveTrace(trace, for: key) }
+            traceRevisions[key, default: 0] += 1
         case .failed(let key, let reason):
             await mirror("anotar el fallo de \(key)") {
                 try await store.markFailed(key, error: reason)
@@ -282,6 +284,10 @@ public final class LibraryModel {
                 await republish(transcript, digest: nil, for: key)
             }
         }
+    }
+
+    public func traceRevision(for key: String) -> Int {
+        traceRevisions[key, default: 0]
     }
 
     public func latestTrace(for key: String) async throws -> RecipeTrace? {
