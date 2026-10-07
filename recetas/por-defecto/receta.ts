@@ -4,7 +4,7 @@ export async function flujo(audio: Audio, escriba: Escriba): Promise<void> {
   const nota = await escriba.transcribir(audio)
   await nota.resumir()
   await nota.guardar()
-  for (const conector of escriba.conectores) {
+  for (const conector of escriba.conectores.filter((conector) => conector.activo)) {
     try {
       await escriba.conector(conector.clave).publicar(nota)
     } catch (error) {

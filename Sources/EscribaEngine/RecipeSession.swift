@@ -107,7 +107,9 @@ final class RecipeSession: Sendable {
         let connector: RecipeConnector
         do {
             connector = try recipeLookup(target, in: catalog.connectors, kind: "conector", key: \.key, name: \.name)
-            guard let found = publishers[connector.key] else { throw RecipeError.unknownConnector(target) }
+            guard connector.isActive, let found = publishers[connector.key] else {
+                throw RecipeError.inactiveConnector(connector.name)
+            }
             publisher = found
         } catch {
             record(RecipeStep(capability: "publicar", detail: target, seconds: 0, error: "\(error)"))

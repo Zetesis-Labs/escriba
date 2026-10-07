@@ -29,12 +29,18 @@ interface Resolutor {
   readonly nombre: string
   readonly local: boolean
   readonly favorito: boolean
+  readonly modelo: string | null
+  readonly url: string | null
+  readonly prompt: string | null
 }
 
 interface InfoDeConector {
   readonly clave: string
   readonly nombre: string
   readonly tipo: "notion" | "okf"
+  readonly activo: boolean
+  readonly base: { readonly id: string; readonly nombre: string } | null
+  readonly carpeta: string | null
 }
 
 interface OpcionesDeTranscripcion {
