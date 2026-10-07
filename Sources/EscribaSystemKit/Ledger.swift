@@ -72,6 +72,7 @@ public final class Ledger: Sendable {
             let sql = """
                 SELECT key FROM transcriptions
                 WHERE status = 'done'
+                   OR status = 'discarded'
                    OR (status = 'failed' AND attempts >= ?)
                    OR (status = 'failed' AND updated_at > ?)
                 """
@@ -126,6 +127,21 @@ public final class Ledger: Sendable {
             bind(statement, 2, source.path(percentEncoded: false))
             bind(statement, 3, String(error.prefix(2000)))
             sqlite3_bind_double(statement, 4, Date().timeIntervalSince1970)
+        }
+    }
+
+    public func markDiscarded(key: String, source: URL) throws {
+        try write("""
+            INSERT INTO transcriptions (key, source_path, status, attempts, last_error, updated_at)
+            VALUES (?, ?, 'discarded', 0, NULL, ?)
+            ON CONFLICT(key) DO UPDATE SET
+                status = 'discarded',
+                last_error = NULL,
+                updated_at = excluded.updated_at
+            """) { statement in
+            bind(statement, 1, key)
+            bind(statement, 2, source.path(percentEncoded: false))
+            sqlite3_bind_double(statement, 3, Date().timeIntervalSince1970)
         }
     }
 

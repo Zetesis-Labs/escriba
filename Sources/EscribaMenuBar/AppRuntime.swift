@@ -171,6 +171,7 @@ final class AppRuntime {
             let memory = store.memory()
             let saveSink = saveSink(for: store)
 
+            let ledger = try Ledger(path: Paths.defaultState)
             let model = LibraryModel(
                 store: store,
                 reprocess: { stored, choice, dryRun in
@@ -185,7 +186,8 @@ final class AppRuntime {
                     )(recording, transcript)
                 },
                 publishers: publishers,
-                unpublishers: unpublishers())
+                unpublishers: unpublishers(),
+                discarded: { key, source in try ledger.markDiscarded(key: key, source: source) })
             model.startObserving()
             self.model = model
 
@@ -201,7 +203,6 @@ final class AppRuntime {
                 }
             }
 
-            let ledger = try Ledger(path: Paths.defaultState)
             reconcileLibrary(store: store, ledger: ledger)
             controllers = sources().map { source in
                 let pipeline = Pipeline(
@@ -294,6 +295,9 @@ final class AppRuntime {
                 do {
                     try store.resetInterrupted()
                     store.adoptLedgerHistory(try ledger.doneRecords())
+                    for recording in try store.discardedRecordings() {
+                        try ledger.markDiscarded(key: recording.key, source: recording.sourceURL)
+                    }
                 } catch {
                     Log.error("no se pudo reconciliar la biblioteca con el ledger: \(error)")
                 }

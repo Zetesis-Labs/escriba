@@ -67,7 +67,11 @@ public struct Pipeline: Sendable {
                 continue
             }
             do {
-                if try await process(recording) { processed += 1 } else { deferred += 1 }
+                switch try await process(recording) {
+                case .done: processed += 1
+                case .deferred: deferred += 1
+                case .settled: break
+                }
             } catch let error as TranscriptionError where error.isBackendUnavailable {
                 Log.error("backend caido, se reintenta en el proximo ciclo: \(error)")
                 onEvent?(.backendUnavailable(reason: "\(error)"))
@@ -80,7 +84,7 @@ public struct Pipeline: Sendable {
                 break
             } catch {
                 Log.error("fallo procesando \(recording.key): \(error)")
-                recordFailure(of: recording, error)
+                recordFailure(of: recording, "\(error)")
                 onEvent?(.failed(key: recording.key, reason: "\(error)"))
             }
         }
@@ -88,19 +92,32 @@ public struct Pipeline: Sendable {
         return PassOutcome(processed: processed, deferred: deferred)
     }
 
-    private func recordFailure(of recording: Recording, _ error: Error) {
+    private func recordFailure(of recording: Recording, _ reason: String) {
         do {
-            try ledger.markFailed(recording.key, recording.url, "\(error)")
+            try ledger.markFailed(recording.key, recording.url, reason)
         } catch let ledgerError {
             Log.error("el ledger no pudo anotar el fallo de \(recording.key): \(ledgerError)")
         }
     }
 
-    private func process(_ recording: Recording) async throws -> Bool {
+    private enum Processed {
+        case done
+        case deferred
+        case settled
+    }
+
+    private func process(_ recording: Recording) async throws -> Processed {
         let state = await readiness(recording)
+        if state == .abandoned {
+            let reason = "el fichero está vacío (0 bytes) desde hace más de una hora"
+            Log.info("\(recording.key): \(reason)")
+            recordFailure(of: recording, reason)
+            onEvent?(.failed(key: recording.key, reason: reason))
+            return .settled
+        }
         guard state == .ready else {
             Log.info("\(recording.key) aun no listo (\(state.rawValue)), se deja para el proximo ciclo")
-            return false
+            return .deferred
         }
 
         let target: RecipeTarget?
@@ -123,7 +140,7 @@ public struct Pipeline: Sendable {
             try ledger.markFailed(recording.key, recording.url, "\(error)")
             Log.error("\(recording.key) fallo: \(error)")
             onEvent?(.failed(key: recording.key, reason: "\(error)"))
-            return false
+            return .deferred
         }
 
         try ledger.markDone(recording.key, recording.url, delivered.output)
@@ -133,7 +150,7 @@ public struct Pipeline: Sendable {
         Log.info(
             "\(recording.key) listo en \(String(format: "%.1f", elapsed))s -> \(delivered.output.lastPathComponent)"
         )
-        return true
+        return .done
     }
 
     private func deliver(

@@ -83,3 +83,20 @@ struct LedgerBusyTests {
         }
     }
 }
+
+@Suite("Ledger: lo que el usuario descarto no se vuelve a procesar")
+struct LedgerDescartadasTests {
+    @Test("una grabacion descartada queda resuelta para el pipeline, aunque antes estuviera fallida")
+    func descartada() throws {
+        let ledger = try Ledger(path: URL(fileURLWithPath: NSTemporaryDirectory())
+            .appending(path: "escriba-descartadas-\(UUID().uuidString)").appending(path: "ledger.db"))
+        let origen = URL(fileURLWithPath: "/origen/a.m4a")
+        try ledger.markFailed(key: "a", source: origen, error: "vacio")
+
+        try ledger.markDiscarded(key: "a", source: origen)
+        try ledger.markDiscarded(key: "b", source: URL(fileURLWithPath: "/origen/b.m4a"))
+
+        #expect(try ledger.settledKeys(now: Date().addingTimeInterval(86_400)).isSuperset(of: ["a", "b"]))
+        #expect(try ledger.failures().isEmpty)
+    }
+}

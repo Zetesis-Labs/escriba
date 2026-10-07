@@ -94,6 +94,15 @@ struct ReadinessTests {
         #expect(classify(probe: probe(size: 0), previous: nil, settleSeconds: 15) == .empty)
     }
 
+    @Test("un fichero de 0 bytes sin cambios desde hace mas de una hora es una grabacion vacia, no una que se esta escribiendo")
+    func vaciaParaSiempre() {
+        let reciente = probe(size: 0, modifiedAt: 0, observedAt: 3_000)
+        let abandonada = probe(size: 0, modifiedAt: 0, observedAt: 3_700)
+
+        #expect(classify(probe: reciente, previous: nil, settleSeconds: 15) == .empty)
+        #expect(classify(probe: abandonada, previous: nil, settleSeconds: 15) == .abandoned)
+    }
+
     @Test("creciendo mientras la grabacion se sigue escribiendo")
     func creciendo() {
         let antes = probe(size: 1000, observedAt: 190)

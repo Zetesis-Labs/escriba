@@ -301,6 +301,22 @@ struct LibraryStatusTests {
         #expect(try sandbox.store.recording(for: recording.key)?.status == .discarded)
     }
 
+    @Test("descartar avisa al pipeline con la clave y el origen, para que no la vuelva a procesar")
+    func descartarAvisa() async throws {
+        let sandbox = try Sandbox()
+        let recording = try makeRecording(sandbox, "2026-08-31/09-00-00")
+        try sandbox.store.save(recording, Transcript(text: "t"), backend: "falso")
+        let avisadas = Mutex<[String]>([])
+        let modelo = LibraryModel(store: sandbox.store, discarded: { key, origen in
+            avisadas.withLock { $0.append("\(key)|\(origen.lastPathComponent)") }
+        })
+
+        try await modelo.discard(recording.key)
+
+        #expect(avisadas.withLock { $0 } == ["2026-08-31/09-00-00|09-00-00.m4a"])
+        #expect(try sandbox.store.discardedRecordings().map(\.key) == ["2026-08-31/09-00-00"])
+    }
+
     @Test("borrar desde el modelo esconde la fila y el siguiente escaneo no la devuelve")
     func borrar() async throws {
         let sandbox = try Sandbox()
