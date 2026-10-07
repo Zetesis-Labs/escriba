@@ -144,7 +144,11 @@ ad-hoc y puede caducar.
   espejo de estados para la UI.** Toda grabación escaneada tiene fila en la
   biblioteca (`pending/processing/done/failed`, eventos `.scanned` /
   `.transcribing` / `.failed`); el pipeline decide qué transcribir solo con el
-  ledger. No mover esa decisión al Store ni al revés. **La biblioteca es
+  ledger. No mover esa decisión al Store ni al revés. Descartar una grabación
+  en la biblioteca la marca `discarded` en el ledger (al arrancar se
+  sincronizan las ya descartadas), y un fichero de 0 bytes sin cambios en más
+  de una hora es una grabación vacía (`.abandoned`): falla a la vista en vez de
+  reintentarse cada 10 s. **La biblioteca es
   además la memoria de las capacidades** (Rubén, 2026-10-07, fase 1 de las
   recetas): el puerto `NoteMemory` recuerda la última versión con el mismo
   motor y los mismos criterios (`TranscriptionInputs`) y su resumen, así que
