@@ -267,9 +267,10 @@ El fichero de entrada de cada receta (`recetas/<clave>/receta.ts` o
 - Un fallo de esa nota (413, 400, salida que no casa con el esquema) o una
   excepción no recogida dejan la nota **fallida**, con el mensaje y la línea de
   la receta.
-- Una receta que no carga (error de sintaxis, falta `flujo` o `receta`) no
-  procesa nada: se avisa al guardarla, en la lista de recetas y en cada nota
-  que espera por ella.
+- Una receta que nunca ha cargado (error de sintaxis, falta `flujo` o
+  `receta`) no procesa nada: se avisa al guardarla, en la lista de recetas y en
+  cada nota que espera por ella. Una que deja de cargar sigue con su último
+  paquete bueno (RF-18).
 
 ### RF-13. Sandbox y tiempo límite
 
@@ -409,9 +410,11 @@ Rediseñado por Rubén el 2026-10-07.
   puede tener ficheros propios en su carpeta.
 - **Imports**: rutas relativas entre ficheros del proyecto. Sin paquetes de
   npm ni `node_modules`.
-- **Un error en `comun/` aparece en las recetas que lo importan.** Un error de
-  compilación desactiva las recetas afectadas hasta que se arregle; las demás
-  siguen procesando.
+- **Un error en `comun/` aparece en las recetas que lo importan.** Una receta
+  que deja de compilar o de validar **sigue con su último paquete bueno** hasta
+  que se arregle (Rubén, 2026-10-07): la app lo avisa en la lista de recetas,
+  en Monaco y en `.escriba/estado.json`, y la traza de cada nota dice con qué
+  paquete se procesó.
 - **Recarga en caliente**: una nota que ya está en marcha termina con el
   paquete con el que empezó; la traza guarda la huella del paquete y, si lo
   hay, el commit.
@@ -508,5 +511,3 @@ las grandes.
   saltarla esta vez?
 - ¿Se le da a la receta acceso de solo lectura al audio (para medir silencios)?
 - ¿Paquetes de npm puros (sin APIs de Node) en una versión posterior?
-- Una receta que deja de compilar, ¿se desactiva (como dice RF-18) o sigue con
-  su último paquete bueno hasta que se arregle?
