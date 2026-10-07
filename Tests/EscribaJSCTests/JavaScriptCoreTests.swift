@@ -37,10 +37,16 @@ private func puente(
         audio: recipeAudio(grabacion),
         stts: [
             RecipeResolver(key: "whisper", name: "Whisper en este Mac", isLocal: true, isFavorite: true),
-            RecipeResolver(key: "U1", name: "Groq", isLocal: false, isFavorite: false),
+            RecipeResolver(
+                key: "U1", name: "Groq", isLocal: false, isFavorite: false, model: "whisper-large-v3",
+                baseURL: "https://api.groq.com/openai/v1"),
         ],
         llms: [RecipeResolver(key: "apple", name: "Apple Intelligence", isLocal: true, isFavorite: true)],
-        connectors: connectors.map { RecipeConnector(key: $0, name: $0, kind: "notion") },
+        connectors: connectors.map {
+            RecipeConnector(
+                key: $0, name: $0, kind: "notion", isActive: !$0.hasPrefix("apagado"),
+                notionBase: RecipeConnector.NotionBase(id: "db1", name: "Voice Inbox"))
+        },
         transcribe: { pedido in
             registro.append("transcribe")
             return try await transcribe(pedido)
@@ -67,6 +73,31 @@ struct JavaScriptCoreTests {
         try await ejecutar(.defaultRecipe, puente(registro, connectors: ["notion", "okf"]))
 
         #expect(registro.values == ["transcribe", "resume", "guarda", "publica notion", "publica okf"])
+    }
+
+    @Test("la receta por defecto no publica en los conectores apagados")
+    func conectorApagado() async throws {
+        let registro = Registro()
+
+        try await ejecutar(.defaultRecipe, puente(registro, connectors: ["notion", "apagado-okf"]))
+
+        #expect(registro.values == ["transcribe", "resume", "guarda", "publica notion"])
+    }
+
+    @Test("la receta ve la configuracion de los STT, los LLM y los conectores")
+    func configuracionVisible() async throws {
+        let registro = Registro()
+
+        try await ejecutar(
+            paquete("""
+                const groq = escriba.stts.find((s) => s.nombre === "Groq")
+                escriba.log(`${groq.modelo} ${groq.url} ${groq.local}`)
+                const conector = escriba.conectores[0]
+                escriba.log(`${conector.activo} ${conector.base.nombre}`)
+                """),
+            puente(registro, connectors: ["notion"]))
+
+        #expect(registro.values == ["log whisper-large-v3 https://api.groq.com/openai/v1 false", "log true Voice Inbox"])
     }
 
     @Test("la receta por defecto sigue con los demas conectores si uno falla, y lo apunta")

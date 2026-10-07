@@ -171,9 +171,9 @@ final class AppRuntime {
             let language = settings.languageCode
             let recipes = recipeRuntime()
             let publishers = publishers(for: store)
-            let connectors = settings.liveConnectors
-                .filter { publishers[$0.key] != nil }
-                .map { RecipeConnector(key: $0.key, name: $0.name, kind: $0.kind.rawValue) }
+            let connectors = settings.connectors.map {
+                recipeConnector($0, isActive: publishers[$0.key] != nil)
+            }
             let (stts, llms) = (settings.sttResolvers, settings.llmResolvers)
             controllers = pipelineSources.map { entry in
                 let recipe = recipes.map { runtime in

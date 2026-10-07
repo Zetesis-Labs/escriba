@@ -166,15 +166,38 @@ struct RecetaEleccionTests {
         #expect(!pedido.isDefault)
     }
 
-    @Test("los resolutores y los conectores llegan a JavaScript con los nombres del contrato, sin claves de API")
-    func catalogo() throws {
-        let stt = try objeto(try recipeJSON(resolutores[0]))
-        let conector = try objeto(try recipeJSON(RecipeConnector(key: "K", name: "Notion trabajo", kind: "notion")))
+    @Test("los resolutores llegan con su configuracion, sin claves de API")
+    func resolutorConfigurado() throws {
+        let remoto = try objeto(try recipeJSON(RecipeResolver(
+            key: "A1", name: "Groq", isLocal: false, isFavorite: false,
+            model: "llama-3.3-70b", baseURL: "https://api.groq.com/openai/v1", prompt: "breve")))
+        let local = try objeto(try recipeJSON(resolutores[0]))
 
-        #expect(Set(stt.keys) == ["clave", "nombre", "local", "favorito"])
-        #expect(stt["local"] as? Bool == true)
-        #expect(conector["clave"] as? String == "K")
-        #expect(conector["nombre"] as? String == "Notion trabajo")
-        #expect(conector["tipo"] as? String == "notion")
+        #expect(Set(remoto.keys) == ["clave", "nombre", "local", "favorito", "modelo", "url", "prompt"])
+        #expect(remoto["modelo"] as? String == "llama-3.3-70b")
+        #expect(remoto["url"] as? String == "https://api.groq.com/openai/v1")
+        #expect(remoto["prompt"] as? String == "breve")
+        #expect(local["local"] as? Bool == true)
+        #expect(local["modelo"] is NSNull)
+        #expect(local["url"] is NSNull)
+    }
+
+    @Test("los conectores llegan con si estan activos y su destino, sin su token")
+    func conectorConfigurado() throws {
+        let notion = try objeto(try recipeJSON(RecipeConnector(
+            key: "K", name: "Notion trabajo", kind: "notion", isActive: true,
+            notionBase: RecipeConnector.NotionBase(id: "db1", name: "Voice Inbox"))))
+        let okf = try objeto(try recipeJSON(RecipeConnector(
+            key: "O", name: "Ideas", kind: "okf", isActive: false, folder: "/Users/r/ideas")))
+        let base = try #require(notion["base"] as? [String: Any])
+
+        #expect(Set(notion.keys) == ["clave", "nombre", "tipo", "activo", "base", "carpeta"])
+        #expect(notion["activo"] as? Bool == true)
+        #expect(base["id"] as? String == "db1")
+        #expect(base["nombre"] as? String == "Voice Inbox")
+        #expect(notion["carpeta"] is NSNull)
+        #expect(okf["activo"] as? Bool == false)
+        #expect(okf["base"] is NSNull)
+        #expect(okf["carpeta"] as? String == "/Users/r/ideas")
     }
 }

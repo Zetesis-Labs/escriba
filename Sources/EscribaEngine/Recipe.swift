@@ -122,6 +122,7 @@ public enum RecipeError: Error, Equatable, CustomStringConvertible {
     case notSaved
     case notTranscribed(String)
     case unknownConnector(String)
+    case inactiveConnector(String)
     case unavailable(String)
 
     public var description: String {
@@ -134,6 +135,7 @@ public enum RecipeError: Error, Equatable, CustomStringConvertible {
         case .notSaved: "la receta terminó sin guardar la nota"
         case .notTranscribed(let capability): "la receta pidió \(capability) antes de transcribir"
         case .unknownConnector(let key): "no hay ningún conector «\(key)»"
+        case .inactiveConnector(let name): "el conector «\(name)» está apagado o sin terminar de configurar"
         case .unavailable(let reason): "las recetas no están disponibles: \(reason)"
         }
     }

@@ -35,7 +35,7 @@ var __receta = (() => {
     const nota = await escriba.transcribir(audio);
     await nota.resumir();
     await nota.guardar();
-    for (const conector of escriba.conectores) {
+    for (const conector of escriba.conectores.filter((conector2) => conector2.activo)) {
       try {
         await escriba.conector(conector.clave).publicar(nota);
       } catch (error) {
@@ -46,5 +46,5 @@ var __receta = (() => {
   return __toCommonJS(receta_exports);
 })();
 """##,
-        fingerprint: "e17525f17052d362")
+        fingerprint: "30d555548412bce1")
 }

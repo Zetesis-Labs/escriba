@@ -501,4 +501,27 @@ struct RecetaTests {
 
         #expect(visto.values == ["whisper", "apple", "Notion"])
     }
+
+    @Test("publicar en un conector apagado falla diciendolo, aunque la receta lo vea")
+    func conectorApagado() async throws {
+        let ledger = MemoryLedger()
+        let pipeline = Pipeline(
+            source: source([recording("a")]), ledger: ledger.port,
+            backend: transcribe(Trace()), sink: guarda(Trace()),
+            recipe: Recipe(
+                package: paquete,
+                runtime: runtime { escriba in
+                    _ = try await escriba.transcribe(RecipeTranscription())
+                    try await escriba.save()
+                    try await escriba.publish("Ideas")
+                },
+                publishers: [:],
+                catalog: RecipeCatalog(connectors: [
+                    RecipeConnector(key: "O", name: "Ideas", kind: "okf", isActive: false, folder: "/ideas"),
+                ])))
+
+        try await pipeline.runOnce()
+
+        #expect(ledger.failures["a"]?.contains("el conector «Ideas» está apagado") == true)
+    }
 }

@@ -169,9 +169,13 @@ El fichero de entrada de cada receta (`recetas/<clave>/receta.ts` o
 - Si una receta termina sin publicar ni guardar, la nota queda como **saltada
   por la receta**, a la vista.
 - **Contrato v0, el de la fase 2** (2026-10-07), en `recetas/escriba-recetas.d.ts`:
-  - `escriba.stts`, `escriba.llms` y `escriba.conectores` listan lo configurado
-    (clave, nombre, si es local, cuál es el favorito; tipo en los conectores),
-    nunca las claves de API. Los locales tienen claves fijas, `whisper` y
+  - `escriba.stts`, `escriba.llms` y `escriba.conectores` listan lo configurado,
+    con su configuración en solo lectura: en los resolutores, si es local, el
+    favorito, el modelo, la URL base de los remotos y el prompt de los LLM; en
+    los conectores, el tipo, si está activo y su destino (la base de Notion o
+    la carpeta OKF). Nunca los tokens ni las claves de API, y la receta no
+    cambia la configuración (Rubén, 2026-10-07). Publicar en un conector
+    apagado es un error. Los locales tienen claves fijas, `whisper` y
     `apple`; los remotos, su identificador. Todo se puede pedir por clave o
     por nombre, sin distinguir mayúsculas; un nombre que llevan varios pide la
     clave.

@@ -100,10 +100,21 @@ nonisolated func recipeKey(_ resolver: Resolver, role: ResolverRole) -> String {
 
 nonisolated private func recipeResolvers(_ set: ResolverSet) -> [RecipeResolver] {
     set.resolvers.map { resolver in
-        RecipeResolver(
-            key: recipeKey(resolver, role: set.role), name: resolver.name, isLocal: resolver.kind == .local,
-            isFavorite: resolver.id == set.favorite)
+        let remote = resolver.kind == .remote
+        return RecipeResolver(
+            key: recipeKey(resolver, role: set.role), name: resolver.name, isLocal: !remote,
+            isFavorite: resolver.id == set.favorite,
+            model: remote && !resolver.model.isEmpty ? resolver.model : nil,
+            baseURL: remote && !resolver.baseURL.isEmpty ? resolver.baseURL : nil,
+            prompt: set.role == .llm ? resolver.prompt : nil)
     }
+}
+
+func recipeConnector(_ connector: Connector, isActive: Bool) -> RecipeConnector {
+    RecipeConnector(
+        key: connector.key, name: connector.name, kind: connector.kind.rawValue, isActive: isActive,
+        notionBase: connector.notion.map { RecipeConnector.NotionBase(id: $0.source.id, name: $0.source.databaseTitle) },
+        folder: connector.okf.map(\.folder))
 }
 
 nonisolated private func lookupResolver(_ query: String, in set: ResolverSet) throws -> Resolver {
