@@ -141,6 +141,21 @@ struct StoreTests {
         #expect(try sandbox.store.orphanRows() == 0)
     }
 
+    @Test("borrar una grabacion que aun no tiene copia de audio no toca el resto de la biblioteca")
+    func borradoSinCopia() async throws {
+        let sandbox = try Sandbox()
+        let guardada = try sandbox.recording("b")
+        try sandbox.store.save(guardada, conversacion, backend: "falso")
+        let copia = try #require(try sandbox.store.recording(for: "b")).audioURL
+        try await sandbox.store.register([try sandbox.recording("a")])
+
+        try sandbox.store.delete(key: "a")
+
+        #expect(try sandbox.store.recording(for: "a") == nil)
+        #expect(try sandbox.store.recording(for: "b") != nil)
+        #expect(FileManager.default.fileExists(atPath: copia.path()))
+    }
+
     @Test("la observacion entrega el estado inicial y se entera de cada grabacion nueva")
     func observacion() async throws {
         let sandbox = try Sandbox()

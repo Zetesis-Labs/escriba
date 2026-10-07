@@ -657,10 +657,7 @@ public final class Store: Sendable {
             guard let row = try RecordingRow.filter(RecordingRow.Columns.key == key).fetchOne(db)
             else { return }
             try row.delete(db)
-            let audio = root.appending(path: row.audioPath)
-            if FileManager.default.fileExists(atPath: audio.path(percentEncoded: false)) {
-                try FileManager.default.removeItem(at: audio)
-            }
+            Self.deleteAudioCopy(row, root: root)
         }
     }
 
