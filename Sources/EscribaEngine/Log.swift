@@ -40,3 +40,39 @@ public enum Log {
         }
     }
 }
+
+public struct LogEntry: Sendable, Equatable {
+    public enum Level: Sendable, Equatable {
+        case info
+        case error
+        case debug
+        case other
+    }
+
+    public let time: String?
+    public let level: Level
+    public let message: String
+
+    public init(time: String?, level: Level, message: String) {
+        self.time = time
+        self.level = level
+        self.message = message
+    }
+}
+
+public func parseLogLine(_ line: String) -> LogEntry {
+    let parts = line.split(separator: " ", maxSplits: 2, omittingEmptySubsequences: false)
+    guard parts.count == 3, parts[0].count == 10, parts[1].count == 8 else {
+        return LogEntry(time: nil, level: .other, message: line)
+    }
+    let rest = parts[2]
+    let level: LogEntry.Level? = switch rest.prefix(5) {
+    case "INFO ": .info
+    case "ERROR": .error
+    case "DEBUG": .debug
+    default: nil
+    }
+    guard let level else { return LogEntry(time: nil, level: .other, message: line) }
+    let message = rest.dropFirst(5).drop { $0 == " " }
+    return LogEntry(time: "\(parts[0]) \(parts[1])", level: level, message: String(message))
+}

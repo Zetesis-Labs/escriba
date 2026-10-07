@@ -8,6 +8,7 @@ enum MainSection: String, CaseIterable, Identifiable {
     case stt
     case llms
     case recipes
+    case log
     case settings
 
     var id: String { rawValue }
@@ -19,6 +20,7 @@ enum MainSection: String, CaseIterable, Identifiable {
         case .stt: "STT"
         case .llms: "LLMs"
         case .recipes: "Recetas"
+        case .log: "Registro"
         case .settings: "Ajustes"
         }
     }
@@ -42,6 +44,7 @@ enum MainSection: String, CaseIterable, Identifiable {
         case .stt: "waveform.badge.mic"
         case .llms: "sparkles"
         case .recipes: "curlybraces"
+        case .log: "list.bullet.rectangle"
         case .settings: "gearshape"
         }
     }
@@ -79,6 +82,11 @@ struct MainWindow: View {
                 ResolversPane(resolvers: runtime.llm, settings: runtime.settings)
             case .recipes:
                 RecipesPane(settings: runtime.settings, recipes: runtime.recipes, library: runtime.model)
+            case .log:
+                LogPane(
+                    library: runtime.model,
+                    recipes: runtime.settings.recipeBook.listing(
+                        code: (runtime.recipes.report?.recipes ?? []).map { RecipeCodeEntry(key: $0.key, name: $0.name) }))
             case .settings:
                 SettingsPane(settings: runtime.settings)
             }
