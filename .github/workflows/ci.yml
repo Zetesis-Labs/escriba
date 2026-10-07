@@ -17,10 +17,10 @@ jobs:
     runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
-      - name: La receta por defecto compilada coincide con su fuente
+      - name: La receta por defecto y la plantilla de recetas coinciden con su fuente
         run: |
           ./scripts/build-recetas.sh
-          git diff --exit-code -- Sources/EscribaJSC/DefaultRecipe.swift
+          git diff --exit-code -- Sources/EscribaJSC/DefaultRecipe.swift Sources/EscribaCore/RecipeTemplate.swift
       - name: Toolchain de swift.org
         run: |
           curl -fsSL -o swift.pkg "https://download.swift.org/swift-${SWIFT_VERSION}-release/xcode/swift-${SWIFT_VERSION}-RELEASE/swift-${SWIFT_VERSION}-RELEASE-osx.pkg"

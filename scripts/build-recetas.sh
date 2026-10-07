@@ -21,3 +21,19 @@ $js
         fingerprint: "$fingerprint")
 }
 SWIFT
+
+swift_text() {
+  printf '    public static let %s = ##"""\n%s\n"""##\n' "$1" "$(cat "$2")"
+}
+
+{
+  echo 'public enum RecipeTemplate {'
+  swift_text contract recetas/escriba-recetas.d.ts
+  echo
+  swift_text tsconfig recetas/tsconfig.json
+  echo
+  swift_text agents recetas/plantilla/AGENTS.md
+  echo
+  swift_text starter recetas/plantilla/mi-receta.ts
+  echo '}'
+} > Sources/EscribaCore/RecipeTemplate.swift
