@@ -8,12 +8,14 @@ cosa grande tiene su documento con el análisis y los criterios de salida.
 
 1. **Recetas**: `requisito-recetas.md`. En construcción desde el 2026-10-07.
    - Hecho: fase 1 (capacidades que recuerdan lo hecho), fase 2 (motor de
-     JavaScriptCore y receta por defecto en TypeScript), fase 3 casi entera
+     JavaScriptCore y receta por defecto en TypeScript), fase 3
      (una lista de recetas de formulario y de código con una por defecto, el
      proyecto en una carpeta del usuario compilado con esbuild, reprocesar con
      una receta) y la fase 6 (`procesar`: una receta pasa la grabación a otra).
-   - Siguiente: «Probar con…» (RF-15), ejecutar una receta sobre una nota sin
-     publicar.
+   - Hecho también (2026-10-08): depurar (`console`, historial de
+     ejecuciones, ficha de la receta, sección Registro, errores con la línea
+     del TypeScript) y «Probar con…» (RF-15).
+   - Siguiente: la fase 4.
    - Fase 4: `escriba.preguntar` con respuesta estructurada (RF-6) y `datos`
      por versión que la biblioteca muestra y filtra (RF-7); de paso, buscar
      dentro de las transcripciones.
