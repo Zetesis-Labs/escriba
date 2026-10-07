@@ -13,7 +13,7 @@ private struct Sandbox {
     let store: Store
     let model: LibraryModel
 
-    init(reprocess: RecipeReprocessor? = nil) throws {
+    init(reprocess: RecipeRunner? = nil) throws {
         base = URL(fileURLWithPath: NSTemporaryDirectory())
             .appending(path: "jpr-app-tests-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
@@ -134,7 +134,8 @@ struct LibraryCorrectionTests {
     func reprocesa() async throws {
         let elegidas = Mutex<[RecipeChoice]>([])
         let traza = RecipeTrace(recipe: "F2", name: "Reuniones", fingerprint: "abc", steps: [], logs: [], error: nil)
-        let sandbox = try Sandbox(reprocess: { _, eleccion in
+        let sandbox = try Sandbox(reprocess: { _, eleccion, prueba in
+            #expect(!prueba)
             elegidas.withLock { $0.append(eleccion) }
             return RecipeRunReport(trace: traza, failure: nil)
         })
@@ -150,10 +151,29 @@ struct LibraryCorrectionTests {
         #expect(sandbox.model.reprocessing.isEmpty)
     }
 
+    @Test("probar ejecuta la receta sin efectos, queda como prueba y no cambia la traza de la nota")
+    func probar() async throws {
+        let traza = RecipeTrace(recipe: "F2", name: "Reuniones", fingerprint: "abc", steps: [], logs: [], error: nil)
+        let sandbox = try Sandbox(reprocess: { _, eleccion, prueba in
+            #expect(prueba)
+            #expect(eleccion == RecipeChoice(recipe: "F2"))
+            return RecipeRunReport(trace: traza, failure: nil)
+        })
+        try sandbox.save("2026-08-31/13-00-00", text: "original")
+        let recording = try #require(try sandbox.store.recordings().first)
+
+        let resultado = await sandbox.model.test(recording, recipe: "F2")
+
+        #expect(resultado == RecipeRunReport(trace: traza, failure: nil))
+        #expect(try sandbox.store.runs(RecipeRunFilter()).map(\.trigger) == [.test])
+        #expect(try await sandbox.model.latestTrace(for: recording.key) == nil)
+        #expect(sandbox.model.testing.isEmpty)
+    }
+
     @Test("un reprocesado que falla guarda la traza, no toca la transcripcion vigente y lo dice")
     func reprocesadoFallido() async throws {
         let traza = RecipeTrace(recipe: "F1", fingerprint: "abc", steps: [], logs: [], error: "audio corrupto")
-        let sandbox = try Sandbox(reprocess: { _, _ in RecipeRunReport(trace: traza, failure: "audio corrupto") })
+        let sandbox = try Sandbox(reprocess: { _, _, _ in RecipeRunReport(trace: traza, failure: "audio corrupto") })
         try sandbox.save("2026-08-31/13-00-00", text: "original")
         let recording = try #require(try sandbox.store.recordings().first)
 

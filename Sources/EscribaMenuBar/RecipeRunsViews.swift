@@ -104,3 +104,54 @@ extension LibraryModel {
         recordings.first { $0.key == key }?.headline ?? key
     }
 }
+
+struct RecipeTestSection: View {
+    let library: LibraryModel
+    let recipe: String
+    @State private var note: String?
+    @State private var result: RecipeRunReport?
+
+    var body: some View {
+        Section {
+            Picker("Nota", selection: $note) {
+                Text("Elige una nota").tag(String?.none)
+                ForEach(candidates) { recording in
+                    Text("\(recording.headline) · \(recording.startedAt.formatted(.dateTime.day().month(.abbreviated).hour().minute()))")
+                        .tag(String?.some(recording.key))
+                }
+            }
+            HStack {
+                Button(library.testing.contains(recipe) ? "Probando…" : "Probar") { run() }
+                    .disabled(note == nil || library.testing.contains(recipe))
+                if library.testing.contains(recipe) {
+                    ProgressView().controlSize(.small)
+                }
+            }
+            if let result {
+                if let failure = result.failure {
+                    Text(failure)
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                        .textSelection(.enabled)
+                }
+                if let trace = result.trace {
+                    TraceDetail(trace: trace)
+                }
+            }
+        } header: {
+            Text("Probar con una nota")
+        } footer: {
+            Text("Ejecuta la receta sobre esa nota sin guardar versiones nuevas ni publicar: la traza dice qué habría publicado. Si la nota ya estaba transcrita con lo mismo, no vuelve a transcribir. Queda en sus ejecuciones como prueba.")
+        }
+    }
+
+    private var candidates: [StoredRecording] {
+        Array(library.recordings.filter { $0.audio != .missing }.prefix(50))
+    }
+
+    private func run() {
+        guard let note, let recording = library.recordings.first(where: { $0.key == note }) else { return }
+        result = nil
+        Task { result = await library.test(recording, recipe: recipe) }
+    }
+}

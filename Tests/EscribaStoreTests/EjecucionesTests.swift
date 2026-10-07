@@ -53,6 +53,18 @@ struct EjecucionesTests {
         #expect(try await sandbox.store.latestTrace(for: "a")?.logs.first?.text == "segunda")
     }
 
+    @Test("la traza de la nota es la de su ultima ejecucion de verdad, no la de una prueba")
+    func pruebaNoCuenta() async throws {
+        let sandbox = try Sandbox()
+        try await sandbox.register("a")
+
+        try await sandbox.store.saveRun(ejecucion(log: "de verdad", hace: 60), for: "a", trigger: .pipeline, now: ahora)
+        try await sandbox.store.saveRun(ejecucion(log: "prueba"), for: "a", trigger: .test, now: ahora)
+
+        #expect(try await sandbox.store.latestTrace(for: "a")?.logs.first?.text == "de verdad")
+        #expect(try sandbox.store.runs(RecipeRunFilter()).map(\.trigger) == [.test, .pipeline])
+    }
+
     @Test("de las que esperan solo queda la ultima de cada nota y receta, para que un motor caido no llene el historial")
     func esperando() async throws {
         let sandbox = try Sandbox()

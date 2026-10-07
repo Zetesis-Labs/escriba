@@ -25,7 +25,7 @@ nonisolated public struct RecipeRunReport: Sendable, Equatable {
     }
 }
 
-public typealias RecipeReprocessor = @Sendable (StoredRecording, RecipeChoice) async -> RecipeRunReport
+public typealias RecipeRunner = @Sendable (StoredRecording, RecipeChoice, _ dryRun: Bool) async -> RecipeRunReport
 public typealias Unpublisher = @Sendable (String) async throws -> Void
 public typealias Digester = @Sendable (StoredRecording, Transcript) async throws -> Digest
 
@@ -33,6 +33,7 @@ public typealias Digester = @Sendable (StoredRecording, Transcript) async throws
 public final class LibraryModel {
     public private(set) var recordings: [StoredRecording] = []
     public private(set) var reprocessing: Set<String> = []
+    public private(set) var testing: Set<String> = []
     public private(set) var summarizing: Set<String> = []
     public private(set) var publishing: Set<String> = []
     private var traceRevisions: [String: Int] = [:]
@@ -40,7 +41,7 @@ public final class LibraryModel {
     public private(set) var scanned = 0
 
     private let store: Store
-    @ObservationIgnored private let reprocess: RecipeReprocessor?
+    @ObservationIgnored private let reprocess: RecipeRunner?
     @ObservationIgnored private let digester: Digester?
     @ObservationIgnored private let publishers: [String: Sink]
     @ObservationIgnored private let unpublishers: [String: Unpublisher]
@@ -48,7 +49,7 @@ public final class LibraryModel {
 
     public init(
         store: Store,
-        reprocess: RecipeReprocessor? = nil,
+        reprocess: RecipeRunner? = nil,
         digester: Digester? = nil,
         publishers: [String: Sink] = [:],
         unpublishers: [String: Unpublisher] = [:]
@@ -254,7 +255,7 @@ public final class LibraryModel {
         reprocessing.insert(recording.key)
         defer { reprocessing.remove(recording.key) }
 
-        let report = await reprocess(recording, choice)
+        let report = await reprocess(recording, choice, false)
         if let trace = report.trace {
             await mirror("guardar la traza de \(recording.key)") {
                 try await store.saveRun(trace, for: recording.key, trigger: .reprocess)
@@ -263,6 +264,22 @@ public final class LibraryModel {
         }
         if let failure = report.failure { throw LibraryModelError.recipeFailed(failure) }
         await mirror("marcar \(recording.key) como hecha") { try await store.markDone(recording.key) }
+    }
+
+    public func test(_ recording: StoredRecording, recipe: String) async -> RecipeRunReport {
+        guard let reprocess else {
+            return RecipeRunReport(trace: nil, failure: "\(LibraryModelError.reprocessUnavailable)")
+        }
+        testing.insert(recipe)
+        defer { testing.remove(recipe) }
+
+        let report = await reprocess(recording, RecipeChoice(recipe: recipe), true)
+        if let trace = report.trace {
+            await mirror("guardar la prueba de \(recording.key)") {
+                try await store.saveRun(trace, for: recording.key, trigger: .test)
+            }
+        }
+        return report
     }
 
     public func runs(_ filter: RecipeRunFilter = RecipeRunFilter()) -> RecipeRunsModel {
