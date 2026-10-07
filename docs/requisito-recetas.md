@@ -232,6 +232,13 @@ El fichero de entrada de cada receta (`recetas/<clave>/receta.ts` o
   viejo.
 - Si la receta declara `datos`, se valida al guardar. Un cambio de esquema en
   la receta no toca las notas ya guardadas.
+- **Un solo esquema para todo** (propuesto el 2026-10-07): TypeScript borra los
+  tipos al compilar y el LLM necesita el esquema al ejecutar, así que el
+  contrato trae un constructor de esquemas pequeño, sin npm
+  (`esquema.objeto({ … })` y `type T = Tipo<typeof T>`). El mismo esquema guía
+  a `preguntar`, valida al guardar con `nota.guardarDatos(datos)` y le da los
+  tipos al editor. Leer los datos de otras notas desde una receta queda
+  abierto.
 - La biblioteca **muestra los datos** de cada nota y permite **filtrar y buscar**
   por ellos (consultas JSON de SQLite); de paso cubre la búsqueda en
   transcripciones que estaba en las ideas sin dueño.
@@ -362,6 +369,30 @@ procesó así». Al reprocesar, la hoja de reprocesado elige receta.
 En la fase 2 la biblioteca guarda la última traza de cada grabación (receta,
 huella, cada capacidad con su detalle, tiempo y error, el log y el error final)
 y el detalle de la nota la enseña bajo el resumen.
+
+**Depurar** (Rubén, 2026-10-07: ver qué se ejecuta y qué no es fundamental):
+
+- **`console.log`, `info`, `warn`, `error` y `debug`** en la receta, además de
+  `escriba.log`. Cada línea guarda su nivel, la receta que la escribió y los
+  segundos desde que empezó la ejecución; un objeto se guarda como JSON
+  legible y un `Error` como «nombre: mensaje».
+- **Historial de ejecuciones**: cada ejecución queda guardada, venga del
+  pipeline, de reprocesar o de «Probar con…», con la nota, la receta, las
+  recetas por las que pasó (por clave), la huella, cuándo, cuánto tardó, el
+  resultado (bien, falló o esperando: un motor caído deja la nota esperando y
+  se reintenta) y la traza entera. Se conservan 30 días, y de las que esperan
+  solo la última de cada nota y receta, para que un motor caído no llene el
+  historial con un reintento cada pocos segundos. La nota sigue enseñando la
+  última.
+- **La ficha de cada receta** lista sus últimas ejecuciones, también cuando la
+  llamó otra receta, filtrables por resultado; cada una se despliega con sus
+  pasos, su log y su error.
+- **Sección «Registro»** en la barra lateral: todas las ejecuciones de todas
+  las recetas en vivo, filtrables por receta, resultado y texto, y en otra
+  pestaña el log de la app (vigilancia, conectores, errores de fuera de las
+  recetas), leyendo solo el final del fichero.
+- Después: los errores con la línea del TypeScript (source maps de esbuild) y
+  «Probar con…» (RF-15).
 
 ### RF-15. Prueba antes de activar
 
