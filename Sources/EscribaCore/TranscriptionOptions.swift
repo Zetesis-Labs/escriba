@@ -24,6 +24,20 @@ public struct TranscriptionOptions: Sendable, Equatable, Codable, Hashable {
     }
 }
 
+public struct TranscriptionInputs: Sendable, Equatable, Hashable {
+    public let backend: String
+    public let options: TranscriptionOptions
+
+    public init(backend: String, options: TranscriptionOptions) {
+        self.backend = backend
+        self.options = options
+    }
+
+    public func matches(backend: String, options: TranscriptionOptions?) -> Bool {
+        backend == self.backend && options == self.options
+    }
+}
+
 public func spokenLanguage(_ options: TranscriptionOptions?, fallback: String?) -> String? {
     guard let options else { return fallback }
     return options.language

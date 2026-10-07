@@ -10,6 +10,7 @@ public struct Pipeline: Sendable {
     public let sink: Sink
     public let readiness: ReadinessProbe
     public let enrich: Enricher?
+    public let memory: NoteMemory?
     public let onEvent: EventHandler?
 
     public init(
@@ -19,6 +20,7 @@ public struct Pipeline: Sendable {
         sink: @escaping Sink,
         readiness: @escaping ReadinessProbe = { _ in .ready },
         enrich: Enricher? = nil,
+        memory: NoteMemory? = nil,
         onEvent: EventHandler? = nil
     ) {
         self.source = source
@@ -27,6 +29,7 @@ public struct Pipeline: Sendable {
         self.sink = sink
         self.readiness = readiness
         self.enrich = enrich
+        self.memory = memory
         self.onEvent = onEvent
     }
 
@@ -89,23 +92,24 @@ public struct Pipeline: Sendable {
         onEvent?(.transcribing(key: recording.key))
         let started = Date()
 
-        let transcript: Transcript
+        let capabilities = Capabilities(backend: backend, enrich: enrich, memory: memory)
+        let transcribed: Take
         do {
-            transcript = try await backend.transcribe(recording.url)
-        } catch where error.isBackendUnavailable {
+            transcribed = try await capabilities.transcribe(recording)
+        } catch let error as TranscriptionError where error.isBackendUnavailable {
             throw error
-        } catch {
+        } catch let error as TranscriptionError {
             try ledger.markFailed(recording.key, recording.url, "\(error)")
             Log.error("\(recording.key) fallo: \(error)")
             onEvent?(.failed(key: recording.key, reason: "\(error)"))
             return false
         }
 
-        let note = Note(
-            recording: recording, transcript: transcript, digest: await enrich?(recording, transcript))
+        let take = try await capabilities.summarize(recording, transcribed)
+        let note = Note(recording: recording, transcript: take.transcript, digest: take.digest)
         let output = try await sink(note)
         try ledger.markDone(recording.key, recording.url, output)
-        onEvent?(.transcribed(key: recording.key, transcript: transcript, output: output))
+        onEvent?(.transcribed(key: recording.key, transcript: take.transcript, output: output))
 
         let elapsed = Date().timeIntervalSince(started)
         Log.info(

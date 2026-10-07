@@ -173,8 +173,9 @@ final class AppRuntime {
                     source: entry.source,
                     ledger: ledger,
                     backend: entry.backend,
-                    sink: sink(for: store, options: entry.options, routing: routing),
+                    sink: sink(for: store),
                     enrich: summarize ? routedEnricher(routing, language: language) : nil,
+                    memory: store.memory(inputs: routedInputs(routing, options: entry.options)),
                     onEvent: { continuation.yield($0) }
                 )
                 let controller = DaemonController(pipeline: pipeline)
@@ -288,19 +289,11 @@ final class AppRuntime {
         }
     }
 
-    private func sink(for store: Store, options: TranscriptionOptions, routing: ResolverRouting) -> Sink {
-        let librarySink: Sink = { note in
-            let stt = routing.resolver(.stt, forSource: note.recording.url.path(percentEncoded: false))
-            return try await store.sink(backend: backendLabel(stt), options: options)(note)
-        }
-        let extras = publishers(for: store).values.map(forgiving)
-
-        guard settings.writeTxt else {
-            return sinks(primary: librarySink, all: extras)
-        }
-        return sinks(
-            primary: sidecarTextSink(outputRoot: URL(fileURLWithPath: settings.txtFolderPath)),
-            all: [librarySink] + extras)
+    private func sink(for store: Store) -> Sink {
+        let primary = settings.writeTxt
+            ? sidecarTextSink(outputRoot: URL(fileURLWithPath: settings.txtFolderPath))
+            : store.audioCopySink()
+        return sinks(primary: primary, all: publishers(for: store).values.map(forgiving))
     }
 
     private func publishers(for store: Store) -> [String: Sink] {

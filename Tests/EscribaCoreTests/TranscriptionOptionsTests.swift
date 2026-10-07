@@ -31,4 +31,21 @@ struct TranscriptionOptionsTests {
             == TranscriptionOptions(language: "es", diarize: true, speakerCount: 2))
         #expect(TranscriptionOptions(language: "es") != TranscriptionOptions(language: "en"))
     }
+
+    @Test("lo ya transcrito solo vale si salio del mismo motor con los mismos criterios")
+    func mismasEntradas() {
+        let entradas = TranscriptionInputs(backend: "whisperkit", options: TranscriptionOptions(language: "es"))
+
+        #expect(entradas.matches(backend: "whisperkit", options: TranscriptionOptions(language: "es")))
+        #expect(!entradas.matches(backend: "Groq · whisper-large-v3", options: TranscriptionOptions(language: "es")))
+        #expect(!entradas.matches(backend: "whisperkit", options: TranscriptionOptions(language: "en")))
+        #expect(!entradas.matches(backend: "whisperkit", options: TranscriptionOptions(language: "es", diarize: true)))
+    }
+
+    @Test("una version guardada sin criterios, de antes de guardarlos, no cuenta como hecha")
+    func criteriosDesconocidos() {
+        let entradas = TranscriptionInputs(backend: "whisperkit", options: .automatic)
+
+        #expect(!entradas.matches(backend: "whisperkit", options: nil))
+    }
 }

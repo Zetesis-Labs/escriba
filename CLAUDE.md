@@ -142,7 +142,14 @@ ad-hoc y puede caducar.
   espejo de estados para la UI.** Toda grabación escaneada tiene fila en la
   biblioteca (`pending/processing/done/failed`, eventos `.scanned` /
   `.transcribing` / `.failed`); el pipeline decide qué transcribir solo con el
-  ledger. No mover esa decisión al Store ni al revés.
+  ledger. No mover esa decisión al Store ni al revés. **La biblioteca es
+  además la memoria de las capacidades** (Rubén, 2026-10-07, fase 1 de las
+  recetas): el puerto `NoteMemory` recuerda la última versión con el mismo
+  motor y los mismos criterios (`TranscriptionInputs`) y su resumen, así que
+  si la app se cierra a mitad o la entrega falla, la nota se reintenta sin
+  volver a transcribir ni resumir. La transcripción se guarda en cuanto llega,
+  antes de resumir; publicar sigue siendo una sola vez, al final. La memoria no
+  decide qué grabaciones están pendientes: eso sigue siendo del ledger.
 - **La app se descarga sus modelos** a
   `~/Library/Application Support/escriba/models`; nunca reutiliza los
   de MacWhisper.
