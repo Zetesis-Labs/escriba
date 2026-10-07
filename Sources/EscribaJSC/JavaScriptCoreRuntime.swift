@@ -15,15 +15,25 @@ func executionTimeLimit() -> SetExecutionTimeLimit? {
     return unsafeBitCast(symbol, to: SetExecutionTimeLimit.self)
 }
 
-private let pollingTraps: Void = {
+private let timeLimitWorks: Result<Void, RecipeError> = {
     setenv("JSC_usePollingTraps", "true", 0)
+    guard let setLimit = executionTimeLimit() else {
+        return .failure(.unavailable("esta versión de macOS no deja poner un tiempo límite a JavaScriptCore"))
+    }
+    guard let context = JSContext(virtualMachine: JSVirtualMachine()) else {
+        return .failure(.unavailable("JavaScriptCore no arranca"))
+    }
+    var cut = false
+    context.exceptionHandler = { _, exception in
+        cut = exception?.toString()?.contains("terminated") == true
+    }
+    setLimit(JSContextGetGroup(context.jsGlobalContextRef), 0.05, { _, _ in true }, nil)
+    context.evaluateScript("(() => { const start = Date.now(); while (Date.now() - start < 1000) {} })()")
+    return cut ? .success(()) : .failure(.unavailable("el tiempo límite de JavaScriptCore no corta un bucle"))
 }()
 
 public func javaScriptCoreRuntime(timeLimit: Double = 10) throws -> RecipeRuntime {
-    _ = pollingTraps
-    guard executionTimeLimit() != nil else {
-        throw RecipeError.unavailable("esta versión de macOS no deja poner un tiempo límite a JavaScriptCore")
-    }
+    try timeLimitWorks.get()
     return RecipeRuntime(name: "JavaScriptCore") { package, bridge in
         try await RecipeRun(package: package, bridge: bridge, timeLimit: timeLimit).execute()
     }
