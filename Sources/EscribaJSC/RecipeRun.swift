@@ -11,6 +11,7 @@ actor RecipeRun {
     private let package: RecipePackage
     private let bridge: RecipeBridge
     private let timeLimit: Double
+    private let sourceMap: SourceMap?
 
     private var context: JSContext?
     private var prelude: JSValue?
@@ -25,6 +26,7 @@ actor RecipeRun {
         self.package = package
         self.bridge = bridge
         self.timeLimit = timeLimit
+        sourceMap = package.sourceMap.flatMap(SourceMap.init(json:))
     }
 
     func execute() async throws {
@@ -42,8 +44,9 @@ actor RecipeRun {
         }
         self.context = context
         setLimit(JSContextGetGroup(context.jsGlobalContextRef), timeLimit, { _, _ in true }, nil)
+        let sourceMap = sourceMap
         context.exceptionHandler = { [weak self] _, exception in
-            let message = describe(exception)
+            let message = describe(exception, sourceMap: sourceMap)
             self?.assumeIsolated { $0.exception = message }
         }
 
@@ -78,7 +81,7 @@ actor RecipeRun {
         }
         let failed: @convention(block) (JSValue?) -> Void = { [weak self] reason in
             let token = errorToken(reason)
-            let message = describe(reason)
+            let message = describe(reason, sourceMap: sourceMap)
             self?.assumeIsolated { run in run.finish(.failure(run.swiftError(token: token, message: message))) }
         }
         let entered = ContinuousClock.now
@@ -234,9 +237,13 @@ private func errorToken(_ value: JSValue?) -> Int? {
     return Int(token.toInt32())
 }
 
-func describe(_ value: JSValue?) -> String {
+func describe(_ value: JSValue?, sourceMap: SourceMap? = nil) -> String {
     guard let value else { return "error desconocido" }
     let message = value.toString() ?? "error desconocido"
     guard value.isObject, let line = value.objectForKeyedSubscript("line"), line.isNumber else { return message }
+    let column = value.objectForKeyedSubscript("column").flatMap { $0.isNumber ? Int($0.toInt32()) : nil } ?? 1
+    if let position = sourceMap?.original(line: Int(line.toInt32()), column: column) {
+        return "\(message) (\(position))"
+    }
     return "\(message) (línea \(line.toInt32()))"
 }

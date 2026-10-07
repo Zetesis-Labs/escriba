@@ -12,7 +12,7 @@ public struct RecipeProjectSnapshot: Sendable, Equatable {
 }
 
 public enum RecipeCompilation: Sendable, Equatable {
-    case compiled(String)
+    case compiled(String, sourceMap: String?)
     case failed([RecipeBuildIssue])
 }
 
@@ -103,12 +103,13 @@ private func recipeOutcome(
     switch compilation {
     case .failed(let issues):
         return .failed(issues)
-    case .compiled(let source):
+    case .compiled(let source, let sourceMap):
         switch await toolchain.inspect(source) {
         case .invalid(let problem):
             return .failed([RecipeBuildIssue(file: entry, text: problem)])
         case .valid(let name):
-            return .valid(name: name, source: source, fingerprint: toolchain.fingerprint(source))
+            return .valid(
+                name: name, source: source, fingerprint: toolchain.fingerprint(source), sourceMap: sourceMap)
         }
     }
 }

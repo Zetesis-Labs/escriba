@@ -18,7 +18,7 @@ private func escribir(_ texto: String, en ruta: String, dentro de: URL) throws {
 }
 
 private let herramientas = RecipeToolchain(
-    compile: { ficheros, entrada in .compiled("compilado:\(ficheros[entrada] ?? "")") },
+    compile: { ficheros, entrada in .compiled("compilado:\(ficheros[entrada] ?? "")", sourceMap: nil) },
     inspect: { _ in .valid(name: "Prueba") },
     fingerprint: { "h\($0.count)" })
 

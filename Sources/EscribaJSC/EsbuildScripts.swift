@@ -110,9 +110,14 @@ let esbuildDriver = #"""
         .build({
           entryPoints: [entrada], bundle: true, write: false, format: "iife", globalName: "__receta",
           target: "es2022", charset: "utf8", logLevel: "silent", plugins: [proyecto(archivos)],
+          sourcemap: "external", outfile: "receta.js",
         })
         .then(
-          (resultado) => JSON.stringify({ codigo: resultado.outputFiles[0].text }),
+          (resultado) => {
+            const codigo = resultado.outputFiles.find((salida) => salida.path.endsWith(".js"))
+            const mapa = resultado.outputFiles.find((salida) => salida.path.endsWith(".map"))
+            return JSON.stringify({ codigo: codigo?.text, mapa: mapa?.text ?? null })
+          },
           (fallo) => JSON.stringify({ errores: (fallo.errors ?? [{ text: String(fallo) }]).map(error) }),
         )
     },

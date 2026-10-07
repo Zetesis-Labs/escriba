@@ -48,6 +48,14 @@ private let proyecto = [
           const x = 1
         }
         """,
+    "recetas/rompe/receta.ts": """
+        export const receta = { nombre: "Rompe" }
+
+        export async function flujo(audio: Audio, escriba: Escriba): Promise<void> {
+          const motivo: string = "a propósito"
+          throw new Error(`se rompe ${motivo}`)
+        }
+        """,
     "recetas/npm/receta.ts": """
         import _ from "lodash"
         export const receta = { nombre: "Con npm" }
@@ -65,13 +73,33 @@ struct EsbuildTests {
     func compila() async throws {
         let compilador = EsbuildCompiler(tools: herramientas)
 
-        guard case .compiled(let codigo) = try await compilar("recetas/general/receta.ts", con: compilador) else {
+        guard case .compiled(let codigo, let mapa) = try await compilar("recetas/general/receta.ts", con: compilador) else {
             Issue.record("debia compilar")
             return
         }
 
         #expect(await compilador.toolchain.inspect(codigo) == .valid(name: "General"))
         #expect(!codigo.contains("Categoria ="))
+        #expect(mapa.flatMap(SourceMap.init(json:)) != nil)
+    }
+
+    @Test("un error al ejecutar dice el fichero, la linea y la columna del TypeScript, no del paquete")
+    func errorEnElTypeScript() async throws {
+        guard case .compiled(let codigo, let mapa) = try await compilar(
+            "recetas/rompe/receta.ts", con: EsbuildCompiler(tools: herramientas))
+        else {
+            Issue.record("debia compilar")
+            return
+        }
+        let paquete = RecipePackage(key: "rompe", source: codigo, fingerprint: "x", sourceMap: mapa)
+        let puente = RecipeBridge(
+            audio: RecipeAudio(key: "a", name: "a", startedAt: Date()), connectors: [],
+            transcribe: { _ in throw RecipeError.unavailable("no") }, summarize: { _ in throw RecipeError.unavailable("no") },
+            save: {}, publish: { _ in }, log: { _, _ in })
+
+        await #expect(throws: RecipeError.failed("Error: se rompe a propósito (recetas/rompe/receta.ts:5:13)")) {
+            try await javaScriptCoreRuntime(timeLimit: 5).run(paquete, puente)
+        }
     }
 
     @Test("un import roto dice fichero, linea y columna")

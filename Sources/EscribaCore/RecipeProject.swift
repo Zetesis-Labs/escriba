@@ -54,13 +54,17 @@ public struct InstalledRecipe: Sendable, Equatable, Codable {
     public let source: String
     public let fingerprint: String
     public let installedAt: Date
+    public let sourceMap: String?
 
-    public init(key: String, name: String, source: String, fingerprint: String, installedAt: Date) {
+    public init(
+        key: String, name: String, source: String, fingerprint: String, installedAt: Date, sourceMap: String? = nil
+    ) {
         self.key = key
         self.name = name
         self.source = source
         self.fingerprint = fingerprint
         self.installedAt = installedAt
+        self.sourceMap = sourceMap
     }
 }
 
@@ -96,7 +100,7 @@ public struct RecipeBuildIssue: Sendable, Equatable, Codable {
 }
 
 public enum RecipeOutcome: Sendable, Equatable {
-    case valid(name: String, source: String, fingerprint: String)
+    case valid(name: String, source: String, fingerprint: String, sourceMap: String? = nil)
     case failed([RecipeBuildIssue])
 }
 
@@ -133,12 +137,13 @@ public func nextInstalled(
     key: String, previous: InstalledRecipe?, outcome: RecipeOutcome, now: Date
 ) -> (installed: InstalledRecipe?, status: RecipeStatus) {
     switch outcome {
-    case .valid(let name, let source, let fingerprint):
-        let installed = previous?.fingerprint == fingerprint
-            ? previous
-            : InstalledRecipe(key: key, name: name, source: source, fingerprint: fingerprint, installedAt: now)
+    case .valid(let name, let source, let fingerprint, let sourceMap):
+        let unchanged = previous?.fingerprint == fingerprint ? previous : nil
+        let installed = InstalledRecipe(
+            key: key, name: name, source: source, fingerprint: fingerprint, installedAt: unchanged?.installedAt ?? now,
+            sourceMap: sourceMap ?? unchanged?.sourceMap)
         return (installed, RecipeStatus(
-            key: key, name: installed?.name, active: installed?.fingerprint, activeSince: installed?.installedAt,
+            key: key, name: installed.name, active: installed.fingerprint, activeSince: installed.installedAt,
             issues: []))
     case .failed(let issues):
         return (previous, RecipeStatus(

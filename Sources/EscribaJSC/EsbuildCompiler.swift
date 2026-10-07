@@ -45,6 +45,7 @@ private struct CompileRequest: Encodable {
 
 private struct CompileReply: Decodable {
     let codigo: String?
+    let mapa: String?
     let errores: [RecipeBuildIssue]?
 }
 
@@ -85,7 +86,7 @@ actor EsbuildHost {
         let request = String(decoding: try JSONEncoder().encode(CompileRequest(archivos: files, entrada: entry)), as: UTF8.self)
         let reply = try await settle(driver?.invokeMethod("compilar", withArguments: [request]))
         let decoded = try JSONDecoder().decode(CompileReply.self, from: Data(reply.utf8))
-        if let code = decoded.codigo { return .compiled(code) }
+        if let code = decoded.codigo { return .compiled(code, sourceMap: decoded.mapa) }
         return .failed(decoded.errores ?? [RecipeBuildIssue(file: entry, text: "esbuild no dio ni código ni errores")])
     }
 
