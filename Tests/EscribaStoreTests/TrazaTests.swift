@@ -39,7 +39,7 @@ struct TrazaTests {
         let sandbox = try Sandbox()
         try await sandbox.register("a")
 
-        try await sandbox.store.saveTrace(traza(logs: ["hola"]), for: "a")
+        try await sandbox.store.saveRun(traza(logs: ["hola"]), for: "a", trigger: .pipeline)
 
         #expect(try await sandbox.store.latestTrace(for: "a") == traza(logs: ["hola"]))
     }
@@ -49,8 +49,8 @@ struct TrazaTests {
         let sandbox = try Sandbox()
         try await sandbox.register("a")
 
-        try await sandbox.store.saveTrace(traza("primera fallo"), for: "a")
-        try await sandbox.store.saveTrace(traza(), for: "a")
+        try await sandbox.store.saveRun(traza("primera fallo"), for: "a", trigger: .pipeline)
+        try await sandbox.store.saveRun(traza(), for: "a", trigger: .pipeline)
 
         #expect(try await sandbox.store.latestTrace(for: "a")?.error == nil)
     }
@@ -67,7 +67,7 @@ struct TrazaTests {
     func grabacionDesconocida() async throws {
         let sandbox = try Sandbox()
 
-        await #expect(throws: StoreError.self) { try await sandbox.store.saveTrace(traza(), for: "nadie") }
+        await #expect(throws: StoreError.self) { try await sandbox.store.saveRun(traza(), for: "nadie", trigger: .pipeline) }
     }
 
     @Test("borrar la grabacion borra sus trazas")
@@ -76,7 +76,7 @@ struct TrazaTests {
         let audio = sandbox.base.appending(path: "a.m4a")
         try Data("audio".utf8).write(to: audio)
         try sandbox.store.save(Recording(url: audio, startedAt: Date(), key: "a"), Transcript(text: "t"), backend: "wk")
-        try await sandbox.store.saveTrace(traza(), for: "a")
+        try await sandbox.store.saveRun(traza(), for: "a", trigger: .pipeline)
 
         try sandbox.store.delete(key: "a")
         try await sandbox.register("a")
