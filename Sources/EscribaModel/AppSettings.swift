@@ -187,10 +187,11 @@ public final class AppSettings {
         connectors = storedConnectors
         sttResolvers = stt
         llmResolvers = llm
+        let (sttFavorite, llmFavorite) = (stt.resolver(stt.legacyFavorite), llm.resolver(llm.legacyFavorite))
         defaultRecipe = Self.restore(DefaultRecipeSettings.self, from: defaults, key: Keys.defaultRecipe)
             ?? migratedDefaultRecipe(
-                stt: stt.favoriteResolver.recipeKey(role: .stt), llm: llm.favoriteResolver.recipeKey(role: .llm),
-                llmPrompt: llm.favoriteResolver.prompt,
+                stt: sttFavorite.recipeKey(role: .stt), llm: llmFavorite.recipeKey(role: .llm),
+                llmPrompt: llmFavorite.prompt,
                 language: defaults.string(forKey: Keys.language) ?? "es",
                 diarization: defaults.object(forKey: Keys.diarization) as? Int ?? -1,
                 summarize: defaults.object(forKey: Keys.summarize) as? Bool ?? false,
@@ -270,6 +271,8 @@ public final class AppSettings {
     }
 
     public func forget(resolver id: UUID, as role: ResolverRole) {
+        defaultRecipe = defaultRecipe.forgettingResolver(
+            id.uuidString, stt: sttResolvers.local.recipeKey(role: .stt), llm: llmResolvers.local.recipeKey(role: .llm))
         inboxResolvers = inboxResolvers.forgetting(id, as: role)
         watchedFolders = watchedFolders.map { folder in
             var folder = folder

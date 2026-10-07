@@ -43,8 +43,6 @@ public final class ResolversModel {
 
     public var resolvers: [Resolver] { settings.resolvers(role).resolvers }
 
-    public var favorite: UUID { settings.resolvers(role).favorite }
-
     public func problem(of resolver: Resolver) -> String? {
         resolverProblem(resolver, localProblem: services.localProblem(role))
     }
@@ -66,12 +64,6 @@ public final class ResolversModel {
         settings.forget(resolver: id, as: role)
         tokens(id).write(nil)
         editors[id] = nil
-    }
-
-    public func makeFavorite(_ id: UUID) {
-        var set = settings.resolvers(role)
-        set.makeFavorite(id)
-        settings.setResolvers(set, for: role)
     }
 
     public func editor(for id: UUID) -> ResolverModel {
@@ -157,8 +149,6 @@ public final class ResolverModel {
     }
 
     public var isLocal: Bool { base.kind == .local }
-
-    public var isFavorite: Bool { settings.resolvers(role).favorite == id }
 
     public var isDirty: Bool { draft != saved || key != savedKey }
 

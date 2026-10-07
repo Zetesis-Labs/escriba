@@ -153,23 +153,21 @@ public struct RecipeResolver: Sendable, Equatable, Encodable {
     public let key: String
     public let name: String
     public let isLocal: Bool
-    public let isFavorite: Bool
     public let model: String?
     public let baseURL: String?
 
     public init(
-        key: String, name: String, isLocal: Bool, isFavorite: Bool, model: String? = nil, baseURL: String? = nil
+        key: String, name: String, isLocal: Bool, model: String? = nil, baseURL: String? = nil
     ) {
         self.key = key
         self.name = name
         self.isLocal = isLocal
-        self.isFavorite = isFavorite
         self.model = model
         self.baseURL = baseURL
     }
 
     enum CodingKeys: String, CodingKey {
-        case key = "clave", name = "nombre", isLocal = "local", isFavorite = "favorito", model = "modelo"
+        case key = "clave", name = "nombre", isLocal = "local", model = "modelo"
         case baseURL = "url"
     }
 
@@ -178,7 +176,6 @@ public struct RecipeResolver: Sendable, Equatable, Encodable {
         try container.encode(key, forKey: .key)
         try container.encode(name, forKey: .name)
         try container.encode(isLocal, forKey: .isLocal)
-        try container.encode(isFavorite, forKey: .isFavorite)
         try container.encode(model, forKey: .model)
         try container.encode(baseURL, forKey: .baseURL)
     }

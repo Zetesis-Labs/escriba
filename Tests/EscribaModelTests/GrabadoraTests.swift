@@ -288,7 +288,7 @@ struct EleccionAlGrabarTests {
         #expect(!registro.eventos.contains { $0.hasPrefix("elige:") })
     }
 
-    @Test("lo elegido se guarda para el fichero final antes de que aparezca, y la siguiente vuelve al favorito")
+    @Test("lo elegido se guarda para el fichero final antes de que aparezca, y la siguiente vuelve a no elegir nada")
     func eligeAntesDeGuardar() async {
         let registro = Registro()
         let modelo = grabadora(registro)

@@ -63,17 +63,16 @@ nonisolated public struct Resolver: Codable, Identifiable, Equatable, Sendable {
 nonisolated public struct ResolverSet: Codable, Equatable, Sendable {
     public let role: ResolverRole
     public private(set) var resolvers: [Resolver]
-    public private(set) var favorite: UUID
+    public let legacyFavorite: UUID?
 
-    public init(role: ResolverRole, resolvers: [Resolver] = [], favorite: UUID? = nil) {
+    public init(role: ResolverRole, resolvers: [Resolver] = [], legacyFavorite: UUID? = nil) {
         self.role = role
         let local = resolvers.first { $0.id == role.localID }
         self.resolvers = [
             Resolver(
                 id: role.localID, name: role.localName, kind: .local, prompt: local?.prompt)
         ] + resolvers.filter { $0.id != role.localID }
-        let candidate = favorite ?? role.localID
-        self.favorite = self.resolvers.contains { $0.id == candidate } ? candidate : role.localID
+        self.legacyFavorite = legacyFavorite
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -85,13 +84,23 @@ nonisolated public struct ResolverSet: Codable, Equatable, Sendable {
         self.init(
             role: try container.decode(ResolverRole.self, forKey: .role),
             resolvers: try container.decodeIfPresent([Resolver].self, forKey: .resolvers) ?? [],
-            favorite: try container.decodeIfPresent(UUID.self, forKey: .favorite))
+            legacyFavorite: try container.decodeIfPresent(UUID.self, forKey: .favorite))
     }
 
-    public var favoriteResolver: Resolver { resolver(nil) }
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(role, forKey: .role)
+        try container.encode(resolvers, forKey: .resolvers)
+    }
+
+    public static func == (lhs: ResolverSet, rhs: ResolverSet) -> Bool {
+        lhs.role == rhs.role && lhs.resolvers == rhs.resolvers
+    }
+
+    public var local: Resolver { resolver(nil) }
 
     public func resolver(_ id: UUID?) -> Resolver {
-        resolvers.first { $0.id == id } ?? resolvers.first { $0.id == favorite } ?? Resolver.local(role)
+        resolvers.first { $0.id == id } ?? resolvers.first { $0.id == role.localID } ?? Resolver.local(role)
     }
 
     public func contains(_ id: UUID) -> Bool { resolvers.contains { $0.id == id } }
@@ -114,12 +123,6 @@ nonisolated public struct ResolverSet: Codable, Equatable, Sendable {
     public mutating func remove(_ id: UUID) {
         guard id != role.localID else { return }
         resolvers.removeAll { $0.id == id }
-        if favorite == id { favorite = role.localID }
-    }
-
-    public mutating func makeFavorite(_ id: UUID) {
-        guard contains(id) else { return }
-        favorite = id
     }
 }
 

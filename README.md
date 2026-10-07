@@ -270,7 +270,7 @@ aparte a proposito: son dos preguntas distintas.
 ## STT y LLMs: en local o en un servicio remoto
 
 Transcribir (STT) y resumir (LLM) pasan por **resolutores**. Cada uno tiene su
-seccion en la barra lateral con una lista de N resolutores y uno **favorito**:
+seccion en la barra lateral con una lista de N resolutores:
 
 - De serie estan los locales, que no se pueden quitar: **Whisper en este Mac**
   (el unico que detecta hablantes) y **Apple Intelligence**. Con ellos nada sale
@@ -281,18 +281,15 @@ seccion en la barra lateral con una lista de N resolutores y uno **favorito**:
   modelos» trae la lista y «Probar» resume una nota de ejemplo o manda un audio
   de silencio antes de guardar. Una URL `http://` solo vale dentro de casa o de
   la tailnet.
-- Cada LLM lleva su **prompt del resumen**, editable y con «Restaurar el de
-  serie». Escriba añade siempre el idioma y el formato.
-
-Que resolutor procesa cada grabacion se decide asi, de mas a menos concreto:
-lo elegido para esa grabacion (la flecha de «Grabar» y de «Añadir audio», o al
-«Reprocesar con otros criterios»), lo elegido para su carpeta o para la bandeja
-(Ajustes → Carpetas vigiladas) y, si no, el favorito. No hay plan B: si el
-servicio elegido falla, la nota espera al siguiente ciclo y el fallo se ve.
+Que resolutor procesa cada grabacion lo decide la receta (seccion Recetas):
+su formulario elige STT, LLM y el **prompt del resumen**; lo que no elige va a
+los locales. Escriba añade siempre el idioma y el formato al prompt. No hay
+plan B: si el servicio elegido falla, la nota espera al siguiente ciclo y el
+fallo se ve.
 
 ## Titulo, resumen y etiquetas
 
-Con «Resumir cada nota» (LLMs), cada nota transcrita pasa por su LLM y sale con
+Con «Resumir» en la receta, cada nota transcrita pasa por su LLM y sale con
 titulo, resumen de unas pocas frases y un punado de etiquetas. Con Apple
 Intelligence hace falta tenerlo activo y su modelo descargado; si no lo esta,
 el panel lo dice y el resumen no se intenta.

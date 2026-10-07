@@ -61,6 +61,15 @@ public struct DefaultRecipeSettings: Sendable, Equatable, Codable {
     }
 }
 
+extension DefaultRecipeSettings {
+    public func forgettingResolver(_ key: String, stt localSTT: String, llm localLLM: String) -> DefaultRecipeSettings {
+        var settings = self
+        if settings.stt == key { settings.stt = localSTT }
+        if settings.llm == key { settings.llm = localLLM }
+        return settings
+    }
+}
+
 public func migratedDefaultRecipe(
     stt: String, llm: String, llmPrompt: String?, language: String, diarization: Int, summarize: Bool,
     connectors: [String]

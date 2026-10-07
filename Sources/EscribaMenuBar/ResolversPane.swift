@@ -15,13 +15,11 @@ struct ResolversPane: View {
         ListDetailLayout(listWidth: 250) {
             VStack(spacing: 0) {
                 List(resolvers.resolvers, selection: $selected) { resolver in
-                    ResolverRow(
-                        resolver: resolver, isFavorite: resolver.id == resolvers.favorite,
-                        problem: resolvers.problem(of: resolver))
+                    ResolverRow(resolver: resolver, problem: resolvers.problem(of: resolver))
                         .tag(resolver.id)
                 }
                 .listStyle(.inset)
-                .onAppear { if selected == nil { selected = resolvers.favorite } }
+                .onAppear { if selected == nil { selected = role.localID } }
                 Divider()
                 HStack(spacing: 0) {
                     Menu {
@@ -45,7 +43,7 @@ struct ResolversPane: View {
             }
         } detail: {
             if let id = selected, resolvers.resolvers.contains(where: { $0.id == id }) {
-                ResolverEditor(editor: resolvers.editor(for: id), resolvers: resolvers)
+                ResolverEditor(editor: resolvers.editor(for: id))
                     .id(id)
             } else {
                 ContentUnavailableView(
@@ -61,18 +59,17 @@ struct ResolversPane: View {
         ) {
             Button("Quitar", role: .destructive) {
                 if let removing { resolvers.remove(removing.id) }
-                selected = resolvers.favorite
+                selected = role.localID
                 removing = nil
             }
         } message: {
-            Text("Se borra su clave. Las carpetas que lo usaban pasan al favorito.")
+            Text("Se borra su clave. Las recetas que lo usaban pasan a \(role.localName).")
         }
     }
 }
 
 private struct ResolverRow: View {
     let resolver: Resolver
-    let isFavorite: Bool
     let problem: String?
 
     var body: some View {
@@ -88,11 +85,6 @@ private struct ResolverRow: View {
                     .lineLimit(1)
             }
             Spacer()
-            if isFavorite {
-                Image(systemName: "star.fill")
-                    .foregroundStyle(.yellow)
-                    .help("Favorito: lo usan las carpetas que no eligen otro")
-            }
         }
     }
 
@@ -109,7 +101,6 @@ private struct ResolverRow: View {
 
 private struct ResolverEditor: View {
     @Bindable var editor: ResolverModel
-    let resolvers: ResolversModel
 
     private var role: ResolverRole { editor.role }
 
@@ -121,12 +112,6 @@ private struct ResolverEditor: View {
                 } else {
                     TextField("Nombre", text: $editor.name)
                 }
-                if editor.isFavorite {
-                    Label("Favorito: lo usan las carpetas que no eligen otro.", systemImage: "star.fill")
-                        .foregroundStyle(.secondary)
-                } else {
-                    Button("Usar por defecto") { resolvers.makeFavorite(editor.id) }
-                }
                 if let pending = editor.readiness {
                     Label(pending.prefix(1).uppercased() + pending.dropFirst(), systemImage: "exclamationmark.triangle")
                         .font(.caption)
@@ -134,8 +119,8 @@ private struct ResolverEditor: View {
                 }
             } footer: {
                 Text(role == .stt
-                    ? "Cada carpeta vigilada y la bandeja eligen con qué transcribir en Ajustes; si no eligen, usan el favorito."
-                    : "Cada carpeta vigilada y la bandeja eligen con qué resumir en Ajustes; si no eligen, usan el favorito.")
+                    ? "Cada receta elige con qué transcribir, en Recetas. La que no elige usa \(role.localName)."
+                    : "Cada receta elige con qué resumir, en Recetas. La que no elige usa \(role.localName).")
             }
 
             if editor.isLocal {

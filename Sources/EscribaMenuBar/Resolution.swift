@@ -30,7 +30,7 @@ nonisolated func summarizer(
 }
 
 nonisolated func recipeResolver(_ set: ResolverSet, key: String) -> Resolver {
-    set.resolvers.first { $0.recipeKey(role: set.role) == key } ?? set.favoriteResolver
+    set.resolvers.first { $0.recipeKey(role: set.role) == key } ?? set.local
 }
 
 nonisolated func recipeTranscriber(
@@ -92,7 +92,6 @@ nonisolated private func recipeResolvers(_ set: ResolverSet) -> [RecipeResolver]
         let remote = resolver.kind == .remote
         return RecipeResolver(
             key: resolver.recipeKey(role: set.role), name: resolver.name, isLocal: !remote,
-            isFavorite: resolver.id == set.favorite,
             model: remote && !resolver.model.isEmpty ? resolver.model : nil,
             baseURL: remote && !resolver.baseURL.isEmpty ? resolver.baseURL : nil)
     }
