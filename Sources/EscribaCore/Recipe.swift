@@ -148,3 +148,139 @@ public struct RecipeTrace: Sendable, Equatable, Codable {
         self.error = error
     }
 }
+
+public struct RecipeResolver: Sendable, Equatable, Encodable {
+    public let key: String
+    public let name: String
+    public let isLocal: Bool
+    public let isFavorite: Bool
+
+    public init(key: String, name: String, isLocal: Bool, isFavorite: Bool) {
+        self.key = key
+        self.name = name
+        self.isLocal = isLocal
+        self.isFavorite = isFavorite
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case key = "clave", name = "nombre", isLocal = "local", isFavorite = "favorito"
+    }
+}
+
+public struct RecipeConnector: Sendable, Equatable, Encodable {
+    public let key: String
+    public let name: String
+    public let kind: String
+
+    public init(key: String, name: String, kind: String) {
+        self.key = key
+        self.name = name
+        self.kind = kind
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case key = "clave", name = "nombre", kind = "tipo"
+    }
+}
+
+public enum RecipeLookupError: Error, Equatable, CustomStringConvertible {
+    case missing(kind: String, query: String)
+    case ambiguous(kind: String, query: String)
+
+    public var description: String {
+        switch self {
+        case .missing(let kind, let query): "no hay ningún \(kind) «\(query)»"
+        case .ambiguous(_, let query): "el nombre «\(query)» lo llevan varios: usa su clave"
+        }
+    }
+}
+
+public func recipeLookup<Item>(
+    _ query: String, in items: [Item], kind: String, key: (Item) -> String, name: (Item) -> String
+) throws(RecipeLookupError) -> Item {
+    if let exact = items.first(where: { key($0) == query }) { return exact }
+    let named = items.filter { name($0).localizedCaseInsensitiveCompare(query) == .orderedSame }
+    guard named.count < 2 else { throw .ambiguous(kind: kind, query: query) }
+    guard let match = named.first else { throw .missing(kind: kind, query: query) }
+    return match
+}
+
+public struct RecipeTranscription: Sendable, Equatable, Decodable {
+    public enum Language: Sendable, Equatable {
+        case folder
+        case automatic
+        case code(String)
+    }
+
+    public struct Speakers: Sendable, Equatable, Decodable {
+        public let detect: Bool
+        public let count: Int?
+
+        public init(detect: Bool, count: Int? = nil) {
+            self.detect = detect
+            self.count = count
+        }
+
+        enum CodingKeys: String, CodingKey {
+            case detect = "detectar", count = "cuantos"
+        }
+    }
+
+    public let stt: String?
+    public let language: Language
+    public let speakers: Speakers?
+
+    public init(stt: String? = nil, language: Language = .folder, speakers: Speakers? = nil) {
+        self.stt = stt
+        self.language = language
+        self.speakers = speakers
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case stt, language = "idioma", speakers = "hablantes"
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        stt = try container.decodeIfPresent(String.self, forKey: .stt)
+        speakers = try container.decodeIfPresent(Speakers.self, forKey: .speakers)
+        if !container.contains(.language) {
+            language = .folder
+        } else if try container.decodeNil(forKey: .language) {
+            language = .automatic
+        } else {
+            language = .code(try container.decode(String.self, forKey: .language))
+        }
+    }
+
+    public var isDefault: Bool { stt == nil && language == .folder && speakers == nil }
+
+    public func options(over folder: TranscriptionOptions) -> TranscriptionOptions {
+        let language: String? = switch self.language {
+        case .folder: folder.language
+        case .automatic: nil
+        case .code(let code): code
+        }
+        guard let speakers else {
+            return TranscriptionOptions(language: language, diarize: folder.diarize, speakerCount: folder.speakerCount)
+        }
+        return TranscriptionOptions(language: language, diarize: speakers.detect, speakerCount: speakers.count)
+    }
+}
+
+public struct RecipeSummaryRequest: Sendable, Equatable, Decodable {
+    public let llm: String?
+    public let prompt: String?
+
+    public init(llm: String? = nil, prompt: String? = nil) {
+        self.llm = llm
+        self.prompt = prompt
+    }
+
+    public var isDefault: Bool { llm == nil && prompt == nil }
+}
+
+public func transcriptionProblem(isLocal: Bool, options: TranscriptionOptions) -> String? {
+    guard !isLocal, options.diarize else { return nil }
+    return "un STT remoto no detecta hablantes: usa Whisper o pide hablantes: { detectar: false }"
+}

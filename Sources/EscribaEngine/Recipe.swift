@@ -13,25 +13,67 @@ public struct RecipePackage: Sendable, Equatable {
     }
 }
 
+public struct ChosenSummarizer: Sendable {
+    public let label: String
+    public let enrich: Enricher
+
+    public init(label: String, enrich: @escaping Enricher) {
+        self.label = label
+        self.enrich = enrich
+    }
+}
+
+public struct RecipeCatalog: Sendable {
+    public var stts: [RecipeResolver]
+    public var llms: [RecipeResolver]
+    public var connectors: [RecipeConnector]
+    public var transcriber: @Sendable (Recording, RecipeTranscription) throws -> TranscriptionBackend
+    public var summarizer: @Sendable (Recording, RecipeSummaryRequest) throws -> ChosenSummarizer
+
+    public init(
+        stts: [RecipeResolver] = [],
+        llms: [RecipeResolver] = [],
+        connectors: [RecipeConnector] = [],
+        transcriber: @escaping @Sendable (Recording, RecipeTranscription) throws -> TranscriptionBackend = { _, _ in
+            throw RecipeError.unavailable("aquí no se puede elegir con qué transcribir")
+        },
+        summarizer: @escaping @Sendable (Recording, RecipeSummaryRequest) throws -> ChosenSummarizer = { _, _ in
+            throw RecipeError.unavailable("aquí no se puede elegir con qué resumir")
+        }
+    ) {
+        self.stts = stts
+        self.llms = llms
+        self.connectors = connectors
+        self.transcriber = transcriber
+        self.summarizer = summarizer
+    }
+}
+
 public struct RecipeBridge: Sendable {
     public var audio: RecipeAudio
-    public var connectors: [String]
-    public var transcribe: @Sendable () async throws -> RecipeNote
-    public var summarize: @Sendable () async throws -> RecipeNote
+    public var stts: [RecipeResolver]
+    public var llms: [RecipeResolver]
+    public var connectors: [RecipeConnector]
+    public var transcribe: @Sendable (RecipeTranscription) async throws -> RecipeNote
+    public var summarize: @Sendable (RecipeSummaryRequest) async throws -> RecipeNote
     public var save: @Sendable () async throws -> Void
     public var publish: @Sendable (String) async throws -> Void
     public var log: @Sendable (String) -> Void
 
     public init(
         audio: RecipeAudio,
-        connectors: [String],
-        transcribe: @escaping @Sendable () async throws -> RecipeNote,
-        summarize: @escaping @Sendable () async throws -> RecipeNote,
+        stts: [RecipeResolver] = [],
+        llms: [RecipeResolver] = [],
+        connectors: [RecipeConnector],
+        transcribe: @escaping @Sendable (RecipeTranscription) async throws -> RecipeNote,
+        summarize: @escaping @Sendable (RecipeSummaryRequest) async throws -> RecipeNote,
         save: @escaping @Sendable () async throws -> Void,
         publish: @escaping @Sendable (String) async throws -> Void,
         log: @escaping @Sendable (String) -> Void
     ) {
         self.audio = audio
+        self.stts = stts
+        self.llms = llms
         self.connectors = connectors
         self.transcribe = transcribe
         self.summarize = summarize
@@ -55,11 +97,20 @@ public struct Recipe: Sendable {
     public let package: RecipePackage
     public let runtime: RecipeRuntime
     public let publishers: [String: Sink]
+    public let catalog: RecipeCatalog
 
-    public init(package: RecipePackage, runtime: RecipeRuntime, publishers: [String: Sink]) {
+    public init(
+        package: RecipePackage, runtime: RecipeRuntime, publishers: [String: Sink],
+        catalog: RecipeCatalog = RecipeCatalog()
+    ) {
         self.package = package
         self.runtime = runtime
         self.publishers = publishers
+        var catalog = catalog
+        if catalog.connectors.isEmpty {
+            catalog.connectors = publishers.keys.sorted().map { RecipeConnector(key: $0, name: $0, kind: "") }
+        }
+        self.catalog = catalog
     }
 }
 

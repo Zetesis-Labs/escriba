@@ -14,13 +14,13 @@ public struct Remembered: Sendable, Equatable {
 }
 
 public struct NoteMemory: Sendable {
-    public var recall: @Sendable (Recording) async throws -> Remembered?
-    public var keepTranscript: @Sendable (Recording, Transcript) async throws -> Int64
+    public var recall: @Sendable (Recording, TranscriptionInputs) async throws -> Remembered?
+    public var keepTranscript: @Sendable (Recording, Transcript, TranscriptionInputs) async throws -> Int64
     public var keepDigest: @Sendable (_ recording: Recording, _ version: Int64, Digest) async throws -> Void
 
     public init(
-        recall: @escaping @Sendable (Recording) async throws -> Remembered?,
-        keepTranscript: @escaping @Sendable (Recording, Transcript) async throws -> Int64,
+        recall: @escaping @Sendable (Recording, TranscriptionInputs) async throws -> Remembered?,
+        keepTranscript: @escaping @Sendable (Recording, Transcript, TranscriptionInputs) async throws -> Int64,
         keepDigest: @escaping @Sendable (Recording, Int64, Digest) async throws -> Void
     ) {
         self.recall = recall

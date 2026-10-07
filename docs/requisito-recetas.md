@@ -169,17 +169,32 @@ El fichero de entrada de cada receta (`recetas/<clave>/receta.ts` o
 - Si una receta termina sin publicar ni guardar, la nota queda como **saltada
   por la receta**, a la vista.
 - **Contrato v0, el de la fase 2** (2026-10-07), en `recetas/escriba-recetas.d.ts`:
-  un subconjunto de esta tabla. `escriba.transcribir(audio)` no admite opciones
-  todavía: usa las de la carpeta y su STT. `nota.resumir()` usa el LLM de la
-  carpeta y, mientras exista el ajuste global «Resumir» (hasta la fase 3), no
-  llama a ningún modelo si está apagado y la traza lo dice. `nota.guardar()`
-  escribe el `.txt` (la biblioteca ya tiene la transcripción y el resumen) y es
-  obligatorio: una receta que termina sin guardar deja la nota fallida.
-  `escriba.conector(clave).publicar(nota)` publica con la configuración actual
-  del conector hasta la fase 5. Los errores de las capacidades llegan con
-  `codigo` (`no-disponible` o `fallo`); si la receta no los recoge, salen como el
-  mismo error de Swift, así que una nota con el motor caído espera igual que sin
-  receta.
+  - `escriba.stts`, `escriba.llms` y `escriba.conectores` listan lo configurado
+    (clave, nombre, si es local, cuál es el favorito; tipo en los conectores),
+    nunca las claves de API. Los locales tienen claves fijas, `whisper` y
+    `apple`; los remotos, su identificador. Todo se puede pedir por clave o
+    por nombre, sin distinguir mayúsculas; un nombre que llevan varios pide la
+    clave.
+  - `escriba.transcribir(audio, { stt, idioma, hablantes })`: sin opciones, lo
+    de la carpeta. `idioma` tiene tres estados: ausente (el de la carpeta),
+    `null` (automático) o un código. `hablantes: { detectar, cuantos }`. Un STT
+    remoto con `detectar: true` es un error, nunca texto sin hablantes. La
+    memoria distingue cada STT y criterios: repetir la misma petición no paga
+    otra transcripción.
+  - `nota.resumir({ llm, prompt })`: sin opciones usa el LLM de la carpeta y,
+    mientras exista el ajuste global «Resumir» (hasta la fase 3), no llama a
+    ningún modelo si está apagado; con opciones, resume siempre. Límite hasta la
+    fase 4: el resumen se recuerda por versión, no por LLM y prompt, así que si
+    la versión ya tenía resumen se devuelve ese y la traza dice «recordado».
+  - `nota.guardar()` escribe el `.txt` (la biblioteca ya tiene la
+    transcripción y el resumen) y es obligatorio: una receta que termina sin
+    guardar deja la nota fallida.
+  - `escriba.conector(claveONombre).publicar(nota)` publica con la
+    configuración actual del conector; qué datos van a cada columna o documento
+    lo decide la receta en la fase 5.
+  - Los errores de las capacidades llegan con `codigo` (`no-disponible` o
+    `fallo`); si la receta no los recoge, salen como el mismo error de Swift,
+    así que una nota con el motor caído espera igual que sin receta.
 
 ### RF-6. Preguntas a los LLM con respuesta estructurada
 

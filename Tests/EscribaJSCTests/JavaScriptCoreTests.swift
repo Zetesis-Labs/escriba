@@ -30,19 +30,24 @@ private func nota(_ texto: String = "hola", digest: Digest? = nil) -> RecipeNote
 private func puente(
     _ registro: Registro,
     connectors: [String] = [],
-    transcribe: @escaping @Sendable () async throws -> RecipeNote = { nota() },
-    summarize: @escaping @Sendable () async throws -> RecipeNote = { nota() }
+    transcribe: @escaping @Sendable (RecipeTranscription) async throws -> RecipeNote = { _ in nota() },
+    summarize: @escaping @Sendable (RecipeSummaryRequest) async throws -> RecipeNote = { _ in nota() }
 ) -> RecipeBridge {
     RecipeBridge(
         audio: recipeAudio(grabacion),
-        connectors: connectors,
-        transcribe: {
+        stts: [
+            RecipeResolver(key: "whisper", name: "Whisper en este Mac", isLocal: true, isFavorite: true),
+            RecipeResolver(key: "U1", name: "Groq", isLocal: false, isFavorite: false),
+        ],
+        llms: [RecipeResolver(key: "apple", name: "Apple Intelligence", isLocal: true, isFavorite: true)],
+        connectors: connectors.map { RecipeConnector(key: $0, name: $0, kind: "notion") },
+        transcribe: { pedido in
             registro.append("transcribe")
-            return try await transcribe()
+            return try await transcribe(pedido)
         },
-        summarize: {
+        summarize: { pedido in
             registro.append("resume")
-            return try await summarize()
+            return try await summarize(pedido)
         },
         save: { registro.append("guarda") },
         publish: { registro.append("publica \($0)") },
@@ -82,7 +87,11 @@ struct JavaScriptCoreTests {
     @Test("espera a capacidades lentas en orden sin bloquear el hilo principal")
     func esperas() async throws {
         let registro = Registro()
-        let lento: @Sendable () async throws -> RecipeNote = {
+        let lento: @Sendable (RecipeTranscription) async throws -> RecipeNote = { _ in
+            try await Task.sleep(for: .milliseconds(150))
+            return nota()
+        }
+        let resumenLento: @Sendable (RecipeSummaryRequest) async throws -> RecipeNote = { _ in
             try await Task.sleep(for: .milliseconds(150))
             return nota()
         }
@@ -94,7 +103,7 @@ struct JavaScriptCoreTests {
             }
         }
 
-        try await ejecutar(.defaultRecipe, puente(registro, transcribe: lento, summarize: lento))
+        try await ejecutar(.defaultRecipe, puente(registro, transcribe: lento, summarize: resumenLento))
         latido.cancel()
 
         #expect(registro.values == ["transcribe", "resume", "guarda"])
@@ -113,7 +122,7 @@ struct JavaScriptCoreTests {
 
         try await ejecutar(
             paquete,
-            puente(registro, summarize: { nota(digest: Digest(title: "Saludo", summary: "s", tags: [])) }))
+            puente(registro, summarize: { _ in nota(digest: Digest(title: "Saludo", summary: "s", tags: [])) }))
 
         #expect(registro.values.filter { $0.hasPrefix("log") } == ["log a hola null", "log Saludo"])
     }
@@ -139,7 +148,7 @@ struct JavaScriptCoreTests {
     @Test("las esperas no cuentan para el tiempo limite: solo lo que la receta ejecuta sin parar")
     func esperasNoCuentan() async throws {
         let registro = Registro()
-        let lento: @Sendable () async throws -> RecipeNote = {
+        let lento: @Sendable (RecipeTranscription) async throws -> RecipeNote = { _ in
             try await Task.sleep(for: .milliseconds(300))
             return nota()
         }
@@ -153,7 +162,7 @@ struct JavaScriptCoreTests {
 
     @Test("un motor caido que la receta no recoge sale como el mismo error, para que la nota espere")
     func mismoError() async throws {
-        let bridge = puente(Registro(), transcribe: { throw TranscriptionError.backendUnavailable("sin clave") })
+        let bridge = puente(Registro(), transcribe: { _ in throw TranscriptionError.backendUnavailable("sin clave") })
 
         do {
             try await ejecutar(.defaultRecipe, bridge)
@@ -166,7 +175,7 @@ struct JavaScriptCoreTests {
     @Test("la receta puede recoger el error de una capacidad, ver su codigo y seguir")
     func recogerError() async throws {
         let registro = Registro()
-        let bridge = puente(registro, transcribe: { throw TranscriptionError.backendUnavailable("sin clave") })
+        let bridge = puente(registro, transcribe: { _ in throw TranscriptionError.backendUnavailable("sin clave") })
 
         try await ejecutar(
             paquete("""
@@ -235,6 +244,66 @@ struct JavaScriptCoreTests {
             puente(registro))
 
         #expect(registro.values == ["log undefined undefined undefined"])
+    }
+
+    @Test("las opciones de transcribir y resumir llegan a Swift tal cual las escribe la receta")
+    func opciones() async throws {
+        let pedidos = Registro()
+        let bridge = puente(
+            Registro(),
+            transcribe: { pedido in
+                pedidos.append("\(pedido)")
+                return nota()
+            },
+            summarize: { pedido in
+                pedidos.append("\(pedido)")
+                return nota()
+            })
+
+        try await ejecutar(
+            paquete("""
+                const nota = await escriba.transcribir(audio, { stt: "Groq", idioma: null, hablantes: { detectar: true, cuantos: 2 } })
+                await escriba.transcribir(audio)
+                await nota.resumir({ llm: "apple", prompt: "breve" })
+                """),
+            bridge)
+
+        #expect(pedidos.values == [
+            "\(RecipeTranscription(stt: "Groq", language: .automatic, speakers: .init(detect: true, count: 2)))",
+            "\(RecipeTranscription())",
+            "\(RecipeSummaryRequest(llm: "apple", prompt: "breve"))",
+        ])
+    }
+
+    @Test("unas opciones mal escritas fallan diciendo que capacidad las recibio")
+    func opcionesMalEscritas() async throws {
+        do {
+            try await ejecutar(paquete("await escriba.transcribir(audio, { hablantes: 'dos' })"), puente(Registro()))
+            Issue.record("la receta debia fallar")
+        } catch RecipeError.failed(let message) {
+            #expect(message.contains("las opciones de transcribir no son válidas"))
+        }
+    }
+
+    @Test("la receta ve los STT, los LLM y los conectores, y pide un conector por su nombre")
+    func catalogo() async throws {
+        let registro = Registro()
+
+        try await ejecutar(
+            paquete("""
+                escriba.log(escriba.stts.map((s) => s.clave).join(","))
+                escriba.log(escriba.llms.map((l) => l.nombre).join(","))
+                const conector = escriba.conector("NOTION TRABAJO")
+                escriba.log(`${conector.clave} ${conector.tipo}`)
+                await escriba.transcribir(audio)
+                await conector.publicar()
+                """),
+            puente(registro, connectors: ["Notion trabajo"]))
+
+        #expect(registro.values == [
+            "log whisper,U1", "log Apple Intelligence", "log Notion trabajo notion", "transcribe",
+            "publica NOTION TRABAJO",
+        ])
     }
 
     @Test("todo lo que declara escriba-recetas.d.ts existe en lo que recibe la receta")

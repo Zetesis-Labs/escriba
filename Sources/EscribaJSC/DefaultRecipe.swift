@@ -35,16 +35,16 @@ var __receta = (() => {
     const nota = await escriba.transcribir(audio);
     await nota.resumir();
     await nota.guardar();
-    for (const clave of escriba.conectores) {
+    for (const conector of escriba.conectores) {
       try {
-        await escriba.conector(clave).publicar(nota);
+        await escriba.conector(conector.clave).publicar(nota);
       } catch (error) {
-        escriba.log(`no se pudo publicar en ${clave}: ${error}`);
+        escriba.log(`no se pudo publicar en ${conector.nombre}: ${error}`);
       }
     }
   }
   return __toCommonJS(receta_exports);
 })();
 """##,
-        fingerprint: "b8d6dc28e0cac9eb")
+        fingerprint: "e17525f17052d362")
 }
