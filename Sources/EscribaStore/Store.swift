@@ -427,8 +427,11 @@ public final class Store: Sendable {
             guard let recordingId = try Self.recordingId(of: key, in: db) else { return nil }
             return try String.fetchOne(
                 db,
-                sql: "SELECT payload FROM recipeRun WHERE recordingId = ? ORDER BY startedAt DESC, id DESC LIMIT 1",
-                arguments: [recordingId])
+                sql: """
+                    SELECT payload FROM recipeRun WHERE recordingId = ? AND trigger <> ?
+                    ORDER BY startedAt DESC, id DESC LIMIT 1
+                    """,
+                arguments: [recordingId, RecipeRunTrigger.test.rawValue])
         }
         return try payload.map { try JSONDecoder().decode(RecipeTrace.self, from: Data($0.utf8)) }
     }

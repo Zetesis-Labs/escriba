@@ -15,6 +15,7 @@ struct Capabilities: Sendable {
     let backend: TranscriptionBackend
     let enrich: Enricher?
     let memory: NoteMemory?
+    var readOnly = false
 
     func transcribe(_ recording: Recording, with chosen: TranscriptionBackend? = nil) async throws -> Take {
         let backend = chosen ?? backend
@@ -25,7 +26,7 @@ struct Capabilities: Sendable {
                 transcript: remembered.transcript, version: remembered.version, digest: remembered.digest)
         }
         let transcript = try await backend.transcribe(recording.url)
-        let version = try await memory?.keepTranscript(recording, transcript, inputs)
+        let version = readOnly ? nil : try await memory?.keepTranscript(recording, transcript, inputs)
         return Take(transcript: transcript, version: version, digest: nil)
     }
 
@@ -35,7 +36,7 @@ struct Capabilities: Sendable {
         else {
             return take
         }
-        if let version = take.version {
+        if !readOnly, let version = take.version {
             try await memory?.keepDigest(recording, version, digest)
         }
         return take.carrying(digest)

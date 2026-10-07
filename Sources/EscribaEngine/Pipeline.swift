@@ -160,19 +160,21 @@ public struct Pipeline: Sendable {
 
 public func runRecipe(
     _ target: RecipeTarget, of recipe: Recipe, on recording: Recording, audio: URL? = nil,
-    backend: TranscriptionBackend, enrich: Enricher?, memory: NoteMemory?, save: @escaping Sink
+    backend: TranscriptionBackend, enrich: Enricher?, memory: NoteMemory?, save: @escaping Sink, dryRun: Bool = false
 ) async -> (result: Result<(transcript: Transcript, output: URL), any Error>, trace: RecipeTrace) {
     await runRecipe(
         target, of: recipe, on: recording, audio: audio,
-        capabilities: Capabilities(backend: backend, enrich: enrich, memory: memory), save: save)
+        capabilities: Capabilities(backend: backend, enrich: enrich, memory: memory, readOnly: dryRun), save: save,
+        dryRun: dryRun)
 }
 
 private func runRecipe(
     _ target: RecipeTarget, of recipe: Recipe, on recording: Recording, audio: URL? = nil,
-    capabilities: Capabilities, save: @escaping Sink
+    capabilities: Capabilities, save: @escaping Sink, dryRun: Bool = false
 ) async -> (result: Result<(transcript: Transcript, output: URL), any Error>, trace: RecipeTrace) {
     let session = RecipeSession(
-        recording: recording, audio: audio, capabilities: capabilities, save: save, recipe: recipe, target: target)
+        recording: recording, audio: audio, capabilities: capabilities, save: save, recipe: recipe, target: target,
+        dryRun: dryRun)
     do {
         try await recipe.runtime.run(target.package, session.bridge)
         guard let delivered = session.delivered else { throw RecipeError.notSaved }

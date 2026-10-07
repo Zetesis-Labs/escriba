@@ -173,10 +173,10 @@ final class AppRuntime {
 
             let model = LibraryModel(
                 store: store,
-                reprocess: { stored, choice in
+                reprocess: { stored, choice, dryRun in
                     await reprocessed(
                         stored, choice, recipe: recipe, backend: backend, enrich: enrich, memory: memory,
-                        save: saveSink)
+                        save: saveSink, dryRun: dryRun)
                 },
                 digester: { recording, transcript in
                     let form = formSettings()
@@ -455,7 +455,7 @@ final class AppRuntime {
 
 nonisolated private func reprocessed(
     _ stored: StoredRecording, _ choice: RecipeChoice, recipe: Recipe?, backend: TranscriptionBackend,
-    enrich: Enricher?, memory: NoteMemory, save: @escaping Sink
+    enrich: Enricher?, memory: NoteMemory, save: @escaping Sink, dryRun: Bool
 ) async -> RecipeRunReport {
     guard let recipe else { return RecipeRunReport(trace: nil, failure: "las recetas no arrancan en este Mac") }
     let target: RecipeTarget
@@ -467,7 +467,7 @@ nonisolated private func reprocessed(
     let (result, trace) = await runRecipe(
         target, of: recipe, on: Recording(url: stored.sourceURL, startedAt: stored.startedAt, key: stored.key),
         audio: stored.audio == .libraryCopy ? stored.audioURL : stored.sourceURL,
-        backend: backend, enrich: enrich, memory: memory, save: save)
+        backend: backend, enrich: enrich, memory: memory, save: save, dryRun: dryRun)
     switch result {
     case .success: return RecipeRunReport(trace: trace, failure: nil)
     case .failure(let error): return RecipeRunReport(trace: trace, failure: "\(error)")

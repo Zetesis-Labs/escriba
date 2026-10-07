@@ -18,6 +18,7 @@ final class RecipeSession: Sendable {
     private let save: Sink
     private let recipe: Recipe
     private let target: RecipeTarget
+    private let dryRun: Bool
     private let startedAt = Date()
     private let clock = ContinuousClock.now
     private let state = Mutex(State())
@@ -27,8 +28,9 @@ final class RecipeSession: Sendable {
 
     init(
         recording: Recording, audio: URL? = nil, capabilities: Capabilities, save: @escaping Sink, recipe: Recipe,
-        target: RecipeTarget
+        target: RecipeTarget, dryRun: Bool = false
     ) {
+        self.dryRun = dryRun
         self.recording = recording
         heard = audio.map { Recording(url: $0, startedAt: recording.startedAt, key: recording.key) } ?? recording
         self.capabilities = capabilities
@@ -136,6 +138,11 @@ final class RecipeSession: Sendable {
 
     private func saveNote(origin: String?) async throws {
         let take = try current(for: "guardar")
+        if dryRun {
+            record(RecipeStep(capability: "guardar", detail: "sin guardar (prueba)", seconds: 0, error: nil, origin: origin))
+            state.withLock { $0.output = recording.url }
+            return
+        }
         let output = try await step("guardar", origin: origin) { try await save(delivery(take)) }
         state.withLock { $0.output = output }
     }
@@ -153,6 +160,12 @@ final class RecipeSession: Sendable {
         } catch {
             record(RecipeStep(capability: "publicar", detail: target, seconds: 0, error: "\(error)", origin: origin))
             throw error
+        }
+        if dryRun {
+            record(RecipeStep(
+                capability: "publicar", detail: "\(connector.name) · sin publicar (prueba)", seconds: 0, error: nil,
+                origin: origin))
+            return
         }
         _ = try await step("publicar", detail: connector.name, origin: origin) {
             try await publisher(delivery(take))

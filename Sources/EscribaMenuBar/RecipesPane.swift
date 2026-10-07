@@ -188,6 +188,7 @@ private struct FormRecipeEditor: View {
             }
             RecipeParametersFields(settings: settings, parameters: parameters)
             if let library {
+                RecipeTestSection(library: library, recipe: recipe.key)
                 RecipeRunsSection(library: library, recipe: recipe.key)
             }
         }
@@ -230,6 +231,9 @@ private struct CodeRecipeDetail: View {
                         NSWorkspace.shared.open(URL(fileURLWithPath: folder).appending(path: "recetas/\(status.key)"))
                     }
                 }
+            }
+            if let library, status.active != nil {
+                RecipeTestSection(library: library, recipe: status.key)
             }
             if let library {
                 RecipeRunsSection(library: library, recipe: status.key)
