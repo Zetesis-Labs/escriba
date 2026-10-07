@@ -6,6 +6,7 @@ enum MainSection: String, CaseIterable, Identifiable {
     case connectors
     case stt
     case llms
+    case recipes
     case settings
 
     var id: String { rawValue }
@@ -16,6 +17,7 @@ enum MainSection: String, CaseIterable, Identifiable {
         case .connectors: "Conectores"
         case .stt: "STT"
         case .llms: "LLMs"
+        case .recipes: "Recetas"
         case .settings: "Ajustes"
         }
     }
@@ -38,6 +40,7 @@ enum MainSection: String, CaseIterable, Identifiable {
         case .connectors: "square.and.arrow.up"
         case .stt: "waveform.badge.mic"
         case .llms: "sparkles"
+        case .recipes: "curlybraces"
         case .settings: "gearshape"
         }
     }
@@ -71,8 +74,10 @@ struct MainWindow: View {
                 ResolversPane(resolvers: runtime.stt, settings: runtime.settings)
             case .llms:
                 ResolversPane(resolvers: runtime.llm, settings: runtime.settings)
+            case .recipes:
+                RecipesPane(settings: runtime.settings, recipes: runtime.recipes)
             case .settings:
-                SettingsPane(settings: runtime.settings, recipes: runtime.recipes)
+                SettingsPane(settings: runtime.settings)
             }
         }
         .frame(minWidth: 960, minHeight: 600)
