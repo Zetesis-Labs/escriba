@@ -69,14 +69,22 @@ export async function publicar(nota: Nota, escriba: Escriba) {
 
 ## Requisitos funcionales
 
-### RF-1. N recetas, como los resolutores
+### RF-1. N recetas en una sola lista, una por defecto
 
-- La app guarda **N recetas** y una **favorita**, con la misma forma que las
-  listas de STT y de LLMs: sección propia en la barra lateral, añadir, quitar,
-  duplicar, renombrar, marcar favorita.
-- Las recetas viven en un **proyecto de recetas** (RF-18): una receta es una
-  subcarpeta de `recetas/` con su fichero de entrada, y el código compartido
-  va en carpetas comunes.
+- La app tiene **una lista de recetas** en su sección de la barra lateral, con
+  los dos tipos juntos (Rubén, 2026-10-07): las **de formulario** (RF-3), que
+  viven en la app, y las **de código**, las del proyecto de recetas (RF-18).
+- Una es la **receta por defecto**, de cualquiera de los dos tipos: procesa lo
+  que entra. La carpeta no sustituye a nada: sus recetas se suman a la lista y
+  cualquiera se puede marcar por defecto.
+- Las de formulario se añaden, duplican, renombran y quitan en la app; siempre
+  queda al menos una. Las de código se gestionan en la carpeta.
+- Si la receta por defecto no tiene paquete (una de código que nunca compiló o
+  que ya no está en la carpeta), las notas esperan y la app lo dice: nunca se
+  procesa con otra receta sin que el usuario la elija.
+- Las recetas de código viven en el **proyecto de recetas** (RF-18): una receta
+  es una subcarpeta de `recetas/` con su fichero de entrada, y el código
+  compartido va en carpetas comunes.
 - La **clave** de una receta es el nombre de su carpeta; el nombre que se ve
   en la app es `receta.nombre` y se cambia sin tocar la clave. Las
   redirecciones usan la clave, y la app la escribe en los tipos para que una
@@ -94,11 +102,19 @@ De más a menos concreto, como hoy `ResolverRouting` con STT y LLM:
    flecha de «Grabar» y de «Añadir audio» ofrece recetas), guardada **antes**
    de que el fichero entre en la bandeja, como hoy `elecciones.json`.
 2. La receta de su carpeta vigilada, o la de la bandeja.
-3. La receta favorita.
+3. La receta por defecto.
 
 «Personalizar…» en esa misma flecha abre los parámetros de la receta elegida
 (si es generada) solo para esa grabación, sin crear una receta nueva. Llegan a
 la receta en `audio.eleccion`.
+
+De momento (2026-10-07) solo existe el punto 3 y **reprocesar con una receta**:
+la hoja de reprocesar pide la receta, con la por defecto marcada; si es de
+formulario, sus parámetros se pueden retocar solo para esa vez (lo que hacía
+«Reprocesar con otros criterios», como detectar hablantes en una nota
+concreta). La receta hace su recorrido entero sobre la grabación: si los
+criterios de transcripción no cambian, aprovecha la transcripción guardada, y
+publica donde ella diga, regenerando las páginas que ya existían.
 
 ### RF-3. Recetas generadas y recetas manuales
 
@@ -110,8 +126,9 @@ la receta en `audio.eleccion`.
 - «Convertir en manual» copia la receta generada al proyecto como TypeScript
   (si aún no hay proyecto, pregunta dónde crearlo) y desde ahí es manual.
   «Volver a generada» descarta la manual, con confirmación.
-- La app trae una **receta por defecto** generada que reproduce el
-  comportamiento actual de Escriba.
+- La app trae una receta generada, «Por defecto», que reproduce el
+  comportamiento actual de Escriba. Todas las de formulario ejecutan el mismo
+  código (`recetas/por-defecto/receta.ts`) con sus parámetros.
 
 ### RF-4. El contrato de una receta
 
@@ -151,14 +168,14 @@ El fichero de entrada de cada receta (`recetas/<clave>/receta.ts` o
 | Capacidad | Qué hace |
 |---|---|
 | `audio` | Clave, origen (carpeta vigilada, bandeja, grabadora o importado), nombre, fecha, duración, `eleccion`. La hora llega aquí: la receta no la lee del reloj |
-| `escriba.stts`, `escriba.llms` | Los resolutores configurados: clave, nombre, si es local, capacidad, cuál es el favorito. Nunca las claves de API |
+| `escriba.stts`, `escriba.llms` | Los resolutores configurados: clave, nombre, si es local, capacidad. Nunca las claves de API |
 | `escriba.transcribir(audio, opciones)` | STT, idioma, detectar hablantes y cuántos. Devuelve la `nota` con segmentos, hablantes (con nombre si Personas los reconoce) y palabras con tiempos |
 | `nota.resumir({ llm, prompt })` | El resumen de siempre (título, resumen, etiquetas), con el troceado y la reducción en cascada del motor |
 | `escriba.preguntar({ llm, instrucciones, entrada, esquema })` | Respuesta estructurada de cualquier LLM disponible (RF-6) |
 | `nota.datos` | El JSON de metadatos propios (RF-7) |
 | `nota.guardar()` | Punto de control (RF-8) |
 | `escriba.conector(clave).publicar(carga)` | Publicar en un conector con los datos que decide la receta (RF-9) |
-| `escriba.receta(clave)(nota)` | Pasar la nota a otra receta (RF-10) |
+| `escriba.receta(claveONombre).procesar(audio)` | Pasar la grabación a otra receta (RF-10) |
 | `escriba.log(texto)` | Al log de la app y a la traza de la nota |
 
 - Todas las capacidades que tardan devuelven una promesa: la receta hace
@@ -171,7 +188,7 @@ El fichero de entrada de cada receta (`recetas/<clave>/receta.ts` o
 - **Contrato v0, el de la fase 2** (2026-10-07), en `recetas/escriba-recetas.d.ts`:
   - `escriba.stts`, `escriba.llms` y `escriba.conectores` listan lo configurado,
     con su configuración en solo lectura: en los resolutores, si es local, el
-    favorito, el modelo, la URL base de los remotos y el prompt de los LLM; en
+    modelo y la URL base de los remotos (sin favorito desde el 2026-10-07); en
     los conectores, el tipo, si está activo y su destino (la base de Notion o
     la carpeta OKF). Nunca los tokens ni las claves de API, y la receta no
     cambia la configuración (Rubén, 2026-10-07). Publicar en un conector
@@ -179,20 +196,19 @@ El fichero de entrada de cada receta (`recetas/<clave>/receta.ts` o
     `apple`; los remotos, su identificador. Todo se puede pedir por clave o
     por nombre, sin distinguir mayúsculas; un nombre que llevan varios pide la
     clave.
-  - `escriba.transcribir(audio, { stt, idioma, hablantes })`: sin opciones, lo
-    de la carpeta. `idioma` tiene tres estados: ausente (el de la carpeta),
-    `null` (automático) o un código. `hablantes: { detectar, cuantos }`. Un STT
+  - `escriba.transcribir(audio, { stt, idioma, hablantes })`: lo que no se
+    elige va al local (Whisper, idioma automático, sin hablantes). `idioma`
+    tiene tres estados: ausente (automático), `null` (automático) o un código. `hablantes: { detectar, cuantos }`. Un STT
     remoto con `detectar: true` es un error, nunca texto sin hablantes. La
     memoria distingue cada STT y criterios: repetir la misma petición no paga
     otra transcripción.
-  - `nota.resumir({ llm, prompt })`: sin opciones usa el LLM de la carpeta y,
-    mientras exista el ajuste global «Resumir» (hasta la fase 3), no llama a
-    ningún modelo si está apagado; con opciones, resume siempre. Límite hasta la
+  - `nota.resumir({ llm, prompt })`: resume siempre; sin `llm`, con Apple
+    Intelligence, y sin `prompt`, con el de serie. Límite hasta la
     fase 4: el resumen se recuerda por versión, no por LLM y prompt, así que si
     la versión ya tenía resumen se devuelve ese y la traza dice «recordado».
-  - `nota.guardar()` escribe el `.txt` (la biblioteca ya tiene la
-    transcripción y el resumen) y es obligatorio: una receta que termina sin
-    guardar deja la nota fallida.
+  - `nota.guardar()` da la nota por buena en la biblioteca (la transcripción y
+    el resumen ya están guardados; el `.txt` se fue el 2026-10-07) y es
+    obligatorio: una receta que termina sin guardar deja la nota fallida.
   - `escriba.conector(claveONombre).publicar(nota)` publica con la
     configuración actual del conector; qué datos van a cada columna o documento
     lo decide la receta en la fase 5.
@@ -216,7 +232,7 @@ El fichero de entrada de cada receta (`recetas/<clave>/receta.ts` o
 - **Sin troceado automático**: si la entrada no cabe en la capacidad del LLM
   (unos 3500 caracteres en Apple Intelligence), la receta recibe un error
   claro y decide (preguntar sobre el resumen o usar un LLM remoto).
-- Sin `llm`, va al favorito.
+- Sin `llm`, va al local (Apple Intelligence).
 
 ### RF-7. Metadatos propios de la nota
 
@@ -270,15 +286,23 @@ El fichero de entrada de cada receta (`recetas/<clave>/receta.ts` o
 
 ### RF-10. Una receta puede pasar la nota a otra
 
-- `escriba.receta(clave)(nota)` llama a la otra receta como a una función:
-  `return` delante le pasa la nota; `await` sin `return` la usa como un paso y
-  sigue.
-- La nota viaja ya transcrita: si la receta destino pide transcribir con las
-  mismas opciones, recibe lo guardado al instante; con opciones distintas sale
-  una versión nueva, como al reprocesar.
-- Límite de profundidad y detección de ciclos (A llama a B y B a A): la
-  cadena se corta con un aviso en la nota.
-- Una clave que no existe es un fallo de la nota, a la vista.
+- `escriba.recetas` lista la lista entera (clave, nombre y tipo: `formulario`
+  o `codigo`) y `escriba.receta(claveONombre).procesar(audio)` ejecuta el
+  recorrido entero de otra receta, de cualquiera de los dos tipos, sobre la
+  misma grabación (Rubén, 2026-10-07). Se busca como los conectores: por
+  clave y, si no, por nombre sin distinguir mayúsculas.
+- Comparten la nota: lo que la otra transcribe, resume y guarda es lo de esta
+  grabación, así que su `guardar()` cuenta para las dos. `return` delante le
+  pasa la grabación; `await` sin `return` la usa como un paso y sigue.
+- Si la receta destino pide transcribir con lo mismo que ya se transcribió,
+  recibe lo guardado al instante; con otros criterios sale una versión nueva.
+- Cada receta llamada recibe sus propios `parametros` (los de su formulario, o
+  `null` si es de código) y corre en su propia máquina virtual.
+- Límite de profundidad (4) y detección de ciclos (A llama a B y B a A): la
+  llamada falla con un error que dice la cadena.
+- Una receta que no existe es un error que la receta puede recoger; si no lo
+  recoge, la nota falla, a la vista. La traza apunta cada paso con la receta
+  que lo dio.
 
 ### RF-11. Repetir una receta es seguro
 
@@ -505,7 +529,8 @@ Rediseñado por Rubén el 2026-10-07.
 
 - Cada combinación distinta de ajustes por carpeta de hoy (STT, LLM, idioma,
   hablantes, resumir) se convierte en una **receta generada** asignada a esas
-  carpetas; la favorita sale de los favoritos actuales.
+  carpetas. Hecho en parte el 2026-10-07: la receta «Por defecto» de formulario
+  nace de los ajustes de ese día y de los favoritos de entonces.
 - La configuración de cada conector (columnas, plantillas, documentos OKF) se
   traduce al `publicar` de la receta generada correspondiente: es solo datos y
   llama a las mismas funciones, así que no se pierde nada.
@@ -535,7 +560,8 @@ Cada fase termina en la app, con tests, y la prueba Rubén.
    `publicar` exportado, acciones a mano, mapeo automático, migración de las
    configuraciones; verificación real en Notion y, después, borrar los
    editores.
-6. **Redirección entre recetas**, con ciclos y profundidad.
+6. **Redirección entre recetas**, con ciclos y profundidad. Adelantada a la
+   fase 3 el 2026-10-07 (`procesar`, RF-10).
 7. **Opcional**: Escriba escribe una receta con su propio LLM a partir de una
    descripción en castellano.
 
