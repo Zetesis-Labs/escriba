@@ -377,13 +377,28 @@ sin el servicio de TypeScript solo marca sintaxis e imports.
   usuario.
 - **Al guardar**: un error de sintaxis o un import roto impide generar el
   paquete; un error de tipos se avisa pero no bloquea, como en TypeScript.
-- **Por verificar en la fase**: que los *web workers* de Monaco y
-  `esbuild.wasm` carguen con un esquema de URL propio de la app en vez de
-  `file://`; y compilar con el editor cerrado, cuando edita un agente, con
-  esbuild en una vista web oculta o en JavaScriptCore si admite WebAssembly.
-  Sin el editor no hay servicio de TypeScript, así que ese informe trae
-  sintaxis e imports; si el servicio se puede cargar en la misma vista oculta,
-  también tipos.
+- **Compilar sin vista web, probado el 2026-10-07**: esbuild 0.28.2 en
+  WebAssembly corre dentro de JavaScriptCore, sin vista web y con el editor
+  cerrado, con `worker: false` y unos polyfills pequeños (`TextEncoder`,
+  `TextDecoder`, `performance.now`, `crypto.getRandomValues`, `setTimeout`).
+  Los ficheros llegan por un plugin que lee el proyecto y rechaza todo import
+  que no sea del proyecto.
+
+  | Prueba | Resultado |
+  |---|---|
+  | Compilar el `esbuild.wasm` (14 MB) y arrancar esbuild | 65 ms + 24 ms |
+  | Receta de 4 ficheros en 2 carpetas, con imports relativos y tipos | 106 ms la primera vez, 37 ms después |
+  | El paquete en un contexto limpio | Carga; `flujo` es una función |
+  | Import roto, error de sintaxis, import de npm | `recetas/rota/receta.ts:1:25 no existe «../../comun/glosaro»`, `…:3:8 Expected "}"`, «solo se importan ficheros del proyecto», en 10-14 ms |
+  | Memoria | Unos 125 MB más con esbuild cargado |
+
+  Dos condiciones salen de la prueba. **El compilador necesita un hilo propio
+  con su run loop**: en una cola de GCD, `WebAssembly.compile` no se resuelve
+  nunca, porque JavaScriptCore entrega el resultado por el run loop del hilo
+  que creó el contexto. **Se carga al compilar y se descarga tras un rato sin
+  uso**, como el modelo de Whisper, por los 125 MB. Queda por verificar que
+  los *web workers* de Monaco carguen con un esquema de URL propio de la app
+  en vez de `file://`.
 - **Firma**: hoy la app se firma sin el modo endurecido de macOS. Si se
   notariza para publicarla, hará falta el permiso
   `com.apple.security.cs.allow-jit` para que JavaScriptCore compile a código
