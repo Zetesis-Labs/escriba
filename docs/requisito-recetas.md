@@ -1,8 +1,9 @@
 # Requisito funcional: recetas
 
 Estado: **propuesto por Rubén el 2026-10-06**, en construcción desde el
-2026-10-07: fases 1, 2 y 6 hechas y la 3 casi (falta «Probar con…», RF-15); el
-recorte de alcance del 2026-10-07 está en «Descartado». El
+2026-10-07: fases 1, 2, 3 y 6 hechas, con la depuración (RF-14) y «Probar
+con…» (RF-15); siguiente, la fase 4. El recorte de alcance del 2026-10-07 está
+en cada requisito afectado. El
 mismo día Rubén rediseñó cómo se escriben: un proyecto en una carpeta que elige
 el usuario, que la app compila a paquetes (RF-4, RF-16, RF-18). Sustituye a
 `docs/requisito-hooks.md` (los tres eventos con N hooks pasan a ser recetas) y,
@@ -391,14 +392,20 @@ y el detalle de la nota la enseña bajo el resumen.
   las recetas en vivo, filtrables por receta, resultado y texto, y en otra
   pestaña el log de la app (vigilancia, conectores, errores de fuera de las
   recetas), leyendo solo el final del fichero.
-- Después: los errores con la línea del TypeScript (source maps de esbuild) y
-  «Probar con…» (RF-15).
+- Los errores al ejecutar dicen el fichero, la línea y la columna del
+  TypeScript (source maps de esbuild guardados con el paquete) y «Probar con…»
+  (RF-15). Todo esto, hecho el 2026-10-08.
 
 ### RF-15. Prueba antes de activar
 
 En la sección de recetas, «Probar con…» ejecuta la receta sobre una grabación
 de la biblioteca **sin publicar** (los conectores registran lo que habrían
 mandado) y enseña la traza, los datos y las cargas de cada conector.
+
+Hecho el 2026-10-08 en la ficha de cada receta: no crea versiones ni resúmenes
+(aprovecha lo que ya hay en la biblioteca), no guarda ni publica, la traza dice
+qué habría publicado en cada conector y queda en el historial como prueba, sin
+cambiar la traza de la nota. Los datos y las cargas llegan con las fases 4 y 5.
 
 ### RF-16. Entorno de desarrollo dentro de la app: Monaco y esbuild
 
@@ -577,7 +584,7 @@ Cada fase termina en la app, con tests, y la prueba Rubén.
    comprobada con grabaciones reales).
 3. **N recetas.** Hecho el 2026-10-07: una lista de formulario y de código con
    una por defecto, el proyecto en la carpeta del usuario compilado con
-   esbuild (RF-18) y reprocesar con una receta. Falta «Probar con…» (RF-15).
+   esbuild (RF-18), reprocesar con una receta y «Probar con…» (RF-15).
    Descartado: receta por carpeta y al grabar, «Personalizar», convertir una
    generada en manual, exportar e importar recetas sueltas. Aparcado: Monaco.
 4. **Preguntar y metadatos.** `preguntar` con esquema en los dos tipos de LLM,
