@@ -39,7 +39,7 @@ private let herramientas = RecipeToolchain(
         if fuente.contains("ROMPE") {
             return .failed([RecipeBuildIssue(file: entrada, line: 1, column: 1, text: "roto a proposito")])
         }
-        return .compiled("compilado:\(fuente)")
+        return .compiled("compilado:\(fuente)", sourceMap: nil)
     },
     inspect: { paquete in
         paquete.contains("SIN FLUJO") ? .invalid("falta la función flujo") : .valid(name: "Nombre de \(paquete.count)")

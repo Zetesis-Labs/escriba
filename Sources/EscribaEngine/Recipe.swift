@@ -5,11 +5,13 @@ public struct RecipePackage: Sendable, Equatable {
     public let key: String
     public let source: String
     public let fingerprint: String
+    public let sourceMap: String?
 
-    public init(key: String, source: String, fingerprint: String) {
+    public init(key: String, source: String, fingerprint: String, sourceMap: String? = nil) {
         self.key = key
         self.source = source
         self.fingerprint = fingerprint
+        self.sourceMap = sourceMap
     }
 }
 

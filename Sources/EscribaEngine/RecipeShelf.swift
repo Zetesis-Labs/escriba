@@ -63,7 +63,9 @@ public func recipeShelf(
         case .code(let package):
             RecipeTarget(
                 key: package.key, name: package.name, kind: .code,
-                package: RecipePackage(key: package.key, source: package.source, fingerprint: package.fingerprint),
+                package: RecipePackage(
+                    key: package.key, source: package.source, fingerprint: package.fingerprint,
+                    sourceMap: package.sourceMap),
                 parameters: nil)
         case .missing:
             nil
