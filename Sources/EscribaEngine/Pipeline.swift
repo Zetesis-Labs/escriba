@@ -11,6 +11,7 @@ public struct Pipeline: Sendable {
     public let readiness: ReadinessProbe
     public let enrich: Enricher?
     public let memory: NoteMemory?
+    public let recipe: Recipe?
     public let onEvent: EventHandler?
 
     public init(
@@ -21,6 +22,7 @@ public struct Pipeline: Sendable {
         readiness: @escaping ReadinessProbe = { _ in .ready },
         enrich: Enricher? = nil,
         memory: NoteMemory? = nil,
+        recipe: Recipe? = nil,
         onEvent: EventHandler? = nil
     ) {
         self.source = source
@@ -30,6 +32,7 @@ public struct Pipeline: Sendable {
         self.readiness = readiness
         self.enrich = enrich
         self.memory = memory
+        self.recipe = recipe
         self.onEvent = onEvent
     }
 
@@ -99,10 +102,9 @@ public struct Pipeline: Sendable {
         onEvent?(.transcribing(key: recording.key))
         let started = Date()
 
-        let capabilities = Capabilities(backend: backend, enrich: enrich, memory: memory)
-        let transcribed: Take
+        let delivered: (transcript: Transcript, output: URL)
         do {
-            transcribed = try await capabilities.transcribe(recording)
+            delivered = try await deliver(recording)
         } catch let error as TranscriptionError where error.isBackendUnavailable {
             throw error
         } catch let error as TranscriptionError {
@@ -112,16 +114,39 @@ public struct Pipeline: Sendable {
             return false
         }
 
-        let take = try await capabilities.summarize(recording, transcribed)
-        let note = Note(recording: recording, transcript: take.transcript, digest: take.digest)
-        let output = try await sink(note)
-        try ledger.markDone(recording.key, recording.url, output)
-        onEvent?(.transcribed(key: recording.key, transcript: take.transcript, output: output))
+        try ledger.markDone(recording.key, recording.url, delivered.output)
+        onEvent?(.transcribed(key: recording.key, transcript: delivered.transcript, output: delivered.output))
 
         let elapsed = Date().timeIntervalSince(started)
         Log.info(
-            "\(recording.key) listo en \(String(format: "%.1f", elapsed))s -> \(output.lastPathComponent)"
+            "\(recording.key) listo en \(String(format: "%.1f", elapsed))s -> \(delivered.output.lastPathComponent)"
         )
         return true
+    }
+
+    private func deliver(_ recording: Recording) async throws -> (transcript: Transcript, output: URL) {
+        let capabilities = Capabilities(backend: backend, enrich: enrich, memory: memory)
+        if let recipe {
+            return try await deliver(recording, with: recipe, capabilities)
+        }
+        let take = try await capabilities.summarize(recording, try await capabilities.transcribe(recording))
+        let output = try await sink(Note(recording: recording, transcript: take.transcript, digest: take.digest))
+        return (take.transcript, output)
+    }
+
+    private func deliver(
+        _ recording: Recording, with recipe: Recipe, _ capabilities: Capabilities
+    ) async throws -> (transcript: Transcript, output: URL) {
+        let session = RecipeSession(
+            recording: recording, capabilities: capabilities, save: sink, publishers: recipe.publishers)
+        do {
+            try await recipe.runtime.run(recipe.package, session.bridge)
+            guard let delivered = session.delivered else { throw RecipeError.notSaved }
+            onEvent?(.traced(key: recording.key, trace: session.trace(of: recipe.package, error: nil)))
+            return delivered
+        } catch {
+            onEvent?(.traced(key: recording.key, trace: session.trace(of: recipe.package, error: error)))
+            throw error
+        }
     }
 }

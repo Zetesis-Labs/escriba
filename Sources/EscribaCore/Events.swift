@@ -9,6 +9,7 @@ public enum PipelineEvent: Sendable {
     case backendUnavailable(reason: String)
     case idle(scanned: Int)
     case scanFailed(reason: String)
+    case traced(key: String, trace: RecipeTrace)
 
     public var isProblem: Bool {
         switch self {

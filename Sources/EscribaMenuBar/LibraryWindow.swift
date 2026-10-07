@@ -480,6 +480,7 @@ struct TranscriptDetail: View {
 
     @State private var transcript: Transcript?
     @State private var versions: [TranscriptVersion] = []
+    @State private var trace: RecipeTrace?
     @State private var reprocessOptions: TranscriptionOptions?
     @State private var failure: String?
     @State private var player = PlayerModel()
@@ -704,6 +705,7 @@ struct TranscriptDetail: View {
         do {
             transcript = try await model.transcript(for: recording.key)
             versions = try await model.versions(for: recording.key)
+            trace = try await model.latestTrace(for: recording.key)
             failure = nil
         } catch {
             failure = "\(error)"
@@ -776,6 +778,7 @@ struct TranscriptDetail: View {
                     busy: model.isSummarizing(recording.key),
                     canSummarize: model.canSummarize,
                     onSummarize: summarize)
+                if let trace { TraceCard(trace: trace) }
                 KaraokeView(
                     transcript: transcript,
                     position: transcript.position(at: player.currentTime),
@@ -817,6 +820,7 @@ struct TranscriptDetail: View {
                     .disabled(
                         model.reprocessing.contains(recording.key)
                             || recording.audio == .missing)
+                if let trace { TraceCard(trace: trace) }
             }
         case .done, .discarded:
             Text("Sin transcripcion").foregroundStyle(.secondary)

@@ -168,6 +168,18 @@ El fichero de entrada de cada receta (`recetas/<clave>/receta.ts` o
   JavaScript como excepción que el `try/catch` de la receta recoge.
 - Si una receta termina sin publicar ni guardar, la nota queda como **saltada
   por la receta**, a la vista.
+- **Contrato v0, el de la fase 2** (2026-10-07), en `recetas/escriba-recetas.d.ts`:
+  un subconjunto de esta tabla. `escriba.transcribir(audio)` no admite opciones
+  todavía: usa las de la carpeta y su STT. `nota.resumir()` usa el LLM de la
+  carpeta y, mientras exista el ajuste global «Resumir» (hasta la fase 3), no
+  llama a ningún modelo si está apagado y la traza lo dice. `nota.guardar()`
+  escribe el `.txt` (la biblioteca ya tiene la transcripción y el resumen) y es
+  obligatorio: una receta que termina sin guardar deja la nota fallida.
+  `escriba.conector(clave).publicar(nota)` publica con la configuración actual
+  del conector hasta la fase 5. Los errores de las capacidades llegan con
+  `codigo` (`no-disponible` o `fallo`); si la receta no los recoge, salen como el
+  mismo error de Swift, así que una nota con el motor caído espera igual que sin
+  receta.
 
 ### RF-6. Preguntas a los LLM con respuesta estructurada
 
@@ -299,6 +311,12 @@ El fichero de entrada de cada receta (`recetas/<clave>/receta.ts` o
   `await` en cada vuelta y nunca agota su tramo. Al llegar al tope, la
   siguiente llamada falla y la nota lo muestra.
 - Sin límite de memoria por contexto en la primera versión.
+- **El corte usa las interrupciones por sondeo** de JavaScriptCore
+  (`JSC_usePollingTraps`), que el adaptador activa antes de crear la primera
+  máquina virtual. Con las de serie, por señal, un bucle dentro de código
+  compilado por el JIT no se cortaba en el proceso de tests de swift-testing
+  (verificado el 2026-10-07); por sondeo se corta igual en cualquier proceso,
+  también tras un `await`.
 
 ### RF-14. Traza de cada nota
 
@@ -306,6 +324,10 @@ La nota guarda qué receta la procesó (y su huella), la cadena de recetas por
 las que pasó, cada capacidad pedida con sus opciones, tiempos y errores, y lo
 que la receta escribió en el log. La biblioteca lo enseña como «por qué se
 procesó así». Al reprocesar, la hoja de reprocesado elige receta.
+
+En la fase 2 la biblioteca guarda la última traza de cada grabación (receta,
+huella, cada capacidad con su detalle, tiempo y error, el log y el error final)
+y el detalle de la nota la enseña bajo el resumen.
 
 ### RF-15. Prueba antes de activar
 

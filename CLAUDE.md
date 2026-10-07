@@ -53,6 +53,7 @@ conectores como plugins wasm se exploraron y se archivaron el 2026-10-06
 export TOOLCHAINS=org.swift.640202609131a   # Swift 6.4 de swift.org; sin esto, el 6.2 de Xcode
 swift build                 # CLI + app
 swift test                  # swift-testing; --filter NO casa con nombres de @Suite
+./scripts/build-recetas.sh  # comprueba tipos y recompila la receta por defecto (npx: typescript 5.9.3, esbuild 0.28.2)
 ./scripts/build-app.sh      # .build/app/Escriba.app (elige el toolchain 6.4 solo si esta instalado)
 ./scripts/install-app.sh    # a /Applications
 
@@ -95,6 +96,7 @@ ad-hoc y puede caducar.
 | `EscribaSystemKit` | Host de sistema: FSEvents (macOS) o sondeo (Linux), stat/iCloud/materialización, flock, `offloaded`, ledger SQLite, migración legacy | macOS, Linux | SQLite del sistema (`CSQLite` en Linux) |
 | `EscribaWhisper` | Backend WhisperKit + SpeakerKit | Apple | argmax-oss-swift |
 | `EscribaIntelligence` | Adaptador del puerto `Summarizer` con FoundationModels (titulo, resumen, etiquetas) | Apple | ninguna |
+| `EscribaJSC` | Adaptador del puerto `RecipeRuntime` con JavaScriptCore: una máquina virtual por ejecución en su propia cola, tiempo límite por tramo, errores de Swift que cruzan JavaScript con su identidad, y la receta por defecto compilada (`DefaultRecipe.swift`, generado) | macOS | JavaScriptCore del sistema |
 | `EscribaOpenAI` | Adaptadores de `Summarizer` (`/chat/completions` con `json_schema`) y `TranscriptionBackend` (`/audio/transcriptions`) sobre una API compatible con OpenAI; validación de URL y errores | macOS, Linux | ninguna (URLSession solo fuera de WASI) |
 | `EscribaStore` | Biblioteca SQLite + copia del audio + rastro de publicaciones | macOS, Linux | GRDB |
 | `EscribaModel` | Modelos observables de la UI (biblioteca, conectores, ajustes), token en fichero 0600 | macOS | |
@@ -104,7 +106,7 @@ ad-hoc y puede caducar.
 
 - **Los puertos son structs de funciones**, no protocolos ni herencia:
   `TranscriptionBackend`, `RecordingSource`, `Sink`, `LedgerPort`, `NoteMemory`,
-  `NotionClient`, `NotionTransport`, `Summarizer`, `OKFFolder`. Una implementación nueva es
+  `NotionClient`, `NotionTransport`, `Summarizer`, `OKFFolder`, `RecipeRuntime`. Una implementación nueva es
   una función `make(...)` que devuelve el struct.
 - **Las plantillas son texto con datos, compartidas por los conectores**:
   `{{titulo}}`, `{{transcripcion}}`, `{{enlace:<id>}}`… (`TemplateToken`,
@@ -317,3 +319,12 @@ Directriz (2026-08-31): usar lo último del lenguaje, cada cosa donde paga.
 - Un closure que se pasa a un puerto con `throws(SummaryError)` necesita la
   anotación explícita (`{ request throws(SummaryError) in`): sin ella el
   compilador infiere `any Error` y no compila.
+- **JavaScriptCore**: un `JSValue` no puede entrar en el estado de un actor
+  desde un callback de JS (el compilador lo para, con razón). Entre Swift y JS
+  solo cruzan ids y textos: las promesas pendientes viven en el preludio, del
+  lado de JS. El tiempo límite (`JSContextGroupSetExecutionTimeLimit`, por
+  `dlsym`) necesita `JSC_usePollingTraps`: con las interrupciones por señal, un
+  bucle compilado por el JIT no se corta dentro del proceso de tests.
+- La receta por defecto se escribe en `recetas/por-defecto/receta.ts` y se
+  compila con `./scripts/build-recetas.sh`; el CI falla si
+  `DefaultRecipe.swift` no coincide con su fuente. No editar el generado.
