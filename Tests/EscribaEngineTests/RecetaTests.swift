@@ -493,8 +493,8 @@ struct RecetaTests {
                 },
                 publishers: ["K1": publica(Trace(), en: "K1")],
                 catalog: RecipeCatalog(
-                    stts: [RecipeResolver(key: "whisper", name: "Whisper en este Mac", isLocal: true, isFavorite: true)],
-                    llms: [RecipeResolver(key: "apple", name: "Apple Intelligence", isLocal: true, isFavorite: true)],
+                    stts: [RecipeResolver(key: "whisper", name: "Whisper en este Mac", isLocal: true)],
+                    llms: [RecipeResolver(key: "apple", name: "Apple Intelligence", isLocal: true)],
                     connectors: [RecipeConnector(key: "K1", name: "Notion", kind: "notion")])))
 
         try await pipeline.runOnce()

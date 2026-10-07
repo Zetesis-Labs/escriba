@@ -170,9 +170,10 @@ ad-hoc y puede caducar.
   (memoria de hablantes, «Personas», aprobada y sin empezar).
 - **STT y LLM son resolutores, en plural** (Rubén, 2026-10-06, a imagen de
   los proveedores de Biiak Next pero con N por papel): cada papel tiene una
-  lista con un favorito (`ResolverSet`); los locales (Whisper, Apple
-  Intelligence) vienen de serie y no se quitan, los remotos hablan la API de
-  OpenAI. **Quién procesa cada nota lo decide la receta por defecto** (Rubén,
+  lista (`ResolverSet`) **sin favorito** (fuera el 2026-10-07: lo que una
+  receta no elige va al local); los locales (Whisper, Apple Intelligence)
+  vienen de serie y no se quitan, los remotos hablan la API de OpenAI. Quitar
+  un remoto devuelve al local las recetas que lo usaban. **Quién procesa cada nota lo decide la receta por defecto** (Rubén,
   2026-10-07): su formulario, en la sección Recetas, elige STT, idioma,
   hablantes, si resume, con qué LLM, **el prompt** (ya no vive en el
   resolutor) y en qué conectores publica. Ajustes solo tiene General y

@@ -46,12 +46,12 @@ private func puente(
         audio: recipeAudio(grabacion),
         parameters: parametros ?? formulario(conectores: connectors),
         stts: [
-            RecipeResolver(key: "whisper", name: "Whisper en este Mac", isLocal: true, isFavorite: true),
+            RecipeResolver(key: "whisper", name: "Whisper en este Mac", isLocal: true),
             RecipeResolver(
-                key: "U1", name: "Groq", isLocal: false, isFavorite: false, model: "whisper-large-v3",
+                key: "U1", name: "Groq", isLocal: false, model: "whisper-large-v3",
                 baseURL: "https://api.groq.com/openai/v1"),
         ],
-        llms: [RecipeResolver(key: "apple", name: "Apple Intelligence", isLocal: true, isFavorite: true)],
+        llms: [RecipeResolver(key: "apple", name: "Apple Intelligence", isLocal: true)],
         connectors: connectors.map {
             RecipeConnector(
                 key: $0, name: $0, kind: "notion", isActive: !$0.hasPrefix("apagado"),

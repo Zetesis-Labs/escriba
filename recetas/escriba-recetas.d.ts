@@ -28,7 +28,6 @@ interface Resolutor {
   readonly clave: string
   readonly nombre: string
   readonly local: boolean
-  readonly favorito: boolean
   readonly modelo: string | null
   readonly url: string | null
 }

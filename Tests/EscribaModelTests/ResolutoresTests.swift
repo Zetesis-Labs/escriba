@@ -16,35 +16,33 @@ private func nuevos() -> UserDefaults {
 private let openAI = remotePresets(for: .llm).first { $0.name == "OpenAI" }!
 private let groq = remotePresets(for: .stt).first { $0.name == "Groq" }!
 
-@Suite("Resolutores: la lista, el favorito y lo que usa cada origen")
+@Suite("Resolutores: la lista y lo que usa cada origen")
 struct ResolutoresTests {
-    @Test("de serie cada papel tiene su resolutor local, que es el favorito")
+    @Test("de serie cada papel tiene su resolutor local")
     func deSerie() {
         let settings = ajustes()
 
         #expect(settings.resolvers(.stt).resolvers.map(\.name) == ["Whisper en este Mac"])
         #expect(settings.resolvers(.llm).resolvers.map(\.name) == ["Apple Intelligence"])
-        #expect(settings.resolvers(.stt).favoriteResolver.kind == .local)
-        #expect(settings.resolvers(.llm).favoriteResolver.id == ResolverRole.llm.localID)
+        #expect(settings.resolvers(.stt).resolver(nil).kind == .local)
+        #expect(settings.resolvers(.llm).resolver(nil).id == ResolverRole.llm.localID)
         #expect(ResolverRole.stt.localID != ResolverRole.llm.localID)
     }
 
-    @Test("el resolutor local no se puede quitar, y quitar el favorito devuelve el favorito al local")
+    @Test("el resolutor local no se puede quitar")
     func quitar() {
         var lista = ResolverSet(role: .llm)
         let remoto = Resolver.remote(openAI, role: .llm, name: "OpenAI")
         lista.add(remoto)
-        lista.makeFavorite(remoto.id)
 
         lista.remove(ResolverRole.llm.localID)
         #expect(lista.resolvers.count == 2)
 
         lista.remove(remoto.id)
         #expect(lista.resolvers.map(\.kind) == [.local])
-        #expect(lista.favorite == ResolverRole.llm.localID)
     }
 
-    @Test("cada origen usa el suyo si lo eligio y existe; si no, el favorito")
+    @Test("lo que no se elige, o ya no existe, va al local")
     func resolucion() {
         var lista = ResolverSet(role: .stt)
         let remoto = Resolver.remote(groq, role: .stt, name: "Groq")
@@ -53,21 +51,20 @@ struct ResolutoresTests {
         #expect(lista.resolver(nil).kind == .local)
         #expect(lista.resolver(remoto.id) == remoto)
         #expect(lista.resolver(UUID()).kind == .local)
-
-        lista.makeFavorite(remoto.id)
-        #expect(lista.resolver(nil) == remoto)
-        #expect(lista.resolver(ResolverRole.stt.localID).kind == .local)
     }
 
-    @Test("una lista guardada sin el local lo recupera al leerla, y un favorito que no existe cae al local")
+    @Test("una lista guardada sin el local lo recupera al leerla, y el favorito de antes solo se lee para migrar")
     func lecturaTolerante() throws {
         let remoto = Resolver.remote(openAI, role: .llm, name: "OpenAI")
-        let guardada = #"{"role":"llm","resolvers":[\#(String(decoding: try JSONEncoder().encode(remoto), as: UTF8.self))],"favorite":"\#(UUID().uuidString)"}"#
+        let guardada = #"{"role":"llm","resolvers":[\#(String(decoding: try JSONEncoder().encode(remoto), as: UTF8.self))],"favorite":"\#(remoto.id.uuidString)"}"#
 
         let leida = try JSONDecoder().decode(ResolverSet.self, from: Data(guardada.utf8))
+        let reescrita = String(decoding: try JSONEncoder().encode(leida), as: UTF8.self)
 
         #expect(leida.resolvers.map(\.kind) == [.local, .remote])
-        #expect(leida.favorite == ResolverRole.llm.localID)
+        #expect(leida.legacyFavorite == remoto.id)
+        #expect(leida.resolver(nil).kind == .local)
+        #expect(!reescrita.contains("favorite"))
     }
 
     @Test("los nombres de los que se añaden no se repiten")
@@ -88,7 +85,7 @@ struct ResolutoresTests {
         #expect(remotePresets(for: .llm).allSatisfy { $0.baseURL.isEmpty || $0.baseURL.hasSuffix("/v1") })
     }
 
-    @Test("una carpeta vigilada guardada antes de los resolutores se lee con el favorito")
+    @Test("una carpeta vigilada guardada antes de los resolutores se lee sin eleccion")
     func carpetaAntigua() throws {
         let antigua = #"{"path":"/tmp/llamadas","speakers":2,"style":"any"}"#
 
@@ -97,7 +94,7 @@ struct ResolutoresTests {
         #expect(carpeta.resolvers == ResolverChoice())
     }
 
-    @Test("lo que usa cada grabacion se decide por su origen: la bandeja, su carpeta o el favorito")
+    @Test("lo que usa cada grabacion se decide por su origen: la bandeja, su carpeta o ninguno")
     func porOrigen() {
         let settings = ajustes()
         let deGroq = UUID()
@@ -114,14 +111,13 @@ struct ResolutoresTests {
         #expect(settings.resolverChoice(forSource: "/otra/d.m4a", inbox: "/bandeja") == ResolverChoice())
     }
 
-    @Test("resolutores, favorito y eleccion de cada origen sobreviven a una instancia nueva")
+    @Test("resolutores y eleccion de cada origen sobreviven a una instancia nueva")
     func persiste() {
         let defaults = nuevos()
         let settings = ajustes(defaults)
         var lista = settings.resolvers(.stt)
         let remoto = Resolver.remote(groq, role: .stt, name: "Groq")
         lista.add(remoto)
-        lista.makeFavorite(remoto.id)
         settings.setResolvers(lista, for: .stt)
         settings.inboxResolvers = ResolverChoice(stt: ResolverRole.stt.localID)
         settings.watchedFolders = [WatchedFolder(path: "/notas", resolvers: ResolverChoice(llm: UUID()))]
@@ -129,7 +125,6 @@ struct ResolutoresTests {
         let otra = ajustes(defaults)
 
         #expect(otra.resolvers(.stt) == lista)
-        #expect(otra.resolvers(.stt).favoriteResolver == remoto)
         #expect(otra.inboxResolvers == settings.inboxResolvers)
         #expect(otra.watchedFolders == settings.watchedFolders)
     }
@@ -189,7 +184,7 @@ struct PanelDeResolutoresTests {
             services: servicios.servicios)
     }
 
-    @Test("añadir un servicio lo deja en la lista con su URL y su modelo, sin tocar el favorito")
+    @Test("añadir un servicio lo deja en la lista con su URL y su modelo")
     func anadir() {
         let settings = ajustes()
         let modelo = panel(.stt, settings)
@@ -200,22 +195,9 @@ struct PanelDeResolutoresTests {
         #expect(nuevo.kind == .remote)
         #expect(nuevo.baseURL == groq.baseURL)
         #expect(nuevo.model == groq.model)
-        #expect(modelo.favorite == ResolverRole.stt.localID)
     }
 
-    @Test("marcar favorito se aplica al momento")
-    func favorito() {
-        let settings = ajustes()
-        let modelo = panel(.llm, settings)
-        let nuevo = modelo.add(openAI)
-
-        modelo.makeFavorite(nuevo.id)
-
-        #expect(settings.resolvers(.llm).favorite == nuevo.id)
-        #expect(modelo.editor(for: nuevo.id).isFavorite)
-    }
-
-    @Test("quitar un resolutor borra su clave y suelta a los origenes que lo usaban")
+    @Test("quitar un resolutor borra su clave, suelta a los origenes que lo usaban y devuelve al local a la receta")
     func quitar() {
         let settings = ajustes()
         let claves = Claves()
@@ -224,6 +206,7 @@ struct PanelDeResolutoresTests {
         claves[nuevo.id] = "sk-1"
         settings.watchedFolders = [WatchedFolder(path: "/notas", resolvers: ResolverChoice(stt: UUID(), llm: nuevo.id))]
         settings.inboxResolvers = ResolverChoice(llm: nuevo.id)
+        settings.defaultRecipe.llm = nuevo.recipeKey(role: .llm)
 
         modelo.remove(nuevo.id)
 
@@ -232,6 +215,7 @@ struct PanelDeResolutoresTests {
         #expect(settings.watchedFolders[0].resolvers.llm == nil)
         #expect(settings.watchedFolders[0].resolvers.stt != nil)
         #expect(settings.inboxResolvers.llm == nil)
+        #expect(settings.defaultRecipe.llm == "apple")
     }
 
     @Test("el editor trabaja sobre un borrador: guardar escribe resolutor y clave, descartar vuelve atras")
@@ -270,12 +254,12 @@ struct PanelDeResolutoresTests {
 
         editor.prompt = "Resume como un acta."
         editor.save()
-        #expect(settings.resolvers(.llm).favoriteResolver.prompt == "Resume como un acta.")
+        #expect(settings.resolvers(.llm).local.prompt == "Resume como un acta.")
         #expect(!editor.usesStandardPrompt)
 
         editor.restoreStandardPrompt()
         editor.save()
-        #expect(settings.resolvers(.llm).favoriteResolver.prompt == nil)
+        #expect(settings.resolvers(.llm).local.prompt == nil)
 
         editor.prompt = DigestPrompt.standard + "\n"
         #expect(!editor.isDirty)
