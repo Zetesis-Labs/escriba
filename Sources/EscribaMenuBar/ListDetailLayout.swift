@@ -16,3 +16,13 @@ struct ListDetailLayout<ListColumn: View, Detail: View>: View {
         }
     }
 }
+
+struct ListBarIcon: View {
+    let systemName: String
+
+    var body: some View {
+        Image(systemName: systemName)
+            .frame(width: 28, height: 24)
+            .contentShape(Rectangle())
+    }
+}

@@ -27,14 +27,14 @@ struct ResolversPane: View {
                             Button(preset.name) { selected = resolvers.add(preset).id }
                         }
                     } label: {
-                        Image(systemName: "plus")
+                        ListBarIcon(systemName: "plus")
                     }
                     .menuIndicator(.hidden)
                     .fixedSize()
                     .help("Añadir un servicio compatible con OpenAI")
                     Button {
                         removing = resolvers.resolvers.first { $0.id == selected }
-                    } label: { Image(systemName: "minus") }
+                    } label: { ListBarIcon(systemName: "minus") }
                     .disabled(selected == nil || selected == role.localID)
                     Spacer()
                 }

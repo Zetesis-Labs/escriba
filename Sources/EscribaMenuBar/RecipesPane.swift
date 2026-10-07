@@ -60,11 +60,11 @@ struct RecipesPane: View {
                         selected = settings.recipeBook.add(
                             key: UUID().uuidString, name: "Receta nueva", settings: .standard
                         ).key
-                    } label: { Image(systemName: "plus") }
+                    } label: { ListBarIcon(systemName: "plus") }
                     .help("Nueva receta de formulario")
                     Button {
                         removing = selectedForm
-                    } label: { Image(systemName: "minus") }
+                    } label: { ListBarIcon(systemName: "minus") }
                     .help("Quitar")
                     .disabled(selectedForm == nil || book.forms.count < 2)
                     Spacer()
