@@ -85,11 +85,6 @@ nonisolated public func resolverProblem(_ resolver: Resolver, localProblem: Stri
     }
 }
 
-nonisolated public func storedPrompt(_ text: String) -> String? {
-    let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-    return trimmed.isEmpty || trimmed == DigestPrompt.standard ? nil : trimmed
-}
-
 @Observable
 public final class ResolverModel {
     public enum Phase: Equatable, Sendable {
@@ -113,7 +108,6 @@ public final class ResolverModel {
     public let id: UUID
     public let role: ResolverRole
     public var key: String
-    public var prompt: String
     public private(set) var models: [String] = []
     public private(set) var phase: Phase = .idle
     public private(set) var trial: Trial?
@@ -135,18 +129,13 @@ public final class ResolverModel {
         self.services = services
         let saved = settings.resolvers(role).resolver(id)
         base = saved
-        prompt = saved.prompt ?? DigestPrompt.standard
         savedKey = tokens.read() ?? ""
         key = savedKey
     }
 
     public var saved: Resolver { settings.resolvers(role).resolver(id) }
 
-    public var draft: Resolver {
-        var draft = base
-        draft.prompt = role == .llm ? storedPrompt(prompt) : nil
-        return draft
-    }
+    public var draft: Resolver { base }
 
     public var isLocal: Bool { base.kind == .local }
 
@@ -165,12 +154,6 @@ public final class ResolverModel {
     public var model: String {
         get { base.model }
         set { base.model = newValue }
-    }
-
-    public var usesStandardPrompt: Bool { storedPrompt(prompt) == nil }
-
-    public func restoreStandardPrompt() {
-        prompt = DigestPrompt.standard
     }
 
     public func apply(_ preset: RemotePreset) {
@@ -192,12 +175,10 @@ public final class ResolverModel {
         set.update(draft)
         settings.setResolvers(set, for: role)
         base = saved
-        prompt = base.prompt ?? DigestPrompt.standard
     }
 
     public func discard() {
         base = saved
-        prompt = base.prompt ?? DigestPrompt.standard
         key = savedKey
         phase = .idle
         trial = nil

@@ -17,22 +17,16 @@ struct AppSettingsTests {
     func porDefecto() {
         let settings = AppSettings(defaults: freshDefaults(), voiceMemos: nil)
 
-        #expect(settings.language == "es")
-        #expect(settings.diarization == .off)
         #expect(settings.notifyEveryNote)
-        #expect(!settings.summarize)
         #expect(settings.watchedFolders.isEmpty)
     }
 
     @Test("la primera vez, el libro nace con una receta de formulario «Por defecto» con los ajustes de hoy y se guarda")
     func libroMigradoDeLosAjustes() {
         let defaults = freshDefaults()
-        let antes = AppSettings(defaults: defaults, voiceMemos: nil)
-        antes.language = "en"
-        antes.diarization = Diarization(storageValue: 2)
-        antes.summarize = true
-        defaults.removeObject(forKey: "defaultRecipe")
-        defaults.removeObject(forKey: "recipeBook")
+        defaults.set("en", forKey: "language")
+        defaults.set(2, forKey: "diarization")
+        defaults.set(true, forKey: "summarize")
 
         let ahora = AppSettings(defaults: defaults, voiceMemos: nil)
 
@@ -84,39 +78,21 @@ struct AppSettingsTests {
         let defaults = freshDefaults()
         let settings = AppSettings(defaults: defaults, voiceMemos: nil)
 
-        settings.language = "en"
-        settings.diarization = .fixed(2)
         settings.notifyEveryNote = false
-        settings.summarize = true
-        settings.watchedFolders = [WatchedFolder(path: "/tmp/llamadas", speakers: 2)]
+        settings.watchedFolders = [WatchedFolder(path: "/tmp/llamadas")]
 
         let reloaded = AppSettings(defaults: defaults, voiceMemos: nil)
-        #expect(reloaded.language == "en")
-        #expect(reloaded.diarization == .fixed(2))
         #expect(reloaded.notifyEveryNote == false)
-        #expect(reloaded.summarize)
-        #expect(reloaded.watchedFolders == [WatchedFolder(path: "/tmp/llamadas", speakers: 2)])
+        #expect(reloaded.watchedFolders == [WatchedFolder(path: "/tmp/llamadas")])
     }
 
-    @Test("el idioma auto se traduce a nil para el motor")
-    func idiomaAuto() {
-        let settings = AppSettings(defaults: freshDefaults(), voiceMemos: nil)
+    @Test("una carpeta vigilada guardada con los campos de antes se lee igual")
+    func carpetaAntigua() throws {
+        let antigua = #"{"path":"/tmp/llamadas","speakers":2,"style":"any","resolvers":{"stt":"6A0C0FE1-0000-0000-0000-000000000000"}}"#
 
-        settings.language = "auto"
-        #expect(settings.languageCode == nil)
+        let carpeta = try JSONDecoder().decode(WatchedFolder.self, from: Data(antigua.utf8))
 
-        settings.language = "es"
-        #expect(settings.languageCode == "es")
-    }
-
-    @Test("la diarizacion viaja entera por su valor de almacen")
-    func diarizacion() {
-        #expect(Diarization(storageValue: -1) == .off)
-        #expect(Diarization(storageValue: 0) == .auto)
-        #expect(Diarization(storageValue: 3) == .fixed(3))
-        #expect(Diarization.off.storageValue == -1)
-        #expect(Diarization.auto.storageValue == 0)
-        #expect(Diarization.fixed(3).storageValue == 3)
+        #expect(carpeta == WatchedFolder(path: "/tmp/llamadas"))
     }
 }
 

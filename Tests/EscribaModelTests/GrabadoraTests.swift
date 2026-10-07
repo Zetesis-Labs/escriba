@@ -17,19 +17,6 @@ private final class Registro {
     var copiados: [(URL, String)] = []
     var despertado = 0
     var despierto = 0
-    var elecciones: [String: ResolverChoice] = [:]
-
-    var eleccionesGuardadas: ChoiceStore {
-        ChoiceStore(
-            read: { ruta in MainActor.assumeIsolated { self.elecciones[ruta] } },
-            write: { ruta, eleccion in
-                MainActor.assumeIsolated {
-                    self.eventos.append("elige:\(URL(fileURLWithPath: ruta).lastPathComponent)=\(eleccion.map { "\($0.stt?.uuidString.prefix(4) ?? "-")/\($0.llm?.uuidString.prefix(4) ?? "-")" } ?? "nada")")
-                    self.elecciones[ruta] = eleccion
-                }
-            })
-    }
-
     var grabadora: AudioRecorder {
         AudioRecorder(
             requestPermission: { self.permiso },
@@ -72,7 +59,7 @@ private let madrid = TimeZone(identifier: "Europe/Madrid")!
 @MainActor
 private func grabadora(_ registro: Registro) -> RecorderModel {
     RecorderModel(
-        recorder: registro.grabadora, inbox: registro.bandeja, choices: registro.eleccionesGuardadas,
+        recorder: registro.grabadora, inbox: registro.bandeja,
         wake: { registro.despertado += 1 },
         keepAwake: {
             registro.despierto += 1
@@ -236,7 +223,7 @@ struct AnadirAudioTests {
     func anade() {
         let registro = Registro()
         registro.nombres = ["Llamada.m4a"]
-        let modelo = InboxModel(inbox: registro.bandeja, choices: registro.eleccionesGuardadas, wake: { registro.despertado += 1 })
+        let modelo = InboxModel(inbox: registro.bandeja, wake: { registro.despertado += 1 })
 
         let resultado = modelo.add([
             URL(fileURLWithPath: "/x/Llamada.m4a"), URL(fileURLWithPath: "/x/acta.pdf"),
@@ -251,7 +238,7 @@ struct AnadirAudioTests {
     @Test("si nada entra no se despierta al motor, y un fallo al copiar se cuenta")
     func nadaEntra() {
         let registro = Registro()
-        let modelo = InboxModel(inbox: registro.bandeja, choices: registro.eleccionesGuardadas, wake: { registro.despertado += 1 })
+        let modelo = InboxModel(inbox: registro.bandeja, wake: { registro.despertado += 1 })
 
         let resultado = modelo.add([URL(fileURLWithPath: "/x/roto.m4a")])
 
@@ -267,106 +254,5 @@ struct AnadirAudioTests {
         #expect(importNotice(ImportOutcome(added: [], rejected: ["a.pdf", "b.doc"], failed: []))
             == "2 ficheros no son audio que Escriba sepa leer.")
         #expect(importNotice(ImportOutcome(added: [], rejected: [], failed: [])) == nil)
-    }
-}
-
-private let groq = UUID(uuidString: "6A0C0000-0000-4000-8000-000000000000")!
-private let openAI = UUID(uuidString: "0FE10000-0000-4000-8000-000000000000")!
-
-@MainActor
-@Suite("Elegir con que se procesa una grabacion o un audio añadido")
-struct EleccionAlGrabarTests {
-    @Test("sin elegir nada, la grabacion no deja eleccion y usa lo de la bandeja")
-    func sinElegir() async {
-        let registro = Registro()
-        let modelo = grabadora(registro)
-        await modelo.start()
-
-        modelo.stop()
-
-        #expect(registro.elecciones.isEmpty)
-        #expect(!registro.eventos.contains { $0.hasPrefix("elige:") })
-    }
-
-    @Test("lo elegido se guarda para el fichero final antes de que aparezca, y la siguiente vuelve a no elegir nada")
-    func eligeAntesDeGuardar() async {
-        let registro = Registro()
-        let modelo = grabadora(registro)
-        modelo.choice = ResolverChoice(stt: groq, llm: openAI)
-        await modelo.start()
-
-        modelo.stop()
-
-        #expect(registro.eventos.suffix(2) == [
-            "elige:Grabación 2026-10-05 19.00.00.m4a=6A0C/0FE1",
-            "guarda:temporal.m4a->Grabación 2026-10-05 19.00.00.m4a@1791219600",
-        ])
-        #expect(registro.elecciones["/bandeja/Grabación 2026-10-05 19.00.00.m4a"] == ResolverChoice(stt: groq, llm: openAI))
-        #expect(modelo.choice == ResolverChoice())
-    }
-
-    @Test("si la grabacion no se puede guardar, su eleccion no se queda huerfana")
-    func fallaAlGuardar() async {
-        let registro = Registro()
-        registro.fallaAlTerminar = true
-        let modelo = grabadora(registro)
-        modelo.choice = ResolverChoice(llm: openAI)
-        await modelo.start()
-
-        modelo.stop()
-
-        #expect(registro.elecciones.isEmpty)
-    }
-
-    @Test("los audios añadidos llevan lo elegido, cada uno con su nombre final, antes de copiarse")
-    func anadirConEleccion() {
-        let registro = Registro()
-        registro.nombres = ["Llamada.m4a"]
-        let modelo = InboxModel(inbox: registro.bandeja, choices: registro.eleccionesGuardadas, wake: {})
-        modelo.choice = ResolverChoice(stt: groq)
-
-        modelo.add([
-            URL(fileURLWithPath: "/x/Llamada.m4a"), URL(fileURLWithPath: "/x/acta.pdf"),
-            URL(fileURLWithPath: "/x/roto.m4a"),
-        ])
-
-        #expect(registro.elecciones == ["/bandeja/Llamada 2.m4a": ResolverChoice(stt: groq)])
-        #expect(registro.eventos.first == "elige:Llamada 2.m4a=6A0C/-")
-        #expect(modelo.choice == ResolverChoice())
-    }
-}
-
-@Suite("Elecciones guardadas por grabacion")
-struct EleccionesGuardadasTests {
-    @Test("se guardan en un fichero, por ruta, y una eleccion vacia o nula se borra")
-    func fichero() throws {
-        let fichero = FileManager.default.temporaryDirectory.appending(path: "escriba-elecciones-\(UUID().uuidString)/elecciones.json")
-        let elecciones = fileChoiceStore(fichero)
-
-        elecciones.write("/bandeja/a.m4a", ResolverChoice(stt: groq))
-        elecciones.write("/bandeja/b.m4a", ResolverChoice(llm: openAI))
-        #expect(fileChoiceStore(fichero).read("/bandeja/./a.m4a") == ResolverChoice(stt: groq))
-
-        elecciones.write("/bandeja/a.m4a", ResolverChoice())
-        elecciones.write("/bandeja/b.m4a", nil)
-        #expect(fileChoiceStore(fichero).read("/bandeja/a.m4a") == nil)
-        #expect(fileChoiceStore(fichero).read("/bandeja/b.m4a") == nil)
-    }
-
-    @Test("lo elegido para una grabacion manda sobre lo de su origen, papel a papel")
-    func mandaSobreElOrigen() {
-        let elecciones = ChoiceStore.inMemory()
-        elecciones.write("/bandeja/a.m4a", ResolverChoice(llm: openAI))
-        var stt = ResolverSet(role: .stt)
-        stt.add(Resolver(id: groq, name: "Groq", kind: .remote, baseURL: "https://api.groq.com/openai/v1", model: "w"))
-        var llm = ResolverSet(role: .llm)
-        llm.add(Resolver(id: openAI, name: "OpenAI", kind: .remote, baseURL: "https://api.openai.com/v1", model: "g"))
-        let rutas = ResolverRouting(
-            stt: stt, llm: llm, folders: [], inbox: "/bandeja", inboxChoice: ResolverChoice(stt: groq), overrides: elecciones)
-
-        #expect(rutas.choice(forSource: "/bandeja/a.m4a") == ResolverChoice(stt: groq, llm: openAI))
-        #expect(rutas.resolver(.llm, forSource: "/bandeja/a.m4a").id == openAI)
-        #expect(rutas.resolver(.llm, forSource: "/bandeja/b.m4a").kind == .local)
-        #expect(rutas.resolver(.stt, forSource: "/bandeja/b.m4a").id == groq)
     }
 }
