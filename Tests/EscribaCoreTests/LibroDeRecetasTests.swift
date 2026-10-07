@@ -178,3 +178,33 @@ struct LibroDeRecetasTests {
         ])
     }
 }
+
+@Suite("Recetas que llaman a otras: ciclos y profundidad")
+struct CadenaDeRecetasTests {
+    private let a = RecipeInfo(key: "a", name: "Reparto", kind: .code)
+    private let b = RecipeInfo(key: "b", name: "Reuniones", kind: .form)
+
+    @Test("llamar a otra receta distinta, dentro del limite, se puede")
+    func permitida() {
+        #expect(recipeCallProblem(chain: [a], next: b) == nil)
+    }
+
+    @Test("una receta que vuelve a una de su cadena es un ciclo, y el error dice la cadena")
+    func ciclo() {
+        let problema = recipeCallProblem(chain: [a, b], next: a)
+
+        #expect(problema == .cycle(["Reparto", "Reuniones", "Reparto"]))
+        #expect("\(problema!)" == "las recetas se llaman en círculo: Reparto → Reuniones → Reparto")
+    }
+
+    @Test("pasar del limite de recetas encadenadas se corta")
+    func profundidad() {
+        let cadena = (1...recipeCallLimit).map { RecipeInfo(key: "r\($0)", name: "R\($0)", kind: .code) }
+        let siguiente = RecipeInfo(key: "r9", name: "R9", kind: .code)
+
+        let problema = recipeCallProblem(chain: cadena, next: siguiente)
+
+        #expect(problema == .tooDeep(cadena.map(\.name) + ["R9"]))
+        #expect("\(problema!)" == "demasiadas recetas encadenadas (como mucho \(recipeCallLimit)): R1 → R2 → R3 → R4 → R9")
+    }
+}

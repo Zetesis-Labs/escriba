@@ -39,6 +39,7 @@ private func puente(
     _ registro: Registro,
     connectors: [String] = [],
     parametros: DefaultRecipeSettings? = nil,
+    recetas: [RecipeInfo] = [],
     transcribe: @escaping @Sendable (RecipeTranscription) async throws -> RecipeNote = { _ in nota() },
     summarize: @escaping @Sendable (RecipeSummaryRequest) async throws -> RecipeNote = { _ in nota() }
 ) -> RecipeBridge {
@@ -57,6 +58,7 @@ private func puente(
                 key: $0, name: $0, kind: "notion", isActive: !$0.hasPrefix("apagado"),
                 notionBase: RecipeConnector.NotionBase(id: "db1", name: "Voice Inbox"))
         },
+        recipes: recetas,
         transcribe: { pedido in
             registro.append("transcribe")
             return try await transcribe(pedido)
@@ -67,6 +69,7 @@ private func puente(
         },
         save: { registro.append("guarda") },
         publish: { registro.append("publica \($0)") },
+        process: { registro.append("procesa \($0)") },
         log: { registro.append("log \($0)") })
 }
 
@@ -393,19 +396,98 @@ struct JavaScriptCoreTests {
         ])
     }
 
+    @Test("la receta ve las recetas y pasa la grabacion a otra por su nombre")
+    func otraReceta() async throws {
+        let registro = Registro()
+
+        try await ejecutar(
+            paquete("""
+                escriba.log(escriba.recetas.map((r) => `${r.clave}:${r.tipo}`).join(","))
+                const otra = escriba.receta("REUNIONES")
+                escriba.log(`${otra.clave} ${otra.nombre} ${otra.tipo}`)
+                await otra.procesar(audio)
+                """),
+            puente(registro, recetas: [
+                RecipeInfo(key: "F1", name: "Reuniones", kind: .form),
+                RecipeInfo(key: "ideas", name: "Ideas", kind: .code),
+            ]))
+
+        #expect(registro.values == [
+            "log F1:formulario,ideas:codigo", "log F1 Reuniones formulario", "procesa REUNIONES",
+        ])
+    }
+
+    @Test("de punta a punta: una receta de codigo pasa la grabacion a la de formulario, cada una en su maquina")
+    func pasaDeVerdad() async throws {
+        let registro = Registro()
+        let reparto = RecipeTarget(
+            key: "reparto", name: "Reparto", kind: .code,
+            package: paquete("""
+                escriba.log(`soy ${escriba.parametros === null ? "codigo" : "formulario"}`)
+                await escriba.receta("Reuniones").procesar(audio)
+                """),
+            parameters: nil)
+        let reuniones = RecipeTarget(
+            key: "F1", name: "Reuniones", kind: .form,
+            package: RecipePackage(
+                key: "F1", source: RecipePackage.defaultRecipe.source,
+                fingerprint: RecipePackage.defaultRecipe.fingerprint),
+            parameters: formulario(resumir: false))
+        let shelf = RecipeShelf(
+            recipes: { [reparto.info, reuniones.info] },
+            target: { query in
+                guard let query else { return reparto }
+                return query == "Reuniones" ? reuniones : reparto
+            })
+        let hechas = Mutex<[String]>([])
+        let eventos = Mutex<[PipelineEvent]>([])
+        let transcribe = TranscriptionBackend(name: "falso") { _ in
+            registro.append("transcribe")
+            return Transcript(text: "hola")
+        }
+
+        try await Pipeline(
+            source: RecordingSource(name: "prueba", locations: []) { [grabacion] },
+            ledger: LedgerPort(
+                settledKeys: { Set(hechas.withLock { $0 }) },
+                markDone: { key, _, _ in hechas.withLock { $0.append(key) } },
+                markFailed: { key, _, error in registro.append("falla \(key): \(error)") }),
+            backend: transcribe,
+            sink: { note in
+                registro.append("guarda")
+                return URL(fileURLWithPath: "/salida/\(note.recording.key)")
+            },
+            recipe: Recipe(
+                shelf: shelf, runtime: javaScriptCoreRuntime(timeLimit: 10), publishers: [:],
+                catalog: RecipeCatalog(transcriber: { _, _ in transcribe })),
+            onEvent: { evento in eventos.withLock { $0.append(evento) } }
+        ).runOnce()
+
+        let traza = eventos.withLock { $0 }.compactMap { evento in
+            if case .traced(_, let trace) = evento { trace } else { nil }
+        }.first
+        #expect(hechas.withLock { $0 } == ["a"])
+        #expect(registro.values == ["transcribe", "guarda"])
+        #expect(traza?.logs == ["soy codigo"])
+        #expect(traza?.steps.map(\.title).last == "receta · Reuniones")
+        #expect(traza?.steps.dropLast().allSatisfy { $0.origin == "Reuniones" } == true)
+    }
+
     @Test("todo lo que declara escriba-recetas.d.ts existe en lo que recibe la receta")
     func contrato() async throws {
         let raiz = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         let tipos = try String(contentsOf: raiz.appending(path: "recetas/escriba-recetas.d.ts"), encoding: .utf8)
-        let declarado = miembros(de: ["Audio", "Nota", "Conector", "Escriba"], en: tipos)
+        let declarado = miembros(de: ["Audio", "Nota", "Conector", "Receta", "Escriba"], en: tipos)
         let json = String(decoding: try JSONEncoder().encode(declarado), as: UTF8.self)
         let registro = Registro()
 
         try await ejecutar(
             paquete("""
                 const nota = await escriba.transcribir(audio)
-                const vistos = { Audio: audio, Nota: nota, Conector: escriba.conector('x'), Escriba: escriba }
+                const vistos = {
+                  Audio: audio, Nota: nota, Conector: escriba.conector('x'), Receta: escriba.receta('x'), Escriba: escriba,
+                }
                 const declarado = \(json)
                 const faltan = Object.keys(vistos).flatMap((tipo) =>
                   declarado[tipo].filter((nombre) => !(nombre in vistos[tipo])).map((nombre) => `${tipo}.${nombre}`))

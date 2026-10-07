@@ -7,6 +7,7 @@ let preludeSource = #"""
   const stts = lista(puente.stts)
   const llms = lista(puente.llms)
   const conectores = lista(puente.conectores)
+  const recetas = lista(puente.recetas)
   const opciones = (valor) => JSON.stringify(valor ?? {})
   const congelar = (valor) => {
     if (valor && typeof valor === "object") Object.values(valor).forEach(congelar)
@@ -42,6 +43,7 @@ let preludeSource = #"""
     stts,
     llms,
     conectores,
+    recetas,
     async transcribir(audio, pedido) {
       return new Nota(JSON.parse(await pedir(puente.transcribir(opciones(pedido)))))
     },
@@ -56,6 +58,20 @@ let preludeSource = #"""
         tipo: info?.tipo ?? null,
         async publicar(nota) {
           await pedir(puente.publicar(texto))
+        },
+      })
+    },
+    receta(referencia) {
+      const texto = String(referencia)
+      const info =
+        recetas.find((receta) => receta.clave === texto) ??
+        recetas.find((receta) => receta.nombre.toLowerCase() === texto.toLowerCase())
+      return Object.freeze({
+        clave: info?.clave ?? texto,
+        nombre: info?.nombre ?? texto,
+        tipo: info?.tipo ?? null,
+        async procesar(audio) {
+          await pedir(puente.procesar(texto))
         },
       })
     },

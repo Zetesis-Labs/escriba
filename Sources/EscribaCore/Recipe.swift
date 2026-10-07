@@ -112,18 +112,21 @@ public struct RecipeStep: Sendable, Equatable, Codable {
     public let detail: String?
     public let seconds: Double
     public let error: String?
+    public let origin: String?
 
-    public init(capability: String, detail: String?, seconds: Double, error: String?) {
+    public init(capability: String, detail: String?, seconds: Double, error: String?, origin: String? = nil) {
         self.capability = capability
         self.detail = detail
         self.seconds = seconds
         self.error = error
+        self.origin = origin
     }
 }
 
 extension RecipeStep {
     public var title: String {
-        [capability, detail].compactMap { $0 }.joined(separator: " · ")
+        let base = [capability, detail].compactMap { $0 }.joined(separator: " · ")
+        return origin.map { "\($0) › \(base)" } ?? base
     }
 }
 

@@ -144,7 +144,7 @@ struct RecetaTests {
         #expect(traza.logs.first?.contains("no se pudo publicar en notion") == true)
     }
 
-    @Test("con los resumenes apagados, resumir no llama a ningun modelo y la traza lo dice")
+    @Test("sin LLM con el que resumir, resumir no llama a ningun modelo y la traza lo dice")
     func resumenesApagados() async throws {
         let pasos = Trace<String>()
         let eventos = Trace<PipelineEvent>()
@@ -157,7 +157,7 @@ struct RecetaTests {
         try await pipeline.runOnce()
 
         #expect(!pasos.values.contains("resume"))
-        #expect(trazas(eventos).first?.steps[1].detail == "apagado en Ajustes")
+        #expect(trazas(eventos).first?.steps[1].detail == "sin LLM")
     }
 
     @Test("un motor caido que la receta no recoge aplaza sus notas y aparta su ruta, igual que sin receta")
