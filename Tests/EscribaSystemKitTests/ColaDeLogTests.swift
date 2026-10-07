@@ -34,3 +34,38 @@ struct ColaDeLogTests {
         #expect(try logTail(of: URL(fileURLWithPath: "/no/existe.log"), maxBytes: 100).isEmpty)
     }
 }
+
+@Suite("Rotar el log de la app al arrancar")
+struct RotarLogTests {
+    private func carpeta() throws -> URL {
+        let url = URL(fileURLWithPath: NSTemporaryDirectory()).appending(path: "escriba-rotar-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+
+    @Test("un log que pasa del limite se aparta como .1 y se empieza de cero, sustituyendo al .1 anterior")
+    func rota() throws {
+        let base = try carpeta()
+        let log = base.appending(path: "escriba.log")
+        try String(repeating: "x", count: 200).write(to: log, atomically: true, encoding: .utf8)
+        try "viejo".write(to: base.appending(path: "escriba.1.log"), atomically: true, encoding: .utf8)
+
+        try rotateLog(at: log, maxBytes: 100)
+
+        #expect(!FileManager.default.fileExists(atPath: log.path(percentEncoded: false)))
+        #expect(try String(contentsOf: base.appending(path: "escriba.1.log"), encoding: .utf8).count == 200)
+    }
+
+    @Test("un log pequeño, o que aun no existe, se deja como esta")
+    func noRota() throws {
+        let base = try carpeta()
+        let log = base.appending(path: "escriba.log")
+        try "poco".write(to: log, atomically: true, encoding: .utf8)
+
+        try rotateLog(at: log, maxBytes: 100)
+        try rotateLog(at: base.appending(path: "otro.log"), maxBytes: 100)
+
+        #expect(try String(contentsOf: log, encoding: .utf8) == "poco")
+        #expect(!FileManager.default.fileExists(atPath: base.appending(path: "escriba.1.log").path(percentEncoded: false)))
+    }
+}
