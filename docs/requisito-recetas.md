@@ -1,7 +1,8 @@
 # Requisito funcional: recetas
 
 Estado: **propuesto por Rubén el 2026-10-06**, en construcción desde el
-2026-10-07 por la fase 1 (la memoria vive en la biblioteca, ver `CLAUDE.md`). El
+2026-10-07: fases 1, 2 y 6 hechas y la 3 casi (falta «Probar con…», RF-15); el
+recorte de alcance del 2026-10-07 está en «Descartado». El
 mismo día Rubén rediseñó cómo se escriben: un proyecto en una carpeta que elige
 el usuario, que la app compila a paquetes (RF-4, RF-16, RF-18). Sustituye a
 `docs/requisito-hooks.md` (los tres eventos con N hooks pasan a ser recetas) y,
@@ -89,26 +90,18 @@ export async function publicar(nota: Nota, escriba: Escriba) {
   en la app es `receta.nombre` y se cambia sin tocar la clave. Las
   redirecciones usan la clave, y la app la escribe en los tipos para que una
   clave mal escrita sea un error de tipos.
-- Una receta se exporta como su carpeta más los ficheros comunes que importa
-  (la compilación da el grafo de imports) y se importa descomprimiéndola en el
-  proyecto. Si ya existe una carpeta con esa clave, pide reemplazar o
-  duplicar.
+- Exportar e importar recetas sueltas: **descartado** (Rubén, 2026-10-07). El
+  proyecto es una carpeta del usuario y se comparte como él quiera (git).
 
 ### RF-2. Qué receta procesa cada grabación
 
-De más a menos concreto, como hoy `ResolverRouting` con STT y LLM:
+**La receta por defecto procesa todo lo que entra.** Elegir receta por carpeta
+vigilada o al grabar e importar, y «Personalizar…» para una sola grabación,
+**no se va a hacer** (Rubén, 2026-10-07): quien necesite repartir lo hace con
+una receta de código por defecto que mira `audio` y pasa la grabación a otra
+con `procesar` (RF-10).
 
-1. La receta elegida para esa grabación al grabar o al añadir un audio (la
-   flecha de «Grabar» y de «Añadir audio» ofrece recetas), guardada **antes**
-   de que el fichero entre en la bandeja, como hoy `elecciones.json`.
-2. La receta de su carpeta vigilada, o la de la bandeja.
-3. La receta por defecto.
-
-«Personalizar…» en esa misma flecha abre los parámetros de la receta elegida
-(si es generada) solo para esa grabación, sin crear una receta nueva. Llegan a
-la receta en `audio.eleccion`.
-
-De momento (2026-10-07) solo existe el punto 3 y **reprocesar con una receta**:
+**Reprocesar con una receta**:
 la hoja de reprocesar pide la receta, con la por defecto marcada; si es de
 formulario, sus parámetros se pueden retocar solo para esa vez (lo que hacía
 «Reprocesar con otros criterios», como detectar hablantes en una nota
@@ -123,9 +116,7 @@ publica donde ella diga, regenerando las páginas que ya existían.
   JavaScript. Vive en la app: no necesita proyecto ni entorno de desarrollo.
 - **Manual**: TypeScript o JavaScript escrito a mano, por una persona o por un
   agente, en el proyecto de recetas (RF-18). No tiene formulario.
-- «Convertir en manual» copia la receta generada al proyecto como TypeScript
-  (si aún no hay proyecto, pregunta dónde crearlo) y desde ahí es manual.
-  «Volver a generada» descarta la manual, con confirmación.
+- Convertir una receta generada en manual: **descartado** (Rubén, 2026-10-07).
 - La app trae una receta generada, «Por defecto», que reproduce el
   comportamiento actual de Escriba. Todas las de formulario ejecutan el mismo
   código (`recetas/por-defecto/receta.ts`) con sus parámetros.
@@ -380,6 +371,12 @@ mandado) y enseña la traza, los datos y las cargas de cada conector.
 
 ### RF-16. Entorno de desarrollo dentro de la app: Monaco y esbuild
 
+**esbuild está hecho** (2026-10-07): se descarga la primera vez que se elige
+una carpeta de proyecto y compila al guardar. **Monaco queda aparcado por el
+momento** (Rubén, 2026-10-07): el proyecto se edita con el editor del usuario
+o con un agente, que leen los errores en `.escriba/estado.json`. Lo de abajo es
+el diseño del editor si se retoma.
+
 Decisiones de Rubén: el editor es **Monaco** (2026-10-06); se compila con
 **esbuild** y el editor marca **errores de tipos** dentro de la app
 (2026-10-07). Por eso Monaco y no CodeMirror 6, que pesa menos de 1 MB pero
@@ -476,8 +473,8 @@ Rediseñado por Rubén el 2026-10-07.
   2026-10-07): después la carpeta es del usuario y la app solo escribe en
   `.escriba/`. Actualizar el contrato en un proyecto existente queda como
   acción explícita, sin construir todavía.
-- **La carpeta manda.** Se edita con Monaco dentro de la app (RF-16), con un
-  agente o con el editor del usuario. La app la vigila: cuando cambia un
+- **La carpeta manda.** Se edita con un agente o con el editor del usuario
+  (Monaco dentro de la app, RF-16, está aparcado). La app la vigila: cuando cambia un
   fichero, compila las recetas afectadas, las valida (exportan `receta` y
   `flujo`, cargan sin errores) e instala su paquete.
 - **El resultado de cada compilación**, con los errores por fichero y línea, se
@@ -495,8 +492,8 @@ Rediseñado por Rubén el 2026-10-07.
   npm ni `node_modules`.
 - **Un error en `comun/` aparece en las recetas que lo importan.** Una receta
   que deja de compilar o de validar **sigue con su último paquete bueno** hasta
-  que se arregle (Rubén, 2026-10-07): la app lo avisa en la lista de recetas,
-  en Monaco y en `.escriba/estado.json`, y la traza de cada nota dice con qué
+  que se arregle (Rubén, 2026-10-07): la app lo avisa en la lista de recetas y
+  en `.escriba/estado.json`, y la traza de cada nota dice con qué
   paquete se procesó.
 - **Recarga en caliente**: una nota que ya está en marcha termina con el
   paquete con el que empezó; la traza guarda la huella del paquete y, si lo
@@ -527,14 +524,12 @@ Rediseñado por Rubén el 2026-10-07.
 
 ## Migración
 
-- Cada combinación distinta de ajustes por carpeta de hoy (STT, LLM, idioma,
-  hablantes, resumir) se convierte en una **receta generada** asignada a esas
-  carpetas. Hecho en parte el 2026-10-07: la receta «Por defecto» de formulario
-  nace de los ajustes de ese día y de los favoritos de entonces.
+- La receta «Por defecto» de formulario nace de los ajustes y de los favoritos
+  del 2026-10-07 (hecho). Los ajustes por carpeta y las elecciones de
+  `elecciones.json` no se migran: no hay receta por carpeta ni por grabación.
 - La configuración de cada conector (columnas, plantillas, documentos OKF) se
   traduce al `publicar` de la receta generada correspondiente: es solo datos y
   llama a las mismas funciones, así que no se pierde nada.
-- Las elecciones pendientes de `elecciones.json` pasan a «Personalizar».
 - Los editores de mapeo se borran solo después de verificar la publicación
   real en Notion con una receta, contra una base de verdad.
 
@@ -549,11 +544,11 @@ Cada fase termina en la app, con tests, y la prueba Rubén.
    paquetes, contrato, tiempo límite, traza; la receta por defecto, escrita en
    TypeScript y compilada dentro de la app, procesa igual que hoy (paridad
    comprobada con grabaciones reales).
-3. **N recetas y enrutado.** Lista como los resolutores, generadas y manuales,
-   receta por carpeta y en la flecha de grabar e importar, «Personalizar»,
-   migración de los ajustes por carpeta, «Probar con…», el proyecto de recetas
-   en la carpeta del usuario, compilado con esbuild (RF-18), y el entorno de
-   desarrollo descargable con Monaco (RF-16).
+3. **N recetas.** Hecho el 2026-10-07: una lista de formulario y de código con
+   una por defecto, el proyecto en la carpeta del usuario compilado con
+   esbuild (RF-18) y reprocesar con una receta. Falta «Probar con…» (RF-15).
+   Descartado: receta por carpeta y al grabar, «Personalizar», convertir una
+   generada en manual, exportar e importar recetas sueltas. Aparcado: Monaco.
 4. **Preguntar y metadatos.** `preguntar` con esquema en los dos tipos de LLM,
    `datos` por versión, la biblioteca los muestra y filtra.
 5. **Conectores decididos por la receta.** Cargas por tipo de conector,
@@ -576,8 +571,8 @@ las grandes.
 - **El mapeo visual de columnas** para quien no programa. Se mitiga con el
   mapeo automático de las recetas generadas, la galería de ejemplos y la
   fase 7.
-- **Escribir recetas a mano sin descargar nada**: la primera receta propia baja
-  unos 40 MB de entorno de desarrollo (RF-16).
+- **Escribir recetas a mano sin descargar nada**: elegir la carpeta de proyecto
+  baja esbuild (14 MB).
 - **Ejecutar fuera de macOS**: JavaScriptCore es del sistema. No es un
   objetivo (el escritorio fuera de Apple y el núcleo en Kubernetes están
   descartados).

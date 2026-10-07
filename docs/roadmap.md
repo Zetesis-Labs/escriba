@@ -6,10 +6,27 @@ cosa grande tiene su documento con el análisis y los criterios de salida.
 
 ## Orden
 
-1. **Recetas**: `requisito-recetas.md`. En curso desde el 2026-10-07, por la
-   fase 1 de 7 (capacidades que recuerdan lo hecho, sin cambio visible). De 5
-   a 7 semanas con el editor. La búsqueda dentro de las transcripciones entra
-   aquí, en la fase 4 (RF-7).
+1. **Recetas**: `requisito-recetas.md`. En construcción desde el 2026-10-07.
+   - Hecho: fase 1 (capacidades que recuerdan lo hecho), fase 2 (motor de
+     JavaScriptCore y receta por defecto en TypeScript), fase 3 casi entera
+     (una lista de recetas de formulario y de código con una por defecto, el
+     proyecto en una carpeta del usuario compilado con esbuild, reprocesar con
+     una receta) y la fase 6 (`procesar`: una receta pasa la grabación a otra).
+   - Siguiente: «Probar con…» (RF-15), ejecutar una receta sobre una nota sin
+     publicar.
+   - Fase 4: `escriba.preguntar` con respuesta estructurada (RF-6) y `datos`
+     por versión que la biblioteca muestra y filtra (RF-7); de paso, buscar
+     dentro de las transcripciones.
+   - Fase 5: la receta decide qué carga manda a cada conector (RF-9) y se
+     borran los editores de mapeo, verificando contra una base real de
+     Notion. Propuesto, sin decidir: que el conector sea la cuenta y su
+     alcance (las bases compartidas con la integración, la carpeta raíz de
+     OKF) y la receta elija el destino dentro.
+   - Fase 7, opcional: Escriba escribe una receta con su propio LLM.
+   - Sin decidir: acceso por MCP (RF-17).
+   - Descartado el 2026-10-07: receta por carpeta y al grabar o importar,
+     «Personalizar…», convertir una receta de formulario en código, exportar e
+     importar recetas sueltas. Aparcado: el editor Monaco dentro de la app.
 2. **Personas**: `requisito-hablantes.md`. Bautizar a alguien una vez y que se
    le reconozca en las siguientes grabaciones. Primero el camino 1 (huellas
    propias guardadas por Escriba); el camino 2 (Sortformer con voces
@@ -26,7 +43,9 @@ cosa grande tiene su documento con el análisis y los criterios de salida.
 
 - **Publicar en Notion con el editor de conectores nuevo** (columna a valor
   con datos, cuerpo de texto a bloques) sin probar todavía contra una base de
-  verdad.
+  verdad. Con la fase 5 ese editor desaparece.
+- **Una grabación borrada se sigue reintentando** cada ~10 s: borrarla no
+  avisa al ledger.
 
 ## Esperando una decisión
 
