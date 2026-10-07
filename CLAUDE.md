@@ -172,16 +172,19 @@ ad-hoc y puede caducar.
   los proveedores de Biiak Next pero con N por papel): cada papel tiene una
   lista con un favorito (`ResolverSet`); los locales (Whisper, Apple
   Intelligence) vienen de serie y no se quitan, los remotos hablan la API de
-  OpenAI. Quién procesa una grabación se resuelve en `ResolverRouting`: lo
-  elegido para esa grabación (`ChoiceStore`, `elecciones.json`, escrito
-  **antes** de que el fichero entre en la bandeja para que el pipeline no se
-  adelante) > lo de su carpeta o la bandeja > el favorito. **Sin fallback**: un
-  remoto caído no cae a local; los fallos que afectan a todas las notas (red,
+  OpenAI. **Quién procesa cada nota lo decide la receta por defecto** (Rubén,
+  2026-10-07): su formulario, en la sección Recetas, elige STT, idioma,
+  hablantes, si resume, con qué LLM, **el prompt** (ya no vive en el
+  resolutor) y en qué conectores publica. Ajustes solo tiene General y
+  Carpetas vigiladas; las carpetas solo dicen qué se vigila. **Sin fallback**:
+  un remoto caído no cae a local; los fallos que afectan a todas las notas (red,
   clave, 429, 5xx) son `backendUnavailable` y la nota espera, los de esa nota
   (413, 400) la marcan fallida. Un resolutor caído solo retiene sus notas: la
   pasada aparta las que van a él (`TranscriptionBackend.route`, el id del
-  resolutor) y sigue con las demás. La clave se lee en cada llamada, así cambiarla
-  no reconstruye nada. Diarizar solo existe en local.
+  resolutor) y sigue con las demás. La clave se lee en cada llamada, así
+  cambiarla no reconstruye nada. Diarizar solo existe en local. No hay copia en
+  `.txt` (fuera el 2026-10-07; para ficheros, el conector OKF): lo que se
+  guarda en el ledger es la copia de audio de la biblioteca.
 - **Conectores, en plural** (Rubén, 2026-09-20): lista de N conectores, cada
   uno con su token (fichero `~/Library/Application Support/escriba/secrets/<id>.token`
   con permisos 0600; **ya no en el Llavero**: pedía la contraseña en cada
@@ -229,10 +232,6 @@ ad-hoc y puede caducar.
   viene en `off` y el pipeline no diariza lo que entra. Se pide por grabación
   («Detectar hablantes») o por carpeta en Ajustes. No proponer activarla por
   defecto.
-- **El `.txt` sigue a la biblioteca**: reprocesar o corregir hablantes reescribe
-  el fichero (`TranscriptWriter` inyectado en `LibraryModel`, misma
-  `writeSidecarText` que el sink). Si el fichero y la biblioteca discrepan, es
-  un bug.
 - **El daemon es concurrencia estructurada** (decidido por Rubén 2026-08-31,
   tras proponerse conservar el hilo): Task cancelable + actor `WakeSignal`;
   la pasada bloqueante va en su cola GCD puenteada con una continuation —

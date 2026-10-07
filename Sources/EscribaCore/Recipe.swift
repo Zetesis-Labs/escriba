@@ -156,11 +156,9 @@ public struct RecipeResolver: Sendable, Equatable, Encodable {
     public let isFavorite: Bool
     public let model: String?
     public let baseURL: String?
-    public let prompt: String?
 
     public init(
-        key: String, name: String, isLocal: Bool, isFavorite: Bool, model: String? = nil, baseURL: String? = nil,
-        prompt: String? = nil
+        key: String, name: String, isLocal: Bool, isFavorite: Bool, model: String? = nil, baseURL: String? = nil
     ) {
         self.key = key
         self.name = name
@@ -168,12 +166,11 @@ public struct RecipeResolver: Sendable, Equatable, Encodable {
         self.isFavorite = isFavorite
         self.model = model
         self.baseURL = baseURL
-        self.prompt = prompt
     }
 
     enum CodingKeys: String, CodingKey {
         case key = "clave", name = "nombre", isLocal = "local", isFavorite = "favorito", model = "modelo"
-        case baseURL = "url", prompt
+        case baseURL = "url"
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -184,7 +181,6 @@ public struct RecipeResolver: Sendable, Equatable, Encodable {
         try container.encode(isFavorite, forKey: .isFavorite)
         try container.encode(model, forKey: .model)
         try container.encode(baseURL, forKey: .baseURL)
-        try container.encode(prompt, forKey: .prompt)
     }
 }
 

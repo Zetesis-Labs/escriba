@@ -23,7 +23,6 @@ struct LibraryWindow: View {
     let problem: String?
     let folders: [WatchedFolder]
     let connectors: [Connector]
-    let txtFolder: URL?
     let defaultOptions: TranscriptionOptions
     let recorder: RecorderModel
     let inbox: InboxModel
@@ -70,7 +69,6 @@ struct LibraryWindow: View {
                         recording: recording,
                         origin: origin(recording),
                         connectors: connectors,
-                        txtFolder: txtFolder,
                         defaultOptions: defaultOptions,
                         onAction: { pendingAction = $0 })
                 } else {
@@ -91,9 +89,6 @@ struct LibraryWindow: View {
                         Label("Añadir audio…", systemImage: "plus.rectangle.on.folder")
                     }
                     .help("Añadir ficheros de audio para transcribirlos")
-                    ResolverChoiceButton(
-                        choice: Bindable(inbox).choice, settings: settings, origin: settings.inboxResolvers,
-                        help: "Con qué transcribir y resumir los próximos audios que añadas o arrastres")
                     if recorder.isRecording {
                         Button {
                             recorder.stop()
@@ -110,9 +105,6 @@ struct LibraryWindow: View {
                         .help("Grabar una nota de voz")
                         .disabled(recorder.state == .asking)
                     }
-                    ResolverChoiceButton(
-                        choice: Bindable(recorder).choice, settings: settings, origin: settings.inboxResolvers,
-                        help: "Con qué transcribir y resumir la próxima grabación")
                 }
             }
             .safeAreaInset(edge: .top, spacing: 0) {
@@ -474,7 +466,6 @@ struct TranscriptDetail: View {
     let recording: StoredRecording
     let origin: WatchedFolder?
     let connectors: [Connector]
-    let txtFolder: URL?
     let defaultOptions: TranscriptionOptions
     let onAction: (RowAction) -> Void
 
@@ -568,8 +559,6 @@ struct TranscriptDetail: View {
 
     private var actionsMenu: some View {
         Menu {
-            Button("Mostrar el .txt en el Finder") { reveal(txtTarget) }
-                .disabled(txtTarget == .unavailable)
             Button("Copiar la transcripcion") { copyToPasteboard(transcript?.rendered) }
                 .disabled(transcript == nil)
             Button(recording.digest == nil ? "Resumir con el modelo del sistema" : "Rehacer el resumen") {
@@ -594,20 +583,6 @@ struct TranscriptDetail: View {
             }
         } label: {
             Label("Acciones", systemImage: "ellipsis.circle")
-        }
-    }
-
-    private var txtTarget: RevealTarget {
-        revealTarget(txtFolder: txtFolder, key: recording.key) {
-            FileManager.default.fileExists(atPath: $0.path(percentEncoded: false))
-        }
-    }
-
-    private func reveal(_ target: RevealTarget) {
-        switch target {
-        case .file(let url): NSWorkspace.shared.activateFileViewerSelecting([url])
-        case .folder(let url): NSWorkspace.shared.open(url)
-        case .unavailable: break
         }
     }
 
@@ -843,11 +818,6 @@ private struct RecordingBar: View {
             LevelMeter(level: recorder.level)
                 .frame(width: 140, height: 6)
             Spacer()
-            ResolverChoiceButton(
-                choice: $recorder.choice, settings: settings, origin: settings.inboxResolvers,
-                help: "Con qué se transcribe y se resume esta grabación")
-                .labelStyle(.titleAndIcon)
-                .fixedSize()
             Button("Descartar", role: .destructive) { recorder.cancel() }
             Button("Detener y transcribir") { recorder.stop() }
                 .buttonStyle(.borderedProminent)

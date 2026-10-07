@@ -21,20 +21,7 @@ struct AppSettingsTests {
         #expect(settings.diarization == .off)
         #expect(settings.notifyEveryNote)
         #expect(!settings.summarize)
-        #expect(settings.writeTxt)
-        #expect(settings.txtFolderPath.hasSuffix("Transcripciones JPR"))
         #expect(settings.watchedFolders.isEmpty)
-    }
-
-    @Test("la carpeta del .txt solo existe si esta activado escribirlo")
-    func carpetaDelTxt() {
-        let settings = AppSettings(defaults: freshDefaults(), voiceMemos: nil)
-        settings.txtFolderPath = "/tmp/salida"
-
-        #expect(settings.txtFolder?.pathComponents == ["/", "tmp", "salida"])
-
-        settings.writeTxt = false
-        #expect(settings.txtFolder == nil)
     }
 
     @Test("la primera vez, la receta por defecto nace de los ajustes de hoy y se guarda")
@@ -85,8 +72,6 @@ struct AppSettingsTests {
         settings.diarization = .fixed(2)
         settings.notifyEveryNote = false
         settings.summarize = true
-        settings.writeTxt = false
-        settings.txtFolderPath = "/tmp/salida"
         settings.watchedFolders = [WatchedFolder(path: "/tmp/llamadas", speakers: 2)]
 
         let reloaded = AppSettings(defaults: defaults, voiceMemos: nil)
@@ -94,8 +79,6 @@ struct AppSettingsTests {
         #expect(reloaded.diarization == .fixed(2))
         #expect(reloaded.notifyEveryNote == false)
         #expect(reloaded.summarize)
-        #expect(reloaded.writeTxt == false)
-        #expect(reloaded.txtFolderPath == "/tmp/salida")
         #expect(reloaded.watchedFolders == [WatchedFolder(path: "/tmp/llamadas", speakers: 2)])
     }
 

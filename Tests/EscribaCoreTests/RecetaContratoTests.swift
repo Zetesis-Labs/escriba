@@ -170,13 +170,12 @@ struct RecetaEleccionTests {
     func resolutorConfigurado() throws {
         let remoto = try objeto(try recipeJSON(RecipeResolver(
             key: "A1", name: "Groq", isLocal: false, isFavorite: false,
-            model: "llama-3.3-70b", baseURL: "https://api.groq.com/openai/v1", prompt: "breve")))
+            model: "llama-3.3-70b", baseURL: "https://api.groq.com/openai/v1")))
         let local = try objeto(try recipeJSON(resolutores[0]))
 
-        #expect(Set(remoto.keys) == ["clave", "nombre", "local", "favorito", "modelo", "url", "prompt"])
+        #expect(Set(remoto.keys) == ["clave", "nombre", "local", "favorito", "modelo", "url"])
         #expect(remoto["modelo"] as? String == "llama-3.3-70b")
         #expect(remoto["url"] as? String == "https://api.groq.com/openai/v1")
-        #expect(remoto["prompt"] as? String == "breve")
         #expect(local["local"] as? Bool == true)
         #expect(local["modelo"] is NSNull)
         #expect(local["url"] is NSNull)

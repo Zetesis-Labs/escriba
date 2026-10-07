@@ -14,7 +14,6 @@ struct SettingsPane: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 block("General", "gearshape") { GeneralTab(settings: settings) }
-                block("Transcripción", "waveform") { TranscriptionTab(settings: settings) }
                 block("Carpetas vigiladas", "folder.badge.plus") { FoldersTab(settings: settings) }
             }
             .padding(.vertical, 8)
@@ -63,68 +62,17 @@ private struct GeneralTab: View {
     }
 }
 
-private struct TranscriptionTab: View {
-    @Bindable var settings: AppSettings
-
-    var body: some View {
-        Form {
-            Picker("Idioma", selection: $settings.language) {
-                Text("Espanol").tag("es")
-                Text("English").tag("en")
-                Text("Detectar en cada nota").tag("auto")
-            }
-
-            Picker("Detectar hablantes", selection: diarization) {
-                Text("No").tag(-1)
-                Text("Automatico").tag(0)
-                ForEach(2...4, id: \.self) { count in
-                    Text("\(count) hablantes").tag(count)
-                }
-            }
-            Text("Detectar hablantes cuesta unos segundos mas por nota y solo funciona con Whisper en este Mac.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-            Section("Copia en texto plano") {
-                Toggle("Escribir tambien un .txt", isOn: $settings.writeTxt)
-                if settings.writeTxt {
-                    LabeledContent("Carpeta") {
-                        HStack {
-                            Text(abbreviated(settings.txtFolderPath))
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                            Button("Cambiar…") {
-                                if let path = chooseFolder() { settings.txtFolderPath = path }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        .formStyle(.grouped)
-    }
-
-    private var diarization: Binding<Int> {
-        Binding(
-            get: { settings.diarization.storageValue },
-            set: { settings.diarization = Diarization(storageValue: $0) })
-    }
-}
-
 private struct FoldersTab: View {
     @Bindable var settings: AppSettings
 
     var body: some View {
         Form {
             Section {
-                VStack(alignment: .leading, spacing: 6) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Bandeja de Escriba")
-                        Text("Lo que grabas en la app y los audios que arrastras")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    ResolverPickers(choice: $settings.inboxResolvers, settings: settings)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Bandeja de Escriba")
+                    Text("Lo que grabas en la app y los audios que arrastras")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
             }
 
@@ -133,8 +81,7 @@ private struct FoldersTab: View {
                     Text("Ninguna carpeta extra. Solo se vigila Just Press Record.")
                         .foregroundStyle(.secondary)
                 }
-                ForEach($settings.watchedFolders) { $folder in
-                    VStack(alignment: .leading, spacing: 6) {
+                ForEach(settings.watchedFolders) { folder in
                     HStack {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(folder.displayName)
@@ -145,13 +92,6 @@ private struct FoldersTab: View {
                                 .truncationMode(.middle)
                         }
                         Spacer()
-                        Picker("", selection: $folder.speakers) {
-                            Text("Segun ajuste global").tag(Int?.none)
-                            ForEach(2...4, id: \.self) { count in
-                                Text("\(count) hablantes").tag(Int?.some(count))
-                            }
-                        }
-                        .frame(width: 170)
                         Button(role: .destructive) {
                             settings.removeWatchedFolder(path: folder.path)
                         } label: {
@@ -159,13 +99,11 @@ private struct FoldersTab: View {
                         }
                         .buttonStyle(.borderless)
                     }
-                    ResolverPickers(choice: $folder.resolvers, settings: settings)
-                    }
                 }
             } header: {
                 Text("Carpetas vigiladas")
             } footer: {
-                Text("Cualquier audio que caiga en ellas se transcribe solo. Las claves llevan el nombre de la carpeta como prefijo. Los servicios para transcribir y resumir se configuran en STT y LLMs.")
+                Text("Cualquier audio que caiga en ellas lo procesa la receta por defecto, que se configura en Recetas. Las claves llevan el nombre de la carpeta como prefijo.")
             }
 
             Button("Anadir carpeta…") {

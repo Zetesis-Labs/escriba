@@ -140,12 +140,6 @@ public final class AppSettings {
     public var summarize: Bool {
         didSet { defaults.set(summarize, forKey: Keys.summarize) }
     }
-    public var writeTxt: Bool {
-        didSet { defaults.set(writeTxt, forKey: Keys.writeTxt) }
-    }
-    public var txtFolderPath: String {
-        didSet { defaults.set(txtFolderPath, forKey: Keys.txtFolder) }
-    }
     public var recipesFolderPath: String? {
         didSet { defaults.set(recipesFolderPath, forKey: Keys.recipesFolder) }
     }
@@ -181,11 +175,7 @@ public final class AppSettings {
             storageValue: defaults.object(forKey: Keys.diarization) as? Int ?? -1)
         notifyEveryNote = defaults.object(forKey: Keys.notifyEveryNote) as? Bool ?? true
         summarize = defaults.object(forKey: Keys.summarize) as? Bool ?? false
-        writeTxt = defaults.object(forKey: Keys.writeTxt) as? Bool ?? true
         recipesFolderPath = defaults.string(forKey: Keys.recipesFolder)
-        txtFolderPath = defaults.string(forKey: Keys.txtFolder)
-            ?? FileManager.default.homeDirectoryForCurrentUser
-                .appending(path: "Documents/Transcripciones JPR").path(percentEncoded: false)
         let stored = Self.restore([WatchedFolder].self, from: defaults, key: Keys.watchedFolders)
             ?? recorderRoot.map {
                 [WatchedFolder(path: $0.path(percentEncoded: false), style: .justPressRecord)]
@@ -253,10 +243,6 @@ public final class AppSettings {
             speakerCount: folder.speakers ?? diarization.speakerCount)
     }
 
-    public var txtFolder: URL? {
-        writeTxt ? URL(fileURLWithPath: txtFolderPath) : nil
-    }
-
     public var liveConnectors: [Connector] { connectors.filter(\.isLive) }
 
     public func connector(_ id: UUID) -> Connector? {
@@ -312,7 +298,7 @@ public final class AppSettings {
         guard let legacy, defaults.data(forKey: Keys.watchedFolders) == nil else { return }
         for key in [
             Keys.language, Keys.diarization, Keys.notifyEveryNote,
-            Keys.writeTxt, Keys.txtFolder, Keys.watchedFolders,
+            Keys.watchedFolders,
         ] {
             if let value = legacy.object(forKey: key) {
                 defaults.set(value, forKey: key)
@@ -325,8 +311,6 @@ public final class AppSettings {
         static let diarization = "diarization"
         static let notifyEveryNote = "notifyEveryNote"
         static let summarize = "summarize"
-        static let writeTxt = "writeTxt"
-        static let txtFolder = "txtFolder"
         static let recipesFolder = "recipesFolder"
         static let defaultRecipe = "defaultRecipe"
         static let watchedFolders = "watchedFolders"

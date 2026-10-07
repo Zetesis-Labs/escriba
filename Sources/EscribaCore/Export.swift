@@ -75,24 +75,6 @@ public func transcriptExport(
         segments: transcript.segments)
 }
 
-public enum RevealTarget: Equatable, Sendable {
-    case file(URL)
-    case folder(URL)
-    case unavailable
-}
-
 public func sidecarTextURL(outputRoot: URL, key: String) -> URL {
     outputRoot.appending(path: "\(key).txt")
-}
-
-public func revealTarget(
-    txtFolder: URL?, key: String, exists: (URL) -> Bool
-) -> RevealTarget {
-    guard let txtFolder else { return .unavailable }
-
-    let file = sidecarTextURL(outputRoot: txtFolder, key: key)
-    if exists(file) { return .file(file) }
-
-    let folder = file.deletingLastPathComponent()
-    return exists(folder) ? .folder(folder) : .unavailable
 }
