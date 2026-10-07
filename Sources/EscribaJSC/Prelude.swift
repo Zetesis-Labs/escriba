@@ -72,12 +72,7 @@ let preludeSource = #"""
       return error
     },
     validar() {
-      const receta = globalThis.__receta
-      if (typeof receta !== "object" || receta === null) return "no define ninguna receta"
-      if (typeof receta.flujo !== "function") return "falta la función flujo"
-      if (typeof receta.receta !== "object" || receta.receta === null || typeof receta.receta.nombre !== "string")
-        return "falta receta.nombre"
-      return ""
+      return \#(packageProblemFunction)(globalThis.__receta)
     },
     ejecutar(audio, fin, fallo) {
       let resultado

@@ -29,6 +29,8 @@ jobs:
           echo "TOOLCHAINS=$(plutil -extract CFBundleIdentifier raw "$TOOLCHAIN/Info.plist")" >> "$GITHUB_ENV"
       - run: swift --version
       - run: swift build
+      - name: esbuild para los tests de compilación de recetas
+        run: ./scripts/descargar-esbuild.sh
       - run: swift test
       - name: Empaquetar la app
         run: ./scripts/build-app.sh

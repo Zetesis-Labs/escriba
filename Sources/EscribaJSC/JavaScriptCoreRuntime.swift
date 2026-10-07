@@ -15,7 +15,7 @@ func executionTimeLimit() -> SetExecutionTimeLimit? {
     return unsafeBitCast(symbol, to: SetExecutionTimeLimit.self)
 }
 
-private let timeLimitWorks: Result<Void, RecipeError> = {
+let timeLimitWorks: Result<Void, RecipeError> = {
     setenv("JSC_usePollingTraps", "true", 0)
     guard let setLimit = executionTimeLimit() else {
         return .failure(.unavailable("esta versión de macOS no deja poner un tiempo límite a JavaScriptCore"))

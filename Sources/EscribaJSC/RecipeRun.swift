@@ -220,7 +220,7 @@ private func errorToken(_ value: JSValue?) -> Int? {
     return Int(token.toInt32())
 }
 
-private func describe(_ value: JSValue?) -> String {
+func describe(_ value: JSValue?) -> String {
     guard let value else { return "error desconocido" }
     let message = value.toString() ?? "error desconocido"
     guard value.isObject, let line = value.objectForKeyedSubscript("line"), line.isNumber else { return message }
