@@ -27,22 +27,25 @@ public struct RecipeProjectFile: Sendable, Equatable {
     }
 }
 
-public func templateWrites(paths: Set<String>, contents: [String: String]) -> [RecipeProjectFile] {
-    let maintained = [
-        RecipeProjectFile(path: "escriba-recetas.d.ts", contents: RecipeTemplate.contract + "\n"),
+public let recipeContractPath = "escriba-recetas.d.ts"
+
+public func isRecipeProject(_ paths: Set<String>) -> Bool {
+    paths.contains(recipeContractPath)
+}
+
+public func recipeTemplate() -> [RecipeProjectFile] {
+    [
+        RecipeProjectFile(path: recipeContractPath, contents: RecipeTemplate.contract + "\n"),
         RecipeProjectFile(path: "tsconfig.json", contents: RecipeTemplate.tsconfig + "\n"),
-    ]
-    let userOwned = [
         RecipeProjectFile(path: "AGENTS.md", contents: RecipeTemplate.agents + "\n"),
         RecipeProjectFile(path: "CLAUDE.md", contents: "@AGENTS.md\n"),
         RecipeProjectFile(path: ".gitignore", contents: ".escriba/\nnode_modules/\n.DS_Store\n"),
+        RecipeProjectFile(path: "recetas/mi-receta/receta.ts", contents: RecipeTemplate.starter + "\n"),
     ]
-    let isNewProject = !paths.contains("escriba-recetas.d.ts") && recipeKeys(in: paths).isEmpty
-    let starter = isNewProject
-        ? [RecipeProjectFile(path: "recetas/mi-receta/receta.ts", contents: RecipeTemplate.starter + "\n")]
-        : []
-    return maintained.filter { contents[$0.path] != $0.contents }
-        + (userOwned + starter).filter { !paths.contains($0.path) }
+}
+
+public func templateWrites(paths: Set<String>) -> [RecipeProjectFile] {
+    isRecipeProject(paths) ? [] : recipeTemplate().filter { !paths.contains($0.path) }
 }
 
 public struct InstalledRecipe: Sendable, Equatable, Codable {
@@ -163,4 +166,11 @@ public func recipeBuildReportJSON(_ report: RecipeBuildReport) throws -> String 
     encoder.dateEncodingStrategy = .iso8601
     encoder.outputFormatting = [.prettyPrinted, .withoutEscapingSlashes]
     return String(decoding: try encoder.encode(report), as: UTF8.self) + "\n"
+}
+
+public func recipeStatusLine(_ status: RecipeStatus) -> String {
+    let active = status.active.map { String($0.prefix(7)) }
+    guard let issue = status.issues.first else { return "compilada · \(active ?? "sin paquete")" }
+    let place = issue.location.map { "error en \($0): " } ?? "error: "
+    return place + issue.text + (active.map { " · sigue con \($0)" } ?? " · sin paquete")
 }

@@ -11,8 +11,9 @@ recetas por su cuenta. No hace falta instalar nada ni ejecutar ningún comando.
   carpeta.
 - Cualquier otra carpeta (`comun/`, `lib/`…) es código compartido que las
   recetas importan.
-- `escriba-recetas.d.ts` y `tsconfig.json` los escribe Escriba y los reescribe
-  cuando cambia el contrato: no los edites.
+- `escriba-recetas.d.ts` (los tipos del contrato) y `tsconfig.json` los
+  escribió Escriba al crear el proyecto. Escriba no vuelve a escribir en esta
+  carpeta salvo en `.escriba/`.
 - `.escriba/estado.json` es el resultado de la última compilación.
 
 ## Contrato

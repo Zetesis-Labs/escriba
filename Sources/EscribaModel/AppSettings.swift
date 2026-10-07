@@ -146,6 +146,9 @@ public final class AppSettings {
     public var txtFolderPath: String {
         didSet { defaults.set(txtFolderPath, forKey: Keys.txtFolder) }
     }
+    public var recipesFolderPath: String? {
+        didSet { defaults.set(recipesFolderPath, forKey: Keys.recipesFolder) }
+    }
     public var watchedFolders: [WatchedFolder] {
         didSet { persist(watchedFolders, forKey: Keys.watchedFolders) }
     }
@@ -176,6 +179,7 @@ public final class AppSettings {
         notifyEveryNote = defaults.object(forKey: Keys.notifyEveryNote) as? Bool ?? true
         summarize = defaults.object(forKey: Keys.summarize) as? Bool ?? false
         writeTxt = defaults.object(forKey: Keys.writeTxt) as? Bool ?? true
+        recipesFolderPath = defaults.string(forKey: Keys.recipesFolder)
         txtFolderPath = defaults.string(forKey: Keys.txtFolder)
             ?? FileManager.default.homeDirectoryForCurrentUser
                 .appending(path: "Documents/Transcripciones JPR").path(percentEncoded: false)
@@ -310,6 +314,7 @@ public final class AppSettings {
         static let summarize = "summarize"
         static let writeTxt = "writeTxt"
         static let txtFolder = "txtFolder"
+        static let recipesFolder = "recipesFolder"
         static let watchedFolders = "watchedFolders"
         static let voiceMemosSeeded = "voiceMemosSeeded"
         static let connectors = "connectors"

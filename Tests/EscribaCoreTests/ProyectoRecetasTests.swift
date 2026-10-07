@@ -34,9 +34,9 @@ struct ProyectoRecetasTests {
         #expect(!ignoredByRecipes("comun/.escriba.ts"))
     }
 
-    @Test("un proyecto vacio recibe la plantilla entera y una receta de ejemplo")
+    @Test("una carpeta sin proyecto recibe la plantilla entera, con una receta de ejemplo")
     func plantillaNueva() {
-        let escritos = templateWrites(paths: [], contents: [:])
+        let escritos = templateWrites(paths: [])
 
         #expect(Set(escritos.map(\.path)) == [
             "escriba-recetas.d.ts", "tsconfig.json", "AGENTS.md", "CLAUDE.md", ".gitignore",
@@ -47,28 +47,18 @@ struct ProyectoRecetasTests {
         #expect(escritos.first { $0.path == "escriba-recetas.d.ts" }?.contents == RecipeTemplate.contract + "\n")
     }
 
-    @Test("el contrato y el tsconfig se reescriben si cambian; lo que edita el usuario, nunca")
-    func plantillaExistente() {
-        let rutas: Set<String> = [
-            "escriba-recetas.d.ts", "tsconfig.json", "AGENTS.md", "CLAUDE.md", ".gitignore",
-            "recetas/propia/receta.ts",
-        ]
-        let contenidos = [
-            "escriba-recetas.d.ts": "interface Viejo {}",
-            "tsconfig.json": RecipeTemplate.tsconfig + "\n",
-        ]
+    @Test("una carpeta con algo dentro recibe la plantilla sin pisar lo que ya habia")
+    func carpetaConCosas() {
+        let escritos = templateWrites(paths: ["README.md", "AGENTS.md"])
 
-        #expect(templateWrites(paths: rutas, contents: contenidos).map(\.path) == ["escriba-recetas.d.ts"])
+        #expect(!escritos.map(\.path).contains("AGENTS.md"))
+        #expect(escritos.map(\.path).contains("escriba-recetas.d.ts"))
     }
 
-    @Test("la receta de ejemplo no vuelve si el usuario ya tenia proyecto y la borro")
-    func ejemploBorrado() {
-        let rutas: Set<String> = ["escriba-recetas.d.ts", "tsconfig.json", "AGENTS.md", "CLAUDE.md", ".gitignore"]
-        let contenidos = [
-            "escriba-recetas.d.ts": RecipeTemplate.contract + "\n", "tsconfig.json": RecipeTemplate.tsconfig + "\n",
-        ]
-
-        #expect(templateWrites(paths: rutas, contents: contenidos).isEmpty)
+    @Test("un proyecto que ya existe no recibe nada: la plantilla se escribe solo al crearlo")
+    func proyectoExistente() {
+        #expect(templateWrites(paths: ["escriba-recetas.d.ts"]).isEmpty)
+        #expect(templateWrites(paths: ["escriba-recetas.d.ts", "recetas/a/receta.ts"]).isEmpty)
     }
 
     @Test("una receta que compila por primera vez se instala")
@@ -118,6 +108,16 @@ struct ProyectoRecetasTests {
 
         #expect(paso.installed == instalada("igual"))
         #expect(paso.status.activeSince == antes)
+    }
+
+    @Test("cada receta se resume en una linea: compilada, o el error y con que paquete sigue")
+    func lineaDeEstado() {
+        #expect(recipeStatusLine(RecipeStatus(key: "a", name: "A", active: "1a2b3c4d5e", activeSince: antes, issues: []))
+            == "compilada · 1a2b3c4")
+        #expect(recipeStatusLine(RecipeStatus(key: "a", name: "A", active: "1a2b3c4d5e", activeSince: antes, issues: [fallo]))
+            == "error en recetas/general/receta.ts:3:8: Expected \"}\" · sigue con 1a2b3c4")
+        #expect(recipeStatusLine(RecipeStatus(key: "a", name: nil, active: nil, activeSince: nil, issues: [RecipeBuildIssue(text: "roto")]))
+            == "error: roto · sin paquete")
     }
 
     @Test("el estado se escribe con los nombres que lee un agente")

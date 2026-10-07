@@ -62,6 +62,7 @@ final class AppRuntime {
     let llm: ResolversModel
     let recorder: RecorderModel
     let inbox: InboxModel
+    let recipes: RecipeProjectModel
 
     @ObservationIgnored private var controllers: [DaemonController] = []
     @ObservationIgnored private var instanceLock: InstanceLock?
@@ -98,6 +99,10 @@ final class AppRuntime {
             recorder: microphone.port(), inbox: box, choices: choices, wake: { relay.wake() },
             keepAwake: keepRecordingAwake)
         inbox = InboxModel(inbox: box, choices: choices, wake: { relay.wake() })
+        recipes = recipeProjectModel()
+        if let path = settings.recipesFolderPath {
+            Task { [recipes] in await recipes.open(URL(fileURLWithPath: path)) }
+        }
         relay.wake = { [weak self] in self?.wake() }
         recordingItem = RecordingStatusItem(recorder: recorder)
         Notifier.requestAuthorization()
@@ -455,4 +460,25 @@ final class AppRuntime {
             }
         }
     }
+}
+
+private func recipeProjectModel() -> RecipeProjectModel {
+    let tools = EsbuildTools.directory(in: Paths.applicationSupport)
+    let installed = Paths.installedRecipes
+    let compiler = EsbuildCompiler(tools: tools)
+    return RecipeProjectModel(
+        prepare: {
+            guard !EsbuildTools.isInstalled(in: tools) else { return }
+            Log.info("recetas: bajando esbuild \(EsbuildTools.version)")
+            try await EsbuildTools.install(into: tools)
+        },
+        create: { folder in
+            let written = try createRecipeProject(disk: folderRecipeProject(root: folder, installed: installed))
+            if !written.isEmpty { Log.info("recetas: proyecto creado en \(folder.path(percentEncoded: false))") }
+        },
+        rebuild: { folder in
+            try await rebuildRecipeProject(
+                disk: folderRecipeProject(root: folder, installed: installed), toolchain: compiler.toolchain, now: Date())
+        },
+        watcher: recipeProjectWatcher)
 }

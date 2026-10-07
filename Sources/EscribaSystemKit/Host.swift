@@ -63,9 +63,26 @@ extension DaemonController {
     }
 }
 
-public let systemFolderWatcher: FolderWatcher = { root, onChange in
+public let systemFolderWatcher: FolderWatcher = folderWatcher { $0.lowercased().hasSuffix(".m4a") }
+
+public let recipeProjectWatcher: FolderWatcher = folderWatcher { !ignoredByRecipesWatch($0) }
+
+public func ignoredByRecipesWatch(_ absolutePath: String) -> Bool {
+    let parts = absolutePath.split(separator: "/")
+    return parts.contains { [".escriba", ".git", "node_modules"].contains($0) } || parts.last == ".DS_Store"
+}
+
+public func folderWatcher(isRelevant: @escaping @Sendable (String) -> Bool) -> FolderWatcher {
+    { root, onChange in
+        systemWatch(root: root, isRelevant: isRelevant, onChange: onChange)
+    }
+}
+
+private func systemWatch(
+    root: URL, isRelevant: @escaping @Sendable (String) -> Bool, onChange: @escaping @Sendable () -> Void
+) -> FolderWatch {
     #if os(macOS)
-    let watcher = DirectoryWatcher(root: root, onRelevantChange: onChange)
+    let watcher = DirectoryWatcher(root: root, isRelevant: isRelevant, onRelevantChange: onChange)
     watcher.start()
     return FolderWatch(stop: { watcher.stop() })
     #else
