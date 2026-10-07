@@ -7,32 +7,58 @@ struct TraceCard: View {
 
     var body: some View {
         DisclosureGroup(isExpanded: $expanded) {
-            VStack(alignment: .leading, spacing: 6) {
-                ForEach(Array(trace.steps.enumerated()), id: \.offset) { _, step in
-                    StepRow(step: step)
-                }
-                if !trace.logs.isEmpty {
-                    Divider()
-                    ForEach(Array(trace.logs.enumerated()), id: \.offset) { _, line in
-                        LogLineRow(line: line)
-                    }
-                }
-                if let error = trace.error {
-                    Divider()
-                    Text(error)
-                        .font(.caption)
-                        .foregroundStyle(.orange)
-                        .textSelection(.enabled)
-                }
-            }
-            .padding(.top, 6)
+            TraceDetail(trace: trace)
+                .padding(.top, 6)
         } label: {
-            Label(trace.headline, systemImage: trace.error == nil ? "list.bullet.rectangle" : "exclamationmark.triangle")
-                .foregroundStyle(trace.error == nil ? Color.secondary : Color.orange)
+            Label(trace.headline, systemImage: trace.outcome.symbol)
+                .foregroundStyle(trace.outcome == .ok ? Color.secondary : Color.orange)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(12)
         .background(.quinary, in: RoundedRectangle(cornerRadius: 10))
+    }
+}
+
+struct TraceDetail: View {
+    let trace: RecipeTrace
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(Array(trace.steps.enumerated()), id: \.offset) { _, step in
+                StepRow(step: step)
+            }
+            if !trace.logs.isEmpty {
+                Divider()
+                ForEach(Array(trace.logs.enumerated()), id: \.offset) { _, line in
+                    LogLineRow(line: line)
+                }
+            }
+            if let error = trace.error {
+                Divider()
+                Text(error)
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    .textSelection(.enabled)
+            }
+        }
+    }
+}
+
+extension RecipeRunOutcome {
+    var symbol: String {
+        switch self {
+        case .ok: "checkmark.circle"
+        case .failed: "exclamationmark.triangle"
+        case .waiting: "clock"
+        }
+    }
+
+    var label: String {
+        switch self {
+        case .ok: "Bien"
+        case .failed: "Falló"
+        case .waiting: "Esperando"
+        }
     }
 }
 

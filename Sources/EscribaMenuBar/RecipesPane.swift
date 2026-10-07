@@ -7,6 +7,7 @@ import SwiftUI
 struct RecipesPane: View {
     @Bindable var settings: AppSettings
     let recipes: RecipeProjectModel
+    let library: LibraryModel?
     @State private var selected: String?
     @State private var removing: FormRecipe?
 
@@ -73,10 +74,11 @@ struct RecipesPane: View {
             }
         } detail: {
             if let key = selected, let form = book.form(key) {
-                FormRecipeEditor(settings: settings, recipe: form)
+                FormRecipeEditor(settings: settings, recipe: form, library: library)
                     .id(key)
             } else if let key = selected, let status = statuses.first(where: { $0.key == key }) {
-                CodeRecipeDetail(settings: settings, status: status, folder: settings.recipesFolderPath)
+                CodeRecipeDetail(settings: settings, status: status, folder: settings.recipesFolderPath, library: library)
+                    .id(key)
             } else {
                 ContentUnavailableView(
                     "Sin receta elegida", systemImage: "curlybraces",
@@ -165,11 +167,13 @@ private struct DefaultRecipeSection: View {
 private struct FormRecipeEditor: View {
     @Bindable var settings: AppSettings
     let recipe: FormRecipe
+    let library: LibraryModel?
     @State private var name: String
 
-    init(settings: AppSettings, recipe: FormRecipe) {
+    init(settings: AppSettings, recipe: FormRecipe, library: LibraryModel?) {
         self.settings = settings
         self.recipe = recipe
+        self.library = library
         _name = State(initialValue: recipe.name)
     }
 
@@ -183,6 +187,9 @@ private struct FormRecipeEditor: View {
                 Text("Las recetas de formulario ejecutan el mismo código que «Por defecto» con estos parámetros. Desde una receta de código se llaman con escriba.receta(\"\(name)\").procesar(audio).")
             }
             RecipeParametersFields(settings: settings, parameters: parameters)
+            if let library {
+                RecipeRunsSection(library: library, recipe: recipe.key)
+            }
         }
         .formStyle(.grouped)
     }
@@ -198,6 +205,7 @@ private struct CodeRecipeDetail: View {
     @Bindable var settings: AppSettings
     let status: RecipeStatus
     let folder: String?
+    let library: LibraryModel?
 
     var body: some View {
         Form {
@@ -222,6 +230,9 @@ private struct CodeRecipeDetail: View {
                         NSWorkspace.shared.open(URL(fileURLWithPath: folder).appending(path: "recetas/\(status.key)"))
                     }
                 }
+            }
+            if let library {
+                RecipeRunsSection(library: library, recipe: status.key)
             }
         }
         .formStyle(.grouped)

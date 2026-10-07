@@ -265,6 +265,10 @@ public final class LibraryModel {
         await mirror("marcar \(recording.key) como hecha") { try await store.markDone(recording.key) }
     }
 
+    public func runs(_ filter: RecipeRunFilter = RecipeRunFilter()) -> RecipeRunsModel {
+        RecipeRunsModel(store: store, filter: filter)
+    }
+
     public func traceRevision(for key: String) -> Int {
         traceRevisions[key, default: 0]
     }
