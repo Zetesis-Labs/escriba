@@ -517,6 +517,7 @@ struct TranscriptDetail: View {
             if recording.audio != .missing { player.load(recording.audioURL) }
         }
         .onChange(of: recording.status) { Task { await reload() } }
+        .onChange(of: model.traceRevision(for: recording.key)) { Task { await reload() } }
         .toolbar {
             if model.reprocessing.contains(recording.key) {
                 ToolbarItem { ProgressView().controlSize(.small) }

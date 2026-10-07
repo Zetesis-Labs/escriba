@@ -256,6 +256,21 @@ struct LibraryStatusTests {
         #expect(try await sandbox.model.latestTrace(for: recording.key) == traza)
     }
 
+    @Test("cada traza que llega avisa al detalle de su grabacion, aunque la nota ya estuviera hecha")
+    func trazaAvisa() async throws {
+        let sandbox = try Sandbox()
+        let recording = try makeRecording(sandbox, "2026-08-31/09-00-00")
+        try sandbox.store.save(recording, Transcript(text: "t"), backend: "falso")
+        let traza = RecipeTrace(recipe: "por-defecto", fingerprint: "abc123", steps: [], logs: [], error: nil)
+        let antes = sandbox.model.traceRevision(for: recording.key)
+
+        await sandbox.model.apply(.traced(key: recording.key, trace: traza))
+        await sandbox.model.apply(.traced(key: recording.key, trace: traza))
+
+        #expect(sandbox.model.traceRevision(for: recording.key) == antes + 2)
+        #expect(sandbox.model.traceRevision(for: "otra") == 0)
+    }
+
     @Test("una nota reintentada con lo que ya estaba guardado vuelve a quedar hecha")
     func reintentoRecordado() async throws {
         let sandbox = try Sandbox()
