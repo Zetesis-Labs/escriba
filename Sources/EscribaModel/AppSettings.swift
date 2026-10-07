@@ -143,8 +143,8 @@ public final class AppSettings {
     public var recipesFolderPath: String? {
         didSet { defaults.set(recipesFolderPath, forKey: Keys.recipesFolder) }
     }
-    public var defaultRecipe: DefaultRecipeSettings {
-        didSet { persist(defaultRecipe, forKey: Keys.defaultRecipe) }
+    public var recipeBook: RecipeBook {
+        didSet { persist(recipeBook, forKey: Keys.recipeBook) }
     }
     public var watchedFolders: [WatchedFolder] {
         didSet { persist(watchedFolders, forKey: Keys.watchedFolders) }
@@ -188,7 +188,7 @@ public final class AppSettings {
         sttResolvers = stt
         llmResolvers = llm
         let (sttFavorite, llmFavorite) = (stt.resolver(stt.legacyFavorite), llm.resolver(llm.legacyFavorite))
-        defaultRecipe = Self.restore(DefaultRecipeSettings.self, from: defaults, key: Keys.defaultRecipe)
+        let savedDefaultRecipe = Self.restore(DefaultRecipeSettings.self, from: defaults, key: Keys.defaultRecipe)
             ?? migratedDefaultRecipe(
                 stt: sttFavorite.recipeKey(role: .stt), llm: llmFavorite.recipeKey(role: .llm),
                 llmPrompt: llmFavorite.prompt,
@@ -196,6 +196,8 @@ public final class AppSettings {
                 diarization: defaults.object(forKey: Keys.diarization) as? Int ?? -1,
                 summarize: defaults.object(forKey: Keys.summarize) as? Bool ?? false,
                 connectors: storedConnectors.filter(\.isLive).map(\.key))
+        recipeBook = Self.restore(RecipeBook.self, from: defaults, key: Keys.recipeBook)
+            ?? RecipeBook(migrating: savedDefaultRecipe, key: UUID().uuidString)
         inboxResolvers = Self.restore(ResolverChoice.self, from: defaults, key: Keys.inboxResolvers)
             ?? ResolverChoice()
         watchedFolders = seededWithVoiceMemos(
@@ -204,7 +206,7 @@ public final class AppSettings {
             alreadySeeded: defaults.bool(forKey: Keys.voiceMemosSeeded))
         if voiceMemos != nil { defaults.set(true, forKey: Keys.voiceMemosSeeded) }
         persist(watchedFolders, forKey: Keys.watchedFolders)
-        persist(defaultRecipe, forKey: Keys.defaultRecipe)
+        persist(recipeBook, forKey: Keys.recipeBook)
     }
 
     private static func restore<Value: Decodable>(
@@ -271,7 +273,7 @@ public final class AppSettings {
     }
 
     public func forget(resolver id: UUID, as role: ResolverRole) {
-        defaultRecipe = defaultRecipe.forgettingResolver(
+        recipeBook = recipeBook.forgettingResolver(
             id.uuidString, stt: sttResolvers.local.recipeKey(role: .stt), llm: llmResolvers.local.recipeKey(role: .llm))
         inboxResolvers = inboxResolvers.forgetting(id, as: role)
         watchedFolders = watchedFolders.map { folder in
@@ -316,6 +318,7 @@ public final class AppSettings {
         static let summarize = "summarize"
         static let recipesFolder = "recipesFolder"
         static let defaultRecipe = "defaultRecipe"
+        static let recipeBook = "recipeBook"
         static let watchedFolders = "watchedFolders"
         static let voiceMemosSeeded = "voiceMemosSeeded"
         static let connectors = "connectors"

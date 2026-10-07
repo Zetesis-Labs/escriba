@@ -24,34 +24,50 @@ struct AppSettingsTests {
         #expect(settings.watchedFolders.isEmpty)
     }
 
-    @Test("la primera vez, la receta por defecto nace de los ajustes de hoy y se guarda")
-    func recetaPorDefectoMigrada() {
+    @Test("la primera vez, el libro nace con una receta de formulario «Por defecto» con los ajustes de hoy y se guarda")
+    func libroMigradoDeLosAjustes() {
         let defaults = freshDefaults()
         let antes = AppSettings(defaults: defaults, voiceMemos: nil)
         antes.language = "en"
         antes.diarization = Diarization(storageValue: 2)
         antes.summarize = true
         defaults.removeObject(forKey: "defaultRecipe")
+        defaults.removeObject(forKey: "recipeBook")
 
         let ahora = AppSettings(defaults: defaults, voiceMemos: nil)
 
-        #expect(ahora.defaultRecipe == DefaultRecipeSettings(
+        #expect(ahora.recipeBook.forms.map(\.name) == ["Por defecto"])
+        #expect(ahora.recipeBook.forms.first?.settings == DefaultRecipeSettings(
             stt: "whisper", language: "en", detectSpeakers: true, speakerCount: 2, summarize: true, llm: "apple",
             prompt: nil, connectors: []))
-        #expect(defaults.data(forKey: "defaultRecipe") != nil)
+        #expect(ahora.recipeBook.defaultKey == ahora.recipeBook.forms.first?.key)
+        #expect(defaults.data(forKey: "recipeBook") != nil)
     }
 
-    @Test("lo que se cambia en el formulario de la receta por defecto sobrevive a una instancia nueva")
-    func recetaPorDefectoPersiste() {
+    @Test("si ya habia receta por defecto guardada, el libro nace de ella")
+    func libroMigradoDeLaRecetaPorDefecto() throws {
+        let defaults = freshDefaults()
+        let guardada = DefaultRecipeSettings(
+            stt: "U1", language: nil, detectSpeakers: false, speakerCount: nil, summarize: true, llm: "U2",
+            prompt: "Breve", connectors: ["K1"])
+        defaults.set(try JSONEncoder().encode(guardada), forKey: "defaultRecipe")
+
+        let settings = AppSettings(defaults: defaults, voiceMemos: nil)
+
+        #expect(settings.recipeBook.forms.map(\.settings) == [guardada])
+    }
+
+    @Test("lo que se cambia en las recetas sobrevive a una instancia nueva")
+    func libroPersiste() {
         let defaults = freshDefaults()
         let settings = AppSettings(defaults: defaults, voiceMemos: nil)
-        settings.defaultRecipe.prompt = "Breve"
-        settings.defaultRecipe.connectors = ["K1"]
+        let nueva = settings.recipeBook.add(key: "F2", name: "Reuniones", settings: .standard)
+        settings.recipeBook.makeDefault(nueva.key)
 
         let otra = AppSettings(defaults: defaults, voiceMemos: nil)
 
-        #expect(otra.defaultRecipe.prompt == "Breve")
-        #expect(otra.defaultRecipe.connectors == ["K1"])
+        #expect(otra.recipeBook == settings.recipeBook)
+        #expect(otra.recipeBook.defaultKey == "F2")
     }
 
     @Test("la clave de un resolutor para las recetas: fija en los locales, su id en los remotos")

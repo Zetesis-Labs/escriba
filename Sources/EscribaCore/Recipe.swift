@@ -129,19 +129,23 @@ extension RecipeStep {
 
 extension RecipeTrace {
     public var headline: String {
-        "Receta «\(recipe)» · \(fingerprint.prefix(7))"
+        "Receta «\(name ?? recipe)» · \(fingerprint.prefix(7))"
     }
 }
 
 public struct RecipeTrace: Sendable, Equatable, Codable {
     public let recipe: String
+    public let name: String?
     public let fingerprint: String
     public let steps: [RecipeStep]
     public let logs: [String]
     public let error: String?
 
-    public init(recipe: String, fingerprint: String, steps: [RecipeStep], logs: [String], error: String?) {
+    public init(
+        recipe: String, name: String? = nil, fingerprint: String, steps: [RecipeStep], logs: [String], error: String?
+    ) {
         self.recipe = recipe
+        self.name = name
         self.fingerprint = fingerprint
         self.steps = steps
         self.logs = logs
@@ -231,20 +235,36 @@ public struct RecipeConnector: Sendable, Equatable, Encodable {
     }
 }
 
+public enum RecipeLookupKind: Sendable, Equatable {
+    case stt
+    case llm
+    case connector
+    case recipe
+
+    var none: String {
+        switch self {
+        case .stt: "ningún STT"
+        case .llm: "ningún LLM"
+        case .connector: "ningún conector"
+        case .recipe: "ninguna receta"
+        }
+    }
+}
+
 public enum RecipeLookupError: Error, Equatable, CustomStringConvertible {
-    case missing(kind: String, query: String)
-    case ambiguous(kind: String, query: String)
+    case missing(kind: RecipeLookupKind, query: String)
+    case ambiguous(kind: RecipeLookupKind, query: String)
 
     public var description: String {
         switch self {
-        case .missing(let kind, let query): "no hay ningún \(kind) «\(query)»"
+        case .missing(let kind, let query): "no hay \(kind.none) «\(query)»"
         case .ambiguous(_, let query): "el nombre «\(query)» lo llevan varios: usa su clave"
         }
     }
 }
 
 public func recipeLookup<Item>(
-    _ query: String, in items: [Item], kind: String, key: (Item) -> String, name: (Item) -> String
+    _ query: String, in items: [Item], kind: RecipeLookupKind, key: (Item) -> String, name: (Item) -> String
 ) throws(RecipeLookupError) -> Item {
     if let exact = items.first(where: { key($0) == query }) { return exact }
     let named = items.filter { name($0).localizedCaseInsensitiveCompare(query) == .orderedSame }

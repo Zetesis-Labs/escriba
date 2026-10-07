@@ -47,7 +47,7 @@ struct ReprocessSheet: View {
                         ForEach(2...6, id: \.self) { Text("\($0)").tag($0) }
                     }
                     if settings.sttResolvers.resolvers.first(where: {
-                        $0.recipeKey(role: .stt) == settings.defaultRecipe.stt
+                        $0.recipeKey(role: .stt) == settings.recipeBook.form(settings.recipeBook.defaultKey)?.settings.stt
                     })?.kind == .remote {
                         Text("Con un servicio remoto no se detectan hablantes.")
                             .font(.caption)
@@ -56,7 +56,7 @@ struct ReprocessSheet: View {
                 }
             }
             .formStyle(.grouped)
-            Text("Se transcribe con el STT de la receta por defecto. El resultado se guarda como una versión nueva; la original se conserva y puedes volver a ella.")
+            Text("Se transcribe con el STT de la receta por defecto, o con Whisper si es de código. El resultado se guarda como una versión nueva; la original se conserva y puedes volver a ella.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
             HStack {

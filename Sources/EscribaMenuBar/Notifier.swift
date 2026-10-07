@@ -14,6 +14,8 @@ enum Notifier {
             problem(title: "Fallo al transcribir \(key)", detail: reason)
         case .backendUnavailable(let reason):
             problem(title: "El motor de transcripcion no responde", detail: reason)
+        case .recipeUnavailable(let reason):
+            problem(title: "La receta por defecto no está disponible", detail: reason)
         case .scanFailed(let reason):
             problem(title: "No puedo leer las grabaciones", detail: reason)
         case .passStarted, .idle, .scanned, .transcribing, .traced:

@@ -100,6 +100,8 @@ public final class LibraryModel {
             status = .problem(key)
         case .backendUnavailable:
             status = .problem("el motor de transcripcion no responde")
+        case .recipeUnavailable:
+            status = .problem("la receta por defecto no está disponible")
         case .scanFailed:
             status = .problem("no puedo leer la carpeta")
         case .idle(let scanned):

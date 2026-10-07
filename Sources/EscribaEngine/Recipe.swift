@@ -28,7 +28,7 @@ public struct RecipeCatalog: Sendable {
     public var llms: [RecipeResolver]
     public var connectors: [RecipeConnector]
     public var transcriber: @Sendable (Recording, RecipeTranscription) throws -> TranscriptionBackend
-    public var summarizer: @Sendable (Recording, RecipeSummaryRequest) throws -> ChosenSummarizer
+    public var summarizer: @Sendable (Recording, RecipeSummaryRequest, _ language: String?) throws -> ChosenSummarizer
 
     public init(
         stts: [RecipeResolver] = [],
@@ -37,7 +37,8 @@ public struct RecipeCatalog: Sendable {
         transcriber: @escaping @Sendable (Recording, RecipeTranscription) throws -> TranscriptionBackend = { _, _ in
             throw RecipeError.unavailable("aquí no se puede elegir con qué transcribir")
         },
-        summarizer: @escaping @Sendable (Recording, RecipeSummaryRequest) throws -> ChosenSummarizer = { _, _ in
+        summarizer: @escaping @Sendable (Recording, RecipeSummaryRequest, String?) throws -> ChosenSummarizer = {
+            _, _, _ in
             throw RecipeError.unavailable("aquí no se puede elegir con qué resumir")
         }
     ) {
@@ -97,20 +98,29 @@ public struct RecipeRuntime: Sendable {
 }
 
 public struct Recipe: Sendable {
-    public let package: RecipePackage
+    public let shelf: RecipeShelf
     public let runtime: RecipeRuntime
     public let publishers: [String: Sink]
     public let catalog: RecipeCatalog
-    public let parameters: DefaultRecipeSettings?
 
     public init(
         package: RecipePackage, runtime: RecipeRuntime, publishers: [String: Sink],
         catalog: RecipeCatalog = RecipeCatalog(), parameters: DefaultRecipeSettings? = nil
     ) {
-        self.package = package
+        self.init(
+            shelf: .only(RecipeTarget(
+                key: package.key, name: package.key, kind: parameters == nil ? .code : .form, package: package,
+                parameters: parameters)),
+            runtime: runtime, publishers: publishers, catalog: catalog)
+    }
+
+    public init(
+        shelf: RecipeShelf, runtime: RecipeRuntime, publishers: [String: Sink],
+        catalog: RecipeCatalog = RecipeCatalog()
+    ) {
+        self.shelf = shelf
         self.runtime = runtime
         self.publishers = publishers
-        self.parameters = parameters
         var catalog = catalog
         if catalog.connectors.isEmpty {
             catalog.connectors = publishers.keys.sorted().map { RecipeConnector(key: $0, name: $0, kind: "") }
@@ -129,6 +139,7 @@ public enum RecipeError: Error, Equatable, CustomStringConvertible {
     case unknownConnector(String)
     case inactiveConnector(String)
     case unavailable(String)
+    case defaultUnavailable(String)
 
     public var description: String {
         switch self {
@@ -142,6 +153,8 @@ public enum RecipeError: Error, Equatable, CustomStringConvertible {
         case .unknownConnector(let key): "no hay ningún conector «\(key)»"
         case .inactiveConnector(let name): "el conector «\(name)» está apagado o sin terminar de configurar"
         case .unavailable(let reason): "las recetas no están disponibles: \(reason)"
+        case .defaultUnavailable(let key):
+            "la receta por defecto «\(key)» no tiene paquete: arréglala o elige otra en Recetas"
         }
     }
 }

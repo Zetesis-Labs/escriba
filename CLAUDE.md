@@ -174,9 +174,14 @@ ad-hoc y puede caducar.
   receta no elige va al local); los locales (Whisper, Apple Intelligence)
   vienen de serie y no se quitan, los remotos hablan la API de OpenAI. Quitar
   un remoto devuelve al local las recetas que lo usaban. **Quién procesa cada nota lo decide la receta por defecto** (Rubén,
-  2026-10-07): su formulario, en la sección Recetas, elige STT, idioma,
-  hablantes, si resume, con qué LLM, **el prompt** (ya no vive en el
-  resolutor) y en qué conectores publica. Ajustes solo tiene General y
+  2026-10-07): la sección Recetas es una lista (`RecipeBook`) de recetas de
+  formulario (en la app; eligen STT, idioma, hablantes, si resume, con qué LLM,
+  **el prompt**, que ya no vive en el resolutor, y en qué conectores publican)
+  y de código (las de la carpeta del proyecto), y una de cualquier tipo es la
+  por defecto. El pipeline la resuelve **en cada nota** (`RecipeShelf`, que lee
+  el libro y `installed.json` al ejecutar): editar recetas no reconstruye los
+  pipelines. Si la por defecto no tiene paquete, las notas esperan
+  (`recipeUnavailable`), nunca se procesan con otra. Ajustes solo tiene General y
   Carpetas vigiladas; las carpetas solo dicen qué se vigila. **Sin fallback**:
   un remoto caído no cae a local; los fallos que afectan a todas las notas (red,
   clave, 429, 5xx) son `backendUnavailable` y la nota espera, los de esa nota

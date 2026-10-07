@@ -11,12 +11,7 @@ public func folderRecipeProject(root: URL, installed: URL) -> RecipeProjectDisk 
                 at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
             try contents.write(to: target, atomically: true, encoding: .utf8)
         },
-        loadInstalled: {
-            guard let data = FileManager.default.contents(atPath: installed.path(percentEncoded: false)) else {
-                return [:]
-            }
-            return try JSONDecoder().decode([String: InstalledRecipe].self, from: data)
-        },
+        loadInstalled: { try readInstalledRecipes(at: installed) },
         saveInstalled: { recipes in
             try FileManager.default.createDirectory(
                 at: installed.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -24,6 +19,11 @@ public func folderRecipeProject(root: URL, installed: URL) -> RecipeProjectDisk 
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
             try encoder.encode(recipes).write(to: installed, options: .atomic)
         })
+}
+
+public func readInstalledRecipes(at installed: URL) throws -> [String: InstalledRecipe] {
+    guard let data = FileManager.default.contents(atPath: installed.path(percentEncoded: false)) else { return [:] }
+    return try JSONDecoder().decode([String: InstalledRecipe].self, from: data)
 }
 
 private let readableExtensions: Set<String> = ["ts", "js", "json", "md", "mts", "cts"]

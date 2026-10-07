@@ -57,17 +57,16 @@ nonisolated func transcriber(
 }
 
 nonisolated func recipeCatalog(
-    routing: ResolverRouting, stts: ResolverSet, llms: ResolverSet, connectors: [RecipeConnector],
-    folderOptions: TranscriptionOptions, language: String?, engine: WhisperKitEngine
+    stts: ResolverSet, llms: ResolverSet, connectors: [RecipeConnector], unchosen: TranscriptionOptions,
+    engine: WhisperKitEngine
 ) -> RecipeCatalog {
     RecipeCatalog(
         stts: recipeResolvers(stts),
         llms: recipeResolvers(llms),
         connectors: connectors,
-        transcriber: { recording, request in
-            let resolver = try request.stt.map { try lookupResolver($0, in: stts) }
-                ?? routing.resolver(.stt, forSource: recording.url.path(percentEncoded: false))
-            let options = request.options(over: folderOptions)
+        transcriber: { _, request in
+            let resolver = try request.stt.map { try lookupResolver($0, in: stts) } ?? stts.local
+            let options = request.options(over: unchosen)
             if let problem = transcriptionProblem(isLocal: resolver.kind == .local, options: options) {
                 throw RecipeError.failed(problem)
             }
@@ -77,9 +76,8 @@ nonisolated func recipeCatalog(
                 route: { _ in resolver.id.uuidString },
                 inputs: { _ in TranscriptionInputs(backend: backendLabel(resolver), options: options) })
         },
-        summarizer: { recording, request in
-            let resolver = try request.llm.map { try lookupResolver($0, in: llms) }
-                ?? routing.resolver(.llm, forSource: recording.url.path(percentEncoded: false))
+        summarizer: { _, request, language in
+            let resolver = try request.llm.map { try lookupResolver($0, in: llms) } ?? llms.local
             let chosen = summarizer(for: resolver).prompted(request.prompt)
             let label = [resolver.name, request.prompt == nil ? nil : "prompt propio"]
                 .compactMap { $0 }.joined(separator: " · ")
@@ -106,15 +104,8 @@ func recipeConnector(_ connector: Connector, isActive: Bool) -> RecipeConnector 
 
 nonisolated private func lookupResolver(_ query: String, in set: ResolverSet) throws -> Resolver {
     try recipeLookup(
-        query, in: set.resolvers, kind: set.role == .stt ? "STT" : "LLM",
+        query, in: set.resolvers, kind: set.role == .stt ? .stt : .llm,
         key: { $0.recipeKey(role: set.role) }, name: \.name)
-}
-
-nonisolated func routedEnricher(_ routing: ResolverRouting, language: String?) -> Enricher {
-    { recording, transcript in
-        let llm = routing.resolver(.llm, forSource: recording.url.path(percentEncoded: false))
-        return await enricher(summarizer(for: llm), language: language)(recording, transcript)
-    }
 }
 
 nonisolated func backendLabel(_ resolver: Resolver) -> String {
