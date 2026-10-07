@@ -56,7 +56,7 @@ struct PipelineTests {
         #expect(llamadas.values.map(\.lastPathComponent) == ["pronto.m4a", "tarde.m4a"])
     }
 
-    @Test("un backend caido aplaza la grabacion, corta la pasada y no consume intentos")
+    @Test("un backend caido aplaza sus grabaciones sin volver a llamarlo y no consume intentos")
     func backendCaido() async throws {
         let ledger = MemoryLedger()
         let llamadas = Trace<URL>()
@@ -72,10 +72,41 @@ struct PipelineTests {
         let outcome = try await pipeline.runOnce()
 
         #expect(llamadas.count == 1)
-        #expect(outcome == PassOutcome(processed: 0, deferred: 1))
+        #expect(outcome == PassOutcome(processed: 0, deferred: 2))
         #expect(ledger.doneKeys.isEmpty)
         #expect(ledger.failures.isEmpty)
         #expect(eventos.values.map(label).contains("backendUnavailable"))
+    }
+
+    @Test("un motor caido solo retiene sus grabaciones: las de otro motor se transcriben en la misma pasada")
+    func motorCaidoNoBloqueaAOtros() async throws {
+        let ledger = MemoryLedger()
+        let llamadas = Trace<String>()
+        let eventos = Trace<PipelineEvent>()
+        let caido = ["antigua.m4a", "otra-remota.m4a"]
+        let enrutado = TranscriptionBackend(
+            name: "segun la grabacion",
+            transcribe: { url throws(TranscriptionError) in
+                llamadas.append(url.lastPathComponent)
+                if caido.contains(url.lastPathComponent) { throw .backendUnavailable("sin clave") }
+                return Transcript(text: "local")
+            },
+            route: { url in caido.contains(url.lastPathComponent) ? "remoto" : "local" })
+        let pipeline = Pipeline(
+            source: source([
+                recording("antigua", minute: 0), recording("nueva", minute: 1),
+                recording("otra-remota", minute: 2),
+            ]),
+            ledger: ledger.port, backend: enrutado, sink: sink(into: Trace()),
+            onEvent: { eventos.append($0) })
+
+        let outcome = try await pipeline.runOnce()
+
+        #expect(llamadas.values == ["antigua.m4a", "nueva.m4a"])
+        #expect(ledger.doneKeys == ["nueva"])
+        #expect(ledger.failures.isEmpty)
+        #expect(outcome == PassOutcome(processed: 1, deferred: 2))
+        #expect(eventos.values.map(label).filter { $0 == "backendUnavailable" }.count == 1)
     }
 
     @Test("un fallo de transcripcion se anota con su motivo y la pasada sigue con las demas")

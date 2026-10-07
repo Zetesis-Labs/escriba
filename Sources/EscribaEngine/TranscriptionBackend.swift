@@ -50,14 +50,17 @@ public struct TranscriptionBackend: Sendable {
     public let name: String
     public let transcribe: @Sendable (URL) async throws(TranscriptionError) -> Transcript
     public let preflight: @Sendable () throws(TranscriptionError) -> Void
+    public let route: @Sendable (URL) -> String
 
     public init(
         name: String,
         transcribe: @escaping @Sendable (URL) async throws(TranscriptionError) -> Transcript,
-        preflight: @escaping @Sendable () throws(TranscriptionError) -> Void = {}
+        preflight: @escaping @Sendable () throws(TranscriptionError) -> Void = {},
+        route: (@Sendable (URL) -> String)? = nil
     ) {
         self.name = name
         self.transcribe = transcribe
         self.preflight = preflight
+        self.route = route ?? { _ in name }
     }
 }
