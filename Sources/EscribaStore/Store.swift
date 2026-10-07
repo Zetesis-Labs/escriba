@@ -114,10 +114,12 @@ public struct TranscriptSummary: Sendable, Equatable {
     public let version: Int
     public let versionCount: Int
     public let digest: Digest?
+    public let preview: String?
+    public let duration: TimeInterval?
 
     public init(
         backend: String, isSegmented: Bool, speakerCount: Int, version: Int = 1,
-        versionCount: Int = 1, digest: Digest? = nil
+        versionCount: Int = 1, digest: Digest? = nil, preview: String? = nil, duration: TimeInterval? = nil
     ) {
         self.backend = backend
         self.isSegmented = isSegmented
@@ -125,8 +127,12 @@ public struct TranscriptSummary: Sendable, Equatable {
         self.version = version
         self.versionCount = versionCount
         self.digest = digest
+        self.preview = preview
+        self.duration = duration
     }
 }
+
+public let recordingPreviewLength = 200
 
 public final class Store: Sendable {
     public let root: URL
@@ -197,7 +203,9 @@ public final class Store: Sendable {
                     speakerCount: transcript.speakers.count,
                     version: count,
                     versionCount: count,
-                    digest: digest))
+                    digest: digest,
+                    preview: String(transcript.text.prefix(recordingPreviewLength)),
+                    duration: transcript.segments.map(\.end).max()))
             return (stored, version)
         }
     }
@@ -767,6 +775,7 @@ private func latestSummaries(_ db: Database) throws -> [Int64: TranscriptSummary
             SELECT t.recordingId AS recordingId, t.backend AS backend,
                    t.digestTitle AS digestTitle, t.digestSummary AS digestSummary,
                    t.digestTags AS digestTags,
+                   substr(t.text, 1, \(recordingPreviewLength)) AS preview, MAX(s.endTime) AS duration,
                    COUNT(s.id) AS segments, COUNT(DISTINCT s.speaker) AS speakers,
                    (SELECT COUNT(*) FROM transcript v WHERE v.recordingId = r.id AND v.id <= t.id) AS version,
                    (SELECT COUNT(*) FROM transcript v WHERE v.recordingId = r.id) AS versionCount
@@ -785,7 +794,9 @@ private func latestSummaries(_ db: Database) throws -> [Int64: TranscriptSummary
             speakerCount: row["speakers"],
             version: row["version"],
             versionCount: row["versionCount"],
-            digest: digest(in: row))
+            digest: digest(in: row),
+            preview: row["preview"],
+            duration: row["duration"])
     }
 }
 

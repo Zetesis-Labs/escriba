@@ -328,7 +328,8 @@ struct StoreSummaryTests {
 
         #expect(
             fila.transcript
-                == TranscriptSummary(backend: "falso", isSegmented: true, speakerCount: 2))
+                == TranscriptSummary(
+                    backend: "falso", isSegmented: true, speakerCount: 2, preview: "Hola, que tal.\nBien.", duration: 3))
         #expect(fila.audio == .libraryCopy)
     }
 
@@ -342,7 +343,17 @@ struct StoreSummaryTests {
 
         #expect(
             fila.transcript
-                == TranscriptSummary(backend: "importado", isSegmented: false, speakerCount: 0))
+                == TranscriptSummary(backend: "importado", isSegmented: false, speakerCount: 0, preview: "plano"))
+    }
+
+    @Test("del texto solo viaja el principio, para la lista")
+    func principio() throws {
+        let sandbox = try Sandbox()
+        let recording = try sandbox.recording("2026-08-31/09-00-00")
+
+        try sandbox.store.save(recording, Transcript(text: String(repeating: "palabra ", count: 100)), backend: "falso")
+
+        #expect(try sandbox.store.recordings().first?.transcript?.preview?.count == recordingPreviewLength)
     }
 
     @Test("con varias grabaciones, cada fila resume su ultima transcripcion y no la de otra")
@@ -363,10 +374,11 @@ struct StoreSummaryTests {
         #expect(
             filas.first(where: { $0.key == nueva.key })?.transcript
                 == TranscriptSummary(
-                    backend: "reprocesado", isSegmented: true, speakerCount: 2, version: 2, versionCount: 2))
+                    backend: "reprocesado", isSegmented: true, speakerCount: 2, version: 2, versionCount: 2,
+                    preview: "Hola, que tal.\nBien.", duration: 3))
         #expect(
             filas.first(where: { $0.key == vieja.key })?.transcript
-                == TranscriptSummary(backend: "importado", isSegmented: false, speakerCount: 0))
+                == TranscriptSummary(backend: "importado", isSegmented: false, speakerCount: 0, preview: "plano"))
     }
 
     @Test("una pendiente no tiene resumen y su audio vive en el origen")

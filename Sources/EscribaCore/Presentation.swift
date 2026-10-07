@@ -47,3 +47,39 @@ extension Transcript {
         return segments[index].speaker != speaker(before: index)
     }
 }
+
+public func recordingTitle(digest: Digest?, preview: String?, startedAt: Date, timeZone: TimeZone) -> String {
+    let text = preview?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    if digest?.title.isEmpty == false || !text.isEmpty {
+        return noteTitle(digest: digest, key: "", text: text, limit: 60)
+    }
+    return "Grabación del \(longDate(startedAt, timeZone: timeZone))"
+}
+
+public func recordingExcerpt(digest: Digest?, preview: String?) -> String? {
+    if let summary = noteDescription(summary: digest?.summary) { return summary }
+    let flat = preview?.split(whereSeparator: \.isNewline).joined(separator: " ")
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+    return flat.flatMap { $0.isEmpty ? nil : $0 }
+}
+
+public func recordingWhen(_ date: Date, now: Date, timeZone: TimeZone) -> String {
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = timeZone
+    let time = String(
+        format: "%02d:%02d", calendar.component(.hour, from: date), calendar.component(.minute, from: date))
+    if calendar.isDate(date, inSameDayAs: now) { return "hoy, \(time)" }
+    if let yesterday = calendar.date(byAdding: .day, value: -1, to: now), calendar.isDate(date, inSameDayAs: yesterday) {
+        return "ayer, \(time)"
+    }
+    let day = calendar.component(.day, from: date)
+    let month = shortMonthNames[calendar.component(.month, from: date) - 1]
+    let year = calendar.component(.year, from: date)
+    return year == calendar.component(.year, from: now) ? "\(day) \(month), \(time)" : "\(day) \(month) \(year)"
+}
+
+public func visibleTags(_ tags: [String], limit: Int = 3) -> (shown: [String], hidden: Int) {
+    (Array(tags.prefix(limit)), max(tags.count - limit, 0))
+}
+
+private let shortMonthNames = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sept", "oct", "nov", "dic"]
