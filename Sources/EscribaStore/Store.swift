@@ -136,8 +136,11 @@ public final class Store: Sendable {
         self.root = root
         try FileManager.default.createDirectory(
             at: root.appending(path: "audio"), withIntermediateDirectories: true)
+        var configuration = Configuration()
+        configuration.busyMode = .timeout(5)
         let pool = try DatabasePool(
-            path: root.appending(path: "library.sqlite").path(percentEncoded: false))
+            path: root.appending(path: "library.sqlite").path(percentEncoded: false),
+            configuration: configuration)
         try makeMigrator().migrate(pool)
         writer = pool
     }
