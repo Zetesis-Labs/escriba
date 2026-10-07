@@ -25,24 +25,21 @@ sería Swift y usaría el Neural Engine igual. No reabrirlo sin que Rubén lo pi
 Kubernetes **está descartado** (Rubén, 2026-10-06: no se va a hacer; no
 reabrirlo sin que lo pida): el análisis queda en
 `docs/requisito-nucleo-wasm-kubernetes.md` y la prueba de `wasi:http` en
-`spikes/wasi-http`. **Recetas** (requisito propuesto por Rubén el
-2026-10-06, sin empezar: `docs/requisito-recetas.md`): un proyecto de código
-con una carpeta por receta y carpetas comunes importables, en JavaScript o
-TypeScript; las recetas se eligen como los resolutores y orquestan todo el recorrido de una grabación con
-`await` (transcribir, resumir, preguntar a los LLM con esquema, guardar
-metadatos propios, publicar en los conectores que la receta elija y con los
-datos que decida); se asignan por carpeta o al grabar e importar, y una puede
-pasar la nota a otra. Sustituyen a los hooks (`docs/requisito-hooks.md`), al
-enrutado por carpeta y por grabación y a los editores de mapeo de los
-conectores. Runtime: **JavaScriptCore detrás de un puerto**, para cambiarlo
-por WebAssembly cuando compense; el tiempo límite usa
-`JSContextGroupSetExecutionTimeLimit` (API privada, cargada con `dlsym`,
-probada en macOS 26) y no cuenta las esperas. El proyecto de recetas vive en
-una carpeta que elige el usuario (la edita Monaco en un `WKWebView`, un agente
-o su editor; git y GitHub son cosa suya) y la app la compila con **esbuild en
-WebAssembly** a paquetes: el motor solo ejecuta paquetes y no lleva compilador.
-Monaco y esbuild se descargan la primera vez que alguien crea una receta propia
-(Rubén, 2026-10-07). Los
+`spikes/wasi-http`. **Recetas** (`docs/requisito-recetas.md`, en construcción desde el
+2026-10-07): programas en TypeScript que orquestan todo el recorrido de una
+grabación con `await`. Una lista de recetas de formulario (en la app) y de
+código (las de la carpeta del proyecto); una es la por defecto y procesa todo,
+y una puede pasar la grabación a otra con `procesar`. **No hay receta por
+carpeta ni por grabación**, ni exportar o importar recetas sueltas, ni
+convertir una de formulario en código (Rubén, 2026-10-07). Runtime:
+**JavaScriptCore detrás de un puerto**, para cambiarlo por WebAssembly cuando
+compense; el tiempo límite usa `JSContextGroupSetExecutionTimeLimit` (API
+privada, cargada con `dlsym`, probada en macOS 26) y no cuenta las esperas. El
+proyecto de recetas vive en una carpeta que elige el usuario (la edita con su
+editor o un agente; git y GitHub son cosa suya) y la app la compila con
+**esbuild en WebAssembly** a paquetes, que se descarga al elegir la carpeta: el
+motor solo ejecuta paquetes y no lleva compilador. El editor Monaco dentro de
+la app está aparcado (Rubén, 2026-10-07). Los
 conectores como plugins wasm se exploraron y se archivaron el 2026-10-06
 (viable, pero no merece la pena ahora): conclusiones y medidas en
 `docs/exploracion-plugins-wasm.md`, código en el PR en borrador #3.
