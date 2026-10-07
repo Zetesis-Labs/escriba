@@ -10,12 +10,20 @@ struct TraceCard: View {
             TraceDetail(trace: trace)
                 .padding(.top, 6)
         } label: {
-            Label(trace.headline, systemImage: trace.outcome.symbol)
+            Label(processedHeadline, systemImage: trace.outcome.symbol)
                 .foregroundStyle(trace.outcome == .ok ? Color.secondary : Color.orange)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(12)
         .background(.quinary, in: RoundedRectangle(cornerRadius: 10))
+    }
+
+    private var processedHeadline: String {
+        let parts = [
+            "Cómo se procesó", trace.name ?? trace.recipe, trace.outcome.label.lowercased(),
+            trace.seconds.map { "\($0.formatted(.number.precision(.fractionLength(1)))) s" },
+        ]
+        return parts.compactMap { $0 }.joined(separator: " · ")
     }
 }
 

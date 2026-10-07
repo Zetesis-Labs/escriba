@@ -37,7 +37,9 @@ struct LibraryWindow: View {
         if let model {
             ListDetailLayout {
                 List(model.recordings, selection: $selected) { recording in
-                    RecordingRowView(recording: recording, origin: origin(recording))
+                    RecordingRowView(
+                        recording: recording, originName: originName(recording),
+                        connectorNames: Dictionary(connectors.map { ($0.key, $0.name) }, uniquingKeysWith: { first, _ in first }))
                         .contextMenu {
                             PublishMenu(
                                 model: model, recording: recording, connectors: connectors,
@@ -67,7 +69,7 @@ struct LibraryWindow: View {
                         model: model,
                         settings: settings,
                         recording: recording,
-                        origin: origin(recording),
+                        originName: originName(recording),
                         connectors: connectors,
                         recipeListing: recipeListing,
                         onAction: { pendingAction = $0 })
@@ -227,8 +229,10 @@ struct LibraryWindow: View {
         inbox.add(panel.urls)
     }
 
-    private func origin(_ recording: StoredRecording) -> WatchedFolder? {
-        folder(for: recording.sourceURL.path(percentEncoded: false), among: folders)
+    private func originName(_ recording: StoredRecording) -> String? {
+        recipeOrigin(
+            forSource: recording.sourceURL.path(percentEncoded: false), inbox: Paths.inbox.path(percentEncoded: false),
+            folders: folders)?.name
     }
 
     private func perform(_ work: @escaping () async throws -> Void) {
@@ -294,145 +298,86 @@ struct PublishMenu: View {
 
 struct RecordingRowView: View {
     let recording: StoredRecording
-    let origin: WatchedFolder?
+    let originName: String?
+    let connectorNames: [String: String]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            HStack(spacing: 8) {
-                Text(recording.startedAt, format: .dateTime.day().month(.wide).hour().minute())
-                Spacer(minLength: 4)
-                StatusChip(status: recording.status)
-            }
-            summaryLine
-            HStack(spacing: 10) {
-                originTag
-                transcriptTag
-                audioTag
-                notionTag
-                Spacer(minLength: 4)
-                Text(recording.key)
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(recording.displayTitle)
+                    .font(.headline)
                     .lineLimit(1)
-                    .truncationMode(.head)
+                Spacer(minLength: 4)
+                if let duration = recording.transcript?.duration {
+                    Text(clockStamp(duration))
+                        .font(.caption)
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                }
             }
-        }
-        .padding(.vertical, 3)
-    }
-
-    @ViewBuilder private var originTag: some View {
-        if let origin {
-            tag(symbol(for: origin.style), text: origin.displayName, help: origin.path)
-        }
-    }
-
-    private func symbol(for style: WatchedFolder.Style) -> String {
-        switch style {
-        case .justPressRecord: "record.circle"
-        case .voiceMemos: "waveform"
-        case .any: "folder"
-        }
-    }
-
-    @ViewBuilder private var summaryLine: some View {
-        if let digest = recording.digest {
+            if let excerpt = recordingExcerpt(digest: recording.digest, preview: recording.transcript?.preview) {
+                Text(excerpt)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+            if let tags = recording.digest?.tags, !tags.isEmpty {
+                TagChips(tags: tags, limit: 3)
+            }
             HStack(spacing: 6) {
-                Image(systemName: "sparkles")
-                Text(digest.title).lineLimit(1).truncationMode(.tail)
+                StatusChip(status: recording.status)
+                Text(footer)
+                    .lineLimit(1)
+                    .foregroundStyle(.tertiary)
+                if let problem = recording.publications.first(where: { $0.error != nil })?.error {
+                    Image(systemName: "exclamationmark.triangle")
+                        .foregroundStyle(.orange)
+                        .help("No se publicó: \(problem)")
+                }
             }
             .font(.caption)
-            .foregroundStyle(.secondary)
-            .help(digest.summary)
         }
+        .padding(.vertical, 6)
     }
 
-    @ViewBuilder private var transcriptTag: some View {
-        if let transcript = recording.transcript {
-            if transcript.speakerCount > 0 {
-                tag("person.2.fill", text: "\(transcript.speakerCount)",
-                    help: "Diarizada con \(transcript.speakerCount) hablantes")
-            } else if transcript.isSegmented {
-                tag("text.word.spacing", help: "Transcrita con tiempos por palabra")
-            } else {
-                tag("text.alignleft", help: "Solo texto, sin tiempos (\(transcript.backend))")
-            }
-        }
-    }
-
-    @ViewBuilder private var audioTag: some View {
-        switch recording.audio {
-        case .libraryCopy:
-            tag("internaldrive", help: "Audio guardado en la biblioteca")
-        case .sourceOnly:
-            tag("icloud", help: "Audio solo en la carpeta de origen, sin copia propia")
-        case .missing:
-            tag("speaker.slash", help: "Solo queda la transcripcion: no hay audio")
-        }
-    }
-
-    @ViewBuilder private var notionTag: some View {
-        let published = recording.publications.filter(\.isPublished)
-        let failed = recording.publications.filter { $0.error != nil }
-        if !published.isEmpty {
-            tag(
-                "square.and.arrow.up.badge.checkmark",
-                text: published.count > 1 ? "\(published.count)" : nil,
-                help: "Publicada en \(published.count) conector(es)")
-        }
-        if let problem = failed.first?.error {
-            tag("square.and.arrow.up.trianglebadge.exclamationmark", help: "No se publicó: \(problem)")
-        }
-    }
-
-    private func tag(_ symbol: String, text: String? = nil, help: String) -> some View {
-        HStack(spacing: 3) {
-            Image(systemName: symbol)
-            if let text { Text(text).lineLimit(1).truncationMode(.tail) }
-        }
-        .font(.caption)
-        .foregroundStyle(.secondary)
-        .help(help)
+    private var footer: String {
+        let published = recording.publications.filter(\.isPublished).map { connectorNames[$0.connector] ?? "conector" }
+        let parts = [
+            originName,
+            recordingWhen(recording.startedAt, now: Date(), timeZone: .current),
+            published.isEmpty ? nil : "en " + published.joined(separator: " y "),
+        ]
+        return parts.compactMap { $0 }.joined(separator: " · ")
     }
 }
 
-struct SummaryCard: View {
-    let digest: Digest?
-    let busy: Bool
-    let canSummarize: Bool
-    let onSummarize: () -> Void
+struct TagChips: View {
+    let tags: [String]
+    var limit = Int.max
 
     var body: some View {
-        if busy {
-            HStack(spacing: 8) {
-                ProgressView().controlSize(.small)
-                Text("Resumiendo…").foregroundStyle(.secondary)
+        let visible = visibleTags(tags, limit: limit)
+        HStack(spacing: 4) {
+            ForEach(visible.shown, id: \.self) { tag in
+                Text(tag)
+                    .font(.caption)
+                    .lineLimit(1)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 2)
+                    .background(.quaternary, in: Capsule())
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        } else if let digest {
-            VStack(alignment: .leading, spacing: 8) {
-                Label(digest.title, systemImage: "sparkles")
-                    .font(.headline)
-                Text(digest.summary)
-                    .textSelection(.enabled)
-                if !digest.tags.isEmpty {
-                    HStack(spacing: 6) {
-                        ForEach(digest.tags, id: \.self) { tag in
-                            Text(tag)
-                                .font(.caption)
-                                .padding(.horizontal, 7)
-                                .padding(.vertical, 2)
-                                .background(.quaternary, in: Capsule())
-                        }
-                    }
-                }
+            if visible.hidden > 0 {
+                Text("+\(visible.hidden)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(12)
-            .background(.quinary, in: RoundedRectangle(cornerRadius: 10))
-        } else if canSummarize {
-            Button("Resumir con el modelo del sistema", systemImage: "sparkles", action: onSummarize)
-                .buttonStyle(.bordered)
         }
+    }
+}
+
+extension StoredRecording {
+    var displayTitle: String {
+        recordingTitle(digest: digest, preview: transcript?.preview, startedAt: startedAt, timeZone: .current)
     }
 }
 
@@ -464,7 +409,7 @@ struct TranscriptDetail: View {
     let model: LibraryModel
     let settings: AppSettings
     let recording: StoredRecording
-    let origin: WatchedFolder?
+    let originName: String?
     let connectors: [Connector]
     let recipeListing: [RecipeListing]
     let onAction: (RowAction) -> Void
@@ -498,11 +443,11 @@ struct TranscriptDetail: View {
             ScrollView {
                 content
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding()
+                    .padding(.horizontal, 28)
+                    .padding(.vertical, 22)
             }
         }
-        .navigationTitle(recording.headline)
-        .navigationSubtitle(subtitle)
+        .navigationTitle(recording.displayTitle)
         .task(id: recording.key) {
             await reload()
             if recording.audio != .missing { player.load(recording.audioURL) }
@@ -730,30 +675,71 @@ struct TranscriptDetail: View {
         }
     }
 
-    private var subtitle: String {
-        let fecha = recording.startedAt.formatted(.dateTime.day().month(.wide).hour().minute())
-        guard let origin else { return fecha }
-        return "\(origin.displayName) · \(fecha)"
+    @ViewBuilder private var content: some View {
+        VStack(alignment: .leading, spacing: 22) {
+            header
+            if let failure {
+                Text("No se pudo leer: \(failure)")
+            } else if let transcript {
+                summarySection
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Transcripción").font(.headline)
+                    KaraokeView(
+                        transcript: transcript,
+                        position: transcript.position(at: player.currentTime),
+                        onSeek: { player.seek(to: $0) })
+                }
+                if let trace { TraceCard(trace: trace) }
+            } else {
+                statusPlaceholder
+            }
+        }
+        .frame(maxWidth: 760, alignment: .leading)
     }
 
-    @ViewBuilder private var content: some View {
-        if let failure {
-            Text("No se pudo leer: \(failure)")
-        } else if let transcript {
-            VStack(alignment: .leading, spacing: 14) {
-                SummaryCard(
-                    digest: recording.digest,
-                    busy: model.isSummarizing(recording.key),
-                    canSummarize: model.canSummarize,
-                    onSummarize: summarize)
-                if let trace { TraceCard(trace: trace) }
-                KaraokeView(
-                    transcript: transcript,
-                    position: transcript.position(at: player.currentTime),
-                    onSeek: { player.seek(to: $0) })
+    private var header: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(recording.displayTitle)
+                .font(.title)
+                .fontWeight(.semibold)
+                .textSelection(.enabled)
+            Text(details)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+            if let tags = recording.digest?.tags, !tags.isEmpty {
+                TagChips(tags: tags)
+                    .padding(.top, 2)
             }
-        } else {
-            statusPlaceholder
+        }
+    }
+
+    private var details: String {
+        let summary = recording.transcript
+        let parts: [String?] = [
+            longDate(recording.startedAt, timeZone: .current),
+            originName,
+            summary?.duration.map(clockStamp),
+            summary.flatMap { $0.speakerCount > 1 ? "\($0.speakerCount) hablantes" : nil },
+            summary.flatMap { $0.versionCount > 1 ? "versión \($0.version) de \($0.versionCount)" : nil },
+        ]
+        return parts.compactMap { $0 }.joined(separator: " · ")
+    }
+
+    @ViewBuilder private var summarySection: some View {
+        if model.isSummarizing(recording.key) {
+            HStack(spacing: 8) {
+                ProgressView().controlSize(.small)
+                Text("Resumiendo…").foregroundStyle(.secondary)
+            }
+        } else if let digest = recording.digest {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Resumen").font(.headline)
+                Text(digest.summary)
+                    .textSelection(.enabled)
+            }
+        } else if model.canSummarize {
+            Button("Resumir", systemImage: "sparkles", action: summarize)
+                .buttonStyle(.bordered)
         }
     }
 
