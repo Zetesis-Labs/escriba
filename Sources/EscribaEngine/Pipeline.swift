@@ -54,15 +54,22 @@ public struct Pipeline: Sendable {
         onEvent?(.passStarted(pending: pending.count))
         var processed = 0
         var deferred = 0
+        var downRoutes: Set<String> = []
 
         for recording in pending {
+            let route = backend.route(recording.url)
+            guard !downRoutes.contains(route) else {
+                Log.info("\(recording.key) espera: su motor de transcripcion no responde")
+                deferred += 1
+                continue
+            }
             do {
                 if try await process(recording) { processed += 1 } else { deferred += 1 }
             } catch let error as TranscriptionError where error.isBackendUnavailable {
                 Log.error("backend caido, se reintenta en el proximo ciclo: \(error)")
                 onEvent?(.backendUnavailable(reason: "\(error)"))
+                downRoutes.insert(route)
                 deferred += 1
-                break
             } catch {
                 Log.error("fallo procesando \(recording.key): \(error)")
                 recordFailure(of: recording, error)

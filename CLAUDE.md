@@ -173,7 +173,9 @@ ad-hoc y puede caducar.
   adelante) > lo de su carpeta o la bandeja > el favorito. **Sin fallback**: un
   remoto caído no cae a local; los fallos que afectan a todas las notas (red,
   clave, 429, 5xx) son `backendUnavailable` y la nota espera, los de esa nota
-  (413, 400) la marcan fallida. La clave se lee en cada llamada, así cambiarla
+  (413, 400) la marcan fallida. Un resolutor caído solo retiene sus notas: la
+  pasada aparta las que van a él (`TranscriptionBackend.route`, el id del
+  resolutor) y sigue con las demás. La clave se lee en cada llamada, así cambiarla
   no reconstruye nada. Diarizar solo existe en local.
 - **Conectores, en plural** (Rubén, 2026-09-20): lista de N conectores, cada
   uno con su token (fichero `~/Library/Application Support/escriba/secrets/<id>.token`

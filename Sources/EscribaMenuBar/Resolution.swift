@@ -50,6 +50,9 @@ nonisolated func routedTranscriber(
         transcribe: { source async throws(TranscriptionError) in
             let stt = routing.resolver(.stt, forSource: source.path(percentEncoded: false))
             return try await transcriber(for: stt, options: options, engine: engine).transcribe(source)
+        },
+        route: { source in
+            routing.resolver(.stt, forSource: source.path(percentEncoded: false)).id.uuidString
         })
 }
 

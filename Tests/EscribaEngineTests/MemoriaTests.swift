@@ -137,7 +137,7 @@ struct MemoriaTests {
         #expect(ledger.doneKeys == ["a"])
     }
 
-    @Test("con el backend caido no se guarda nada y la pasada se corta igual que sin memoria")
+    @Test("con el backend caido no se guarda nada y se aplaza igual que sin memoria")
     func backendCaido() async throws {
         let pasos = Trace<String>()
         let memoria = MemoryNotes(steps: pasos)
@@ -150,7 +150,7 @@ struct MemoriaTests {
         let outcome = try await pipeline.runOnce()
 
         #expect(pasos.values.isEmpty)
-        #expect(outcome == PassOutcome(processed: 0, deferred: 1))
+        #expect(outcome == PassOutcome(processed: 0, deferred: 2))
         #expect(ledger.failures.isEmpty)
     }
 
