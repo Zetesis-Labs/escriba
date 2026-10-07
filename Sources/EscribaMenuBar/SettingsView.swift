@@ -253,13 +253,13 @@ struct ConnectorsPane: View {
                             Button(kind.label) { selected = connectors.add(kind).id }
                         }
                     } label: {
-                        Image(systemName: "plus")
+                        ListBarIcon(systemName: "plus")
                     }
                     .menuIndicator(.hidden)
                     .fixedSize()
                     Button {
                         removing = connectors.connectors.first { $0.id == selected }
-                    } label: { Image(systemName: "minus") }
+                    } label: { ListBarIcon(systemName: "minus") }
                     .disabled(selected == nil)
                     Spacer()
                 }
