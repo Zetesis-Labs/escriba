@@ -163,7 +163,10 @@ final class AppRuntime {
                         connectors: settings.connectors.map {
                             recipeConnector($0, isActive: publishers[$0.key] != nil)
                         },
-                        unchosen: unchosen, engine: engine))
+                        unchosen: unchosen, engine: engine,
+                        origin: { [folders = settings.watchedFolders, inbox = Paths.inbox.path(percentEncoded: false)] in
+                            recipeOrigin(forSource: $0.url.path(percentEncoded: false), inbox: inbox, folders: folders)
+                        }))
             }
             let memory = store.memory()
             let saveSink = saveSink(for: store)

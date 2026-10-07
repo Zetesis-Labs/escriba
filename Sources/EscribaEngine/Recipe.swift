@@ -27,6 +27,7 @@ public struct RecipeCatalog: Sendable {
     public var stts: [RecipeResolver]
     public var llms: [RecipeResolver]
     public var connectors: [RecipeConnector]
+    public var origin: @Sendable (Recording) -> RecipeOrigin?
     public var transcriber: @Sendable (Recording, RecipeTranscription) throws -> TranscriptionBackend
     public var summarizer: @Sendable (Recording, RecipeSummaryRequest, _ language: String?) throws -> ChosenSummarizer
 
@@ -34,6 +35,7 @@ public struct RecipeCatalog: Sendable {
         stts: [RecipeResolver] = [],
         llms: [RecipeResolver] = [],
         connectors: [RecipeConnector] = [],
+        origin: @escaping @Sendable (Recording) -> RecipeOrigin? = { _ in nil },
         transcriber: @escaping @Sendable (Recording, RecipeTranscription) throws -> TranscriptionBackend = { _, _ in
             throw RecipeError.unavailable("aquí no se puede elegir con qué transcribir")
         },
@@ -45,6 +47,7 @@ public struct RecipeCatalog: Sendable {
         self.stts = stts
         self.llms = llms
         self.connectors = connectors
+        self.origin = origin
         self.transcriber = transcriber
         self.summarizer = summarizer
     }

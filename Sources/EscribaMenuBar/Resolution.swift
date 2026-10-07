@@ -58,12 +58,13 @@ nonisolated func transcriber(
 
 nonisolated func recipeCatalog(
     stts: ResolverSet, llms: ResolverSet, connectors: [RecipeConnector], unchosen: TranscriptionOptions,
-    engine: WhisperKitEngine
+    engine: WhisperKitEngine, origin: @escaping @Sendable (Recording) -> RecipeOrigin?
 ) -> RecipeCatalog {
     RecipeCatalog(
         stts: recipeResolvers(stts),
         llms: recipeResolvers(llms),
         connectors: connectors,
+        origin: origin,
         transcriber: { _, request in
             let resolver = try request.stt.map { try lookupResolver($0, in: stts) } ?? stts.local
             let options = request.options(over: unchosen)

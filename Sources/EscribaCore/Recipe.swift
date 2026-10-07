@@ -1,28 +1,61 @@
 import Foundation
 
+public struct RecipeOrigin: Sendable, Equatable, Encodable {
+    public enum Kind: String, Sendable, Equatable, Encodable {
+        case inbox = "bandeja"
+        case folder = "carpeta"
+    }
+
+    public let kind: Kind
+    public let name: String
+    public let path: String
+
+    public init(kind: Kind, name: String, path: String) {
+        self.kind = kind
+        self.name = name
+        self.path = path
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case kind = "tipo", name = "nombre", path = "ruta"
+    }
+}
+
 public struct RecipeAudio: Sendable, Equatable, Encodable {
     public let key: String
     public let name: String
     public let startedAt: Date
+    public let origin: RecipeOrigin?
 
-    public init(key: String, name: String, startedAt: Date) {
+    public init(key: String, name: String, startedAt: Date, origin: RecipeOrigin? = nil) {
         self.key = key
         self.name = name
         self.startedAt = startedAt
+        self.origin = origin
     }
 
     enum CodingKeys: String, CodingKey {
         case key = "clave"
         case name = "nombre"
         case startedAt = "fecha"
+        case origin = "origen"
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(key, forKey: .key)
+        try container.encode(name, forKey: .name)
+        try container.encode(startedAt, forKey: .startedAt)
+        try container.encode(origin, forKey: .origin)
     }
 }
 
-public func recipeAudio(_ recording: Recording) -> RecipeAudio {
+public func recipeAudio(_ recording: Recording, origin: RecipeOrigin? = nil) -> RecipeAudio {
     RecipeAudio(
         key: recording.key,
         name: recording.url.deletingPathExtension().lastPathComponent,
-        startedAt: recording.startedAt)
+        startedAt: recording.startedAt,
+        origin: origin)
 }
 
 public struct RecipeNote: Sendable, Equatable, Encodable {

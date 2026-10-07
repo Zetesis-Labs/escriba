@@ -21,6 +21,20 @@ struct RecetaContratoTests {
         #expect(audio["clave"] as? String == "Escriba/Grabación 2026-10-07 16.14.20")
         #expect(audio["nombre"] as? String == "Grabación 2026-10-07 16.14.20")
         #expect(audio["fecha"] as? String == "1970-01-01T00:00:00Z")
+        #expect(audio["origen"] is NSNull)
+    }
+
+    @Test("el audio dice de donde viene: tipo, nombre y ruta")
+    func origen() throws {
+        let recording = Recording(
+            url: URL(fileURLWithPath: "/Recordings/nota.m4a"), startedAt: Date(timeIntervalSince1970: 0),
+            key: "Notas de Voz/nota")
+
+        let audio = try objeto(try recipeJSON(recipeAudio(
+            recording, origin: RecipeOrigin(kind: .folder, name: "Notas de Voz", path: "/Recordings"))))
+        let origen = try #require(audio["origen"] as? [String: String])
+
+        #expect(origen == ["tipo": "carpeta", "nombre": "Notas de Voz", "ruta": "/Recordings"])
     }
 
     @Test("la nota llega con texto, hablantes, segmentos con palabras y resumen, con los nombres del contrato")

@@ -1,9 +1,16 @@
 public enum RecipeTemplate {
     public static let contract = ##"""
+interface Origen {
+  readonly tipo: "bandeja" | "carpeta"
+  readonly nombre: string
+  readonly ruta: string
+}
+
 interface Audio {
   readonly clave: string
   readonly nombre: string
   readonly fecha: string
+  readonly origen: Origen | null
 }
 
 interface Palabra {
@@ -156,6 +163,11 @@ Cada `receta.ts` exporta:
 
 Lo que puede pedir, con los tipos completos en `escriba-recetas.d.ts`:
 
+- `audio.origen` dice de dónde viene la grabación: `{ tipo, nombre, ruta }`,
+  con `tipo` `"bandeja"` (grabada o añadida en Escriba) o `"carpeta"` (una
+  carpeta vigilada, con su nombre: «Notas de Voz», «Just Press Record»…), o
+  `null` si ya no cae en ninguna. Sirve para repartir:
+  `if (audio.origen?.nombre === "Notas de Voz") return escriba.receta("Reuniones").procesar(audio)`.
 - `escriba.transcribir(audio, { stt, idioma, hablantes })` devuelve la nota.
   Lo que no elijas va al local: Whisper, idioma automático y sin hablantes.
 - `nota.resumir({ llm, prompt })` añade título, resumen y etiquetas. Sin

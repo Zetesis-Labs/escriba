@@ -2,6 +2,7 @@ import Foundation
 import Testing
 
 @testable import EscribaModel
+import EscribaCore
 
 @Suite("De que carpeta viene cada grabacion")
 struct SourceOriginTests {
@@ -41,5 +42,18 @@ struct SourceOriginTests {
         #expect(jpr.displayName == "Just Press Record")
         #expect(memos.displayName == "Notas de Voz")
         #expect(llamadas.displayName == "llamadas")
+    }
+
+    @Test("el origen que ve una receta: la bandeja, la carpeta mas concreta con su nombre, o ninguno")
+    func origenDeReceta() {
+        let folders = [jpr, memos, audios, llamadas]
+
+        #expect(recipeOrigin(forSource: "/bandeja/a.m4a", inbox: "/bandeja", folders: folders)
+            == RecipeOrigin(kind: .inbox, name: "Bandeja", path: "/bandeja"))
+        #expect(recipeOrigin(forSource: "/Recordings/nota.m4a", inbox: "/bandeja", folders: folders)
+            == RecipeOrigin(kind: .folder, name: "Notas de Voz", path: "/Recordings"))
+        #expect(recipeOrigin(forSource: "/audios/llamadas/x.m4a", inbox: "/bandeja", folders: folders)
+            == RecipeOrigin(kind: .folder, name: "llamadas", path: "/audios/llamadas"))
+        #expect(recipeOrigin(forSource: "/otro/x.m4a", inbox: "/bandeja", folders: folders) == nil)
     }
 }

@@ -62,6 +62,18 @@ nonisolated public func folder(for sourcePath: String, among folders: [WatchedFo
         .max { $0.pathComponents.count < $1.pathComponents.count }
 }
 
+nonisolated public func recipeOrigin(
+    forSource sourcePath: String, inbox: String, folders: [WatchedFolder]
+) -> RecipeOrigin? {
+    let source = URL(fileURLWithPath: sourcePath).standardizedFileURL.pathComponents
+    if source.starts(with: URL(fileURLWithPath: inbox).standardizedFileURL.pathComponents) {
+        return RecipeOrigin(kind: .inbox, name: "Bandeja", path: inbox)
+    }
+    return folder(for: sourcePath, among: folders).map {
+        RecipeOrigin(kind: .folder, name: $0.displayName, path: $0.path)
+    }
+}
+
 public func seededWithVoiceMemos(
     _ folders: [WatchedFolder], root: URL?, alreadySeeded: Bool
 ) -> [WatchedFolder] {

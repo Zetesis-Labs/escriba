@@ -85,6 +85,27 @@ struct RecetasDisponiblesTests {
         #expect(!eventos.values.contains { if case .transcribing = $0 { true } else { false } })
     }
 
+    @Test("la receta ve de donde viene la grabacion")
+    func origen() async throws {
+        let visto = Mutex<RecipeOrigin?>(nil)
+        let origen = RecipeOrigin(kind: .folder, name: "Notas de Voz", path: "/Recordings")
+        let runtime = RecipeRuntime(name: "falso") { _, bridge in
+            visto.withLock { $0 = bridge.audio.origin }
+            try await transcribeYGuarda(bridge)
+        }
+
+        try await Pipeline(
+            source: source([recording("a")]), ledger: MemoryLedger().port,
+            backend: backend { _ in Transcript(text: "hola") },
+            sink: { note in URL(fileURLWithPath: "/salida/\(note.recording.key)") },
+            recipe: Recipe(
+                shelf: .only(objetivo("x")), runtime: runtime, publishers: [:],
+                catalog: RecipeCatalog(origin: { _ in origen }))
+        ).runOnce()
+
+        #expect(visto.withLock { $0 } == origen)
+    }
+
     @Test("la receta recibe sus parametros y la traza lleva su clave y su nombre")
     func parametrosYTraza() async throws {
         let recibidos = Mutex<DefaultRecipeSettings?>(nil)

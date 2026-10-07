@@ -39,7 +39,7 @@ final class RecipeSession: Sendable {
     private func bridge(for target: RecipeTarget, chain: [RecipeInfo]) -> RecipeBridge {
         let origin = chain.count > 1 ? target.name : nil
         return RecipeBridge(
-            audio: recipeAudio(recording),
+            audio: recipeAudio(recording, origin: catalog.origin(recording)),
             parameters: target.parameters,
             stts: catalog.stts,
             llms: catalog.llms,
