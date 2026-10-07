@@ -392,15 +392,33 @@ public final class Store: Sendable {
         }
     }
 
-    public func saveTrace(_ trace: RecipeTrace, for key: String) async throws {
+    public static let runRetention: TimeInterval = 30 * 86_400
+
+    public func saveRun(
+        _ trace: RecipeTrace, for key: String, trigger: RecipeRunTrigger, now: Date = Date()
+    ) async throws {
         let payload = String(decoding: try JSONEncoder().encode(trace), as: UTF8.self)
+        let recipes = String(decoding: try JSONEncoder().encode(trace.recipes), as: UTF8.self)
         try await writer.write { db in
             guard let recordingId = try Self.recordingId(of: key, in: db) else {
                 throw StoreError.unknownRecording(key)
             }
+            if trace.outcome == .waiting {
+                try db.execute(
+                    sql: "DELETE FROM recipeRun WHERE recordingId = ? AND recipeKey = ? AND outcome = ?",
+                    arguments: [recordingId, trace.recipe, RecipeRunOutcome.waiting.rawValue])
+            }
             try db.execute(
-                sql: "INSERT OR REPLACE INTO recipeTrace (recordingId, savedAt, payload) VALUES (?, ?, ?)",
-                arguments: [recordingId, Date(), payload])
+                sql: """
+                    INSERT INTO recipeRun (recordingId, recipeKey, recipes, trigger, outcome, startedAt, payload)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                arguments: [
+                    recordingId, trace.recipe, recipes, trigger.rawValue, trace.outcome.rawValue,
+                    trace.startedAt ?? now, payload,
+                ])
+            try db.execute(
+                sql: "DELETE FROM recipeRun WHERE startedAt < ?", arguments: [now.addingTimeInterval(-Self.runRetention)])
         }
     }
 
@@ -408,9 +426,22 @@ public final class Store: Sendable {
         let payload = try await writer.read { db -> String? in
             guard let recordingId = try Self.recordingId(of: key, in: db) else { return nil }
             return try String.fetchOne(
-                db, sql: "SELECT payload FROM recipeTrace WHERE recordingId = ?", arguments: [recordingId])
+                db,
+                sql: "SELECT payload FROM recipeRun WHERE recordingId = ? ORDER BY startedAt DESC, id DESC LIMIT 1",
+                arguments: [recordingId])
         }
         return try payload.map { try JSONDecoder().decode(RecipeTrace.self, from: Data($0.utf8)) }
+    }
+
+    public func runs(_ filter: RecipeRunFilter) throws -> [RecipeRunRecord] {
+        try writer.read { db in try fetchRuns(db, filter) }
+    }
+
+    public func observeRuns(_ filter: RecipeRunFilter) -> some AsyncSequence<[RecipeRunRecord], any Error> {
+        ValueObservation
+            .tracking { db in try fetchRuns(db, filter) }
+            .removeDuplicates()
+            .values(in: writer, scheduling: .task)
     }
 
     public func markDone(_ key: String) async throws {
@@ -765,5 +796,61 @@ public enum StoreError: Error, CustomStringConvertible {
         case .unknownVersion(let id, let key): "la version \(id) no es de la grabacion \(key)"
         case .nothingToSummarize(let key): "la grabacion \(key) aun no tiene transcripcion"
         }
+    }
+}
+
+public struct RecipeRunFilter: Sendable, Equatable {
+    public var recipe: String?
+    public var outcome: RecipeRunOutcome?
+    public var text: String
+    public var limit: Int
+
+    public init(recipe: String? = nil, outcome: RecipeRunOutcome? = nil, text: String = "", limit: Int = 200) {
+        self.recipe = recipe
+        self.outcome = outcome
+        self.text = text
+        self.limit = limit
+    }
+}
+
+public struct RecipeRunRecord: Sendable, Equatable, Identifiable {
+    public let id: Int64
+    public let recordingKey: String
+    public let trigger: RecipeRunTrigger
+    public let startedAt: Date
+    public let trace: RecipeTrace
+
+    public init(id: Int64, recordingKey: String, trigger: RecipeRunTrigger, startedAt: Date, trace: RecipeTrace) {
+        self.id = id
+        self.recordingKey = recordingKey
+        self.trigger = trigger
+        self.startedAt = startedAt
+        self.trace = trace
+    }
+}
+
+private func fetchRuns(_ db: Database, _ filter: RecipeRunFilter) throws -> [RecipeRunRecord] {
+    let text = filter.text.trimmingCharacters(in: .whitespacesAndNewlines)
+    let pattern = "%\(text)%"
+    let rows = try Row.fetchAll(
+        db,
+        sql: """
+            SELECT run.id, recording.key, run.trigger, run.startedAt, run.payload
+            FROM recipeRun AS run JOIN recording ON recording.id = run.recordingId
+            WHERE (? IS NULL OR EXISTS (SELECT 1 FROM json_each(run.recipes) WHERE json_each.value = ?))
+              AND (? IS NULL OR run.outcome = ?)
+              AND (? = '' OR recording.key LIKE ? OR run.payload LIKE ?)
+            ORDER BY run.startedAt DESC, run.id DESC
+            LIMIT ?
+            """,
+        arguments: [
+            filter.recipe, filter.recipe, filter.outcome?.rawValue, filter.outcome?.rawValue, text, pattern, pattern,
+            filter.limit,
+        ])
+    return try rows.map { row in
+        let payload: String = row[4]
+        return RecipeRunRecord(
+            id: row[0], recordingKey: row[1], trigger: RecipeRunTrigger(rawValue: row[2]) ?? .pipeline,
+            startedAt: row[3], trace: try JSONDecoder().decode(RecipeTrace.self, from: Data(payload.utf8)))
     }
 }

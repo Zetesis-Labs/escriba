@@ -102,7 +102,7 @@ public final class LibraryModel {
             await mirror("marcar \(key) como hecha") { try await store.markDone(key) }
             if case .problem = status {} else { status = .watching }
         case .traced(let key, let trace):
-            await mirror("guardar la traza de \(key)") { try await store.saveTrace(trace, for: key) }
+            await mirror("guardar la traza de \(key)") { try await store.saveRun(trace, for: key, trigger: .pipeline) }
             traceRevisions[key, default: 0] += 1
         case .failed(let key, let reason):
             await mirror("anotar el fallo de \(key)") {
@@ -256,7 +256,9 @@ public final class LibraryModel {
 
         let report = await reprocess(recording, choice)
         if let trace = report.trace {
-            await mirror("guardar la traza de \(recording.key)") { try await store.saveTrace(trace, for: recording.key) }
+            await mirror("guardar la traza de \(recording.key)") {
+                try await store.saveRun(trace, for: recording.key, trigger: .reprocess)
+            }
             traceRevisions[recording.key, default: 0] += 1
         }
         if let failure = report.failure { throw LibraryModelError.recipeFailed(failure) }

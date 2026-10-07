@@ -273,5 +273,29 @@ func makeMigrator() -> DatabaseMigrator {
             t.column("payload", .text).notNull()
         }
     }
+    migrator.registerMigration("v8-ejecuciones") { db in
+        try db.create(table: "recipeRun") { t in
+            t.autoIncrementedPrimaryKey("id")
+            t.column("recordingId", .integer).notNull().indexed().references("recording", onDelete: .cascade)
+            t.column("recipeKey", .text).notNull()
+            t.column("recipes", .text).notNull()
+            t.column("trigger", .text).notNull()
+            t.column("outcome", .text).notNull()
+            t.column("startedAt", .datetime).notNull().indexed()
+            t.column("payload", .text).notNull()
+        }
+        try db.execute(sql: """
+            INSERT INTO recipeRun (recordingId, recipeKey, recipes, trigger, outcome, startedAt, payload)
+            SELECT recordingId,
+                   json_extract(payload, '$.recipe'),
+                   json_array(json_extract(payload, '$.recipe')),
+                   'pipeline',
+                   CASE WHEN json_extract(payload, '$.error') IS NULL THEN 'ok' ELSE 'failed' END,
+                   savedAt,
+                   payload
+            FROM recipeTrace
+            """)
+        try db.drop(table: "recipeTrace")
+    }
     return migrator
 }

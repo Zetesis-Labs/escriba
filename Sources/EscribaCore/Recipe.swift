@@ -196,6 +196,12 @@ public enum RecipeRunOutcome: String, Sendable, Equatable, Codable {
     case waiting
 }
 
+public enum RecipeRunTrigger: String, Sendable, Equatable, Codable {
+    case pipeline
+    case reprocess
+    case test
+}
+
 public struct RecipeTrace: Sendable, Equatable, Codable {
     public let recipe: String
     public let name: String?
