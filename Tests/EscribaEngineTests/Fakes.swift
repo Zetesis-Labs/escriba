@@ -133,5 +133,6 @@ func label(_ event: PipelineEvent) -> String {
     case .backendUnavailable: "backendUnavailable"
     case .idle: "idle"
     case .scanFailed: "scanFailed"
+    case .traced: "traced"
     }
 }

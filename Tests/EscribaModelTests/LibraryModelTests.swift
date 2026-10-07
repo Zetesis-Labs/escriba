@@ -241,6 +241,21 @@ struct LibraryStatusTests {
         #expect(try sandbox.store.recordings().first?.status == .done)
     }
 
+    @Test("la traza de una receta llega a la biblioteca y el detalle la ve")
+    func traza() async throws {
+        let sandbox = try Sandbox()
+        let recording = try makeRecording(sandbox, "2026-08-31/09-00-00")
+        await sandbox.model.apply(.scanned(recordings: [recording]))
+        let traza = RecipeTrace(
+            recipe: "por-defecto", fingerprint: "abc123",
+            steps: [RecipeStep(capability: "transcribir", detail: nil, seconds: 1, error: nil)],
+            logs: [], error: nil)
+
+        await sandbox.model.apply(.traced(key: recording.key, trace: traza))
+
+        #expect(try await sandbox.model.latestTrace(for: recording.key) == traza)
+    }
+
     @Test("una nota reintentada con lo que ya estaba guardado vuelve a quedar hecha")
     func reintentoRecordado() async throws {
         let sandbox = try Sandbox()

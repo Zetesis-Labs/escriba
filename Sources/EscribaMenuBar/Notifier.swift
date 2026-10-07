@@ -16,7 +16,7 @@ enum Notifier {
             problem(title: "El motor de transcripcion no responde", detail: reason)
         case .scanFailed(let reason):
             problem(title: "No puedo leer las grabaciones", detail: reason)
-        case .passStarted, .idle, .scanned, .transcribing:
+        case .passStarted, .idle, .scanned, .transcribing, .traced:
             break
         }
     }

@@ -4,6 +4,7 @@ import EscribaCore
 import EscribaEngine
 import EscribaSystemKit
 import EscribaIntelligence
+import EscribaJSC
 import EscribaNotion
 import EscribaOKF
 import EscribaOpenAI
@@ -168,14 +169,16 @@ final class AppRuntime {
             reconcileLibrary(store: store, ledger: ledger)
             let summarize = settings.summarize
             let language = settings.languageCode
+            let recipe = defaultRecipe(publishers: publishers(for: store))
             controllers = pipelineSources.map { entry in
                 let pipeline = Pipeline(
                     source: entry.source,
                     ledger: ledger,
                     backend: entry.backend,
-                    sink: sink(for: store),
+                    sink: recipe == nil ? sink(for: store) : saveSink(for: store),
                     enrich: summarize ? routedEnricher(routing, language: language) : nil,
                     memory: store.memory(inputs: routedInputs(routing, options: entry.options)),
+                    recipe: recipe,
                     onEvent: { continuation.yield($0) }
                 )
                 let controller = DaemonController(pipeline: pipeline)
@@ -289,11 +292,23 @@ final class AppRuntime {
         }
     }
 
+    private func defaultRecipe(publishers: [String: Sink]) -> Recipe? {
+        do {
+            return Recipe(package: .defaultRecipe, runtime: try javaScriptCoreRuntime(), publishers: publishers)
+        } catch {
+            Log.error("las recetas no arrancan, se procesa sin receta: \(error)")
+            return nil
+        }
+    }
+
     private func sink(for store: Store) -> Sink {
-        let primary = settings.writeTxt
+        sinks(primary: saveSink(for: store), all: publishers(for: store).values.map(forgiving))
+    }
+
+    private func saveSink(for store: Store) -> Sink {
+        settings.writeTxt
             ? sidecarTextSink(outputRoot: URL(fileURLWithPath: settings.txtFolderPath))
             : store.audioCopySink()
-        return sinks(primary: primary, all: publishers(for: store).values.map(forgiving))
     }
 
     private func publishers(for store: Store) -> [String: Sink] {

@@ -389,6 +389,27 @@ public final class Store: Sendable {
         }
     }
 
+    public func saveTrace(_ trace: RecipeTrace, for key: String) async throws {
+        let payload = String(decoding: try JSONEncoder().encode(trace), as: UTF8.self)
+        try await writer.write { db in
+            guard let recordingId = try Self.recordingId(of: key, in: db) else {
+                throw StoreError.unknownRecording(key)
+            }
+            try db.execute(
+                sql: "INSERT OR REPLACE INTO recipeTrace (recordingId, savedAt, payload) VALUES (?, ?, ?)",
+                arguments: [recordingId, Date(), payload])
+        }
+    }
+
+    public func latestTrace(for key: String) async throws -> RecipeTrace? {
+        let payload = try await writer.read { db -> String? in
+            guard let recordingId = try Self.recordingId(of: key, in: db) else { return nil }
+            return try String.fetchOne(
+                db, sql: "SELECT payload FROM recipeTrace WHERE recordingId = ?", arguments: [recordingId])
+        }
+        return try payload.map { try JSONDecoder().decode(RecipeTrace.self, from: Data($0.utf8)) }
+    }
+
     public func markDone(_ key: String) async throws {
         try await writer.write { db in
             try db.execute(

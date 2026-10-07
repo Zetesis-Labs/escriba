@@ -12,6 +12,7 @@ extension Pipeline {
         materializeTimeout: TimeInterval = 300,
         enrich: Enricher? = nil,
         memory: NoteMemory? = nil,
+        recipe: Recipe? = nil,
         onEvent: EventHandler? = nil
     ) {
         self.init(
@@ -22,6 +23,7 @@ extension Pipeline {
             readiness: fileReadiness(settleSeconds: settleSeconds, materializeTimeout: materializeTimeout),
             enrich: enrich,
             memory: memory,
+            recipe: recipe,
             onEvent: onEvent)
     }
 }

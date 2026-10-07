@@ -266,5 +266,12 @@ func makeMigrator() -> DatabaseMigrator {
             t.add(column: "digestTags", .text)
         }
     }
+    migrator.registerMigration("v7-traza") { db in
+        try db.create(table: "recipeTrace") { t in
+            t.primaryKey("recordingId", .integer).references("recording", onDelete: .cascade)
+            t.column("savedAt", .datetime).notNull()
+            t.column("payload", .text).notNull()
+        }
+    }
     return migrator
 }
