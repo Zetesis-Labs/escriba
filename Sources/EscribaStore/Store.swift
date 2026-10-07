@@ -389,6 +389,16 @@ public final class Store: Sendable {
         }
     }
 
+    public func markDone(_ key: String) async throws {
+        try await writer.write { db in
+            try db.execute(
+                sql: "UPDATE recording SET status = ?, lastError = NULL WHERE key = ? AND status <> ?",
+                arguments: [
+                    RecordingStatus.done.rawValue, key, RecordingStatus.discarded.rawValue,
+                ])
+        }
+    }
+
     public func markFailed(_ key: String, error: String) async throws {
         try await writer.write { db in
             try db.execute(

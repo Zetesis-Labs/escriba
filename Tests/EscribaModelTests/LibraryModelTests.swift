@@ -241,6 +241,34 @@ struct LibraryStatusTests {
         #expect(try sandbox.store.recordings().first?.status == .done)
     }
 
+    @Test("una nota reintentada con lo que ya estaba guardado vuelve a quedar hecha")
+    func reintentoRecordado() async throws {
+        let sandbox = try Sandbox()
+        let recording = try makeRecording(sandbox, "2026-08-31/09-00-00")
+        await sandbox.model.apply(.scanned(recordings: [recording]))
+        try sandbox.store.save(recording, Transcript(text: "lista"), backend: "falso")
+        await sandbox.model.apply(.failed(key: recording.key, reason: "no se pudo escribir el .txt"))
+        await sandbox.model.apply(.transcribing(key: recording.key))
+
+        await sandbox.model.apply(.transcribed(key: recording.key, transcript: Transcript(text: "lista"), output: salida))
+
+        let fila = try #require(try sandbox.store.recordings().first)
+        #expect(fila.status == .done)
+        #expect(fila.lastError == nil)
+    }
+
+    @Test("una nota terminada no resucita si se borro mientras se procesaba")
+    func terminadaTrasBorrar() async throws {
+        let sandbox = try Sandbox()
+        let recording = try makeRecording(sandbox, "2026-08-31/09-00-00")
+        try sandbox.store.save(recording, Transcript(text: "t"), backend: "falso")
+        try await sandbox.model.discard(recording.key)
+
+        await sandbox.model.apply(.transcribed(key: recording.key, transcript: Transcript(text: "t"), output: salida))
+
+        #expect(try sandbox.store.recording(for: recording.key)?.status == .discarded)
+    }
+
     @Test("borrar desde el modelo esconde la fila y el siguiente escaneo no la devuelve")
     func borrar() async throws {
         let sandbox = try Sandbox()

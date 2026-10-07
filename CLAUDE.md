@@ -86,7 +86,7 @@ ad-hoc y puede caducar.
 | Target | Qué | Corre en | Dependencias |
 |---|---|---|---|
 | `EscribaCore` | Modelo (`Transcript`, `Recording`), parseo, decisiones puras | macOS, Linux, WASI | ninguna |
-| `EscribaEngine` | Puertos (`TranscriptionBackend`, `RecordingSource`, `Sink`, `LedgerPort`, `FolderWatcher`, `ReadinessProbe`), `Pipeline`, `Daemon`, `Log`. Orquestación que solo habla con puertos | macOS, Linux, WASI | ninguna |
+| `EscribaEngine` | Puertos (`TranscriptionBackend`, `RecordingSource`, `Sink`, `LedgerPort`, `NoteMemory`, `FolderWatcher`, `ReadinessProbe`), capacidades, `Pipeline`, `Daemon`, `Log`. Orquestación que solo habla con puertos | macOS, Linux, WASI | ninguna |
 | `EscribaNotion` | Conector Notion: valor de cada columna según su tipo, cuerpo de texto con datos convertido a bloques, cliente API sobre un transporte HTTP propio, publicación, sink | macOS, Linux, WASI | ninguna (URLSession solo fuera de WASI) |
 | `EscribaOKF` | Conector a un bundle OKF v0.2 en una carpeta: N documentos por grabación (ruta, frontmatter y cuerpo con datos), `index.md` por carpeta y `log.md`. Decisiones puras (`okfPublication`, `okfRemoval`) y sink sobre el puerto `OKFFolder` | macOS, Linux, WASI | ninguna |
 | `EscribaSystemKit` | Host de sistema: FSEvents (macOS) o sondeo (Linux), stat/iCloud/materialización, flock, `offloaded`, ledger SQLite, migración legacy | macOS, Linux | SQLite del sistema (`CSQLite` en Linux) |
@@ -100,7 +100,7 @@ ad-hoc y puede caducar.
 | `escriba-wasm-probe` | Sonda que ejercita Core+Engine+Notion; la ejecuta el CI en un runtime WASI | WASI | |
 
 - **Los puertos son structs de funciones**, no protocolos ni herencia:
-  `TranscriptionBackend`, `RecordingSource`, `Sink`, `LedgerPort`,
+  `TranscriptionBackend`, `RecordingSource`, `Sink`, `LedgerPort`, `NoteMemory`,
   `NotionClient`, `NotionTransport`, `Summarizer`, `OKFFolder`. Una implementación nueva es
   una función `make(...)` que devuelve el struct.
 - **Las plantillas son texto con datos, compartidas por los conectores**:
