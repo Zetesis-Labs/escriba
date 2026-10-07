@@ -49,6 +49,7 @@ struct OutcomePicker: View {
             }
         }
         .pickerStyle(.segmented)
+        .fixedSize()
     }
 }
 

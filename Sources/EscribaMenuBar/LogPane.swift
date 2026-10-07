@@ -23,6 +23,7 @@ struct LogPane: View {
             }
             .pickerStyle(.segmented)
             .labelsHidden()
+            .fixedSize()
             .padding(12)
             Divider()
             switch tab {
@@ -57,13 +58,14 @@ private struct RunsLog: View {
                         Text(recipe.name).tag(String?.some(recipe.key))
                     }
                 }
-                .frame(maxWidth: 220)
+                .fixedSize()
                 OutcomePicker(outcome: $outcome)
-                    .frame(maxWidth: 320)
+                    .labelsHidden()
                 TextField("Buscar en la nota o en el log", text: $text)
                     .textFieldStyle(.roundedBorder)
             }
             .padding(12)
+            Divider()
             List {
                 if let problem = runs?.problem {
                     Text(problem).foregroundStyle(.orange)
