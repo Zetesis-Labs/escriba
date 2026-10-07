@@ -458,3 +458,31 @@ public func transcriptionProblem(isLocal: Bool, options: TranscriptionOptions) -
     guard !isLocal, options.diarize else { return nil }
     return "un STT remoto no detecta hablantes: usa Whisper o pide hablantes: { detectar: false }"
 }
+
+public func recipeTraceText(_ trace: RecipeTrace) -> String {
+    let outcome = switch trace.outcome {
+    case .ok: "bien"
+    case .failed: "falló"
+    case .waiting: "esperando"
+    }
+    let header = [trace.headline, outcome, trace.seconds.map { "\(decimal($0)) s" }].compactMap { $0 }
+        .joined(separator: " · ")
+    let steps = trace.steps.map { step in
+        "\(step.error == nil ? "✓" : "✗") \(step.title) (\(decimal(step.seconds)) s)" + (step.error.map { ": \($0)" } ?? "")
+    }
+    let logs = trace.logs.map { line in
+        let level = switch line.level {
+        case .warn: "aviso "
+        case .error: "error "
+        case .debug: "debug "
+        case .info: ""
+        }
+        return "+\(decimal(line.seconds)) s \(level)\(line.origin.map { "\($0) › " } ?? "")\(line.text)"
+    }
+    return ([header] + steps + logs + (trace.error.map { ["Error: \($0)"] } ?? [])).joined(separator: "\n")
+}
+
+private func decimal(_ value: Double) -> String {
+    let tenths = Int((value * 10).rounded())
+    return "\(tenths / 10),\(tenths % 10)"
+}
