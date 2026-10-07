@@ -1,8 +1,12 @@
 import Foundation
 
+public let abandonedEmptyAfter: TimeInterval = 3_600
+
 public func classify(probe: Probe, previous: Probe?, settleSeconds: TimeInterval) -> FileState {
     if probe.isDataless { return .dataless }
-    if probe.size == 0 { return .empty }
+    if probe.size == 0 {
+        return probe.observedAt.timeIntervalSince(probe.modifiedAt) > abandonedEmptyAfter ? .abandoned : .empty
+    }
     if let previous, previous.size != probe.size { return .growing }
     if probe.observedAt.timeIntervalSince(probe.modifiedAt) < settleSeconds { return .growing }
     return .ready

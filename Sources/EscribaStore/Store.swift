@@ -492,6 +492,15 @@ public final class Store: Sendable {
         }
     }
 
+    public func discardedRecordings() throws -> [DiscardedRecording] {
+        try writer.read { db in
+            try Row.fetchAll(
+                db, sql: "SELECT key, sourcePath FROM recording WHERE status = ?",
+                arguments: [RecordingStatus.discarded.rawValue]
+            ).map { row in DiscardedRecording(key: row[0], sourceURL: URL(fileURLWithPath: row[1])) }
+        }
+    }
+
     public func removeAudio(key: String) async throws {
         let root = root
         try await writer.write { db in
@@ -855,5 +864,15 @@ private func fetchRuns(_ db: Database, _ filter: RecipeRunFilter) throws -> [Rec
         return RecipeRunRecord(
             id: row[0], recordingKey: row[1], trigger: RecipeRunTrigger(rawValue: row[2]) ?? .pipeline,
             startedAt: row[3], trace: try JSONDecoder().decode(RecipeTrace.self, from: Data(payload.utf8)))
+    }
+}
+
+public struct DiscardedRecording: Sendable, Equatable {
+    public let key: String
+    public let sourceURL: URL
+
+    public init(key: String, sourceURL: URL) {
+        self.key = key
+        self.sourceURL = sourceURL
     }
 }

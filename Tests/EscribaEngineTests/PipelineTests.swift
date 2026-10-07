@@ -162,6 +162,22 @@ struct PipelineTests {
         #expect(ledger.failures.isEmpty)
     }
 
+    @Test("una grabacion vacia para siempre se da por fallida y no vuelve a la cola cada pocos segundos")
+    func vacia() async throws {
+        let ledger = MemoryLedger()
+        let eventos = Trace<PipelineEvent>()
+        let pipeline = Pipeline(
+            source: source([recording("a")]), ledger: ledger.port,
+            backend: backend { _ in Transcript(text: "x") }, sink: sink(into: Trace()), readiness: { _ in .abandoned },
+            onEvent: { eventos.append($0) })
+
+        let outcome = try await pipeline.runOnce()
+
+        #expect(outcome == PassOutcome(processed: 0, deferred: 0))
+        #expect(ledger.failures["a"] == "el fichero está vacío (0 bytes) desde hace más de una hora")
+        #expect(eventos.values.map(label).contains("failed"))
+    }
+
     @Test("si la fuente no se puede leer, la pasada falla y lo anuncia")
     func fuenteIlegible() async throws {
         let eventos = Trace<PipelineEvent>()

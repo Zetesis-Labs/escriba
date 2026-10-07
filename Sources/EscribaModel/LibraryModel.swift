@@ -45,6 +45,7 @@ public final class LibraryModel {
     @ObservationIgnored private let digester: Digester?
     @ObservationIgnored private let publishers: [String: Sink]
     @ObservationIgnored private let unpublishers: [String: Unpublisher]
+    @ObservationIgnored private let discarded: (@Sendable (String, URL) throws -> Void)?
     @ObservationIgnored private var observation: Task<Void, Never>?
 
     public init(
@@ -52,8 +53,10 @@ public final class LibraryModel {
         reprocess: RecipeRunner? = nil,
         digester: Digester? = nil,
         publishers: [String: Sink] = [:],
-        unpublishers: [String: Unpublisher] = [:]
+        unpublishers: [String: Unpublisher] = [:],
+        discarded: (@Sendable (String, URL) throws -> Void)? = nil
     ) {
+        self.discarded = discarded
         self.store = store
         self.reprocess = reprocess
         self.digester = digester
@@ -241,7 +244,9 @@ public final class LibraryModel {
     }
 
     public func discard(_ key: String) async throws {
+        let source = try store.recording(for: key)?.sourceURL
         try await store.discard(key: key)
+        if let source { try discarded?(key, source) }
     }
 
     public func removeAudio(_ key: String) async throws {

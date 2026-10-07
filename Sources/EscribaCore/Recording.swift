@@ -37,4 +37,5 @@ public enum FileState: String, Sendable {
     case empty
     case growing
     case ready
+    case abandoned
 }
