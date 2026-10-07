@@ -98,7 +98,7 @@ ad-hoc y puede caducar.
 | `EscribaStore` | Biblioteca SQLite + copia del audio + rastro de publicaciones | macOS, Linux | GRDB |
 | `EscribaModel` | Modelos observables de la UI (biblioteca, conectores, ajustes), token en fichero 0600 | macOS | |
 | `escriba` | CLI | macOS | |
-| `EscribaMenuBar` | App: ventana única con Biblioteca / Conectores / STT / LLMs / Ajustes | macOS | aislamiento MainActor por defecto |
+| `EscribaMenuBar` | App: ventana única con Biblioteca / Conectores / STT / LLMs / Recetas / Registro / Ajustes | macOS | aislamiento MainActor por defecto |
 | `escriba-wasm-probe` | Sonda que ejercita Core+Engine+Notion; la ejecuta el CI en un runtime WASI | WASI | |
 
 - **Los puertos son structs de funciones**, no protocolos ni herencia:
@@ -206,7 +206,7 @@ ad-hoc y puede caducar.
   obligaría a un backend con `client_secret`. Cada usuario crea su conexión
   «Token de acceso» en Notion y le comparte las bases.
 - **La ventana de Ajustes no existe**: todo vive en la ventana principal
-  (barra lateral Biblioteca / Conectores / STT / LLMs / Ajustes).
+  (barra lateral Biblioteca / Conectores / STT / LLMs / Recetas / Registro / Ajustes).
 - **Resumir es un puerto, no una dependencia** (Rubén, 2026-09-21): `Summarizer`
   vive en `EscribaEngine` y recibe una `DigestRequest` (instrucciones +
   petición, ambas decididas en `EscribaCore`) y devuelve un `Digest`. El
