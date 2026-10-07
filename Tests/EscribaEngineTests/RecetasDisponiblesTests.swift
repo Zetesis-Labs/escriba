@@ -159,6 +159,16 @@ struct EstanteDeRecetasTests {
         #expect(throws: RecipeLookupError.missing(kind: .recipe, query: "nada")) { try shelf.target("nada") }
     }
 
+    @Test("retocar los parametros para una vez cambia una de formulario y deja igual una de codigo")
+    func retocar() {
+        let deFormulario = objetivo("F1", parametros: ajustes)
+        let deCodigo = objetivo("ideas")
+
+        #expect(deFormulario.overriding(.standard).parameters == .standard)
+        #expect(deFormulario.overriding(nil) == deFormulario)
+        #expect(deCodigo.overriding(.standard) == deCodigo)
+    }
+
     @Test("la lista lleva las de formulario y luego las de codigo, con su tipo")
     func lista() throws {
         let libro = RecipeBook(migrating: ajustes, key: "F1")

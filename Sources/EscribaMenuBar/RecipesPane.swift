@@ -177,52 +177,7 @@ private struct FormRecipeEditor: View {
             } footer: {
                 Text("Las recetas de formulario ejecutan el mismo código que «Por defecto» con estos parámetros. Desde una receta de código se llaman con escriba.receta(\"\(name)\").procesar(audio).")
             }
-            Section("Transcripción") {
-                Picker("Transcribe con", selection: parameters.stt) {
-                    ForEach(settings.sttResolvers.resolvers) { resolver in
-                        Text(resolver.name).tag(resolver.recipeKey(role: .stt))
-                    }
-                }
-                Picker("Idioma", selection: parameters.language) {
-                    Text("Español").tag(String?.some("es"))
-                    Text("English").tag(String?.some("en"))
-                    Text("Detectar en cada nota").tag(String?.none)
-                }
-                Picker("Hablantes", selection: speakers) {
-                    Text("No detectar").tag(-1)
-                    Text("Detectar").tag(0)
-                    ForEach(2...6, id: \.self) { count in
-                        Text("\(count) hablantes").tag(count)
-                    }
-                }
-                if let problem {
-                    Text(problem)
-                        .font(.caption)
-                        .foregroundStyle(.orange)
-                }
-            }
-            Section("Resumen") {
-                Toggle("Resumir", isOn: parameters.summarize)
-                if parameters.wrappedValue.summarize {
-                    Picker("Resume con", selection: parameters.llm) {
-                        ForEach(settings.llmResolvers.resolvers) { resolver in
-                            Text(resolver.name).tag(resolver.recipeKey(role: .llm))
-                        }
-                    }
-                    TextField("Prompt", text: prompt, prompt: Text("El de serie"), axis: .vertical)
-                        .lineLimit(3...8)
-                }
-            }
-            Section("Publica en") {
-                if settings.connectors.isEmpty {
-                    Text("No hay conectores").foregroundStyle(.secondary)
-                }
-                ForEach(settings.connectors) { connector in
-                    Toggle(
-                        connector.isLive ? connector.name : "\(connector.name) (apagado)",
-                        isOn: publishes(connector.key))
-                }
-            }
+            RecipeParametersFields(settings: settings, parameters: parameters)
         }
         .formStyle(.grouped)
     }
@@ -231,41 +186,6 @@ private struct FormRecipeEditor: View {
         Binding(
             get: { settings.recipeBook.form(recipe.key)?.settings ?? recipe.settings },
             set: { settings.recipeBook.update(recipe.key, settings: $0) })
-    }
-
-    private var speakers: Binding<Int> {
-        Binding(
-            get: {
-                let current = parameters.wrappedValue
-                return current.detectSpeakers ? current.speakerCount ?? 0 : -1
-            },
-            set: { value in
-                parameters.wrappedValue.detectSpeakers = value >= 0
-                parameters.wrappedValue.speakerCount = value > 0 ? value : nil
-            })
-    }
-
-    private var prompt: Binding<String> {
-        Binding(
-            get: { parameters.wrappedValue.prompt ?? "" },
-            set: { parameters.wrappedValue.prompt = $0.isEmpty ? nil : $0 })
-    }
-
-    private func publishes(_ key: String) -> Binding<Bool> {
-        Binding(
-            get: { parameters.wrappedValue.connectors.contains(key) },
-            set: { on in
-                parameters.wrappedValue.connectors.removeAll { $0 == key }
-                if on { parameters.wrappedValue.connectors.append(key) }
-            })
-    }
-
-    private var problem: String? {
-        let current = parameters.wrappedValue
-        let stt = settings.sttResolvers.resolvers.first { $0.recipeKey(role: .stt) == current.stt }
-        return transcriptionProblem(
-            isLocal: stt?.kind != .remote,
-            options: TranscriptionOptions(language: current.language, diarize: current.detectSpeakers))
     }
 }
 
@@ -365,5 +285,94 @@ private struct ProjectFooter: View {
         guard panel.runModal() == .OK, let url = panel.url else { return }
         settings.recipesFolderPath = url.path(percentEncoded: false)
         Task { await recipes.open(url) }
+    }
+}
+
+struct RecipeParametersFields: View {
+    @Bindable var settings: AppSettings
+    let parameters: Binding<DefaultRecipeSettings>
+
+    var body: some View {
+        Section("Transcripción") {
+            Picker("Transcribe con", selection: parameters.stt) {
+                ForEach(settings.sttResolvers.resolvers) { resolver in
+                    Text(resolver.name).tag(resolver.recipeKey(role: .stt))
+                }
+            }
+            Picker("Idioma", selection: parameters.language) {
+                Text("Español").tag(String?.some("es"))
+                Text("English").tag(String?.some("en"))
+                Text("Detectar en cada nota").tag(String?.none)
+            }
+            Picker("Hablantes", selection: speakers) {
+                Text("No detectar").tag(-1)
+                Text("Detectar").tag(0)
+                ForEach(2...6, id: \.self) { count in
+                    Text("\(count) hablantes").tag(count)
+                }
+            }
+            if let problem {
+                Text(problem)
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            }
+        }
+        Section("Resumen") {
+            Toggle("Resumir", isOn: parameters.summarize)
+            if parameters.wrappedValue.summarize {
+                Picker("Resume con", selection: parameters.llm) {
+                    ForEach(settings.llmResolvers.resolvers) { resolver in
+                        Text(resolver.name).tag(resolver.recipeKey(role: .llm))
+                    }
+                }
+                TextField("Prompt", text: prompt, prompt: Text("El de serie"), axis: .vertical)
+                    .lineLimit(3...8)
+            }
+        }
+        Section("Publica en") {
+            if settings.connectors.isEmpty {
+                Text("No hay conectores").foregroundStyle(.secondary)
+            }
+            ForEach(settings.connectors) { connector in
+                Toggle(
+                    connector.isLive ? connector.name : "\(connector.name) (apagado)",
+                    isOn: publishes(connector.key))
+            }
+        }
+    }
+
+    private var speakers: Binding<Int> {
+        Binding(
+            get: {
+                let current = parameters.wrappedValue
+                return current.detectSpeakers ? current.speakerCount ?? 0 : -1
+            },
+            set: { value in
+                parameters.wrappedValue.detectSpeakers = value >= 0
+                parameters.wrappedValue.speakerCount = value > 0 ? value : nil
+            })
+    }
+
+    private var prompt: Binding<String> {
+        Binding(
+            get: { parameters.wrappedValue.prompt ?? "" },
+            set: { parameters.wrappedValue.prompt = $0.isEmpty ? nil : $0 })
+    }
+
+    private func publishes(_ key: String) -> Binding<Bool> {
+        Binding(
+            get: { parameters.wrappedValue.connectors.contains(key) },
+            set: { on in
+                parameters.wrappedValue.connectors.removeAll { $0 == key }
+                if on { parameters.wrappedValue.connectors.append(key) }
+            })
+    }
+
+    private var problem: String? {
+        let current = parameters.wrappedValue
+        let stt = settings.sttResolvers.resolvers.first { $0.recipeKey(role: .stt) == current.stt }
+        return transcriptionProblem(
+            isLocal: stt?.kind != .remote,
+            options: TranscriptionOptions(language: current.language, diarize: current.detectSpeakers))
     }
 }

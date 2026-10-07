@@ -23,7 +23,7 @@ struct LibraryWindow: View {
     let problem: String?
     let folders: [WatchedFolder]
     let connectors: [Connector]
-    let defaultOptions: TranscriptionOptions
+    let recipeListing: [RecipeListing]
     let recorder: RecorderModel
     let inbox: InboxModel
     let settings: AppSettings
@@ -69,7 +69,7 @@ struct LibraryWindow: View {
                         recording: recording,
                         origin: origin(recording),
                         connectors: connectors,
-                        defaultOptions: defaultOptions,
+                        recipeListing: recipeListing,
                         onAction: { pendingAction = $0 })
                 } else {
                     ContentUnavailableView(
@@ -466,13 +466,13 @@ struct TranscriptDetail: View {
     let recording: StoredRecording
     let origin: WatchedFolder?
     let connectors: [Connector]
-    let defaultOptions: TranscriptionOptions
+    let recipeListing: [RecipeListing]
     let onAction: (RowAction) -> Void
 
     @State private var transcript: Transcript?
     @State private var versions: [TranscriptVersion] = []
     @State private var trace: RecipeTrace?
-    @State private var reprocessOptions: TranscriptionOptions?
+    @State private var choosingRecipe = false
     @State private var failure: String?
     @State private var player = PlayerModel()
     @State private var renameTarget: String?
@@ -517,23 +517,15 @@ struct TranscriptDetail: View {
             ToolbarItem { speakersMenu }
             ToolbarItem { actionsMenu }
         }
-        .sheet(
-            isPresented: Binding(
-                get: { reprocessOptions != nil },
-                set: { if !$0 { reprocessOptions = nil } })
-        ) {
+        .sheet(isPresented: $choosingRecipe) {
             ReprocessSheet(
-                options: reprocessOptions ?? defaultOptions,
-                resolvers: model.resolverChoice(for: recording),
-                origin: settings.resolverChoice(
-                    forSource: recording.sourceURL.path(percentEncoded: false),
-                    inbox: Paths.inbox.path(percentEncoded: false)),
                 settings: settings,
-                onRun: { options, resolvers in
-                    reprocessOptions = nil
-                    reprocess(options, resolvers: resolvers)
+                listing: recipeListing,
+                onRun: { choice in
+                    choosingRecipe = false
+                    reprocess(choice)
                 },
-                onCancel: { reprocessOptions = nil })
+                onCancel: { choosingRecipe = false })
         }
         .alert(
             "Renombrar hablante",
@@ -625,7 +617,7 @@ struct TranscriptDetail: View {
                     }
                 }
             }
-            Button("Reprocesar con otros criterios…") { reprocessOptions = defaultOptions }
+            Button("Reprocesar con una receta…") { choosingRecipe = true }
                 .disabled(recording.audio == .missing)
         } label: {
             Label("Hablantes", systemImage: "person.2")
@@ -647,7 +639,7 @@ struct TranscriptDetail: View {
                 }
             }
             Divider()
-            Button("Reprocesar con otros criterios…") { reprocessOptions = defaultOptions }
+            Button("Reprocesar con una receta…") { choosingRecipe = true }
                 .disabled(recording.audio == .missing)
         } label: {
             Label(currentVersionLabel, systemImage: "clock.arrow.circlepath")
@@ -727,10 +719,10 @@ struct TranscriptDetail: View {
         }
     }
 
-    private func reprocess(_ options: TranscriptionOptions, resolvers: ResolverChoice? = nil) {
+    private func reprocess(_ choice: RecipeChoice = RecipeChoice()) {
         Task {
             do {
-                try await model.reprocess(recording, options: options, resolvers: resolvers)
+                try await model.reprocess(recording, with: choice)
                 await reload()
             } catch {
                 actionError = "\(error)"
@@ -772,7 +764,7 @@ struct TranscriptDetail: View {
                 Label("En cola", systemImage: "clock")
                 Text("Se transcribira automaticamente en la proxima pasada.")
                     .foregroundStyle(.secondary)
-                Button("Transcribir ahora") { reprocess(defaultOptions) }
+                Button("Transcribir ahora") { reprocess() }
                     .disabled(
                         model.reprocessing.contains(recording.key)
                             || recording.audio == .missing)
@@ -792,7 +784,7 @@ struct TranscriptDetail: View {
                         .foregroundStyle(.secondary)
                         .textSelection(.enabled)
                 }
-                Button("Reintentar") { reprocess(defaultOptions) }
+                Button("Reintentar") { reprocess() }
                     .disabled(
                         model.reprocessing.contains(recording.key)
                             || recording.audio == .missing)

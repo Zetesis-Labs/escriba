@@ -19,6 +19,11 @@ public struct RecipeTarget: Sendable, Equatable {
     }
 
     public var info: RecipeInfo { RecipeInfo(key: key, name: name, kind: kind) }
+
+    public func overriding(_ parameters: DefaultRecipeSettings?) -> RecipeTarget {
+        guard kind == .form, let parameters else { return self }
+        return RecipeTarget(key: key, name: name, kind: kind, package: package, parameters: parameters)
+    }
 }
 
 public struct RecipeShelf: Sendable {
