@@ -60,6 +60,15 @@ nonisolated func routedEnricher(_ routing: ResolverRouting, language: String?) -
     }
 }
 
+nonisolated func routedInputs(
+    _ routing: ResolverRouting, options: TranscriptionOptions
+) -> @Sendable (Recording) -> TranscriptionInputs {
+    { recording in
+        let stt = routing.resolver(.stt, forSource: recording.url.path(percentEncoded: false))
+        return TranscriptionInputs(backend: backendLabel(stt), options: options)
+    }
+}
+
 nonisolated func backendLabel(_ resolver: Resolver) -> String {
     switch resolver.kind {
     case .local: WhisperKitBackend.name

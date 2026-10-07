@@ -46,7 +46,54 @@ final class MemoryLedger: Sendable {
     }
 }
 
-enum FakeError: Error { case ledgerDown, scanBroken, sinkBroken }
+final class MemoryNotes: Sendable {
+    private let kept = Mutex<[String: Remembered]>([:])
+    private let nextVersion = Mutex<Int64>(1)
+    private let keepingFails = Mutex(false)
+    private let recallFails = Mutex(false)
+    let steps: Trace<String>
+
+    init(steps: Trace<String> = Trace()) {
+        self.steps = steps
+    }
+
+    func remember(_ key: String, _ transcript: Transcript, digest: Digest? = nil) {
+        let version = nextVersion.withLock { value in
+            defer { value += 1 }
+            return value
+        }
+        kept.withLock { $0[key] = Remembered(version: version, transcript: transcript, digest: digest) }
+    }
+
+    func kept(_ key: String) -> Remembered? { kept.withLock { $0[key] } }
+    func breakKeeping() { keepingFails.withLock { $0 = true } }
+    func breakRecall() { recallFails.withLock { $0 = true } }
+
+    var port: NoteMemory {
+        NoteMemory(
+            recall: { recording in
+                if self.recallFails.withLock({ $0 }) { throw FakeError.memoryDown }
+                return self.kept(recording.key)
+            },
+            keepTranscript: { recording, transcript in
+                if self.keepingFails.withLock({ $0 }) { throw FakeError.memoryDown }
+                self.remember(recording.key, transcript)
+                self.steps.append("guarda transcripcion")
+                return self.kept(recording.key)!.version
+            },
+            keepDigest: { recording, version, digest in
+                if self.keepingFails.withLock({ $0 }) { throw FakeError.memoryDown }
+                self.kept.withLock { kept in
+                    guard let current = kept[recording.key], current.version == version else { return }
+                    kept[recording.key] = Remembered(
+                        version: version, transcript: current.transcript, digest: digest)
+                }
+                self.steps.append("guarda resumen v\(version)")
+            })
+    }
+}
+
+enum FakeError: Error { case ledgerDown, scanBroken, sinkBroken, memoryDown }
 
 func recording(_ key: String, minute: Int = 0) -> Recording {
     Recording(

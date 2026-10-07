@@ -11,6 +11,7 @@ extension Pipeline {
         settleSeconds: TimeInterval = 15,
         materializeTimeout: TimeInterval = 300,
         enrich: Enricher? = nil,
+        memory: NoteMemory? = nil,
         onEvent: EventHandler? = nil
     ) {
         self.init(
@@ -20,6 +21,7 @@ extension Pipeline {
             sink: sink,
             readiness: fileReadiness(settleSeconds: settleSeconds, materializeTimeout: materializeTimeout),
             enrich: enrich,
+            memory: memory,
             onEvent: onEvent)
     }
 }

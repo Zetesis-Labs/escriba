@@ -1,6 +1,7 @@
 # Requisito funcional: recetas
 
-Estado: **propuesto por Rubén el 2026-10-06**, sin empezar. Sustituye a
+Estado: **propuesto por Rubén el 2026-10-06**, en construcción desde el
+2026-10-07 por la fase 1 (la memoria vive en la biblioteca, ver `CLAUDE.md`). Sustituye a
 `docs/requisito-hooks.md` (los tres eventos con N hooks pasan a ser recetas) y,
 cuando se construya, al enrutado actual por carpeta y por grabación, a la
 selección de conectores y a los editores de mapeo de Notion y OKF.

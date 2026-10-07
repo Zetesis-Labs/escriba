@@ -147,6 +147,13 @@ public final class Store: Sendable {
         _ recording: Recording, _ transcript: Transcript, backend: String,
         options: TranscriptionOptions? = nil, digest: Digest? = nil
     ) throws -> StoredRecording {
+        try write(recording, transcript, backend: backend, options: options, digest: digest).stored
+    }
+
+    private func write(
+        _ recording: Recording, _ transcript: Transcript, backend: String,
+        options: TranscriptionOptions?, digest: Digest?
+    ) throws -> (stored: StoredRecording, version: Int64) {
         let audioPath = "audio/\(recording.key).\(recording.url.pathExtension)"
         try copyAudio(from: recording.url, to: root.appending(path: audioPath))
         let now = Date()
@@ -175,11 +182,11 @@ public final class Store: Sendable {
             }
             guard let recordingId = row.id else { throw StoreError.missingRowID }
 
-            try Self.insert(
+            let version = try Self.insert(
                 transcript, recordingId: recordingId, backend: backend, options: options,
                 digest: digest, in: db)
             let count = try TranscriptRow.filter(TranscriptRow.Columns.recordingId == recordingId).fetchCount(db)
-            return row.stored(
+            let stored = row.stored(
                 in: root,
                 transcript: TranscriptSummary(
                     backend: backend,
@@ -188,6 +195,7 @@ public final class Store: Sendable {
                     version: count,
                     versionCount: count,
                     digest: digest))
+            return (stored, version)
         }
     }
 
@@ -308,10 +316,11 @@ public final class Store: Sendable {
         try row.update(db)
     }
 
+    @discardableResult
     private static func insert(
         _ transcript: Transcript, recordingId: Int64, backend: String,
         options: TranscriptionOptions?, digest: Digest?, in db: Database
-    ) throws {
+    ) throws -> Int64 {
         var row = TranscriptRow(
             recordingId: recordingId, backend: backend, createdAt: Date(), text: transcript.text,
             language: options?.language, diarize: options?.diarize ?? false,
@@ -325,6 +334,7 @@ public final class Store: Sendable {
             try SegmentRow(transcriptId: transcriptId, position: position, segment: segment)
                 .insert(db)
         }
+        return transcriptId
     }
 
     func transcriptCount(for key: String) throws -> Int {
@@ -553,18 +563,60 @@ public final class Store: Sendable {
             if let wanted = version ?? recording.currentTranscriptId {
                 query = query.filter(TranscriptRow.Columns.id == wanted)
             }
-            guard
-                let chosen = try query.order(TranscriptRow.Columns.id.desc).fetchOne(db),
-                let transcriptId = chosen.id
-            else { return nil }
+            guard let chosen = try query.order(TranscriptRow.Columns.id.desc).fetchOne(db) else { return nil }
+            return try Self.loadTranscript(chosen, in: db)
+        }
+    }
 
-            let segments = try SegmentRow
-                .filter(SegmentRow.Columns.transcriptId == transcriptId)
-                .order(SegmentRow.Columns.position)
+    private static func loadTranscript(_ row: TranscriptRow, in db: Database) throws -> Transcript {
+        guard let transcriptId = row.id else { throw StoreError.missingRowID }
+        let segments = try SegmentRow
+            .filter(SegmentRow.Columns.transcriptId == transcriptId)
+            .order(SegmentRow.Columns.position)
+            .fetchAll(db)
+        return segments.isEmpty
+            ? Transcript(text: row.text)
+            : Transcript(segments: segments.map(\.segment))
+    }
+
+    public func memory(inputs: @escaping @Sendable (Recording) -> TranscriptionInputs) -> NoteMemory {
+        NoteMemory(
+            recall: { recording in
+                try await self.remembered(recording.key, matching: inputs(recording))
+            },
+            keepTranscript: { recording, transcript in
+                let wanted = inputs(recording)
+                return try self.write(
+                    recording, transcript, backend: wanted.backend, options: wanted.options, digest: nil
+                ).version
+            },
+            keepDigest: { recording, version, digest in
+                try await self.setDigest(digest, for: recording.key, version: version)
+            })
+    }
+
+    private func remembered(_ key: String, matching inputs: TranscriptionInputs) async throws -> Remembered? {
+        try await writer.read { db in
+            guard let recordingId = try Self.recordingId(of: key, in: db) else { return nil }
+            let rows = try TranscriptRow
+                .filter(TranscriptRow.Columns.recordingId == recordingId)
+                .order(TranscriptRow.Columns.id.desc)
                 .fetchAll(db)
-            return segments.isEmpty
-                ? Transcript(text: chosen.text)
-                : Transcript(segments: segments.map(\.segment))
+            guard
+                let row = rows.first(where: { inputs.matches(backend: $0.backend, options: $0.options) }),
+                let version = row.id
+            else { return nil }
+            return Remembered(
+                version: version, transcript: try Self.loadTranscript(row, in: db), digest: row.digest)
+        }
+    }
+
+    public func audioCopySink() -> Sink {
+        { note in
+            guard let stored = try self.recording(for: note.recording.key) else {
+                throw StoreError.unknownRecording(note.recording.key)
+            }
+            return stored.audioURL
         }
     }
 
