@@ -156,3 +156,47 @@ struct PasarGrabacionTests {
         #expect(ledger.failures["a"]?.contains("demasiadas recetas encadenadas") == true)
     }
 }
+
+@Suite("Ejecutar una receta fuera del pipeline, para reprocesar")
+struct EjecutarRecetaTests {
+    @Test("transcribe el audio de la biblioteca pero entrega la grabacion con su origen, y devuelve la traza")
+    func audioDeLaBiblioteca() async throws {
+        let oidos = Trace<String>()
+        let entregadas = Trace<String>()
+        let original = recording("a")
+        let copia = URL(fileURLWithPath: "/biblioteca/audio/a.m4a")
+        let objetivo = receta("F1", "Reuniones", parametros: reuniones)
+
+        let (resultado, traza) = await runRecipe(
+            objetivo, of: Recipe(shelf: .only(objetivo), runtime: Recetario([(objetivo, transcribeYGuarda)]).runtime, publishers: [:]),
+            on: original, audio: copia,
+            backend: backend { url in
+                oidos.append(url.path)
+                return Transcript(text: "hola")
+            },
+            enrich: nil, memory: nil,
+            save: { note in
+                entregadas.append(note.recording.url.path)
+                return URL(fileURLWithPath: "/salida/a")
+            })
+
+        #expect(try resultado.get().transcript.text == "hola")
+        #expect(oidos.values == ["/biblioteca/audio/a.m4a"])
+        #expect(entregadas.values == [original.url.path])
+        #expect(traza.recipe == "F1")
+        #expect(traza.steps.map(\.capability) == ["transcribir", "guardar"])
+    }
+
+    @Test("una receta que no guarda falla con su traza")
+    func sinGuardar() async {
+        let objetivo = receta("x", "X")
+
+        let (resultado, traza) = await runRecipe(
+            objetivo, of: Recipe(shelf: .only(objetivo), runtime: Recetario([(objetivo, { @Sendable _ in })]).runtime, publishers: [:]),
+            on: recording("a"), backend: backend { _ in Transcript(text: "hola") }, enrich: nil, memory: nil,
+            save: { _ in URL(fileURLWithPath: "/salida/a") })
+
+        #expect(throws: RecipeError.notSaved) { try resultado.get() }
+        #expect(traza.error == "\(RecipeError.notSaved)")
+    }
+}

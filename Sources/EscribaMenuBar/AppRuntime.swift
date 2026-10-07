@@ -147,11 +147,33 @@ final class AppRuntime {
                 return current.form(current.defaultKey)?.settings ?? .standard
             }
 
+            let unchosen = TranscriptionOptions(language: nil, diarize: false)
+            let backend = recipeTranscriber(stts.local, options: unchosen, engine: engine)
+            let enrich = enricher(summarizer(for: llms.local), language: nil)
+            let publishers = publishers(for: store)
+            let installed = Paths.installedRecipes
+            let recipe = recipeRuntime().map { runtime in
+                Recipe(
+                    shelf: recipeShelf(
+                        book: { book.value }, installed: { try readInstalledRecipes(at: installed) },
+                        formPackage: .defaultRecipe),
+                    runtime: runtime, publishers: publishers,
+                    catalog: recipeCatalog(
+                        stts: stts, llms: llms,
+                        connectors: settings.connectors.map {
+                            recipeConnector($0, isActive: publishers[$0.key] != nil)
+                        },
+                        unchosen: unchosen, engine: engine))
+            }
+            let memory = store.memory()
+            let saveSink = saveSink(for: store)
+
             let model = LibraryModel(
                 store: store,
-                reprocess: { [engine] recording, options in
-                    let stt = recipeResolver(stts, key: formSettings().stt)
-                    return try await transcriber(for: stt, options: options, engine: engine).transcribe(recording.audioURL)
+                reprocess: { stored, choice in
+                    await reprocessed(
+                        stored, choice, recipe: recipe, backend: backend, enrich: enrich, memory: memory,
+                        save: saveSink)
                 },
                 digester: { recording, transcript in
                     let form = formSettings()
@@ -159,9 +181,8 @@ final class AppRuntime {
                         recipeResolver(llms, key: form.llm), prompt: form.prompt, language: form.language
                     )(recording, transcript)
                 },
-                publishers: publishers(for: store),
-                unpublishers: unpublishers(),
-                choices: choices)
+                publishers: publishers,
+                unpublishers: unpublishers())
             model.startObserving()
             self.model = model
 
@@ -179,27 +200,14 @@ final class AppRuntime {
 
             let ledger = try Ledger(path: Paths.defaultState)
             reconcileLibrary(store: store, ledger: ledger)
-            let unchosen = TranscriptionOptions(language: nil, diarize: false)
-            let backend = recipeTranscriber(stts.local, options: unchosen, engine: engine)
-            let runtime = recipeRuntime()
-            let publishers = publishers(for: store)
-            let catalog = recipeCatalog(
-                stts: stts, llms: llms,
-                connectors: settings.connectors.map { recipeConnector($0, isActive: publishers[$0.key] != nil) },
-                unchosen: unchosen, engine: engine)
-            let installed = Paths.installedRecipes
-            let shelf = recipeShelf(
-                book: { book.value }, installed: { try readInstalledRecipes(at: installed) },
-                formPackage: .defaultRecipe)
             controllers = sources().map { source in
-                let recipe = runtime.map { Recipe(shelf: shelf, runtime: $0, publishers: publishers, catalog: catalog) }
                 let pipeline = Pipeline(
                     source: source,
                     ledger: ledger,
                     backend: backend,
-                    sink: recipe == nil ? sink(for: store) : saveSink(for: store),
-                    enrich: enricher(summarizer(for: llms.local), language: nil),
-                    memory: store.memory(),
+                    sink: recipe == nil ? sink(for: store) : saveSink,
+                    enrich: enrich,
+                    memory: memory,
                     recipe: recipe,
                     onEvent: { continuation.yield($0) }
                 )
@@ -439,6 +447,27 @@ final class AppRuntime {
                 self?.recipeBook.value = book
             }
         }
+    }
+}
+
+nonisolated private func reprocessed(
+    _ stored: StoredRecording, _ choice: RecipeChoice, recipe: Recipe?, backend: TranscriptionBackend,
+    enrich: Enricher?, memory: NoteMemory, save: @escaping Sink
+) async -> RecipeRunReport {
+    guard let recipe else { return RecipeRunReport(trace: nil, failure: "las recetas no arrancan en este Mac") }
+    let target: RecipeTarget
+    do {
+        target = try recipe.shelf.target(choice.recipe).overriding(choice.parameters)
+    } catch {
+        return RecipeRunReport(trace: nil, failure: "\(error)")
+    }
+    let (result, trace) = await runRecipe(
+        target, of: recipe, on: Recording(url: stored.sourceURL, startedAt: stored.startedAt, key: stored.key),
+        audio: stored.audio == .libraryCopy ? stored.audioURL : stored.sourceURL,
+        backend: backend, enrich: enrich, memory: memory, save: save)
+    switch result {
+    case .success: return RecipeRunReport(trace: trace, failure: nil)
+    case .failure(let error): return RecipeRunReport(trace: trace, failure: "\(error)")
     }
 }
 

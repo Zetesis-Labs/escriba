@@ -151,17 +151,34 @@ public struct Pipeline: Sendable {
     private func deliver(
         _ recording: Recording, with recipe: Recipe, _ target: RecipeTarget, _ capabilities: Capabilities
     ) async throws -> (transcript: Transcript, output: URL) {
-        let session = RecipeSession(
-            recording: recording, capabilities: capabilities, save: sink, recipe: recipe, target: target)
-        do {
-            try await recipe.runtime.run(target.package, session.bridge)
-            guard let delivered = session.delivered else { throw RecipeError.notSaved }
-            onEvent?(.traced(key: recording.key, trace: session.trace(error: nil)))
-            return delivered
-        } catch {
-            onEvent?(.traced(key: recording.key, trace: session.trace(error: error)))
-            throw error
-        }
+        let (result, trace) = await runRecipe(
+            target, of: recipe, on: recording, capabilities: capabilities, save: sink)
+        onEvent?(.traced(key: recording.key, trace: trace))
+        return try result.get()
+    }
+}
+
+public func runRecipe(
+    _ target: RecipeTarget, of recipe: Recipe, on recording: Recording, audio: URL? = nil,
+    backend: TranscriptionBackend, enrich: Enricher?, memory: NoteMemory?, save: @escaping Sink
+) async -> (result: Result<(transcript: Transcript, output: URL), any Error>, trace: RecipeTrace) {
+    await runRecipe(
+        target, of: recipe, on: recording, audio: audio,
+        capabilities: Capabilities(backend: backend, enrich: enrich, memory: memory), save: save)
+}
+
+private func runRecipe(
+    _ target: RecipeTarget, of recipe: Recipe, on recording: Recording, audio: URL? = nil,
+    capabilities: Capabilities, save: @escaping Sink
+) async -> (result: Result<(transcript: Transcript, output: URL), any Error>, trace: RecipeTrace) {
+    let session = RecipeSession(
+        recording: recording, audio: audio, capabilities: capabilities, save: save, recipe: recipe, target: target)
+    do {
+        try await recipe.runtime.run(target.package, session.bridge)
+        guard let delivered = session.delivered else { throw RecipeError.notSaved }
+        return (.success(delivered), session.trace(error: nil))
+    } catch {
+        return (.failure(error), session.trace(error: error))
     }
 }
 

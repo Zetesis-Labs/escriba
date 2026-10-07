@@ -12,6 +12,7 @@ final class RecipeSession: Sendable {
     }
 
     private let recording: Recording
+    private let heard: Recording
     private let capabilities: Capabilities
     private let save: Sink
     private let recipe: Recipe
@@ -21,8 +22,12 @@ final class RecipeSession: Sendable {
     private var publishers: [String: Sink] { recipe.publishers }
     private var catalog: RecipeCatalog { recipe.catalog }
 
-    init(recording: Recording, capabilities: Capabilities, save: @escaping Sink, recipe: Recipe, target: RecipeTarget) {
+    init(
+        recording: Recording, audio: URL? = nil, capabilities: Capabilities, save: @escaping Sink, recipe: Recipe,
+        target: RecipeTarget
+    ) {
         self.recording = recording
+        heard = audio.map { Recording(url: $0, startedAt: recording.startedAt, key: recording.key) } ?? recording
         self.capabilities = capabilities
         self.save = save
         self.recipe = recipe
@@ -75,17 +80,17 @@ final class RecipeSession: Sendable {
     private func transcribe(_ request: RecipeTranscription, origin: String?) async throws -> RecipeNote {
         let chosen: TranscriptionBackend?
         do {
-            chosen = request.isDefault ? nil : try catalog.transcriber(recording, request)
+            chosen = request.isDefault ? nil : try catalog.transcriber(heard, request)
         } catch {
             record(RecipeStep(
                 capability: "transcribir", detail: request.stt, seconds: 0, error: "\(error)", origin: origin))
             throw error
         }
-        let inputs = (chosen ?? capabilities.backend).inputs(recording.url)
+        let inputs = (chosen ?? capabilities.backend).inputs(heard.url)
         let take = try await step(
             "transcribir", detail: "\(inputs.backend) · \(inputs.options.label)", origin: origin
         ) {
-            try await capabilities.transcribe(recording, with: chosen)
+            try await capabilities.transcribe(heard, with: chosen)
         }
         state.withLock { state in
             state.take = take

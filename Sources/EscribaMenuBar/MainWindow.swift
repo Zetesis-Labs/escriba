@@ -1,3 +1,4 @@
+import EscribaCore
 import EscribaModel
 import SwiftUI
 
@@ -63,7 +64,10 @@ struct MainWindow: View {
                     problem: runtime.startupProblem,
                     folders: runtime.settings.watchedFolders,
                     connectors: runtime.settings.connectors,
-                    defaultOptions: runtime.settings.transcriptionDefaults,
+                    recipeListing: runtime.settings.recipeBook.listing(
+                        code: (runtime.recipes.report?.recipes ?? []).filter { $0.active != nil }.map {
+                            RecipeCodeEntry(key: $0.key, name: $0.name)
+                        }),
                     recorder: runtime.recorder,
                     inbox: runtime.inbox,
                     settings: runtime.settings)

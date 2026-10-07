@@ -80,54 +80,22 @@ private final class Puerta: Sendable {
 @MainActor
 @Suite("Resumir desde la biblioteca")
 struct ResumirDesdeLaBibliotecaTests {
-    @Test("resumir y reprocesar reciben la grabacion, para usar el STT y el LLM de su origen")
-    func sabenElOrigen() async throws {
+    @Test("resumir recibe la grabacion")
+    func sabeLaGrabacion() async throws {
         let (base, store) = try sandbox()
         let original = try grabacion(in: base, key: "a")
         let guardada = try store.save(original, Transcript(text: "Hola"), backend: "wk")
-        let origenes = Mutex<[String]>([])
+        let vistas = Mutex<[String]>([])
         let modelo = LibraryModel(
             store: store,
-            reprocess: { grabacion, _ in
-                origenes.withLock { $0.append("stt:\(grabacion.sourceURL.lastPathComponent)") }
-                return Transcript(text: "v2")
-            },
             digester: { grabacion, _ in
-                origenes.withLock { $0.append("llm:\(grabacion.sourceURL.lastPathComponent)") }
+                vistas.withLock { $0.append(grabacion.sourceURL.lastPathComponent) }
                 return resumen
             })
 
         _ = try await modelo.summarize(guardada)
-        try await modelo.reprocess(guardada, options: .automatic)
-        while modelo.isSummarizing("a") { await Task.yield() }
 
-        #expect(origenes.withLock { $0 } == ["llm:a.m4a", "stt:a.m4a", "llm:a.m4a"])
-    }
-
-    @Test("reprocesar con otro STT y LLM los deja elegidos para esa grabacion antes de transcribir")
-    func reprocesarEligiendo() async throws {
-        let (base, store) = try sandbox()
-        let guardada = try store.save(try grabacion(in: base, key: "a"), Transcript(text: "Hola"), backend: "wk")
-        let elecciones = ChoiceStore.inMemory()
-        let elegida = ResolverChoice(stt: UUID(), llm: UUID())
-        let vistas = Mutex<[ResolverChoice?]>([])
-        let ruta = guardada.sourceURL.path(percentEncoded: false)
-        let modelo = LibraryModel(
-            store: store,
-            reprocess: { _, _ in
-                vistas.withLock { $0.append(elecciones.read(ruta)) }
-                return Transcript(text: "v2")
-            },
-            choices: elecciones)
-
-        #expect(modelo.resolverChoice(for: guardada) == ResolverChoice())
-        try await modelo.reprocess(guardada, options: .automatic, resolvers: elegida)
-
-        #expect(vistas.withLock { $0 } == [elegida])
-        #expect(modelo.resolverChoice(for: guardada) == elegida)
-
-        try await modelo.reprocess(guardada, options: .automatic)
-        #expect(modelo.resolverChoice(for: guardada) == elegida)
+        #expect(vistas.withLock { $0 } == ["a.m4a"])
     }
 
     @Test("dos peticiones a la vez no resumen dos veces la misma grabacion", .timeLimit(.minutes(1)))
@@ -257,59 +225,6 @@ struct ResumirDesdeLaBibliotecaTests {
         await #expect(throws: FakeError.self) { try await modelo.summarize(guardada) }
         #expect(try await store.digest(for: "a") == nil)
         #expect(!modelo.isSummarizing("a"))
-    }
-
-    @Test(
-        "reprocesar guarda la version nueva antes de ponerse a resumir, no despues",
-        .timeLimit(.minutes(1)))
-    func laVersionNoEsperaAlResumen() async throws {
-        let (base, store) = try sandbox()
-        let guardada = try store.save(
-            try grabacion(in: base, key: "a"), Transcript(text: "v1"), backend: "wk")
-        let puerta = Puerta()
-        let modelo = LibraryModel(
-            store: store, reprocess: { _, _ in Transcript(text: "v2") },
-            digester: { _, _ in
-                await puerta.esperar()
-                return resumen
-            })
-
-        try await modelo.reprocess(guardada, options: TranscriptionOptions(language: "es"))
-
-        #expect(try await store.transcript(for: "a")?.text == "v2")
-        #expect(!modelo.reprocessing.contains("a"))
-        #expect(modelo.isSummarizing("a"))
-
-        while puerta.visitas == 0 { await Task.yield() }
-        puerta.abrir()
-        while modelo.isSummarizing("a") { await Task.yield() }
-        #expect(try await store.digest(for: "a") == resumen)
-    }
-
-    @Test(
-        "reprocesar resume la version nueva, y si el resumen falla la version se guarda igual",
-        .timeLimit(.minutes(1)))
-    func reprocesarResume() async throws {
-        let (base, store) = try sandbox()
-        let guardada = try store.save(
-            try grabacion(in: base, key: "a"), Transcript(text: "v1"), backend: "wk")
-        let modelo = LibraryModel(
-            store: store, reprocess: { _, _ in Transcript(text: "v2") }, digester: { _, _ in resumen })
-
-        try await modelo.reprocess(guardada, options: TranscriptionOptions(language: "es"))
-        while try await store.digest(for: "a") == nil { await Task.yield() }
-
-        #expect(try await store.transcript(for: "a")?.text == "v2")
-        #expect(try await store.digest(for: "a") == resumen)
-
-        let roto = LibraryModel(
-            store: store, reprocess: { _, _ in Transcript(text: "v3") },
-            digester: { _, _ in throw FakeError.sinModelo })
-        try await roto.reprocess(guardada, options: TranscriptionOptions(language: "es"))
-        while roto.isSummarizing("a") { await Task.yield() }
-
-        #expect(try await store.transcript(for: "a")?.text == "v3")
-        #expect(try await store.digest(for: "a") == nil)
     }
 
     @Test("renombrar un hablante conserva el resumen en la version corregida")

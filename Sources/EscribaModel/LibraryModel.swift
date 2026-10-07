@@ -5,8 +5,27 @@ import EscribaSystemKit
 import EscribaStore
 import Observation
 
-public typealias Reprocessor = @Sendable (StoredRecording, TranscriptionOptions) async throws -> Transcript
-public typealias TranscriptWriter = @Sendable (String, Transcript) throws -> Void
+nonisolated public struct RecipeChoice: Sendable, Equatable {
+    public var recipe: String?
+    public var parameters: DefaultRecipeSettings?
+
+    public init(recipe: String? = nil, parameters: DefaultRecipeSettings? = nil) {
+        self.recipe = recipe
+        self.parameters = parameters
+    }
+}
+
+nonisolated public struct RecipeRunReport: Sendable, Equatable {
+    public let trace: RecipeTrace?
+    public let failure: String?
+
+    public init(trace: RecipeTrace?, failure: String?) {
+        self.trace = trace
+        self.failure = failure
+    }
+}
+
+public typealias RecipeReprocessor = @Sendable (StoredRecording, RecipeChoice) async -> RecipeRunReport
 public typealias Unpublisher = @Sendable (String) async throws -> Void
 public typealias Digester = @Sendable (StoredRecording, Transcript) async throws -> Digest
 
@@ -21,31 +40,24 @@ public final class LibraryModel {
     public private(set) var scanned = 0
 
     private let store: Store
-    @ObservationIgnored private let reprocess: Reprocessor?
+    @ObservationIgnored private let reprocess: RecipeReprocessor?
     @ObservationIgnored private let digester: Digester?
-    @ObservationIgnored private let writeText: TranscriptWriter?
     @ObservationIgnored private let publishers: [String: Sink]
     @ObservationIgnored private let unpublishers: [String: Unpublisher]
-    @ObservationIgnored private let choices: ChoiceStore
     @ObservationIgnored private var observation: Task<Void, Never>?
-    @ObservationIgnored private var summaries: Task<Void, Never>?
 
     public init(
         store: Store,
-        reprocess: Reprocessor? = nil,
+        reprocess: RecipeReprocessor? = nil,
         digester: Digester? = nil,
-        writeText: TranscriptWriter? = nil,
         publishers: [String: Sink] = [:],
-        unpublishers: [String: Unpublisher] = [:],
-        choices: ChoiceStore = .inMemory()
+        unpublishers: [String: Unpublisher] = [:]
     ) {
         self.store = store
         self.reprocess = reprocess
         self.digester = digester
-        self.writeText = writeText
         self.publishers = publishers
         self.unpublishers = unpublishers
-        self.choices = choices
     }
 
     public func unpublish(_ key: String, from connector: String) async throws {
@@ -63,7 +75,6 @@ public final class LibraryModel {
 
     deinit {
         observation?.cancel()
-        summaries?.cancel()
     }
 
     public func startObserving() {
@@ -125,7 +136,6 @@ public final class LibraryModel {
     public func applyCorrection(_ corrected: Transcript, to key: String) async throws {
         let digest = try await store.digest(for: key)
         try await store.addTranscript(corrected, for: key, backend: "correccion", digest: digest)
-        refreshText(corrected, for: key)
         await republish(corrected, digest: digest, for: key)
     }
 
@@ -229,15 +239,6 @@ public final class LibraryModel {
         publishing.contains("\(connector)/\(key)")
     }
 
-    private func refreshText(_ transcript: Transcript, for key: String) {
-        guard let writeText else { return }
-        do {
-            try writeText(key, transcript)
-        } catch {
-            Log.error("la transcripcion de \(key) se guardo, pero su .txt no: \(error)")
-        }
-    }
-
     public func discard(_ key: String) async throws {
         try await store.discard(key: key)
     }
@@ -246,46 +247,20 @@ public final class LibraryModel {
         try await store.removeAudio(key: key)
     }
 
-    public func resolverChoice(for recording: StoredRecording) -> ResolverChoice {
-        choices.read(recording.sourceURL.path(percentEncoded: false)) ?? ResolverChoice()
-    }
-
-    public func reprocess(
-        _ recording: StoredRecording, options: TranscriptionOptions, resolvers: ResolverChoice? = nil
-    ) async throws {
+    public func reprocess(_ recording: StoredRecording, with choice: RecipeChoice = RecipeChoice()) async throws {
         guard let reprocess else { throw LibraryModelError.reprocessUnavailable }
         guard !reprocessing.contains(recording.key) else { return }
-        if let resolvers { choices.write(recording.sourceURL.path(percentEncoded: false), resolvers) }
 
         reprocessing.insert(recording.key)
         defer { reprocessing.remove(recording.key) }
 
-        let transcript = try await reprocess(recording, options)
-        try await store.addTranscript(
-            transcript, for: recording.key, backend: "reprocesado", options: options)
-        refreshText(transcript, for: recording.key)
-
-        guard digester != nil else {
-            await republish(transcript, digest: nil, for: recording.key)
-            return
+        let report = await reprocess(recording, choice)
+        if let trace = report.trace {
+            await mirror("guardar la traza de \(recording.key)") { try await store.saveTrace(trace, for: recording.key) }
+            traceRevisions[recording.key, default: 0] += 1
         }
-        summarizeApart(recording.key)
-    }
-
-    private func summarizeApart(_ key: String) {
-        guard let digester, !summarizing.contains(key) else { return }
-        summarizing.insert(key)
-        summaries = Task { [weak self] in
-            guard let self else { return }
-            defer { summarizing.remove(key) }
-            do {
-                _ = try await generate(with: digester, for: key)
-            } catch {
-                report("\(key) se transcribio, pero no se pudo resumir", error)
-                guard let transcript = try? await store.transcript(for: key) else { return }
-                await republish(transcript, digest: nil, for: key)
-            }
-        }
+        if let failure = report.failure { throw LibraryModelError.recipeFailed(failure) }
+        await mirror("marcar \(recording.key) como hecha") { try await store.markDone(recording.key) }
     }
 
     public func traceRevision(for key: String) -> Int {
@@ -303,13 +278,13 @@ public final class LibraryModel {
     public func choose(version: Int64, for key: String) async throws {
         try await store.choose(version: version, for: key)
         guard let transcript = try await store.transcript(for: key) else { return }
-        refreshText(transcript, for: key)
         await republish(transcript, digest: try await store.digest(for: key), for: key)
     }
 }
 
-public enum LibraryModelError: Error, CustomStringConvertible {
+public enum LibraryModelError: Error, Equatable, CustomStringConvertible {
     case reprocessUnavailable
+    case recipeFailed(String)
     case summaryUnavailable
     case nothingToSummarize
     case alreadySummarizing
@@ -321,6 +296,7 @@ public enum LibraryModelError: Error, CustomStringConvertible {
     public var description: String {
         switch self {
         case .reprocessUnavailable: "esta app no tiene motor de reprocesado configurado"
+        case .recipeFailed(let reason): reason
         case .summaryUnavailable: "los resumenes automaticos estan apagados en LLMs"
         case .nothingToSummarize: "esta grabacion aun no tiene transcripcion que resumir"
         case .alreadySummarizing: "ya se esta resumiendo esta grabacion"
