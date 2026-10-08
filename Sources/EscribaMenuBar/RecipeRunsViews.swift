@@ -11,7 +11,9 @@ struct RecipeRunsSection: View {
 
     var body: some View {
         Section {
-            OutcomePicker(outcome: $outcome)
+            LabeledContent("Resultado") {
+                OutcomePicker(outcome: $outcome)
+            }
             if let runs {
                 if let problem = runs.problem {
                     Text(problem).font(.caption).foregroundStyle(.orange)
@@ -49,6 +51,7 @@ struct OutcomePicker: View {
             }
         }
         .pickerStyle(.segmented)
+        .labelsHidden()
         .fixedSize()
     }
 }
@@ -89,12 +92,12 @@ struct RecipeRunRow: View {
         let trigger = switch run.trigger {
         case .pipeline: "al entrar"
         case .reprocess: "reprocesada"
-        case .test: "prueba"
+        case .test: "probada"
         }
         let parts = [
             showsRecipe ? run.trace.name ?? run.trace.recipe : nil,
             trigger,
-            run.startedAt.formatted(.dateTime.day().month(.abbreviated).hour().minute().second()),
+            recordingWhen(run.startedAt, now: Date(), timeZone: .current),
         ]
         return parts.compactMap { $0 }.joined(separator: " · ")
     }
@@ -102,7 +105,7 @@ struct RecipeRunRow: View {
 
 extension LibraryModel {
     func title(of key: String) -> String {
-        recordings.first { $0.key == key }?.headline ?? key
+        recordings.first { $0.key == key }?.displayTitle ?? key
     }
 }
 
