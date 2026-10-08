@@ -83,6 +83,44 @@ struct FormularioDeRecetaTests {
         #expect(campo(leido, "corto")?.kind == .text(lines: 1))
     }
 
+    @Test("un campo con .meta({ si }) depende de un interruptor de su mismo grupo y solo se ve si está encendido")
+    func dependeDe() throws {
+        let leido = try formulario(#"""
+            {"type":"object","properties":{
+             "resumir":{"type":"boolean","default":false},
+             "prompt":{"type":["string","null"],"default":null,"si":"resumir","lineas":6},
+             "hablantes":{"type":"object","default":{},"properties":{
+               "detectar":{"type":"boolean","default":false},
+               "cuantos":{"anyOf":[{"type":"integer","minimum":2,"maximum":6},{"type":"null"}],"default":null,"si":"detectar"}}}}}
+            """#)
+        let prompt = try #require(campo(leido, "prompt"))
+        let cuantos = try #require(subcampo(leido, "hablantes", "cuantos"))
+
+        #expect(prompt.dependsOn == "resumir")
+        #expect(cuantos.dependsOn == "detectar")
+        let apagado = recipeFormDefaults(leido)
+        let encendido = apagado.setting(.bool(true), at: ["resumir"]).setting(.bool(true), at: ["hablantes", "detectar"])
+        #expect(!recipeFormIsVisible(prompt, in: apagado, at: []))
+        #expect(recipeFormIsVisible(prompt, in: encendido, at: []))
+        #expect(!recipeFormIsVisible(cuantos, in: apagado, at: ["hablantes"]))
+        #expect(recipeFormIsVisible(cuantos, in: encendido, at: ["hablantes"]))
+        #expect(recipeFormIsVisible(try #require(campo(leido, "resumir")), in: apagado, at: []))
+    }
+
+    @Test("un «si» que no apunta a un interruptor de su mismo grupo se dice con su camino")
+    func dependeDeMal() {
+        let casos: [(String, String)] = [
+            (#"{"type":"object","properties":{"a":{"type":"string","si":"falta"}}}"#, "a"),
+            (#"{"type":"object","properties":{"t":{"type":"string"},"a":{"type":"string","si":"t"}}}"#, "a"),
+            (#"{"type":"object","properties":{"b":{"type":"boolean"},"g":{"type":"object","properties":{"a":{"type":"string","si":"b"}}}}}"#, "g.a"),
+        ]
+        for (texto, camino) in casos {
+            #expect(throws: RecipeFormProblem.unsupported(
+                path: camino, what: "un «si» que no es un interruptor de su mismo grupo"), "\(texto)"
+            ) { try formulario(texto) }
+        }
+    }
+
     @Test("una unión de literales con título se ve con sus nombres, y una constante es una opción fija")
     func literales() throws {
         let leido = try formulario(#"""

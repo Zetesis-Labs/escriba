@@ -9,7 +9,7 @@ struct RecipeFormSections: View {
         let sections = recipeFormSections(form)
         ForEach(sections) { section in
             Section {
-                ForEach(section.fields, id: \.name) { field in
+                ForEach(section.fields.filter { recipeFormIsVisible($0, in: values, at: section.path) }, id: \.name) { field in
                     RecipeFormRow(field: field, path: section.path + [field.name], values: $values)
                 }
             } header: {

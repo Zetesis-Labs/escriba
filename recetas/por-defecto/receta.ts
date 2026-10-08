@@ -35,18 +35,18 @@ export function buildRecipeForm({ stts, llms, conectores }: ListasDeEscriba) {
           .max(6)
           .nullable()
           .default(null)
-          .meta({ title: "Cuántos" })
+          .meta({ title: "Cuántos", si: "detectar" })
           .describe("Vacío: los que salgan"),
       })
       .prefault({})
       .meta({ title: "Hablantes" }),
     resumir: z.boolean().default(false).meta({ title: "Resumir" }),
-    llm: opciones(llms).default(local(llms)).meta({ title: "Resume con" }),
+    llm: opciones(llms).default(local(llms)).meta({ title: "Resume con", si: "resumir" }),
     prompt: z
       .string()
       .nullable()
       .default(null)
-      .meta({ title: "Prompt", lineas: 6 })
+      .meta({ title: "Prompt", lineas: 6, si: "resumir" })
       .describe("Vacío: el de serie"),
     conectores: z
       .array(
