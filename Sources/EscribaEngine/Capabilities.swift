@@ -63,8 +63,8 @@ struct Capabilities: Sendable {
         return (answer, false)
     }
 
-    func keep(_ data: DataValue?, of recording: Recording, in take: Take) async throws {
-        guard !readOnly, data != take.data, let version = take.version else { return }
-        try await memory?.keepData(recording, version, data)
+    func keep(_ data: DataValue?, schema: DataValue?, of recording: Recording, in take: Take) async throws {
+        guard !readOnly, let version = take.version else { return }
+        try await memory?.keepData(recording, version, data, schema)
     }
 }

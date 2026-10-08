@@ -267,7 +267,12 @@ El fichero de entrada de cada receta (`recetas/<clave>/receta.ts` o
   constructor propio que se propuso el 2026-10-07).
 - La biblioteca **muestra los datos** en el detalle de la nota, en su orden,
   con listas, grupos y sí o no, y «Cómo se procesó» enseña los que guardó cada
-  ejecución, también en las pruebas. **Filtrar y buscar** (por datos y dentro
+  ejecución, también en las pruebas. La etiqueta de cada campo es su `title`
+  de Zod (`.meta({ title })`); sin él, la clave tal cual, sin adivinar
+  mayúsculas ni tildes (Rubén, 2026-10-08). Por eso al guardar se guarda con
+  la versión el JSON Schema de `receta.datos` (`transcript.dataSchema`,
+  migración `v10-esquema-de-datos`): las etiquetas siguen valiendo aunque la
+  receta cambie después. Lo que es `null` o está vacío no ocupa fila. **Filtrar y buscar** (por datos y dentro
   de las transcripciones) queda fuera hasta que Rubén lo pida (2026-10-08).
   Leer los datos de otras notas desde una receta sigue abierto.
 - `{{datos.<campo>}}` en las plantillas de los conectores **no se hace**: la

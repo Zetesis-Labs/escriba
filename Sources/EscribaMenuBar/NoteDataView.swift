@@ -4,8 +4,8 @@ import SwiftUI
 struct NoteDataView: View {
     let rows: [DataRow]
 
-    init(_ data: DataValue) {
-        rows = dataRows(data)
+    init(_ data: DataValue, schema: DataValue? = nil) {
+        rows = dataRows(data, schema: schema)
     }
 
     var body: some View {
@@ -41,12 +41,13 @@ struct NoteDataView: View {
 
 struct NoteDataSection: View {
     let data: DataValue?
+    let schema: DataValue?
 
     var body: some View {
         if let data, !dataRows(data).isEmpty {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Datos").font(.headline)
-                NoteDataView(data)
+                NoteDataView(data, schema: schema)
             }
         }
     }

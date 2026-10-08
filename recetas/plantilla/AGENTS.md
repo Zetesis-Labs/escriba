@@ -49,7 +49,9 @@ Lo que puede pedir, con los tipos completos en `escriba-recetas.d.ts`:
 - `nota.datos` son los datos propios de la nota, un objeto JSON o `null`, y se
   guardan con la versión: `await nota.guardar({ datos })` o cambiando
   `nota.datos` y llamando a `guardar()`. Si `receta.datos` es un esquema, se
-  validan al guardar. La biblioteca los enseña en el detalle de la nota.
+  validan al guardar. La biblioteca los enseña en el detalle de la nota, con
+  la etiqueta que pongas en el esquema con `.meta({ title: "En una frase" })`
+  o, si no hay, con la clave tal cual; lo que es `null` o está vacío no sale.
 - `escriba.conector(claveONombre).publicar(nota)` publica en un conector.
 - `escriba.stts`, `escriba.llms` y `escriba.conectores` listan lo configurado,
   con su clave, su nombre y su configuración, sin secretos.
@@ -77,9 +79,9 @@ export async function flujo(audio: Audio, escriba: Escriba): Promise<void> {
 import { z } from "zod"
 
 const Reunion = z.object({
-  cliente: z.string().nullable().describe("La empresa del cliente, si se menciona"),
-  tareas: z.array(z.string()),
-  urgente: z.boolean(),
+  cliente: z.string().nullable().meta({ title: "Cliente" }).describe("La empresa del cliente, si se menciona"),
+  tareas: z.array(z.string()).meta({ title: "Tareas" }),
+  urgente: z.boolean().meta({ title: "Urgente" }),
 })
 
 export const receta = { nombre: "Reuniones", datos: Reunion }

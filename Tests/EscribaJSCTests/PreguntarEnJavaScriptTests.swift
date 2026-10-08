@@ -137,7 +137,9 @@ struct PreguntarEnJavaScriptTests {
             puente(registro))
 
         #expect(registro.values == [
-            "transcribe", #"guarda {"cliente":"Acme"}"#, "log Acme",
+            "transcribe",
+            #"guarda {"cliente":"Acme"} según {"type":"object","properties":{"cliente":{"type":"string"}},"required":["cliente"]}"#,
+            "log Acme",
             "log los datos de la nota no casan con el esquema: cliente: falta el cliente",
         ])
     }

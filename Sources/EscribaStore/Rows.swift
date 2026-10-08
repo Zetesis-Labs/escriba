@@ -78,6 +78,7 @@ struct TranscriptRow: Codable, FetchableRecord, MutablePersistableRecord {
     var digestSummary: String?
     var digestTags: String?
     var data: String?
+    var dataSchema: String?
 
     enum Columns {
         static let id = Column(CodingKeys.id)
@@ -312,6 +313,11 @@ func makeMigrator() -> DatabaseMigrator {
             t.column("payload", .text).notNull()
             t.column("savedAt", .datetime).notNull()
             t.primaryKey(["transcriptId", "fingerprint"])
+        }
+    }
+    migrator.registerMigration("v10-esquema-de-datos") { db in
+        try db.alter(table: "transcript") { t in
+            t.add(column: "dataSchema", .text)
         }
     }
     return migrator

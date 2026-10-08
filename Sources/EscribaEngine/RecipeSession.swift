@@ -11,6 +11,7 @@ final class RecipeSession: Sendable {
         var logs: [RecipeLogLine] = []
         var recipes: [String] = []
         var savedData: DataValue?
+        var savedSchema: DataValue?
     }
 
     private let recording: Recording
@@ -54,8 +55,8 @@ final class RecipeSession: Sendable {
             recipes: availableRecipes(),
             transcribe: { try await self.transcribe($0, origin: origin) },
             summarize: { try await self.summarize($0, origin: origin) },
-            save: { try await self.saveNote(data: nil, origin: origin) },
-            saveData: { try await self.saveNote(data: $0, origin: origin) },
+            save: { try await self.saveNote(data: nil, schema: nil, origin: origin) },
+            saveData: { try await self.saveNote(data: $0, schema: $1, origin: origin) },
             ask: { try await self.ask($0, schema: $1, origin: origin) },
             publish: { try await self.publish(to: $0, origin: origin) },
             process: { try await self.process($0, chain: chain, origin: origin) },
@@ -84,7 +85,8 @@ final class RecipeSession: Sendable {
             RecipeTrace(
                 recipe: target.key, name: target.name, fingerprint: target.package.fingerprint, steps: state.steps,
                 logs: state.logs, error: error.map { "\($0)" }, outcome: recipeOutcome(error), recipes: state.recipes,
-                startedAt: startedAt, seconds: seconds, data: state.savedData.map { dataText($0) })
+                startedAt: startedAt, seconds: seconds, data: state.savedData.map { dataText($0) },
+                dataSchema: state.savedSchema.map { dataText($0) })
         }
     }
 
@@ -140,7 +142,7 @@ final class RecipeSession: Sendable {
         return note(summarized)
     }
 
-    private func saveNote(data json: String?, origin: String?) async throws {
+    private func saveNote(data json: String?, schema schemaJSON: String?, origin: String?) async throws {
         let take = try current(for: "guardar")
         let data: DataValue?
         do {
@@ -149,23 +151,25 @@ final class RecipeSession: Sendable {
             record(RecipeStep(capability: "guardar", detail: nil, seconds: 0, error: "\(error)", origin: origin))
             throw error
         }
+        let schema = json == nil ? nil : schemaJSON.flatMap { try? parseData($0) }
         if dryRun {
             record(RecipeStep(capability: "guardar", detail: "sin guardar (prueba)", seconds: 0, error: nil, origin: origin))
-            remember(saved: data, in: take, output: recording.url)
+            remember(saved: data, schema: schema, changed: json != nil, in: take, output: recording.url)
             return
         }
         let output = try await step("guardar", origin: origin) {
-            try await capabilities.keep(data, of: recording, in: take)
+            if json != nil { try await capabilities.keep(data, schema: schema, of: recording, in: take) }
             return try await save(delivery(take))
         }
-        remember(saved: data, in: take, output: output)
+        remember(saved: data, schema: schema, changed: json != nil, in: take, output: output)
     }
 
-    private func remember(saved data: DataValue?, in take: Take, output: URL) {
+    private func remember(saved data: DataValue?, schema: DataValue?, changed: Bool, in take: Take, output: URL) {
         state.withLock { state in
             state.output = output
             state.take = (state.take ?? take).carrying(data: data)
             state.savedData = data
+            if changed { state.savedSchema = schema }
         }
     }
 

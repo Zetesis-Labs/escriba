@@ -37,18 +37,21 @@ struct DatosEnLaBibliotecaTests {
         let v1 = try await memoria.keepTranscript(grabacion, Transcript(text: "uno"), entradas)
         let datos = try parseData(#"{"urgente":true,"cliente":"Acme","tareas":["a","b"]}"#)
 
-        try await memoria.keepData(grabacion, v1, datos)
+        let esquema = try parseData(#"{"type":"object","properties":{"urgente":{"type":"boolean","title":"¿Urgente?"}}}"#)
+        try await memoria.keepData(grabacion, v1, datos, esquema)
 
         #expect(try await memoria.recall(grabacion, entradas)?.data == datos)
         #expect(try sandbox.store.recordings().first?.transcript?.data == datos)
+        #expect(try sandbox.store.recordings().first?.transcript?.dataSchema == esquema)
 
         try await sandbox.store.addTranscript(Transcript(text: "dos"), for: "a", backend: "otro")
         #expect(try sandbox.store.recordings().first?.transcript?.data == nil)
         try await sandbox.store.choose(version: v1, for: "a")
         #expect(try sandbox.store.recordings().first?.transcript?.data == datos)
 
-        try await memoria.keepData(grabacion, v1, nil)
+        try await memoria.keepData(grabacion, v1, nil, esquema)
         #expect(try sandbox.store.recordings().first?.transcript?.data == nil)
+        #expect(try sandbox.store.recordings().first?.transcript?.dataSchema == nil)
     }
 
     @Test("una respuesta se recuerda por versión y huella, y se va con su versión")
@@ -79,7 +82,7 @@ struct DatosEnLaBibliotecaTests {
         _ = try await memoria.keepTranscript(b, Transcript(text: "b"), entradas)
 
         await #expect(throws: StoreError.self) {
-            try await memoria.keepData(b, va, .object([]))
+            try await memoria.keepData(b, va, .object([]), nil)
         }
     }
 
@@ -102,8 +105,9 @@ struct DatosEnLaBibliotecaTests {
 
         try queue.read { db in
             #expect(try String.fetchOne(db, sql: "SELECT text FROM transcript") == "hola")
-            let datos: String? = try Row.fetchOne(db, sql: "SELECT data FROM transcript")?["data"]
-            #expect(datos == nil)
+            let fila = try Row.fetchOne(db, sql: "SELECT data, dataSchema FROM transcript")
+            #expect(fila?["data"] as String? == nil)
+            #expect(fila?["dataSchema"] as String? == nil)
             #expect(try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM answer") == 0)
         }
     }

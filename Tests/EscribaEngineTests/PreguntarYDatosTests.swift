@@ -190,7 +190,7 @@ struct DatosPorVersionTests {
         let (resultado, traza) = await ejecutar(memoria: memoria) { escriba in
             let nota = try await escriba.transcribe(RecipeTranscription())
             #expect(nota.data == nil)
-            try await escriba.saveData(#"{"urgente":true,"cliente":"Acme"}"#)
+            try await escriba.saveData(#"{"urgente":true,"cliente":"Acme"}"#, nil)
             let otra = try await escriba.transcribe(RecipeTranscription())
             vista.withLock { $0 = otra }
         }
@@ -208,7 +208,7 @@ struct DatosPorVersionTests {
         let memoria = MemoryNotes()
         let previos = try parseData(#"{"a":1}"#)
         let version = memoria.remember("a", Transcript(text: "hola"))
-        try await memoria.port.keepData(recording("a"), version, previos)
+        try await memoria.port.keepData(recording("a"), version, previos, nil)
 
         let (_, traza) = await ejecutar(memoria: memoria) { escriba in
             let nota = try await escriba.transcribe(RecipeTranscription())
@@ -221,7 +221,7 @@ struct DatosPorVersionTests {
 
         _ = await ejecutar(memoria: memoria) { escriba in
             _ = try await escriba.transcribe(RecipeTranscription())
-            try await escriba.saveData("null")
+            try await escriba.saveData("null", nil)
         }
         #expect(memoria.data("a") == nil)
     }
@@ -231,13 +231,39 @@ struct DatosPorVersionTests {
         let memoria = MemoryNotes()
         let (resultado, traza) = await ejecutar(memoria: memoria) { escriba in
             _ = try await escriba.transcribe(RecipeTranscription())
-            try await escriba.saveData("[1,2]")
+            try await escriba.saveData("[1,2]", nil)
         }
 
         #expect(throws: NoteDataProblem.notAnObject) { try resultado.get() }
         #expect(traza.steps.last?.title == "guardar")
         #expect(traza.steps.last?.error == "\(NoteDataProblem.notAnObject)")
         #expect(memoria.data("a") == nil)
+    }
+
+    @Test("el esquema con el que se guardaron los datos viaja a la memoria y a la traza")
+    func esquema() async throws {
+        let memoria = MemoryNotes()
+        let esquemas = Trace<String?>()
+        var puerto = memoria.port
+        let guardar = puerto.keepData
+        puerto.keepData = { grabacion, version, datos, esquema in
+            esquemas.append(esquema.map { dataText($0) })
+            try await guardar(grabacion, version, datos, esquema)
+        }
+        let recipe = Recipe(
+            shelf: .only(objetivo),
+            runtime: RecipeRuntime(name: "falso") { _, escriba in
+                _ = try await escriba.transcribe(RecipeTranscription())
+                try await escriba.saveData(#"{"a":1}"#, #"{"type":"object","properties":{"a":{"type":"number","title":"A"}}}"#)
+            },
+            publishers: [:])
+
+        let (_, traza) = await runRecipe(
+            objetivo, of: recipe, on: recording("a"), backend: backend { _ in Transcript(text: "hola") }, enrich: nil,
+            memory: puerto, save: { _ in URL(fileURLWithPath: "/salida/a") })
+
+        #expect(esquemas.values == [#"{"type":"object","properties":{"a":{"type":"number","title":"A"}}}"#])
+        #expect(traza.dataSchema == #"{"type":"object","properties":{"a":{"type":"number","title":"A"}}}"#)
     }
 
     @Test("al probar, los datos salen en la traza pero no se guardan")
@@ -247,7 +273,7 @@ struct DatosPorVersionTests {
 
         let (_, traza) = await ejecutar(memoria: memoria, dryRun: true) { escriba in
             _ = try await escriba.transcribe(RecipeTranscription())
-            try await escriba.saveData(#"{"b":2}"#)
+            try await escriba.saveData(#"{"b":2}"#, nil)
         }
 
         #expect(traza.data == #"{"b":2}"#)
