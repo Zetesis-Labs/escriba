@@ -6,31 +6,21 @@ public struct RecipeTarget: Sendable, Equatable {
     public let name: String
     public let kind: RecipeKind
     public let package: RecipePackage
-    public let parameters: DefaultRecipeSettings?
     public let values: String?
 
-    public init(
-        key: String, name: String, kind: RecipeKind, package: RecipePackage, parameters: DefaultRecipeSettings?,
-        values: String? = nil
-    ) {
+    public init(key: String, name: String, kind: RecipeKind, package: RecipePackage, values: String? = nil) {
         self.key = key
         self.name = name
         self.kind = kind
         self.package = package
-        self.parameters = parameters
         self.values = values
     }
 
     public var info: RecipeInfo { RecipeInfo(key: key, name: name, kind: kind) }
 
-    public func overriding(_ parameters: DefaultRecipeSettings?) -> RecipeTarget {
-        guard kind == .form, let parameters else { return self }
-        return RecipeTarget(key: key, name: name, kind: kind, package: package, parameters: parameters, values: values)
-    }
-
     public func overriding(values: String?) -> RecipeTarget {
-        guard kind == .code, let values else { return self }
-        return RecipeTarget(key: key, name: name, kind: kind, package: package, parameters: parameters, values: values)
+        guard let values else { return self }
+        return RecipeTarget(key: key, name: name, kind: kind, package: package, values: values)
     }
 }
 
@@ -67,14 +57,14 @@ public func recipeShelf(
             RecipeTarget(
                 key: recipe.key, name: recipe.name, kind: .form,
                 package: RecipePackage(key: recipe.key, source: formPackage.source, fingerprint: formPackage.fingerprint),
-                parameters: recipe.settings)
+                values: book.values[recipe.key])
         case .code(let package):
             RecipeTarget(
                 key: package.key, name: package.name, kind: .code,
                 package: RecipePackage(
                     key: package.key, source: package.source, fingerprint: package.fingerprint,
                     sourceMap: package.sourceMap),
-                parameters: nil, values: book.values[package.key])
+                values: book.values[package.key])
         case .missing:
             nil
         }

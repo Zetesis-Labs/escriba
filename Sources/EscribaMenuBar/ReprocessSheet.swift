@@ -8,7 +8,6 @@ struct ReprocessSheet: View {
     let onRun: (RecipeChoice) -> Void
     let onCancel: () -> Void
     @State private var recipe: String
-    @State private var parameters: DefaultRecipeSettings?
     @State private var form: RecipeFormLoad?
     @State private var values: DataValue = .object([])
     @Environment(\.recipeForms) private var forms
@@ -21,9 +20,7 @@ struct ReprocessSheet: View {
         self.listing = listing
         self.onRun = onRun
         self.onCancel = onCancel
-        let book = settings.recipeBook
-        _recipe = State(initialValue: book.defaultKey)
-        _parameters = State(initialValue: book.form(book.defaultKey)?.settings)
+        _recipe = State(initialValue: settings.recipeBook.defaultKey)
     }
 
     var body: some View {
@@ -37,15 +34,10 @@ struct ReprocessSheet: View {
                             Text(recipe.isDefault ? "\(recipe.name) (por defecto)" : recipe.name).tag(recipe.key)
                         }
                     }
-                    .onChange(of: recipe) { _, key in parameters = settings.recipeBook.form(key)?.settings }
                 } footer: {
-                    Text(parameters == nil && codeForm == nil
-                        ? "Es de código: hace lo que diga su código."
-                        : "Los cambios de abajo valen solo para esta vez; la receta no cambia.")
+                    Text(footer)
                 }
-                if let parameters = Binding($parameters) {
-                    RecipeParametersFields(settings: settings, parameters: parameters)
-                } else if let codeForm {
+                if let codeForm {
                     RecipeFormSections(form: codeForm, values: $values)
                 } else if case .problem(let problem)? = form {
                     Section("Parámetros") {
@@ -66,7 +58,7 @@ struct ReprocessSheet: View {
                 Button("Cancelar", role: .cancel, action: onCancel)
                     .keyboardShortcut(.cancelAction)
                 Button("Reprocesar") {
-                    onRun(RecipeChoice(recipe: recipe, parameters: parameters, values: oneTimeValues))
+                    onRun(RecipeChoice(recipe: recipe, values: oneTimeValues))
                 }
                 .keyboardShortcut(.defaultAction)
             }
@@ -80,6 +72,15 @@ struct ReprocessSheet: View {
                 values = recipeFormValues(loadedForm, saved: savedRecipeValues(settings.recipeBook, recipe))
             }
             form = loaded
+        }
+    }
+
+    private var footer: String {
+        switch form {
+        case nil: "Leyendo sus parámetros…"
+        case .noForm?: "No tiene parámetros: hace lo que diga su código."
+        case .form?: "Los cambios de abajo valen solo para esta vez; la receta no cambia."
+        case .problem?: "Sus parámetros no se pueden pintar: se usan los guardados."
         }
     }
 

@@ -3,7 +3,7 @@ import Testing
 
 @testable import EscribaCore
 
-@Suite("La receta por defecto se configura por formulario")
+@Suite("Los ajustes de antes de la receta por defecto: solo para leerlos y migrarlos")
 struct RecetaPorDefectoTests {
     @Test("los parametros llegan a JavaScript con los nombres del contrato")
     func parametros() throws {
@@ -76,22 +76,5 @@ struct RecetaPorDefectoTests {
         #expect(sinNumero.detectSpeakers)
         #expect(sinNumero.speakerCount == nil)
         #expect(sinNumero.prompt == nil)
-    }
-
-    @Test("quitar un resolutor devuelve al local lo que la receta transcribia o resumia con el")
-    func resolutorQuitado() {
-        let ajustes = DefaultRecipeSettings(
-            stt: "U1", language: "es", detectSpeakers: false, speakerCount: nil, summarize: true, llm: "U2",
-            prompt: nil, connectors: [])
-
-        let sinSTT = ajustes.forgettingResolver("U1", stt: "whisper", llm: "apple")
-        let sinLLM = ajustes.forgettingResolver("U2", stt: "whisper", llm: "apple")
-        let otro = ajustes.forgettingResolver("U3", stt: "whisper", llm: "apple")
-
-        #expect(sinSTT.stt == "whisper")
-        #expect(sinSTT.llm == "U2")
-        #expect(sinLLM.llm == "apple")
-        #expect(sinLLM.stt == "U1")
-        #expect(otro == ajustes)
     }
 }

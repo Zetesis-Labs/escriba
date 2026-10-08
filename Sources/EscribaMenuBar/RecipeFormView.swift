@@ -6,10 +6,15 @@ struct RecipeFormSections: View {
     @Binding var values: DataValue
 
     var body: some View {
-        ForEach(recipeFormSections(form), id: \.path) { section in
-            Section(section.title ?? "Parámetros") {
+        let sections = recipeFormSections(form)
+        ForEach(sections) { section in
+            Section {
                 ForEach(section.fields, id: \.name) { field in
                     RecipeFormRow(field: field, path: section.path + [field.name], values: $values)
+                }
+            } header: {
+                if let title = section.title ?? (section.id == sections.first?.id ? "Parámetros" : nil) {
+                    Text(title)
                 }
             }
         }
@@ -27,7 +32,7 @@ private struct RecipeFormRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             control
-            if let help = field.help {
+            if let help = field.help, field.kind != .text {
                 Text(help)
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -45,7 +50,11 @@ private struct RecipeFormRow: View {
         case .toggle:
             Toggle(field.label, isOn: Binding(get: { value == .bool(true) }, set: { set(.bool($0)) }))
         case .text:
-            TextField(field.label, text: Binding(get: { value?.text ?? "" }, set: { set($0.isEmpty ? empty : .string($0)) }))
+            TextField(
+                field.label, text: Binding(get: { value?.text ?? "" }, set: { set($0.isEmpty ? empty : .string($0)) }),
+                prompt: Text(field.help ?? "Vacío"), axis: .vertical
+            )
+            .lineLimit(1...6)
         case .number(_, _, let integer):
             if let choices = recipeFormNumberChoices(field) {
                 choice(choices.map { RecipeFormOption(value: "\($0)") }, number: true)

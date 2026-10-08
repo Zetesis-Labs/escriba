@@ -6,8 +6,7 @@ import Testing
 @testable import EscribaEngine
 
 private let objetivo = RecipeTarget(
-    key: "analisis", name: "Análisis", kind: .code, package: RecipePackage(key: "analisis", source: "", fingerprint: "f"),
-    parameters: nil)
+    key: "analisis", name: "Análisis", kind: .code, package: RecipePackage(key: "analisis", source: "", fingerprint: "f"))
 
 private let conHablantes = TranscriptionInputs(
     backend: "falso", options: TranscriptionOptions(language: nil, diarize: true, speakerCount: nil))

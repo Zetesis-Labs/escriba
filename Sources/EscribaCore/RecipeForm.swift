@@ -197,10 +197,12 @@ private func number(_ value: DataValue?) -> Double? {
     return number
 }
 
-public struct RecipeFormSection: Sendable, Equatable {
+public struct RecipeFormSection: Sendable, Equatable, Identifiable {
     public let path: [String]
     public let title: String?
     public let fields: [RecipeFormField]
+
+    public var id: [String] { path + [fields.first?.name ?? ""] }
 
     public init(path: [String], title: String?, fields: [RecipeFormField]) {
         self.path = path
@@ -214,14 +216,23 @@ public func recipeFormSections(_ form: RecipeForm) -> [RecipeFormSection] {
 }
 
 private func sections(_ fields: [RecipeFormField], path: [String], titles: [String]) -> [RecipeFormSection] {
-    let leaves = fields.filter { if case .group = $0.kind { false } else { true } }
-    let own = leaves.isEmpty
-        ? []
-        : [RecipeFormSection(path: path, title: titles.isEmpty ? nil : titles.joined(separator: " · "), fields: leaves)]
-    return own + fields.flatMap { field -> [RecipeFormSection] in
-        guard case .group(let children) = field.kind else { return [] }
-        return sections(children, path: path + [field.name], titles: titles + [field.label])
+    var result: [RecipeFormSection] = []
+    var leaves: [RecipeFormField] = []
+    let title = titles.isEmpty ? nil : titles.joined(separator: " · ")
+    func closeLeaves() {
+        if !leaves.isEmpty { result.append(RecipeFormSection(path: path, title: title, fields: leaves)) }
+        leaves = []
     }
+    for field in fields {
+        guard case .group(let children) = field.kind else {
+            leaves.append(field)
+            continue
+        }
+        closeLeaves()
+        result += sections(children, path: path + [field.name], titles: titles + [field.label])
+    }
+    closeLeaves()
+    return result
 }
 
 public func recipeFormDefaults(_ form: RecipeForm) -> DataValue {

@@ -7,8 +7,7 @@ import Testing
 
 private func objetivo(_ key: String, _ name: String) -> RecipeTarget {
     RecipeTarget(
-        key: key, name: name, kind: .code, package: RecipePackage(key: key, source: "", fingerprint: "f-\(key)"),
-        parameters: nil)
+        key: key, name: name, kind: .code, package: RecipePackage(key: key, source: "", fingerprint: "f-\(key)"))
 }
 
 private func ejecutar(

@@ -16,10 +16,11 @@ final class Registro: Sendable {
 private let grabacion = Recording(
     url: URL(fileURLWithPath: "/grabaciones/a.m4a"), startedAt: Date(timeIntervalSince1970: 0), key: "a")
 
-func paquete(_ cuerpo: String, antes: String = "", datos: String? = nil) -> RecipePackage {
+func paquete(_ cuerpo: String, antes: String = "", datos: String? = nil, formulario: String? = nil) -> RecipePackage {
     RecipePackage(
         key: "prueba",
         source: (antes.isEmpty ? "" : antes + "\n") + "var __receta = { receta: { nombre: \"Prueba\"\(datos.map { ", datos: \($0)" } ?? "") }, "
+            + (formulario.map { "buildRecipeForm: \($0), " } ?? "")
             + "flujo: async (audio, escriba) => {\n\(cuerpo)\n} };",
         fingerprint: "prueba")
 }
@@ -47,7 +48,7 @@ func puente(
 ) -> RecipeBridge {
     RecipeBridge(
         audio: recipeAudio(grabacion),
-        parameters: parametros ?? formulario(conectores: connectors),
+        values: dataText(formRecipeValues(parametros ?? formulario(conectores: connectors))),
         stts: [
             RecipeResolver(key: "whisper", name: "Whisper en este Mac", isLocal: true),
             RecipeResolver(
@@ -144,7 +145,7 @@ struct JavaScriptCoreTests {
             paquete("""
                 try { escriba.parametros.hablantes.cuantos = 9 } catch (e) {}
                 escriba.log(`${escriba.parametros.stt} ${escriba.parametros.hablantes.cuantos}`)
-                """),
+                """, formulario: "() => ({ '~standard': { validate: (valor) => ({ value: valor }) } })"),
             puente(registro))
 
         #expect(registro.values == ["log whisper 2"])
@@ -455,14 +456,13 @@ struct JavaScriptCoreTests {
             package: paquete("""
                 escriba.log(`soy ${escriba.parametros === null ? "codigo" : "formulario"}`)
                 await escriba.receta("Reuniones").procesar(audio)
-                """),
-            parameters: nil)
+                """))
         let reuniones = RecipeTarget(
             key: "F1", name: "Reuniones", kind: .form,
             package: RecipePackage(
                 key: "F1", source: RecipePackage.defaultRecipe.source,
                 fingerprint: RecipePackage.defaultRecipe.fingerprint),
-            parameters: formulario(resumir: false))
+            values: dataText(formRecipeValues(formulario(resumir: false))))
         let shelf = RecipeShelf(
             recipes: { [reparto.info, reuniones.info] },
             target: { query in
@@ -489,7 +489,10 @@ struct JavaScriptCoreTests {
             },
             recipe: Recipe(
                 shelf: shelf, runtime: javaScriptCoreRuntime(timeLimit: 10), publishers: [:],
-                catalog: RecipeCatalog(transcriber: { _, _ in transcribe })),
+                catalog: RecipeCatalog(
+                    stts: [RecipeResolver(key: "whisper", name: "Whisper en este Mac", isLocal: true)],
+                    llms: [RecipeResolver(key: "apple", name: "Apple Intelligence", isLocal: true)],
+                    transcriber: { _, _ in transcribe })),
             onEvent: { evento in eventos.withLock { $0.append(evento) } }
         ).runOnce()
 

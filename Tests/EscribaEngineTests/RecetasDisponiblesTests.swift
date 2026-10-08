@@ -15,10 +15,10 @@ private func instalada(_ key: String, _ name: String) -> InstalledRecipe {
     InstalledRecipe(key: key, name: name, source: "/* \(key) */", fingerprint: "f-\(key)", installedAt: Date())
 }
 
-private func objetivo(_ key: String, parametros: DefaultRecipeSettings? = nil) -> RecipeTarget {
+private func objetivo(_ key: String, parametros: String? = nil) -> RecipeTarget {
     RecipeTarget(
         key: key, name: key.capitalized, kind: parametros == nil ? .code : .form,
-        package: RecipePackage(key: key, source: "", fingerprint: "f-\(key)"), parameters: parametros)
+        package: RecipePackage(key: key, source: "", fingerprint: "f-\(key)"), values: parametros)
 }
 
 private let transcribeYGuarda: @Sendable (RecipeBridge) async throws -> Void = { escriba in
@@ -108,11 +108,11 @@ struct RecetasDisponiblesTests {
 
     @Test("la receta recibe sus parametros y la traza lleva su clave y su nombre")
     func parametrosYTraza() async throws {
-        let recibidos = Mutex<DefaultRecipeSettings?>(nil)
+        let recibidos = Mutex<String?>(nil)
         let eventos = Trace<PipelineEvent>()
-        let shelf = RecipeShelf(recipes: { [] }, target: { _ in objetivo("reuniones", parametros: ajustes) })
+        let shelf = RecipeShelf(recipes: { [] }, target: { _ in objetivo("reuniones", parametros: dataText(formRecipeValues(ajustes))) })
         let runtime = RecipeRuntime(name: "falso") { _, bridge in
-            recibidos.withLock { $0 = bridge.parameters }
+            recibidos.withLock { $0 = bridge.values }
             try await transcribeYGuarda(bridge)
         }
 
@@ -121,7 +121,7 @@ struct RecetasDisponiblesTests {
         let traza = try #require(eventos.values.compactMap { event in
             if case .traced(_, let trace) = event { trace } else { nil }
         }.first)
-        #expect(recibidos.withLock { $0 } == ajustes)
+        #expect(recibidos.withLock { $0 } == dataText(formRecipeValues(ajustes)))
         #expect(traza.recipe == "reuniones")
         #expect(traza.name == "Reuniones")
         #expect(traza.headline == "Receta «Reuniones» · f-reuni")
@@ -145,10 +145,10 @@ struct EstanteDeRecetasTests {
         #expect(target == RecipeTarget(
             key: "F1", name: "Por defecto", kind: .form,
             package: RecipePackage(key: "F1", source: deFormulario.source, fingerprint: deFormulario.fingerprint),
-            parameters: ajustes))
+            values: dataText(formRecipeValues(ajustes))))
     }
 
-    @Test("la por defecto de codigo ejecuta su paquete instalado, sin parametros")
+    @Test("la por defecto de codigo ejecuta su paquete instalado, sin valores si nadie los cambió")
     func deCodigoPorDefecto() throws {
         var libro = RecipeBook(migrating: ajustes, key: "F1")
         libro.makeDefault("ideas")
@@ -157,7 +157,7 @@ struct EstanteDeRecetasTests {
 
         #expect(target == RecipeTarget(
             key: "ideas", name: "Ideas", kind: .code,
-            package: RecipePackage(key: "ideas", source: "/* ideas */", fingerprint: "f-ideas"), parameters: nil))
+            package: RecipePackage(key: "ideas", source: "/* ideas */", fingerprint: "f-ideas")))
     }
 
     @Test("una por defecto sin paquete no cae en otra: es un error que dice cual")
@@ -171,23 +171,13 @@ struct EstanteDeRecetasTests {
     @Test("otra receta se pide por clave o por nombre, de cualquiera de los dos tipos")
     func porNombre() throws {
         var libro = RecipeBook(migrating: ajustes, key: "F1")
-        libro.add(key: "F2", name: "Reuniones", settings: ajustes)
+        libro.add(key: "F2", name: "Reuniones")
         let shelf = estante(libro, ["ideas": instalada("ideas", "Ideas")])
 
         #expect(try shelf.target("reuniones").key == "F2")
         #expect(try shelf.target("IDEAS").key == "ideas")
         #expect(try shelf.target("F1").name == "Por defecto")
         #expect(throws: RecipeLookupError.missing(kind: .recipe, query: "nada")) { try shelf.target("nada") }
-    }
-
-    @Test("retocar los parametros para una vez cambia una de formulario y deja igual una de codigo")
-    func retocar() {
-        let deFormulario = objetivo("F1", parametros: ajustes)
-        let deCodigo = objetivo("ideas")
-
-        #expect(deFormulario.overriding(.standard).parameters == .standard)
-        #expect(deFormulario.overriding(nil) == deFormulario)
-        #expect(deCodigo.overriding(.standard) == deCodigo)
     }
 
     @Test("la lista lleva las de formulario y luego las de codigo, con su tipo")

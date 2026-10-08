@@ -157,8 +157,12 @@ public final class AppSettings {
                 diarization: defaults.object(forKey: Keys.diarization) as? Int ?? -1,
                 summarize: defaults.object(forKey: Keys.summarize) as? Bool ?? false,
                 connectors: storedConnectors.filter(\.isLive).map(\.key))
-        recipeBook = Self.restore(RecipeBook.self, from: defaults, key: Keys.recipeBook)
-            ?? RecipeBook(migrating: savedDefaultRecipe, key: UUID().uuidString)
+        recipeBook = (Self.restore(RecipeBook.self, from: defaults, key: Keys.recipeBook)
+            ?? RecipeBook(migrating: savedDefaultRecipe, key: UUID().uuidString))
+            .forgettingMissing(
+                connectors: Set(storedConnectors.map(\.key)),
+                stts: Set(stt.resolvers.map { $0.recipeKey(role: .stt) }),
+                llms: Set(llm.resolvers.map { $0.recipeKey(role: .llm) }))
         watchedFolders = seededWithVoiceMemos(
             stored,
             root: voiceMemos,
@@ -215,8 +219,7 @@ public final class AppSettings {
     }
 
     public func forget(resolver id: UUID, as role: ResolverRole) {
-        recipeBook = recipeBook.forgettingResolver(
-            id.uuidString, stt: sttResolvers.local.recipeKey(role: .stt), llm: llmResolvers.local.recipeKey(role: .llm))
+        recipeBook = recipeBook.forgettingResolver(id.uuidString)
     }
 
     public static func adoptLegacyDefaults(

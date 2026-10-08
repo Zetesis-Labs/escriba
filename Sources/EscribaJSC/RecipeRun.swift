@@ -94,8 +94,6 @@ actor RecipeRun {
     private func puente(in context: JSContext) -> JSValue {
         let puente = JSValue(newObjectIn: context)!
         let bridge = bridge
-        puente.setObject(
-            bridge.parameters.flatMap { try? recipeJSON($0) } ?? "null", forKeyedSubscript: "parametros" as NSString)
         puente.setObject(bridge.values ?? "null", forKeyedSubscript: "valores" as NSString)
         puente.setObject(try? recipeJSON(bridge.lists), forKeyedSubscript: "listas" as NSString)
         let transcribe: @convention(block) (String) -> Int = { [weak self] options in

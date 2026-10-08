@@ -8,45 +8,87 @@ private let deHoy = DefaultRecipeSettings(
     prompt: nil, connectors: ["K1", "K2"])
 
 private let conGroq = DefaultRecipeSettings(
-    stt: "U1", language: nil, detectSpeakers: false, speakerCount: nil, summarize: true, llm: "U2",
+    stt: "U1", language: nil, detectSpeakers: true, speakerCount: 2, summarize: true, llm: "U2",
     prompt: "Tres viñetas", connectors: [])
 
 private func instalada(_ key: String, _ name: String) -> InstalledRecipe {
     InstalledRecipe(key: key, name: name, source: "/* \(key) */", fingerprint: "f-\(key)", installedAt: Date())
 }
 
+private func valores(_ libro: RecipeBook, _ clave: String) throws -> DataValue? {
+    try libro.values[clave].map { try parseData($0) }
+}
+
+private let guardadoAntes = #"""
+    {"defaultKey": "mi-receta", "values": {}, "forms": [{"settings": {"idioma": "es", "stt": "whisper", "resumir": true,
+    "conectores": ["03823BB9-D0D1-4D90-9440-00711AEC3D9A", "3DD3155B-1F5C-459D-BEF0-9B682167F9CA"], "prompt": null,
+    "hablantes": {"cuantos": null, "detectar": false}, "llm": "apple"}, "key": "826A5CE2-1951-410E-8784-AC847FDBB665",
+    "name": "Por defecto"}]}
+    """#
+
 @Suite("Libro de recetas: una lista de formulario y de código, con una por defecto")
 struct LibroDeRecetasTests {
-    @Test("la primera vez nace una receta de formulario «Por defecto» con los ajustes que habia, y es la por defecto")
-    func migracion() {
-        let libro = RecipeBook(migrating: deHoy, key: "F1")
-
-        #expect(libro.forms == [FormRecipe(key: "F1", name: "Por defecto", settings: deHoy)])
-        #expect(libro.defaultKey == "F1")
+    @Test("los ajustes de una receta de formulario son sus valores, en el orden del esquema de «Por defecto»")
+    func valoresDeAjustes() throws {
+        #expect(dataText(formRecipeValues(conGroq)) == #"{"stt":"U1","idioma":null,"hablantes":{"detectar":true,"cuantos":2},"#
+            + #""resumir":true,"llm":"U2","prompt":"Tres viñetas","conectores":[]}"#)
     }
 
-    @Test("añadir una de formulario le da un nombre que no se repite y no cambia la por defecto")
+    @Test("la primera vez nace una receta de formulario «Por defecto» con los ajustes que había, y es la por defecto")
+    func migracion() throws {
+        let libro = RecipeBook(migrating: deHoy, key: "F1")
+
+        #expect(libro.forms == [FormRecipe(key: "F1", name: "Por defecto")])
+        #expect(libro.defaultKey == "F1")
+        #expect(try valores(libro, "F1") == formRecipeValues(deHoy))
+    }
+
+    @Test("un libro guardado con los ajustes de antes los convierte en valores y no pierde ninguna receta")
+    func libroDeAntes() throws {
+        let leido = try JSONDecoder().decode(RecipeBook.self, from: Data(guardadoAntes.utf8))
+
+        #expect(leido.forms == [FormRecipe(key: "826A5CE2-1951-410E-8784-AC847FDBB665", name: "Por defecto")])
+        #expect(leido.defaultKey == "mi-receta")
+        #expect(leido.values["826A5CE2-1951-410E-8784-AC847FDBB665"] == #"{"stt":"whisper","idioma":"es","#
+            + #""hablantes":{"detectar":false,"cuantos":null},"resumir":true,"llm":"apple","prompt":null,"#
+            + #""conectores":["03823BB9-D0D1-4D90-9440-00711AEC3D9A","3DD3155B-1F5C-459D-BEF0-9B682167F9CA"]}"#)
+    }
+
+    @Test("si ya hay valores guardados para una receta de formulario, mandan sobre sus ajustes de antes")
+    func valoresMandan() throws {
+        let guardado = #"{"defaultKey":"F1","values":{"F1":"{\"resumir\":false}"},"forms":[{"key":"F1","name":"A","#
+            + #""settings":{"stt":"whisper","idioma":"es","hablantes":{"detectar":false},"resumir":true,"llm":"apple","#
+            + #""conectores":[]}}]}"#
+
+        let leido = try JSONDecoder().decode(RecipeBook.self, from: Data(guardado.utf8))
+
+        #expect(leido.values == ["F1": #"{"resumir":false}"#])
+    }
+
+    @Test("añadir una de formulario le da un nombre que no se repite, sin valores, y no cambia la por defecto")
     func anadir() {
         var libro = RecipeBook(migrating: deHoy, key: "F1")
 
-        let primera = libro.add(key: "F2", name: "Receta nueva", settings: deHoy)
-        let segunda = libro.add(key: "F3", name: "Receta nueva", settings: deHoy)
+        let primera = libro.add(key: "F2", name: "Receta nueva")
+        let segunda = libro.add(key: "F3", name: "Receta nueva")
 
         #expect(primera.name == "Receta nueva")
         #expect(segunda.name == "Receta nueva 2")
         #expect(libro.forms.map(\.key) == ["F1", "F2", "F3"])
+        #expect(libro.values["F2"] == nil)
         #expect(libro.defaultKey == "F1")
     }
 
-    @Test("duplicar copia los parametros con otra clave y un nombre que dice que es copia")
-    func duplicar() {
+    @Test("duplicar copia los valores con otra clave y un nombre que dice que es copia")
+    func duplicar() throws {
         var libro = RecipeBook(migrating: deHoy, key: "F1")
 
         let copia = libro.duplicate("F1", as: "F2")
         let otra = libro.duplicate("F1", as: "F3")
         let ninguna = libro.duplicate("NO", as: "F4")
 
-        #expect(copia == FormRecipe(key: "F2", name: "Por defecto (copia)", settings: deHoy))
+        #expect(copia == FormRecipe(key: "F2", name: "Por defecto (copia)"))
+        #expect(try valores(libro, "F2") == formRecipeValues(deHoy))
         #expect(otra?.name == "Por defecto (copia) 2")
         #expect(ninguna == nil)
     }
@@ -63,34 +105,24 @@ struct LibroDeRecetasTests {
         #expect(libro.forms[0].name == "Reuniones")
     }
 
-    @Test("cambiar los parametros de una no toca las demas")
-    func parametros() {
-        var libro = RecipeBook(migrating: deHoy, key: "F1")
-        libro.add(key: "F2", name: "Groq", settings: deHoy)
-
-        libro.update("F2", settings: conGroq)
-
-        #expect(libro.form("F1")?.settings == deHoy)
-        #expect(libro.form("F2")?.settings == conGroq)
-    }
-
-    @Test("quitar la por defecto pasa la por defecto a la primera de formulario, y la ultima de formulario no se quita")
+    @Test("quitar la por defecto pasa la por defecto a la primera de formulario, se lleva sus valores, y la última no se quita")
     func quitar() {
         var libro = RecipeBook(migrating: deHoy, key: "F1")
-        libro.add(key: "F2", name: "Reuniones", settings: deHoy)
+        libro.add(key: "F2", name: "Reuniones")
 
         libro.remove("F1")
         #expect(libro.forms.map(\.key) == ["F2"])
         #expect(libro.defaultKey == "F2")
+        #expect(libro.values["F1"] == nil)
 
         libro.remove("F2")
         #expect(libro.forms.map(\.key) == ["F2"])
     }
 
-    @Test("quitar una de formulario que no es la por defecto deja la por defecto donde estaba, aunque sea de codigo")
+    @Test("quitar una de formulario que no es la por defecto deja la por defecto donde estaba, aunque sea de código")
     func quitarOtra() {
         var libro = RecipeBook(migrating: deHoy, key: "F1")
-        libro.add(key: "F2", name: "Reuniones", settings: deHoy)
+        libro.add(key: "F2", name: "Reuniones")
         libro.makeDefault("ideas")
 
         libro.remove("F2")
@@ -98,10 +130,10 @@ struct LibroDeRecetasTests {
         #expect(libro.defaultKey == "ideas")
     }
 
-    @Test("la lista junta las de formulario y las de codigo, y marca la por defecto")
+    @Test("la lista junta las de formulario y las de código, y marca la por defecto")
     func lista() {
         var libro = RecipeBook(migrating: deHoy, key: "F1")
-        libro.add(key: "F2", name: "Reuniones", settings: deHoy)
+        libro.add(key: "F2", name: "Reuniones")
         libro.makeDefault("ideas")
 
         let lista = libro.listing(code: [
@@ -117,7 +149,7 @@ struct LibroDeRecetasTests {
         ])
     }
 
-    @Test("una receta se resuelve: la de formulario con sus parametros, la de codigo con su paquete, y si no hay paquete dice cual falta")
+    @Test("una receta se resuelve: la de formulario, la de código con su paquete, y si no hay paquete dice cuál falta")
     func resolver() {
         var libro = RecipeBook(migrating: deHoy, key: "F1")
         let instaladas = ["ideas": instalada("ideas", "Ideas")]
@@ -131,21 +163,68 @@ struct LibroDeRecetasTests {
         #expect(libro.resolve(libro.defaultKey, installed: instaladas) == .missing("borrada"))
     }
 
-    @Test("quitar un resolutor devuelve al local todas las recetas de formulario que lo usaban")
-    func resolutorQuitado() {
+    @Test("quitar un resolutor devuelve al de serie las recetas de formulario que lo usaban; las de código no se tocan")
+    func resolutorQuitado() throws {
         var libro = RecipeBook(migrating: conGroq, key: "F1")
-        libro.add(key: "F2", name: "Otra", settings: conGroq)
+        libro.add(key: "F2", name: "Otra")
+        libro.setValues(#"{"llm":"U2","resumir":true}"#, for: "F2")
+        libro.setValues(#"{"llm":"U2"}"#, for: "analisis")
 
-        let sinGroq = libro.forgettingResolver("U1", stt: "whisper", llm: "apple")
+        let sinGroqSTT = libro.forgettingResolver("U1")
+        let sinGroqLLM = libro.forgettingResolver("U2")
 
-        #expect(sinGroq.forms.map(\.settings.stt) == ["whisper", "whisper"])
-        #expect(sinGroq.forms.map(\.settings.llm) == ["U2", "U2"])
+        #expect(try valores(sinGroqSTT, "F1")?["stt"] == nil)
+        #expect(try valores(sinGroqSTT, "F1")?["llm"] == .string("U2"))
+        #expect(try valores(sinGroqLLM, "F1")?["llm"] == nil)
+        #expect(try valores(sinGroqLLM, "F1")?["stt"] == .string("U1"))
+        #expect(sinGroqLLM.values["F2"] == #"{"resumir":true}"#)
+        #expect(sinGroqLLM.values["analisis"] == #"{"llm":"U2"}"#)
+    }
+
+    @Test("quitar un conector lo quita de lo que publican las recetas de formulario; las de código no se tocan")
+    func conectorQuitado() throws {
+        var libro = RecipeBook(migrating: deHoy, key: "F1")
+        libro.setValues(#"{"conector":"K1"}"#, for: "analisis")
+
+        let sinK1 = libro.forgettingConnector("K1")
+
+        #expect(try valores(sinK1, "F1")?["conectores"] == .array([.string("K2")]))
+        #expect(sinK1.values["analisis"] == #"{"conector":"K1"}"#)
+        #expect(libro.forgettingConnector("K9") == libro)
+    }
+
+    @Test("al arrancar, lo que una receta de formulario usa y ya no existe vuelve a lo de serie")
+    func limpiezaAlArrancar() throws {
+        var libro = RecipeBook(migrating: conGroq, key: "F1")
+        libro.setValues(#"{"conectores":["K1","borrado"],"stt":"borrado"}"#, for: "F1")
+        libro.setValues(#"{"conector":"borrado"}"#, for: "analisis")
+
+        let limpio = libro.forgettingMissing(connectors: ["K1"], stts: ["whisper", "U1"], llms: ["apple"])
+
+        #expect(limpio.values["F1"] == #"{"conectores":["K1"]}"#)
+        #expect(limpio.values["analisis"] == #"{"conector":"borrado"}"#)
+        #expect(libro.forgettingMissing(connectors: ["K1", "borrado"], stts: ["borrado"], llms: []).values["F1"]
+            == #"{"conectores":["K1","borrado"],"stt":"borrado"}"#)
+    }
+
+    @Test("lo que la app lee de una receta de formulario: con qué transcribe, si resume y con qué, el prompt y el idioma; lo que no se fijó o no es de formulario, nada")
+    func lectura() {
+        var libro = RecipeBook(migrating: conGroq, key: "F1")
+        libro.add(key: "F2", name: "De serie")
+        libro.setValues(#"{"llm":"U2","resumir":true}"#, for: "analisis")
+
+        #expect(libro.reading(of: "F1") == FormRecipeReading(
+            stt: "U1", language: nil, summarize: true, llm: "U2", prompt: "Tres viñetas"))
+        #expect(libro.reading(of: "F2") == FormRecipeReading(
+            stt: nil, language: nil, summarize: false, llm: nil, prompt: nil))
+        #expect(libro.reading(of: "analisis") == libro.reading(of: "F2"))
     }
 
     @Test("se guarda y se vuelve a leer igual")
     func idaYVuelta() throws {
         var libro = RecipeBook(migrating: deHoy, key: "F1")
-        libro.add(key: "F2", name: "Groq", settings: conGroq)
+        libro.add(key: "F2", name: "Groq")
+        libro.setValues(dataText(formRecipeValues(conGroq)), for: "F2")
         libro.makeDefault("F2")
 
         let leido = try JSONDecoder().decode(RecipeBook.self, from: try JSONEncoder().encode(libro))
@@ -164,13 +243,14 @@ struct LibroDeRecetasTests {
         #expect(leido.values.isEmpty)
     }
 
-    @Test("los valores del formulario de una receta de código se guardan por clave, se restablecen y sobreviven a leer el libro")
+    @Test("los valores del formulario de una receta se guardan por clave, se restablecen y sobreviven a leer el libro")
     func valoresDeCodigo() throws {
         var libro = RecipeBook(migrating: deHoy, key: "F1")
 
         libro.setValues(#"{"idioma":"en"}"#, for: "analisis")
         libro.setValues(#"{"llm":"U2"}"#, for: "reparto")
         libro.setValues(nil, for: "reparto")
+        libro.setValues(nil, for: "F1")
 
         #expect(libro.values == ["analisis": #"{"idioma":"en"}"#])
         let leido = try JSONDecoder().decode(RecipeBook.self, from: try JSONEncoder().encode(libro))
@@ -178,7 +258,7 @@ struct LibroDeRecetasTests {
     }
 
     @Test("las recetas llegan a JavaScript con clave, nombre y tipo")
-    func contrato() throws {
+    func info() throws {
         let json = try recipeJSON([
             RecipeInfo(key: "F1", name: "Por defecto", kind: .form),
             RecipeInfo(key: "ideas", name: "Ideas", kind: .code),

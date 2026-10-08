@@ -112,9 +112,13 @@ publica donde ella diga, regenerando las páginas que ya existían.
 
 ### RF-3. Recetas generadas y recetas manuales
 
-- **Generada**: se edita con un formulario (STT, idioma, hablantes, resumir y
-  con qué LLM y prompt, a qué conectores publicar) y la app escribe su
-  JavaScript. Vive en la app: no necesita proyecto ni entorno de desarrollo.
+- **Generada** (de formulario): se edita con un formulario (STT, idioma,
+  hablantes, resumir y con qué LLM y prompt, a qué conectores publicar) y
+  ejecuta el código de «Por defecto» con esos valores. Vive en la app: no
+  necesita proyecto ni entorno de desarrollo. Desde el 2026-10-08 ese
+  formulario lo declara el propio código de «Por defecto» con
+  `buildRecipeForm` (RF-4b): la app lo pinta igual que el de una receta de
+  código, y los ajustes guardados antes se migran a valores sin perder nada.
 - **Manual**: TypeScript o JavaScript escrito a mano, por una persona o por un
   agente, en el proyecto de recetas (RF-18). Si exporta `buildRecipeForm`,
   tiene un formulario que pinta la app a partir de su esquema (RF-4b).
@@ -192,6 +196,11 @@ formulario.
   `Escriba<P>`. **Un valor guardado que ya no vale (un LLM quitado) hace fallar
   la ejecución nombrando el campo**, y la ficha lo marca: nunca se cambia por
   otro en silencio.
+- Las recetas de formulario son lo mismo: «Por defecto» exporta su
+  `buildRecipeForm` y cada receta de formulario guarda sus valores. Para que
+  quitar un resolutor o un conector no deje todas las notas fallando, se
+  borra de los valores de las recetas de formulario y vuelven a lo de serie;
+  en las de código manda la regla de fallar nombrando el campo.
 - «Reprocesar con…» prefija el formulario con lo guardado y lo que se cambie
   vale solo para esa vez y solo para la receta elegida: si ella pasa la
   grabación a otra con `procesar`, la otra usa lo suyo guardado.

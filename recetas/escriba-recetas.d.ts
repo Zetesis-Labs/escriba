@@ -82,16 +82,6 @@ interface PreguntaConEsquema<T> extends Pregunta {
   esquema: EsquemaDeZod<T>
 }
 
-interface ParametrosDeReceta {
-  readonly stt: string
-  readonly idioma: string | null
-  readonly hablantes: { readonly detectar: boolean; readonly cuantos: number | null }
-  readonly resumir: boolean
-  readonly llm: string
-  readonly prompt: string | null
-  readonly conectores: readonly string[]
-}
-
 interface Nota {
   readonly clave: string
   readonly version: number | null
@@ -125,7 +115,7 @@ interface ListasDeEscriba {
   readonly recetas: readonly InfoDeReceta[]
 }
 
-interface Escriba<P = ParametrosDeReceta | null> extends ListasDeEscriba {
+interface Escriba<P = null> extends ListasDeEscriba {
   readonly parametros: P
   transcribir(audio: Audio, opciones?: OpcionesDeTranscripcion): Promise<Nota>
   preguntar<T>(pedido: PreguntaConEsquema<T>): Promise<T>
