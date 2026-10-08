@@ -162,6 +162,13 @@ ad-hoc y puede caducar.
   volver a transcribir ni resumir. La transcripción se guarda en cuanto llega,
   antes de resumir; publicar sigue siendo una sola vez, al final. La memoria no
   decide qué grabaciones están pendientes: eso sigue siendo del ledger.
+  **Reprocesar a mano es siempre una versión nueva** (Rubén, 2026-10-08): si ya
+  hay una transcripción con los mismos criterios se copia en la versión nueva
+  sin volver a transcribir, y el resumen, las preguntas y los datos se rehacen
+  en ella; lo automático (una nota que entra, un reintento) sigue reutilizando.
+  `guardar()` deja la versión con la que trabajó la receta como la de la nota
+  y anota qué receta la hizo, y los datos guardados en una ejecución siguen a
+  la nota si después otra receta guarda otra versión.
 - **La app se descarga sus modelos** a
   `~/Library/Application Support/escriba/models`; nunca reutiliza los
   de MacWhisper.

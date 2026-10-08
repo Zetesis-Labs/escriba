@@ -472,7 +472,7 @@ nonisolated private func reprocessed(
     let (result, trace) = await runRecipe(
         target, of: recipe, on: Recording(url: stored.sourceURL, startedAt: stored.startedAt, key: stored.key),
         audio: stored.audio == .libraryCopy ? stored.audioURL : stored.sourceURL,
-        backend: backend, enrich: enrich, memory: memory, save: save, dryRun: dryRun)
+        backend: backend, enrich: enrich, memory: memory, save: save, dryRun: dryRun, fresh: !dryRun)
     switch result {
     case .success: return RecipeRunReport(trace: trace, failure: nil)
     case .failure(let error): return RecipeRunReport(trace: trace, failure: "\(error)")

@@ -86,6 +86,30 @@ struct DatosEnLaBibliotecaTests {
         }
     }
 
+    @Test("la versión que guarda una receta pasa a ser la de la nota y el menú dice qué receta la hizo")
+    func versionGuardada() async throws {
+        let sandbox = try Sandbox()
+        let grabacion = try sandbox.recording("a")
+        let memoria = sandbox.store.memory()
+        let v1 = try await memoria.keepTranscript(grabacion, Transcript(text: "uno"), entradas)
+        _ = try await memoria.keepTranscript(
+            grabacion, Transcript(text: "dos"),
+            TranscriptionInputs(backend: "wk", options: TranscriptionOptions(language: "es", diarize: true)))
+
+        try await memoria.keepSaved(grabacion, v1, "Análisis completo")
+
+        let versiones = try await sandbox.store.versions(for: "a")
+        #expect(versiones.first(where: \.isCurrent)?.id == v1)
+        #expect(versiones[0].recipe == "Análisis completo")
+        #expect(versiones[0].label == "v1 · Análisis completo · ES · sin hablantes")
+        #expect(versiones[1].recipe == nil)
+        #expect(try sandbox.store.recordings().first?.transcript?.version == 1)
+
+        await #expect(throws: StoreError.self) {
+            try await memoria.keepSaved(grabacion, v1 + 99, "x")
+        }
+    }
+
     @Test("la migración añade los datos sin tocar las versiones que ya había")
     func migracion() throws {
         let base = URL(fileURLWithPath: NSTemporaryDirectory()).appending(path: "escriba-datos-mig-\(UUID().uuidString)")
@@ -105,9 +129,10 @@ struct DatosEnLaBibliotecaTests {
 
         try queue.read { db in
             #expect(try String.fetchOne(db, sql: "SELECT text FROM transcript") == "hola")
-            let fila = try Row.fetchOne(db, sql: "SELECT data, dataSchema FROM transcript")
+            let fila = try Row.fetchOne(db, sql: "SELECT data, dataSchema, recipe FROM transcript")
             #expect(fila?["data"] as String? == nil)
             #expect(fila?["dataSchema"] as String? == nil)
+            #expect(fila?["recipe"] as String? == nil)
             #expect(try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM answer") == 0)
         }
     }

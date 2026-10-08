@@ -80,9 +80,11 @@ struct RecetaTests {
                 publishers: ["notion": publica(conReceta, en: "notion")])
         ).runOnce()
 
-        #expect(conReceta.values == sinReceta.values)
+        let propios = conReceta.values.filter { $0.contains("queda como la nota") }
+        #expect(conReceta.values.filter { !propios.contains($0) } == sinReceta.values)
         #expect(conReceta.values == [
-            "transcribe", "guarda transcripcion", "resume", "guarda resumen v1", "entrega", "publica notion",
+            "transcribe", "guarda transcripcion", "resume", "guarda resumen v1", "v1 queda como la nota, de \(paquete.key)",
+            "entrega", "publica notion",
         ])
     }
 

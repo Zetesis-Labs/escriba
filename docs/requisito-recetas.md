@@ -286,8 +286,17 @@ El fichero de entrada de cada receta (`recetas/<clave>/receta.ts` o
   biblioteca muestra cada etapa en cuanto llega.
 - **Lo que la receta cambia se guarda cuando la receta dice**:
   `await nota.guardar()` escribe el texto corregido, los hablantes renombrados
-  y los datos en la biblioteca y en el `.txt`. No crea una versión nueva (solo
-  reprocesar la crea) y, si nada cambió, no hace nada.
+  y los datos en la biblioteca. No crea una versión nueva y, si nada cambió,
+  no escribe nada; sí deja esa versión como la de la nota y anota qué receta
+  la hizo, que es lo que dice el menú de versiones.
+- **Cada reprocesado a mano es una versión nueva** (Rubén, 2026-10-08): una
+  receta hace el recorrido entero, así que su resultado no pisa el de otra.
+  Si ya hay una transcripción con los mismos criterios, se copia sin volver a
+  transcribir; el resumen, las preguntas y los datos se rehacen. Lo automático
+  (una nota que entra, un reintento tras un cierre) sigue reutilizando la
+  versión que hay. Si una receta pasa la nota a otra que transcribe con otros
+  criterios, los datos que ya guardó la ejecución van también a la versión
+  que acaba guardando.
 - Guardar no publica. Publicar a mitad y otra vez al final duplica las
   peticiones a Notion (cientos en una nota larga); la receta por defecto
   publica una sola vez, al final.

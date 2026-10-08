@@ -133,6 +133,9 @@ final class MemoryNotes: Sendable {
             keepAnswer: { recording, version, fingerprint, answer in
                 self.answers.withLock { $0["\(recording.key)|\(version)|\(fingerprint)"] = answer }
                 self.steps.append("guarda respuesta v\(version)")
+            },
+            keepSaved: { _, version, recipe in
+                self.steps.append("v\(version) queda como la nota, de \(recipe)")
             })
     }
 }
