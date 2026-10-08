@@ -137,6 +137,19 @@ struct JavaScriptCoreTests {
         #expect(registro.values == ["transcribe", "guarda"])
     }
 
+    @Test("si el resumen falla, la receta por defecto guarda y publica igual, y lo deja en el log")
+    func resumenQueFalla() async throws {
+        let registro = Registro()
+
+        try await ejecutar(
+            .defaultRecipe,
+            puente(registro, connectors: ["notion"], summarize: { _ in throw RecipeError.failed("sin Apple Intelligence") }))
+
+        #expect(registro.values.prefix(2) == ["transcribe", "resume"])
+        #expect(registro.values.contains { $0.hasPrefix("log warn no se pudo resumir: ") })
+        #expect(registro.values.suffix(2) == ["guarda", "publica notion"])
+    }
+
     @Test("la receta ve sus parametros y no puede cambiarlos")
     func parametrosCongelados() async throws {
         let registro = Registro()

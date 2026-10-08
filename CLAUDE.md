@@ -253,7 +253,9 @@ ad-hoc y puede caducar.
   propio Mac) y `EscribaOpenAI` (cualquier API compatible). El prompt es del
   resolutor (`Summarizer.prompt`); `DigestPrompt` le añade el idioma y el
   adaptador remoto el formato JSON.
-  El resumen viene **apagado** por defecto.
+  El resumen viene **encendido** y en castellano en los valores de serie de
+  «Por defecto» (Rubén, 2026-10-08; antes venía apagado), y si falla la nota
+  se guarda igual con un aviso en su log.
 - **El resumen es de la versión, no de la grabación**: se guarda en la fila de
   `transcript`, así elegir otra versión trae su resumen. Corregir hablantes lo
   arrastra; reprocesar genera uno nuevo. Resumir a mano ancla el resultado a la

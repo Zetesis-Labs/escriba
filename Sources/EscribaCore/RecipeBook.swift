@@ -116,7 +116,7 @@ public struct RecipeInfo: Sendable, Equatable, Encodable {
 
 extension DefaultRecipeSettings {
     public static let standard = DefaultRecipeSettings(
-        stt: "whisper", language: nil, detectSpeakers: false, speakerCount: nil, summarize: false, llm: "apple",
+        stt: "whisper", language: "es", detectSpeakers: false, speakerCount: nil, summarize: true, llm: "apple",
         prompt: nil, connectors: [])
 }
 
