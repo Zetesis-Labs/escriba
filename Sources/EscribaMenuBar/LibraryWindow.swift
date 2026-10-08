@@ -562,12 +562,10 @@ struct TranscriptDetail: View {
                     }
                 }
             }
-            Button("Reprocesar con una receta…") { choosingRecipe = true }
-                .disabled(recording.audio == .missing)
         } label: {
             Label("Hablantes", systemImage: "person.2")
         }
-        .disabled(model.reprocessing.contains(recording.key))
+        .disabled((transcript?.speakers.isEmpty ?? true) || model.reprocessing.contains(recording.key))
     }
 
     private var versionsMenu: some View {
@@ -583,14 +581,14 @@ struct TranscriptDetail: View {
                     }
                 }
             }
-            Divider()
+            if !versions.isEmpty { Divider() }
             Button("Reprocesar con una receta…") { choosingRecipe = true }
                 .disabled(recording.audio == .missing)
         } label: {
             Label(currentVersionLabel, systemImage: "clock.arrow.circlepath")
                 .labelStyle(.titleAndIcon)
         }
-        .disabled(versions.isEmpty || model.reprocessing.contains(recording.key))
+        .disabled(model.reprocessing.contains(recording.key))
     }
 
     private var currentVersionLabel: String {
