@@ -376,7 +376,7 @@ export function buildRecipeForm({ stts, llms, conectores }: ListasDeEscriba) {
     idioma: z
       .union([z.literal("es").meta({ title: "Español" }), z.literal("en").meta({ title: "English" })])
       .nullable()
-      .default(null)
+      .default("es")
       .meta({ title: "Idioma" })
       .describe("Vacío: lo detecta en cada nota"),
     hablantes: z
@@ -398,7 +398,7 @@ export function buildRecipeForm({ stts, llms, conectores }: ListasDeEscriba) {
       })
       .prefault({})
       .meta({ title: "Hablantes" }),
-    resumir: z.boolean().default(false).meta({ title: "Resumir" }),
+    resumir: z.boolean().default(true).meta({ title: "Resumir" }),
     llm: opciones(llms).default(local(llms)).meta({ title: "Resume con", si: "resumir" }),
     prompt: z
       .string()
@@ -428,7 +428,13 @@ export async function flujo(audio: Audio, escriba: Escriba<Parametros>): Promise
     idioma: parametros.idioma,
     hablantes: parametros.hablantes,
   })
-  if (parametros.resumir) await nota.resumir({ llm: parametros.llm, prompt: parametros.prompt })
+  if (parametros.resumir) {
+    try {
+      await nota.resumir({ llm: parametros.llm, prompt: parametros.prompt })
+    } catch (error) {
+      console.warn(`no se pudo resumir: ${error}`)
+    }
+  }
   await nota.guardar()
   for (const clave of parametros.conectores) {
     try {

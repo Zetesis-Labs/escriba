@@ -19712,12 +19712,12 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
   function buildRecipeForm({ stts, llms, conectores }) {
     return external_exports.object({
       stt: opciones(stts).default(local(stts)).meta({ title: "Transcribe con" }),
-      idioma: external_exports.union([external_exports.literal("es").meta({ title: "Español" }), external_exports.literal("en").meta({ title: "English" })]).nullable().default(null).meta({ title: "Idioma" }).describe("Vacío: lo detecta en cada nota"),
+      idioma: external_exports.union([external_exports.literal("es").meta({ title: "Español" }), external_exports.literal("en").meta({ title: "English" })]).nullable().default("es").meta({ title: "Idioma" }).describe("Vacío: lo detecta en cada nota"),
       hablantes: external_exports.object({
         detectar: external_exports.boolean().default(false).meta({ title: "Detectar hablantes" }).describe("Solo con Whisper en este Mac"),
         cuantos: external_exports.number().int().min(2).max(6).nullable().default(null).meta({ title: "Cuántos", si: "detectar" }).describe("Vacío: los que salgan")
       }).prefault({}).meta({ title: "Hablantes" }),
-      resumir: external_exports.boolean().default(false).meta({ title: "Resumir" }),
+      resumir: external_exports.boolean().default(true).meta({ title: "Resumir" }),
       llm: opciones(llms).default(local(llms)).meta({ title: "Resume con", si: "resumir" }),
       prompt: external_exports.string().nullable().default(null).meta({ title: "Prompt", lineas: 6, si: "resumir" }).describe("Vacío: el de serie"),
       conectores: external_exports.array(
@@ -19736,7 +19736,13 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
       idioma: parametros.idioma,
       hablantes: parametros.hablantes
     });
-    if (parametros.resumir) await nota.resumir({ llm: parametros.llm, prompt: parametros.prompt });
+    if (parametros.resumir) {
+      try {
+        await nota.resumir({ llm: parametros.llm, prompt: parametros.prompt });
+      } catch (error62) {
+        console.warn(`no se pudo resumir: ${error62}`);
+      }
+    }
     await nota.guardar();
     for (const clave of parametros.conectores) {
       try {
@@ -19749,5 +19755,5 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
   return __toCommonJS(receta_exports);
 })();
 """##,
-        fingerprint: "4445c659bd945c79")
+        fingerprint: "8458d0609960e4fa")
 }
