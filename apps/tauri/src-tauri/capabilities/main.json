@@ -1,0 +1,11 @@
+{
+  "identifier": "main",
+  "description": "Interfaz local de Escriba Tauri",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "dialog:allow-open",
+    "dialog:allow-save",
+    "dialog:allow-confirm"
+  ]
+}

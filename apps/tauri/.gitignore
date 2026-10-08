@@ -1,0 +1,9 @@
+node_modules/
+dist/
+src-tauri/target/
+src-tauri/binaries/
+src-tauri/gen/
+src-tauri/vendor/
+test-results/
+
+runtime-host/.build/
