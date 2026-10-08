@@ -120,12 +120,7 @@ public struct Pipeline: Sendable {
             return .deferred
         }
 
-        let target: RecipeTarget?
-        do {
-            target = try recipe?.shelf.target(nil)
-        } catch {
-            throw RecipeUnavailable(reason: "\(error)")
-        }
+        let target = try target(of: recording)
 
         Log.info("transcribiendo \(recording.key)")
         onEvent?(.transcribing(key: recording.key))
@@ -151,6 +146,21 @@ public struct Pipeline: Sendable {
             "\(recording.key) listo en \(String(format: "%.1f", elapsed))s -> \(delivered.output.lastPathComponent)"
         )
         return .done
+    }
+
+    private func target(of recording: Recording) throws -> RecipeTarget? {
+        let chosen = try source.chosenRecipe(recording)
+        guard let recipe else {
+            if chosen != nil { throw ChosenRecipeUnavailable(reason: "las recetas no arrancan en este Mac") }
+            return nil
+        }
+        do {
+            return try recipe.shelf.target(chosen)
+        } catch let missing as RecipeLookupError where chosen != nil {
+            throw ChosenRecipeUnavailable(reason: "\(missing)")
+        } catch {
+            throw RecipeUnavailable(reason: "\(error)")
+        }
     }
 
     private func deliver(
@@ -204,4 +214,10 @@ private func runRecipe(
 
 private struct RecipeUnavailable: Error {
     let reason: String
+}
+
+private struct ChosenRecipeUnavailable: Error, CustomStringConvertible {
+    let reason: String
+
+    var description: String { "la receta elegida para esta grabación no está disponible: \(reason)" }
 }

@@ -41,6 +41,7 @@ public final class RecorderModel {
     public private(set) var state: State = .idle
     public private(set) var level: Double = 0
     public private(set) var elapsed: TimeInterval = 0
+    public private(set) var recipe: String?
 
     @ObservationIgnored private let recorder: AudioRecorder
     @ObservationIgnored private let inbox: Inbox
@@ -85,7 +86,7 @@ public final class RecorderModel {
         }
     }
 
-    public func start() async {
+    public func start(recipe: String? = nil) async {
         guard state == .idle || state == .denied || problem != nil else { return }
         state = .asking
         guard await recorder.requestPermission() else {
@@ -96,6 +97,7 @@ public final class RecorderModel {
             let url = try inbox.recordingURL()
             try recorder.start(url)
             file = url
+            self.recipe = recipe
             level = 0
             elapsed = 0
             release = keepAwake()
@@ -108,11 +110,12 @@ public final class RecorderModel {
 
     public func stop() {
         guard case .recording(let startedAt) = state, let file else { return }
+        let recipe = recipe
         recorder.stop()
         finish()
         let name = recordingName(startedAt: startedAt, timeZone: timeZone)
         do {
-            try inbox.finishRecording(file, name, startedAt)
+            try inbox.finishRecording(file, name, startedAt, recipe)
             state = .idle
             wake()
         } catch {
@@ -159,6 +162,7 @@ public final class RecorderModel {
         ticker?.cancel()
         ticker = nil
         file = nil
+        recipe = nil
         level = 0
     }
 }

@@ -243,7 +243,9 @@ final class AppRuntime {
 
             do {
                 try FileManager.default.createDirectory(at: Paths.inbox, withIntermediateDirectories: true)
-                result.append(namespaced(folderSource(name: inboxPrefix, root: Paths.inbox), prefix: inboxPrefix))
+                result.append(namespaced(
+                    folderSource(name: inboxPrefix, root: Paths.inbox, chosenRecipe: fileInbox(root: Paths.inbox).recipe),
+                    prefix: inboxPrefix))
             } catch {
                 Log.error("no se pudo preparar la bandeja de Escriba: \(error)")
             }

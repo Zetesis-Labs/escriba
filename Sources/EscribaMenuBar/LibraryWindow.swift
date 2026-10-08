@@ -85,12 +85,14 @@ struct LibraryWindow: View {
             .navigationTitle("Biblioteca")
             .toolbar {
                 ToolbarItemGroup {
-                    Button {
-                        chooseAudio()
+                    Menu {
+                        recipeChoices { chooseAudio(recipe: $0) }
                     } label: {
                         Label("Añadir audio…", systemImage: "plus.rectangle.on.folder")
+                    } primaryAction: {
+                        chooseAudio(recipe: nil)
                     }
-                    .help("Añadir ficheros de audio para transcribirlos")
+                    .help("Añadir audios con la receta por defecto; en la flecha, con otra")
                     if recorder.isRecording {
                         Button {
                             recorder.stop()
@@ -99,18 +101,22 @@ struct LibraryWindow: View {
                         }
                         .help("Detener y transcribir")
                     } else {
-                        Button {
-                            Task { await recorder.start() }
+                        Menu {
+                            recipeChoices { recipe in Task { await recorder.start(recipe: recipe) } }
                         } label: {
                             Label("Grabar", systemImage: "mic.circle")
+                        } primaryAction: {
+                            Task { await recorder.start() }
                         }
-                        .help("Grabar una nota de voz")
+                        .help("Grabar una nota de voz con la receta por defecto; en la flecha, con otra")
                         .disabled(recorder.state == .asking)
                     }
                 }
             }
             .safeAreaInset(edge: .top, spacing: 0) {
-                if recorder.isRecording { RecordingBar(recorder: recorder, settings: settings) }
+                if recorder.isRecording {
+                    RecordingBar(recorder: recorder, recipeName: recorder.recipe.map(recipeName))
+                }
             }
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 if let notice = inbox.notice {
@@ -218,7 +224,7 @@ struct LibraryWindow: View {
         }
     }
 
-    private func chooseAudio() {
+    private func chooseAudio(recipe: String?) {
         let panel = NSOpenPanel()
         panel.canChooseFiles = true
         panel.canChooseDirectories = false
@@ -226,7 +232,21 @@ struct LibraryWindow: View {
         panel.allowedContentTypes = audioExtensions.compactMap { UTType(filenameExtension: $0) }
         panel.prompt = "Añadir"
         guard panel.runModal() == .OK else { return }
-        inbox.add(panel.urls)
+        inbox.add(panel.urls, recipe: recipe)
+    }
+
+    private func recipeChoices(_ choose: @escaping (String?) -> Void) -> some View {
+        Section("Con la receta") {
+            ForEach(recipeListing) { recipe in
+                Button(recipe.isDefault ? "\(recipe.name) (por defecto)" : recipe.name) {
+                    choose(recipe.isDefault ? nil : recipe.key)
+                }
+            }
+        }
+    }
+
+    private func recipeName(_ key: String) -> String {
+        recipeListing.first { $0.key == key }?.name ?? key
     }
 
     private func originName(_ recording: StoredRecording) -> String? {
@@ -783,7 +803,7 @@ struct TranscriptDetail: View {
 
 private struct RecordingBar: View {
     @Bindable var recorder: RecorderModel
-    let settings: AppSettings
+    let recipeName: String?
 
     var body: some View {
         HStack(spacing: 12) {
@@ -794,6 +814,11 @@ private struct RecordingBar: View {
                 .font(.body.monospacedDigit())
             LevelMeter(level: recorder.level)
                 .frame(width: 140, height: 6)
+            if let recipeName {
+                Text("con «\(recipeName)»")
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
             Spacer()
             Button("Descartar", role: .destructive) { recorder.cancel() }
             Button("Detener y transcribir") { recorder.stop() }

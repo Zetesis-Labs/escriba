@@ -39,6 +39,15 @@ public func dropPlan(_ urls: [URL], taken: Set<String>) -> DropPlan {
     return DropPlan(accepted: accepted, rejected: rejected)
 }
 
+public func inboxRecipeFile(for name: String) -> String {
+    ".\(name).receta"
+}
+
+public func inboxRecipe(from text: String) -> String? {
+    let key = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    return key.isEmpty ? nil : key
+}
+
 public func recordingName(startedAt: Date, timeZone: TimeZone) -> String {
     var calendar = Calendar(identifier: .gregorian)
     calendar.timeZone = timeZone

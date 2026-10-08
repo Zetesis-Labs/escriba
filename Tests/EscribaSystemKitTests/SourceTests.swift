@@ -70,4 +70,25 @@ struct NamespacedSourceTests {
         #expect(recordings.map(\.key) == ["llamadas/sub/nota"])
         #expect(recordings[0].url.lastPathComponent == "nota.wav")
     }
+
+    @Test("la receta elegida al añadir a la bandeja se sigue viendo con el prefijo")
+    func recetaElegida() throws {
+        let raiz = URL(fileURLWithPath: NSTemporaryDirectory()).appending(path: "jpr-ns-\(UUID().uuidString)")
+        let original = URL(fileURLWithPath: NSTemporaryDirectory()).appending(path: "nota-\(UUID().uuidString).m4a")
+        defer {
+            try? FileManager.default.removeItem(at: raiz)
+            try? FileManager.default.removeItem(at: original)
+        }
+        try Data("x".utf8).write(to: original)
+        let bandeja = fileInbox(root: raiz)
+        try bandeja.importFile(original, "nota.m4a", "reparto")
+        try bandeja.importFile(original, "otra.m4a", nil)
+
+        let source = namespaced(
+            folderSource(name: "Escriba", root: raiz, chosenRecipe: bandeja.recipe), prefix: "Escriba")
+        let recordings = try source.scan().sorted { $0.key < $1.key }
+
+        #expect(recordings.map(\.key) == ["Escriba/nota", "Escriba/otra"])
+        #expect(try recordings.map(source.chosenRecipe) == ["reparto", nil])
+    }
 }

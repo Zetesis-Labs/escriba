@@ -28,13 +28,13 @@ public final class InboxModel {
     }
 
     @discardableResult
-    public func add(_ urls: [URL]) -> ImportOutcome {
+    public func add(_ urls: [URL], recipe: String? = nil) -> ImportOutcome {
         let plan = dropPlan(urls, taken: (try? inbox.names()) ?? [])
         var added: [String] = []
         var failed: [String] = []
         for file in plan.accepted {
             do {
-                try inbox.importFile(file.source, file.name)
+                try inbox.importFile(file.source, file.name, recipe)
                 added.append(file.name)
             } catch {
                 failed.append(file.source.lastPathComponent)

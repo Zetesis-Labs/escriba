@@ -38,9 +38,10 @@ cosa grande tiene su documento con el análisis y los criterios de salida.
    - Fase 7 (Escriba escribe una receta con su propio LLM): descartada por
      Rubén el 2026-10-08.
    - Sin decidir: acceso por MCP (RF-17).
-   - Descartado el 2026-10-07: receta por carpeta y al grabar o importar,
-     «Personalizar…», convertir una receta de formulario en código, exportar e
-     importar recetas sueltas. Aparcado: el editor Monaco dentro de la app.
+   - Elegir receta al añadir un audio o al grabar: reabierto por Rubén el
+     2026-10-08 (RF-2).
+   - Descartado el 2026-10-07: receta por carpeta, «Personalizar…», convertir
+     una receta de formulario en código, exportar e importar recetas sueltas. Aparcado: el editor Monaco dentro de la app.
 2. **Personas**: `requisito-hablantes.md`. Bautizar a alguien una vez y que se
    le reconozca en las siguientes grabaciones. Primero el camino 1 (huellas
    propias guardadas por Escriba); el camino 2 (Sortformer con voces

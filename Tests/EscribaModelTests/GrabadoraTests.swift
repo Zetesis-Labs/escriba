@@ -14,7 +14,7 @@ private final class Registro {
     var decibelios: Float = -30
     var segundos: TimeInterval = 0
     var nombres: Set<String> = []
-    var copiados: [(URL, String)] = []
+    var copiados: [(URL, String, String?)] = []
     var despertado = 0
     var despierto = 0
     var grabadora: AudioRecorder {
@@ -34,17 +34,19 @@ private final class Registro {
         Inbox(
             root: URL(fileURLWithPath: "/bandeja"),
             names: { MainActor.assumeIsolated { self.nombres } },
-            importFile: { origen, nombre in
+            importFile: { origen, nombre, receta in
                 try MainActor.assumeIsolated {
                     if origen.lastPathComponent.hasPrefix("roto") { throw CocoaError(.fileReadNoPermission) }
-                    self.copiados.append((origen, nombre))
+                    self.copiados.append((origen, nombre, receta))
                 }
             },
             recordingURL: { URL(fileURLWithPath: "/bandeja/.grabando/temporal.m4a") },
-            finishRecording: { temporal, nombre, inicio in
+            finishRecording: { temporal, nombre, inicio, receta in
                 try MainActor.assumeIsolated {
                     if self.fallaAlTerminar { throw CocoaError(.fileWriteOutOfSpace) }
-                    self.eventos.append("guarda:\(temporal.lastPathComponent)->\(nombre)@\(Int(inicio.timeIntervalSince1970))")
+                    self.eventos.append(
+                        "guarda:\(temporal.lastPathComponent)->\(nombre)@\(Int(inicio.timeIntervalSince1970))"
+                            + (receta.map { " con \($0)" } ?? ""))
                 }
             },
             discardRecording: { temporal in
@@ -201,6 +203,49 @@ struct GrabadoraEnSegundoPlanoTests {
         #expect(registro.despierto == 0)
     }
 
+    @Test("se puede grabar con una receta elegida: la lleva al guardarse y la siguiente vuelve a la por defecto")
+    func conReceta() async {
+        let registro = Registro()
+        let modelo = grabadora(registro)
+
+        await modelo.start(recipe: "reparto")
+        #expect(modelo.recipe == "reparto")
+        modelo.stop()
+        await modelo.start()
+        #expect(modelo.recipe == nil)
+        modelo.stop()
+
+        #expect(registro.eventos.filter { $0.hasPrefix("guarda:") } == [
+            "guarda:temporal.m4a->Grabación 2026-10-05 19.00.00.m4a@1791219600 con reparto",
+            "guarda:temporal.m4a->Grabación 2026-10-05 19.00.00.m4a@1791219600",
+        ])
+    }
+
+    @Test("pulsar grabar con otra receta mientras ya graba no cambia la de la grabación en curso")
+    func recetaEnCurso() async {
+        let registro = Registro()
+        let modelo = grabadora(registro)
+
+        await modelo.start(recipe: "reparto")
+        await modelo.start(recipe: "otra")
+        modelo.stop()
+
+        #expect(registro.eventos.last == "guarda:temporal.m4a->Grabación 2026-10-05 19.00.00.m4a@1791219600 con reparto")
+    }
+
+    @Test("descartar una grabación con receta elegida la olvida, y si no llega a grabar tampoco se queda")
+    func recetaDescartada() async {
+        let registro = Registro()
+        let modelo = grabadora(registro)
+
+        await modelo.start(recipe: "reparto")
+        modelo.cancel()
+        #expect(modelo.recipe == nil)
+        registro.permiso = false
+        await modelo.start(recipe: "reparto")
+        #expect(modelo.recipe == nil)
+    }
+
     @Test("al salir de la app, una grabacion en curso se guarda en vez de perderse")
     func alSalir() async {
         let registro = Registro()
@@ -233,6 +278,19 @@ struct AnadirAudioTests {
         #expect(resultado == ImportOutcome(added: ["Llamada 2.m4a"], rejected: ["acta.pdf"], failed: []))
         #expect(registro.despertado == 1)
         #expect(modelo.notice == "«Llamada 2.m4a» añadida; se transcribe enseguida. «acta.pdf» no es un audio que Escriba sepa leer.")
+    }
+
+    @Test("lo que se añade con receta elegida entra con ella; lo que se suelta sin elegir, sin ninguna")
+    func conReceta() {
+        let registro = Registro()
+        let modelo = InboxModel(inbox: registro.bandeja, wake: {})
+
+        modelo.add([URL(fileURLWithPath: "/x/Llamada.m4a"), URL(fileURLWithPath: "/x/Otra.m4a")], recipe: "reparto")
+        modelo.add([URL(fileURLWithPath: "/x/Suelta.m4a")])
+
+        #expect(registro.copiados.map { "\($0.1) \($0.2 ?? "-")" } == [
+            "Llamada.m4a reparto", "Otra.m4a reparto", "Suelta.m4a -",
+        ])
     }
 
     @Test("si nada entra no se despierta al motor, y un fallo al copiar se cuenta")

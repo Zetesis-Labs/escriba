@@ -16,9 +16,9 @@ Todo lo que pasa entre que entra un audio y acaba publicado lo decide una
 **receta**: una función asíncrona en JavaScript que pide transcribir, espera
 el resultado, decide con él, pregunta a los LLM lo que quiera con respuestas
 estructuradas, guarda datos propios en la nota y elige a qué conectores
-publica y con qué datos. El usuario tiene N recetas y elige cuál se aplica a
-cada carpeta vigilada o a cada grabación. Una receta puede pasar la nota a
-otra.
+publica y con qué datos. El usuario tiene N recetas; una es la por defecto y
+puede elegir otra al añadir un audio o al grabar. Una receta puede pasar la
+nota a otra.
 
 Las recetas viven en un **proyecto de código**, en una carpeta que elige el
 usuario: una subcarpeta por receta y carpetas comunes que cualquier receta
@@ -96,11 +96,20 @@ export async function publicar(nota: Nota, escriba: Escriba) {
 
 ### RF-2. Qué receta procesa cada grabación
 
-**La receta por defecto procesa todo lo que entra.** Elegir receta por carpeta
-vigilada o al grabar e importar, y «Personalizar…» para una sola grabación,
-**no se va a hacer** (Rubén, 2026-10-07): quien necesite repartir lo hace con
-una receta de código por defecto que mira `audio` y pasa la grabación a otra
-con `procesar` (RF-10).
+**La receta por defecto procesa todo lo que entra, salvo que al añadir un
+audio o al grabar se elija otra** (Rubén, 2026-10-08, reabre lo descartado el
+2026-10-07 solo para estos dos botones). Los botones «Añadir audio…» y
+«Grabar» de la biblioteca usan la por defecto con un clic, y su flecha lista
+las recetas para elegir otra. La elegida viaja con el audio en un fichero
+oculto a su lado en la bandeja (`.<nombre>.receta`, con la clave de la
+receta), así que sobrevive a reintentos y reinicios. Si al procesarla ya no
+existe o las recetas no arrancan, falla esa grabación diciéndolo y las demás
+siguen; se arregla con «Reprocesar». Lo que se suelta en la ventana, lo de las carpetas vigiladas y
+lo que se graba desde la barra de menús va con la por defecto. Elegir receta
+por carpeta vigilada y «Personalizar…» para una sola grabación **no se va a
+hacer** (Rubén, 2026-10-07): quien necesite repartir lo hace con una receta de
+código por defecto que mira `audio` y pasa la grabación a otra con `procesar`
+(RF-10).
 
 **Reprocesar con una receta**:
 la hoja de reprocesar pide la receta, con la por defecto marcada; si es de

@@ -10,12 +10,14 @@ public func justPressRecordSource(root: URL) -> RecordingSource {
 }
 
 public func folderSource(
-    name: String, root: URL, expectedSpeakers: Int? = nil
+    name: String, root: URL, expectedSpeakers: Int? = nil,
+    chosenRecipe: @escaping @Sendable (URL) throws -> String? = { _ in nil }
 ) -> RecordingSource {
     RecordingSource(
         name: name,
         locations: [root],
         expectedSpeakers: expectedSpeakers,
+        chosenRecipe: { try chosenRecipe($0.url) },
         scan: { try FileSystem.scanAudio(root: root) })
 }
 

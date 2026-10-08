@@ -36,6 +36,13 @@ struct BandejaTests {
         #expect(plan.rejected.count == 1)
     }
 
+    @Test("la receta elegida para un audio de la bandeja va en un fichero oculto a su lado; vacío es no haber elegido")
+    func recetaElegida() {
+        #expect(inboxRecipeFile(for: "Reunión.m4a") == ".Reunión.m4a.receta")
+        #expect(inboxRecipe(from: "reparto\n") == "reparto")
+        #expect(inboxRecipe(from: "  \n") == nil)
+    }
+
     @Test("una grabacion se llama por su hora de inicio en la zona del usuario, sin dos puntos")
     func nombreDeGrabacion() {
         let inicio = Date(timeIntervalSince1970: 1_791_219_605)

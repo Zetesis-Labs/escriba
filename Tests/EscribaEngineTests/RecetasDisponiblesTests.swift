@@ -28,10 +28,15 @@ private let transcribeYGuarda: @Sendable (RecipeBridge) async throws -> Void = {
 
 private func pipeline(
     _ recordings: [Recording], shelf: RecipeShelf, runtime: RecipeRuntime, ledger: MemoryLedger = MemoryLedger(),
-    listos: @escaping @Sendable (Recording) -> Bool = { _ in true }, eventos: Trace<PipelineEvent> = Trace()
+    listos: @escaping @Sendable (Recording) -> Bool = { _ in true }, eventos: Trace<PipelineEvent> = Trace(),
+    elegidas: [String: String] = [:]
 ) -> Pipeline {
     Pipeline(
-        source: source(recordings), ledger: ledger.port,
+        source: RecordingSource(
+            name: "falsa", locations: [URL(fileURLWithPath: "/grabaciones")],
+            chosenRecipe: { elegidas[$0.key] }
+        ) { recordings },
+        ledger: ledger.port,
         backend: backend { _ in Transcript(text: "hola") },
         sink: { note in URL(fileURLWithPath: "/salida/\(note.recording.key)") },
         readiness: { listos($0) ? .ready : .empty },
@@ -83,6 +88,99 @@ struct RecetasDisponiblesTests {
         }
         #expect(avisos == ["\(RecipeError.defaultUnavailable("ideas"))"])
         #expect(!eventos.values.contains { if case .transcribing = $0 { true } else { false } })
+    }
+
+    @Test("lo que entra con receta elegida se procesa con ella; lo demás, con la por defecto")
+    func elegida() async throws {
+        let usadas = Trace<String>()
+        let shelf = RecipeShelf(recipes: { [] }, target: { objetivo($0 ?? "defecto") })
+        let runtime = RecipeRuntime(name: "falso") { package, bridge in
+            usadas.append("\(bridge.audio.key) \(package.key)")
+            try await transcribeYGuarda(bridge)
+        }
+
+        try await pipeline(
+            [recording("a"), recording("b", minute: 1)], shelf: shelf, runtime: runtime, elegidas: ["a": "reparto"]
+        ).runOnce()
+
+        #expect(usadas.values.sorted() == ["a reparto", "b defecto"])
+    }
+
+    @Test("si la receta elegida ya no está, falla esa grabación diciéndolo y las demás siguen")
+    func elegidaQueYaNoEsta() async throws {
+        let ledger = MemoryLedger()
+        let eventos = Trace<PipelineEvent>()
+        let shelf = RecipeShelf(recipes: { [] }, target: { query in
+            guard let query else { return objetivo("defecto") }
+            throw RecipeLookupError.missing(kind: .recipe, query: query)
+        })
+        let runtime = RecipeRuntime(name: "falso") { _, bridge in try await transcribeYGuarda(bridge) }
+
+        let outcome = try await pipeline(
+            [recording("a"), recording("b", minute: 1)], shelf: shelf, runtime: runtime, ledger: ledger,
+            eventos: eventos, elegidas: ["a": "borrada"]
+        ).runOnce()
+
+        let motivo = "la receta elegida para esta grabación no está disponible: \(RecipeLookupError.missing(kind: .recipe, query: "borrada"))"
+        #expect(outcome == PassOutcome(processed: 1, deferred: 0))
+        #expect(ledger.doneKeys == ["b"])
+        #expect(ledger.failures == ["a": motivo])
+        #expect(!eventos.values.contains { if case .recipeUnavailable = $0 { true } else { false } })
+    }
+
+    @Test("si no se pueden leer las recetas, lo elegido espera como lo demás en vez de fallar")
+    func elegidaSinRecetasLegibles() async throws {
+        let ledger = MemoryLedger()
+        let shelf = RecipeShelf(recipes: { [] }, target: { _ in throw FakeError.scanBroken })
+        let runtime = RecipeRuntime(name: "falso") { _, bridge in try await transcribeYGuarda(bridge) }
+
+        let outcome = try await pipeline(
+            [recording("a"), recording("b", minute: 1)], shelf: shelf, runtime: runtime, ledger: ledger,
+            elegidas: ["a": "reparto"]
+        ).runOnce()
+
+        #expect(outcome == PassOutcome(processed: 0, deferred: 2))
+        #expect(ledger.failures.isEmpty)
+    }
+
+    @Test("si no se puede leer qué receta se eligió, falla esa grabación y las demás siguen")
+    func elegidaIlegible() async throws {
+        let ledger = MemoryLedger()
+        let shelf = RecipeShelf(recipes: { [] }, target: { objetivo($0 ?? "defecto") })
+        let runtime = RecipeRuntime(name: "falso") { _, bridge in try await transcribeYGuarda(bridge) }
+        let tuberia = Pipeline(
+            source: RecordingSource(
+                name: "falsa", locations: [],
+                chosenRecipe: { if $0.key == "a" { throw FakeError.scanBroken } else { nil } }
+            ) { [recording("a"), recording("b", minute: 1)] },
+            ledger: ledger.port, backend: backend { _ in Transcript(text: "hola") },
+            sink: { note in URL(fileURLWithPath: "/salida/\(note.recording.key)") },
+            recipe: Recipe(shelf: shelf, runtime: runtime, publishers: [:]))
+
+        let outcome = try await tuberia.runOnce()
+
+        #expect(outcome == PassOutcome(processed: 1, deferred: 0))
+        #expect(ledger.doneKeys == ["b"])
+        #expect(ledger.failures == ["a": "\(FakeError.scanBroken)"])
+    }
+
+    @Test("si las recetas no arrancan, lo que se eligió con receta falla diciéndolo y lo demás sigue sin receta")
+    func elegidaSinRecetas() async throws {
+        let ledger = MemoryLedger()
+        let tuberia = Pipeline(
+            source: RecordingSource(name: "falsa", locations: [], chosenRecipe: { $0.key == "a" ? "reparto" : nil }) {
+                [recording("a"), recording("b", minute: 1)]
+            },
+            ledger: ledger.port, backend: backend { _ in Transcript(text: "hola") },
+            sink: { note in URL(fileURLWithPath: "/salida/\(note.recording.key)") })
+
+        let outcome = try await tuberia.runOnce()
+
+        #expect(outcome == PassOutcome(processed: 1, deferred: 0))
+        #expect(ledger.doneKeys == ["b"])
+        #expect(ledger.failures == [
+            "a": "la receta elegida para esta grabación no está disponible: las recetas no arrancan en este Mac",
+        ])
     }
 
     @Test("la receta ve de donde viene la grabacion")

@@ -28,10 +28,11 @@ reabrirlo sin que lo pida): el análisis queda en
 `spikes/wasi-http`. **Recetas** (`docs/requisito-recetas.md`, en construcción desde el
 2026-10-07): programas en TypeScript que orquestan todo el recorrido de una
 grabación con `await`. Una lista de recetas de formulario (en la app) y de
-código (las de la carpeta del proyecto); una es la por defecto y procesa todo,
-y una puede pasar la grabación a otra con `procesar`. **No hay receta por
-carpeta ni por grabación**, ni exportar o importar recetas sueltas, ni
-convertir una de formulario en código (Rubén, 2026-10-07). Runtime:
+código (las de la carpeta del proyecto); una es la por defecto y procesa todo
+salvo lo que se añade o se graba eligiendo otra (Rubén, 2026-10-08), y una
+puede pasar la grabación a otra con `procesar`. **No hay receta por carpeta**,
+ni exportar o importar recetas sueltas, ni convertir una de formulario en
+código (Rubén, 2026-10-07). Runtime:
 **JavaScriptCore detrás de un puerto**, para cambiarlo por WebAssembly cuando
 compense; el tiempo límite usa `JSContextGroupSetExecutionTimeLimit` (API
 privada, cargada con `dlsym`, probada en macOS 26) y no cuenta las esperas. El
