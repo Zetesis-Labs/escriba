@@ -89,10 +89,11 @@ public struct TranscriptVersion: Sendable, Equatable, Identifiable {
     public let createdAt: Date
     public let options: TranscriptionOptions?
     public let isCurrent: Bool
+    public let recipe: String?
 
     public init(
         id: Int64, number: Int, backend: String, createdAt: Date,
-        options: TranscriptionOptions?, isCurrent: Bool
+        options: TranscriptionOptions?, isCurrent: Bool, recipe: String? = nil
     ) {
         self.id = id
         self.number = number
@@ -100,10 +101,11 @@ public struct TranscriptVersion: Sendable, Equatable, Identifiable {
         self.createdAt = createdAt
         self.options = options
         self.isCurrent = isCurrent
+        self.recipe = recipe
     }
 
     public var label: String {
-        "v\(number) · \(options?.label ?? "criterios desconocidos")"
+        ["v\(number)", recipe, options?.label ?? "criterios desconocidos"].compactMap { $0 }.joined(separator: " · ")
     }
 }
 
@@ -255,6 +257,21 @@ public final class Store: Sendable {
         }
     }
 
+    public func markSaved(version: Int64, for key: String, by recipe: String) async throws {
+        try await writer.write { db in
+            guard var recording = try RecordingRow.filter(RecordingRow.Columns.key == key).fetchOne(db),
+                let recordingId = recording.id
+            else { throw StoreError.unknownRecording(key) }
+            guard var row = try Self.transcript(version, of: recordingId, in: db), row.id == version else {
+                throw StoreError.unknownVersion(version, key)
+            }
+            row.recipe = recipe
+            try row.update(db)
+            recording.currentTranscriptId = version
+            try recording.update(db)
+        }
+    }
+
     private func answer(for key: String, version: Int64, fingerprint: String) async throws -> String? {
         try await writer.read { db in
             try String.fetchOne(
@@ -335,7 +352,7 @@ public final class Store: Sendable {
                 row.id.map {
                     TranscriptVersion(
                         id: $0, number: index + 1, backend: row.backend, createdAt: row.createdAt,
-                        options: row.options, isCurrent: $0 == current)
+                        options: row.options, isCurrent: $0 == current, recipe: row.recipe)
                 }
             }
         }
@@ -734,6 +751,9 @@ public final class Store: Sendable {
             },
             keepAnswer: { recording, version, fingerprint, answer in
                 try await self.keepAnswer(answer, for: recording.key, version: version, fingerprint: fingerprint)
+            },
+            keepSaved: { recording, version, recipe in
+                try await self.markSaved(version: version, for: recording.key, by: recipe)
             })
     }
 

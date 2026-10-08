@@ -12,6 +12,8 @@ final class RecipeSession: Sendable {
         var recipes: [String] = []
         var savedData: DataValue?
         var savedSchema: DataValue?
+        var decidedData = false
+        var renewed: Set<TranscriptionInputs> = []
     }
 
     private let recording: Recording
@@ -21,6 +23,7 @@ final class RecipeSession: Sendable {
     private let recipe: Recipe
     private let target: RecipeTarget
     private let dryRun: Bool
+    private let fresh: Bool
     private let startedAt = Date()
     private let clock = ContinuousClock.now
     private let state = Mutex(State())
@@ -30,9 +33,10 @@ final class RecipeSession: Sendable {
 
     init(
         recording: Recording, audio: URL? = nil, capabilities: Capabilities, save: @escaping Sink, recipe: Recipe,
-        target: RecipeTarget, dryRun: Bool = false
+        target: RecipeTarget, dryRun: Bool = false, fresh: Bool = false
     ) {
         self.dryRun = dryRun
+        self.fresh = fresh
         self.recording = recording
         heard = audio.map { Recording(url: $0, startedAt: recording.startedAt, key: recording.key) } ?? recording
         self.capabilities = capabilities
@@ -105,13 +109,21 @@ final class RecipeSession: Sendable {
             throw error
         }
         let inputs = (chosen ?? capabilities.backend).inputs(heard.url)
+        let newVersion = fresh && state.withLock { $0.renewed.insert(inputs).inserted }
         let take = try await step(
             "transcribir", detail: "\(inputs.backend) · \(inputs.options.label)", origin: origin
         ) {
-            try await capabilities.transcribe(heard, with: chosen)
+            try await capabilities.transcribe(heard, with: chosen, newVersion: newVersion)
         }
         let current = state.withLock { state in
-            state.take = sameVersion(state.take, take) ? take.carrying(data: state.take?.data) : take
+            state.take =
+                if sameVersion(state.take, take) {
+                    take.carrying(data: state.take?.data)
+                } else if state.decidedData {
+                    take.carrying(data: state.savedData)
+                } else {
+                    take
+                }
             state.language = inputs.options.language
             return state.take ?? take
         }
@@ -151,25 +163,28 @@ final class RecipeSession: Sendable {
             record(RecipeStep(capability: "guardar", detail: nil, seconds: 0, error: "\(error)", origin: origin))
             throw error
         }
-        let schema = json == nil ? nil : schemaJSON.flatMap { try? parseData($0) }
+        let schema = json == nil ? state.withLock { $0.savedSchema } : schemaJSON.flatMap { try? parseData($0) }
+        let writes = json != nil || data != take.storedData
         if dryRun {
             record(RecipeStep(capability: "guardar", detail: "sin guardar (prueba)", seconds: 0, error: nil, origin: origin))
-            remember(saved: data, schema: schema, changed: json != nil, in: take, output: recording.url)
+            remember(saved: data, schema: schema, decided: json != nil, written: false, output: recording.url)
             return
         }
         let output = try await step("guardar", origin: origin) {
-            if json != nil { try await capabilities.keep(data, schema: schema, of: recording, in: take) }
+            if writes { try await capabilities.keep(data, schema: schema, of: recording, in: take) }
+            try await capabilities.keepSaved(recording, take, by: target.name)
             return try await save(delivery(take))
         }
-        remember(saved: data, schema: schema, changed: json != nil, in: take, output: output)
+        remember(saved: data, schema: schema, decided: json != nil, written: writes, output: output)
     }
 
-    private func remember(saved data: DataValue?, schema: DataValue?, changed: Bool, in take: Take, output: URL) {
+    private func remember(saved data: DataValue?, schema: DataValue?, decided: Bool, written: Bool, output: URL) {
         state.withLock { state in
             state.output = output
-            state.take = (state.take ?? take).carrying(data: data)
+            if let current = state.take { state.take = written ? current.stored(data) : current.carrying(data: data) }
             state.savedData = data
-            if changed { state.savedSchema = schema }
+            state.savedSchema = schema
+            if decided { state.decidedData = true }
         }
     }
 
