@@ -144,9 +144,9 @@ final class AppRuntime {
             let (stts, llms) = (settings.sttResolvers, settings.llmResolvers)
             let engine = WhisperKitEngine(language: nil)
             let book = recipeBook
-            let formSettings: @Sendable () -> DefaultRecipeSettings = {
+            let formReading: @Sendable () -> FormRecipeReading = {
                 let current = book.value
-                return current.form(current.defaultKey)?.settings ?? .standard
+                return current.reading(of: current.defaultKey)
             }
 
             let unchosen = TranscriptionOptions(language: nil, diarize: false)
@@ -183,9 +183,9 @@ final class AppRuntime {
                         save: saveSink, dryRun: dryRun)
                 },
                 digester: { recording, transcript in
-                    let form = formSettings()
+                    let form = formReading()
                     return try await recipeDigester(
-                        recipeResolver(llms, key: form.llm), prompt: form.prompt, language: form.language
+                        recipeResolver(llms, key: form.llm ?? ""), prompt: form.prompt, language: form.language
                     )(recording, transcript)
                 },
                 publishers: publishers,
@@ -194,7 +194,10 @@ final class AppRuntime {
             model.startObserving()
             self.model = model
 
-            warnAboutUnusable(stt: recipeResolver(stts, key: formSettings().stt), llm: recipeResolver(llms, key: formSettings().llm))
+            let form = formReading()
+            warnAboutUnusable(
+                stt: recipeResolver(stts, key: form.stt ?? ""), llm: recipeResolver(llms, key: form.llm ?? ""),
+                summarizes: form.summarize)
 
             let (stream, continuation) = AsyncStream.makeStream(of: PipelineEvent.self)
             events = Task { [settings] in
@@ -277,14 +280,13 @@ final class AppRuntime {
         }
     }
 
-    private func warnAboutUnusable(stt: Resolver, llm: Resolver) {
+    private func warnAboutUnusable(stt: Resolver, llm: Resolver, summarizes: Bool) {
         let sttProblem = stt.kind == .local ? localResolverProblem(.stt) : resolverProblem(stt, localProblem: nil)
         if let sttProblem {
             Log.error("no se puede transcribir con \(stt.name): \(sttProblem)")
             Notifier.problem(title: "No se puede transcribir con \(stt.name)", detail: sttProblem)
         }
-        guard recipeBook.value.form(recipeBook.value.defaultKey)?.settings.summarize == true,
-            let llmProblem = summarizer(for: llm).availability().problem
+        guard summarizes, let llmProblem = summarizer(for: llm).availability().problem
         else { return }
         Log.error("la receta por defecto resume pero \(llm.name): \(llmProblem)")
         Notifier.problem(
@@ -467,7 +469,7 @@ nonisolated private func reprocessed(
     guard let recipe else { return RecipeRunReport(trace: nil, failure: "las recetas no arrancan en este Mac") }
     let target: RecipeTarget
     do {
-        target = try recipe.shelf.target(choice.recipe).overriding(choice.parameters).overriding(values: choice.values)
+        target = try recipe.shelf.target(choice.recipe).overriding(values: choice.values)
     } catch {
         return RecipeRunReport(trace: nil, failure: "\(error)")
     }

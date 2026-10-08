@@ -27,18 +27,19 @@ private func estante(_ libro: RecipeBook) -> RecipeShelf {
         formPackage: deFormulario)
 }
 
-@Suite("Parámetros de las recetas de código: los valores de su formulario")
+@Suite("Parámetros de las recetas: los valores de su formulario")
 struct ParametrosDeCodigoTests {
-    @Test("una receta de código lleva los valores de su formulario guardados en el libro; una de formulario, ninguno")
+    @Test("cada receta, de código o de formulario, lleva los valores de su formulario guardados en el libro")
     func delLibro() throws {
-        let shelf = estante(libro(valores: ["reparto": #"{"idioma":"en"}"#, "F1": #"{"x":1}"#]))
+        let shelf = estante(libro(valores: ["reparto": #"{"idioma":"en"}"#, "F1": #"{"resumir":true}"#]))
 
         #expect(try shelf.target("reparto").values == #"{"idioma":"en"}"#)
         #expect(try shelf.target("reuniones").values == nil)
-        #expect(try shelf.target("F1").values == nil)
+        #expect(try shelf.target("F1").values == #"{"resumir":true}"#)
+        #expect(try shelf.target("F1").package.fingerprint == deFormulario.fingerprint)
     }
 
-    @Test("retocar los valores para una vez cambia una de código y deja igual una de formulario")
+    @Test("retocar los valores para una vez cambia la receta elegida, sea del tipo que sea")
     func retocar() throws {
         let shelf = estante(libro(valores: ["reparto": #"{"idioma":"en"}"#]))
         let deCodigo = try shelf.target("reparto")
@@ -46,7 +47,7 @@ struct ParametrosDeCodigoTests {
 
         #expect(deCodigo.overriding(values: #"{"idioma":"es"}"#).values == #"{"idioma":"es"}"#)
         #expect(deCodigo.overriding(values: nil) == deCodigo)
-        #expect(deFormulario.overriding(values: #"{"idioma":"es"}"#) == deFormulario)
+        #expect(deFormulario.overriding(values: #"{"resumir":true}"#).values == #"{"resumir":true}"#)
     }
 
     @Test("los valores de una vez son solo de la receta de arriba: la que se llama con procesar usa los suyos guardados")

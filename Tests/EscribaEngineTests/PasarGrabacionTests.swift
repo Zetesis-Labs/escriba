@@ -7,9 +7,9 @@ import Testing
 
 private typealias Flujo = @Sendable (RecipeBridge) async throws -> Void
 
-private let reuniones = DefaultRecipeSettings(
+private let reuniones = dataText(formRecipeValues(DefaultRecipeSettings(
     stt: "whisper", language: "es", detectSpeakers: true, speakerCount: 2, summarize: false, llm: "apple",
-    prompt: nil, connectors: [])
+    prompt: nil, connectors: [])))
 
 private struct Recetario {
     let recetas: [RecipeTarget]
@@ -37,10 +37,10 @@ private struct Recetario {
     }
 }
 
-private func receta(_ key: String, _ name: String, parametros: DefaultRecipeSettings? = nil) -> RecipeTarget {
+private func receta(_ key: String, _ name: String, parametros: String? = nil) -> RecipeTarget {
     RecipeTarget(
         key: key, name: name, kind: parametros == nil ? .code : .form,
-        package: RecipePackage(key: key, source: "", fingerprint: "f-\(key)"), parameters: parametros)
+        package: RecipePackage(key: key, source: "", fingerprint: "f-\(key)"), values: parametros)
 }
 
 private let transcribeYGuarda: Flujo = { escriba in
@@ -87,16 +87,16 @@ struct PasarGrabacionTests {
 
     @Test("cada receta recibe sus propios parametros y ve la lista de recetas")
     func parametrosPropios() async throws {
-        let vistos = Mutex<[String: DefaultRecipeSettings?]>([:])
+        let vistos = Mutex<[String: String?]>([:])
         let listas = Mutex<[[RecipeInfo]]>([])
         let recetario = Recetario([
             (receta("reparto", "Reparto"), { @Sendable escriba in
-                vistos.withLock { $0["reparto"] = escriba.parameters }
+                vistos.withLock { $0["reparto"] = escriba.values }
                 listas.withLock { $0.append(escriba.recipes) }
                 try await escriba.process("F1")
             }),
             (receta("F1", "Reuniones", parametros: reuniones), { @Sendable escriba in
-                vistos.withLock { $0["F1"] = escriba.parameters }
+                vistos.withLock { $0["F1"] = escriba.values }
                 try await transcribeYGuarda(escriba)
             }),
         ])

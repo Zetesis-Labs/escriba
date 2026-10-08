@@ -175,15 +175,13 @@ struct PanelDeResolutoresTests {
         let nuevo = modelo.add(openAI)
         claves[nuevo.id] = "sk-1"
         let receta = settings.recipeBook.forms[0]
-        var parametros = receta.settings
-        parametros.llm = nuevo.recipeKey(role: .llm)
-        settings.recipeBook.update(receta.key, settings: parametros)
+        settings.recipeBook.setValues(#"{"resumir":true,"llm":"\#(nuevo.recipeKey(role: .llm))"}"#, for: receta.key)
 
         modelo.remove(nuevo.id)
 
         #expect(settings.resolvers(.llm).resolvers.count == 1)
         #expect(claves[nuevo.id] == nil)
-        #expect(settings.recipeBook.forms[0].settings.llm == "apple")
+        #expect(settings.recipeBook.values[receta.key] == #"{"resumir":true}"#)
     }
 
     @Test("el editor trabaja sobre un borrador: guardar escribe resolutor y clave, descartar vuelve atras")

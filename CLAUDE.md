@@ -197,7 +197,17 @@ ad-hoc y puede caducar.
   formulario (en la app; eligen STT, idioma, hablantes, si resume, con qué LLM,
   **el prompt**, que ya no vive en el resolutor, y en qué conectores publican)
   y de código (las de la carpeta del proyecto), y una de cualquier tipo es la
-  por defecto. El pipeline la resuelve **en cada nota** (`RecipeShelf`, que lee
+  por defecto. **El formulario de las recetas de formulario lo declara
+  «Por defecto» con Zod** (Rubén, 2026-10-08): `recetas/por-defecto/receta.ts`
+  exporta `buildRecipeForm`, la app pinta ese esquema igual que el de una
+  receta de código y cada receta de formulario guarda sus valores en
+  `RecipeBook.values` (el formulario hecho a mano en Swift y
+  `DefaultRecipeSettings` como ajustes vivos se retiraron; este último solo
+  queda para leer y migrar lo guardado antes). Quitar un resolutor o un
+  conector lo borra de los valores de las recetas de formulario, para que
+  vuelvan a lo de serie y no fallen; las de código fallan nombrando el campo.
+  `DefaultRecipe.swift` lleva Zod dentro (unos 730 KB), y
+  `build-recetas.sh` lo desempaqueta del `.tgz` fijado en `recetas/.escriba/`. El pipeline la resuelve **en cada nota** (`RecipeShelf`, que lee
   el libro y `installed.json` al ejecutar): editar recetas no reconstruye los
   pipelines. Si la por defecto no tiene paquete, las notas esperan
   (`recipeUnavailable`), nunca se procesan con otra. Ajustes solo tiene General y

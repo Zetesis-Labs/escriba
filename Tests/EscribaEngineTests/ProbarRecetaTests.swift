@@ -5,7 +5,7 @@ import Testing
 @testable import EscribaEngine
 
 private let objetivo = RecipeTarget(
-    key: "x", name: "X", kind: .code, package: RecipePackage(key: "x", source: "", fingerprint: "f"), parameters: nil)
+    key: "x", name: "X", kind: .code, package: RecipePackage(key: "x", source: "", fingerprint: "f"))
 
 private let completa: @Sendable (RecipeBridge) async throws -> Void = { escriba in
     _ = try await escriba.transcribe(RecipeTranscription())

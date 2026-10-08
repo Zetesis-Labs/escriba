@@ -8,15 +8,62 @@ public enum RecipeKind: String, Sendable, Equatable, Codable {
 public struct FormRecipe: Sendable, Equatable, Codable, Identifiable {
     public let key: String
     public var name: String
-    public var settings: DefaultRecipeSettings
 
     public var id: String { key }
 
-    public init(key: String, name: String, settings: DefaultRecipeSettings) {
+    public init(key: String, name: String) {
         self.key = key
         self.name = name
-        self.settings = settings
     }
+}
+
+private struct StoredFormRecipe: Decodable {
+    let key: String
+    let name: String
+    let settings: DefaultRecipeSettings?
+
+    enum CodingKeys: String, CodingKey {
+        case key, name, settings
+    }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        key = try container.decode(String.self, forKey: .key)
+        name = try container.decode(String.self, forKey: .name)
+        settings = try? container.decodeIfPresent(DefaultRecipeSettings.self, forKey: .settings)
+    }
+}
+
+public struct FormRecipeReading: Sendable, Equatable {
+    public let stt: String?
+    public let language: String?
+    public let summarize: Bool
+    public let llm: String?
+    public let prompt: String?
+
+    public init(stt: String?, language: String?, summarize: Bool, llm: String?, prompt: String?) {
+        self.stt = stt
+        self.language = language
+        self.summarize = summarize
+        self.llm = llm
+        self.prompt = prompt
+    }
+}
+
+public func formRecipeValues(_ settings: DefaultRecipeSettings) -> DataValue {
+    let text = { (value: String?) in value.map(DataValue.string) ?? .null }
+    return .object([
+        DataField(name: "stt", value: .string(settings.stt)),
+        DataField(name: "idioma", value: text(settings.language)),
+        DataField(name: "hablantes", value: .object([
+            DataField(name: "detectar", value: .bool(settings.detectSpeakers)),
+            DataField(name: "cuantos", value: settings.speakerCount.map { .number(Double($0)) } ?? .null),
+        ])),
+        DataField(name: "resumir", value: .bool(settings.summarize)),
+        DataField(name: "llm", value: .string(settings.llm)),
+        DataField(name: "prompt", value: text(settings.prompt)),
+        DataField(name: "conectores", value: .array(settings.connectors.map(DataValue.string))),
+    ])
 }
 
 public struct RecipeCodeEntry: Sendable, Equatable {
@@ -81,15 +128,15 @@ public struct RecipeBook: Sendable, Equatable, Codable {
     public private(set) var values: [String: String]
 
     public init(forms: [FormRecipe], defaultKey: String, values: [String: String] = [:]) {
-        self.forms = forms.isEmpty
-            ? [FormRecipe(key: "formulario", name: Self.defaultName, settings: .standard)]
-            : forms
+        self.forms = forms.isEmpty ? [FormRecipe(key: "formulario", name: Self.defaultName)] : forms
         self.defaultKey = defaultKey
         self.values = values
     }
 
     public init(migrating settings: DefaultRecipeSettings, key: String) {
-        self.init(forms: [FormRecipe(key: key, name: Self.defaultName, settings: settings)], defaultKey: key)
+        self.init(
+            forms: [FormRecipe(key: key, name: Self.defaultName)], defaultKey: key,
+            values: [key: dataText(formRecipeValues(settings))])
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -98,10 +145,21 @@ public struct RecipeBook: Sendable, Equatable, Codable {
 
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        let stored = try container.decode([StoredFormRecipe].self, forKey: .forms)
+        var values = try container.decodeIfPresent([String: String].self, forKey: .values) ?? [:]
+        for form in stored where values[form.key] == nil {
+            values[form.key] = form.settings.map { dataText(formRecipeValues($0)) }
+        }
         self.init(
-            forms: try container.decode([FormRecipe].self, forKey: .forms),
-            defaultKey: try container.decode(String.self, forKey: .defaultKey),
-            values: try container.decodeIfPresent([String: String].self, forKey: .values) ?? [:])
+            forms: stored.map { FormRecipe(key: $0.key, name: $0.name) },
+            defaultKey: try container.decode(String.self, forKey: .defaultKey), values: values)
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(forms, forKey: .forms)
+        try container.encode(defaultKey, forKey: .defaultKey)
+        try container.encode(values, forKey: .values)
     }
 
     public func form(_ key: String) -> FormRecipe? {
@@ -109,8 +167,8 @@ public struct RecipeBook: Sendable, Equatable, Codable {
     }
 
     @discardableResult
-    public mutating func add(key: String, name: String, settings: DefaultRecipeSettings) -> FormRecipe {
-        let recipe = FormRecipe(key: key, name: nextRecipeName(name, taken: forms.map(\.name)), settings: settings)
+    public mutating func add(key: String, name: String) -> FormRecipe {
+        let recipe = FormRecipe(key: key, name: nextRecipeName(name, taken: forms.map(\.name)))
         forms.append(recipe)
         return recipe
     }
@@ -118,7 +176,9 @@ public struct RecipeBook: Sendable, Equatable, Codable {
     @discardableResult
     public mutating func duplicate(_ key: String, as newKey: String) -> FormRecipe? {
         guard let original = form(key) else { return nil }
-        return add(key: newKey, name: "\(original.name) (copia)", settings: original.settings)
+        let copy = add(key: newKey, name: "\(original.name) (copia)")
+        values[newKey] = values[key]
+        return copy
     }
 
     public mutating func rename(_ key: String, to name: String) {
@@ -127,14 +187,10 @@ public struct RecipeBook: Sendable, Equatable, Codable {
         forms[index].name = trimmed
     }
 
-    public mutating func update(_ key: String, settings: DefaultRecipeSettings) {
-        guard let index = forms.firstIndex(where: { $0.key == key }) else { return }
-        forms[index].settings = settings
-    }
-
     public mutating func remove(_ key: String) {
         guard forms.count > 1, forms.contains(where: { $0.key == key }) else { return }
         forms.removeAll { $0.key == key }
+        values[key] = nil
         if defaultKey == key { defaultKey = forms[0].key }
     }
 
@@ -146,14 +202,48 @@ public struct RecipeBook: Sendable, Equatable, Codable {
         values[key] = json
     }
 
-    public func forgettingResolver(_ key: String, stt: String, llm: String) -> RecipeBook {
+    public func forgettingResolver(_ key: String) -> RecipeBook {
+        changingFormValues { values in
+            ["stt", "llm"].reduce(values) { values, name in
+                values[name] == .string(key) ? values.setting(nil, at: [name]) : values
+            }
+        }
+    }
+
+    public func forgettingConnector(_ key: String) -> RecipeBook {
+        changingFormValues { values in
+            guard case .array(let connectors)? = values["conectores"] else { return values }
+            return values.setting(.array(connectors.filter { $0 != .string(key) }), at: ["conectores"])
+        }
+    }
+
+    public func forgettingMissing(connectors: Set<String>, stts: Set<String>, llms: Set<String>) -> RecipeBook {
+        changingFormValues { values in
+            var values = values
+            for (name, known) in [("stt", stts), ("llm", llms)] {
+                if let key = values[name]?.text, !known.contains(key) { values = values.setting(nil, at: [name]) }
+            }
+            guard case .array(let chosen)? = values["conectores"] else { return values }
+            let kept = chosen.filter { $0.text.map(connectors.contains) ?? false }
+            return kept == chosen ? values : values.setting(.array(kept), at: ["conectores"])
+        }
+    }
+
+    private func changingFormValues(_ change: (DataValue) -> DataValue) -> RecipeBook {
         var book = self
-        book.forms = forms.map { recipe in
-            var recipe = recipe
-            recipe.settings = recipe.settings.forgettingResolver(key, stt: stt, llm: llm)
-            return recipe
+        for form in forms {
+            guard let text = values[form.key], let current = try? parseData(text) else { continue }
+            let changed = change(current)
+            if changed != current { book.values[form.key] = dataText(changed) }
         }
         return book
+    }
+
+    public func reading(of key: String) -> FormRecipeReading {
+        let values = form(key) == nil ? nil : self.values[key].flatMap { try? parseData($0) }
+        return FormRecipeReading(
+            stt: values?["stt"]?.text, language: values?["idioma"]?.text, summarize: values?["resumir"] == .bool(true),
+            llm: values?["llm"]?.text, prompt: values?["prompt"]?.text)
     }
 
     public func listing(code: [RecipeCodeEntry]) -> [RecipeListing] {

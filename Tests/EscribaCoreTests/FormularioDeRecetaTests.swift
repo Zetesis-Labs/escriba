@@ -208,7 +208,7 @@ struct FormularioDeRecetaTests {
         #expect(recipeFormLoad(schema: "{").isProblem)
     }
 
-    @Test("cada grupo es una sección con su camino y su título, y los campos sueltos van en la primera")
+    @Test("las secciones siguen el orden del script: cada grupo con su camino y su título, y los campos sueltos de seguido juntos")
     func secciones() throws {
         let leido = try formulario(#"""
             {"type":"object","properties":{
@@ -221,9 +221,10 @@ struct FormularioDeRecetaTests {
 
         let secciones = recipeFormSections(leido)
 
-        #expect(secciones.map(\.path) == [[], ["g"], ["g", "h"]])
-        #expect(secciones.map(\.title) == [nil, "Hablantes", "Hablantes · Avanzado"])
-        #expect(secciones.map { $0.fields.map(\.name) } == [["a", "d"], ["b"], ["c"]])
+        #expect(secciones.map(\.path) == [[], ["g"], ["g", "h"], []])
+        #expect(secciones.map(\.title) == [nil, "Hablantes", "Hablantes · Avanzado", nil])
+        #expect(secciones.map { $0.fields.map(\.name) } == [["a"], ["b"], ["c"], ["d"]])
+        #expect(Set(secciones.map(\.id)).count == secciones.count)
     }
 
     @Test("un entero con mínimo y máximo cercanos se elige de una lista; un rango absurdo o enorme, no")

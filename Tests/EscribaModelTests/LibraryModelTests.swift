@@ -141,7 +141,7 @@ struct LibraryCorrectionTests {
         })
         try sandbox.save("2026-08-31/13-00-00", text: "original")
         let recording = try #require(try sandbox.store.recordings().first)
-        let eleccion = RecipeChoice(recipe: "F2", parameters: .standard)
+        let eleccion = RecipeChoice(recipe: "F2", values: #"{"resumir":true}"#)
 
         try await sandbox.model.reprocess(recording, with: eleccion)
 

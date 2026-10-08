@@ -89,8 +89,7 @@ let preludeSource = #"""
   }
 
   const parametrosDe = async (receta) => {
-    const base = JSON.parse(puente.parametros)
-    if (typeof receta.\#(recipeFormExport) !== "function") return congelar(base)
+    if (typeof receta.\#(recipeFormExport) !== "function") return null
     const esquema = \#(formSchemaFunction)(receta, listas)
     const valores = JSON.parse(puente.valores) ?? {}
     return congelar(await validar(esquema, valores, "los parámetros de la receta no casan"))

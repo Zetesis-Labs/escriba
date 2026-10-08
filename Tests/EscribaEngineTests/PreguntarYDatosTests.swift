@@ -6,7 +6,7 @@ import Testing
 @testable import EscribaEngine
 
 private let objetivo = RecipeTarget(
-    key: "x", name: "X", kind: .code, package: RecipePackage(key: "x", source: "", fingerprint: "f"), parameters: nil)
+    key: "x", name: "X", kind: .code, package: RecipePackage(key: "x", source: "", fingerprint: "f"))
 
 private let esquema = #"""
 {"type":"object","properties":{"cliente":{"type":["string","null"]},"tareas":{"type":"array","items":{"type":"string"}}},"required":["cliente","tareas"],"additionalProperties":false}

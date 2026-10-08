@@ -53,7 +53,6 @@ final class RecipeSession: Sendable {
         let lists = availableLists()
         return RecipeBridge(
             audio: recipeAudio(recording, origin: catalog.origin(recording)),
-            parameters: target.parameters,
             values: target.values,
             stts: lists.stts,
             llms: lists.llms,

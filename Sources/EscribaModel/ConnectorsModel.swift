@@ -36,6 +36,9 @@ public final class ConnectorsModel {
         editors[id]?.disconnect()
         editors[id] = nil
         okfEditors[id] = nil
+        if let key = settings.connector(id)?.key {
+            settings.recipeBook = settings.recipeBook.forgettingConnector(key)
+        }
         settings.connectors.removeAll { $0.id == id }
     }
 

@@ -21,7 +21,9 @@ cosa grande tiene su documento con el análisis y los criterios de salida.
    - Hecho (2026-10-08): parámetros de las recetas de código (RF-4b). La
      receta exporta `buildRecipeForm(listas)`, que devuelve un esquema de Zod
      construido con los STT, LLM, conectores y recetas que hay, y la app pinta
-     el formulario en la ficha de la receta y en «Reprocesar con…».
+     el formulario en la ficha de la receta y en «Reprocesar con…». El mismo
+     día, «Por defecto» pasó a declarar así su formulario, y las recetas de
+     formulario se pintan desde él.
    - Aplazado (Rubén, 2026-10-08): buscar en la biblioteca, dentro de las
      transcripciones y por datos.
    - Siguiente: la fase 5.

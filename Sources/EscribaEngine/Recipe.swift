@@ -62,7 +62,6 @@ public struct RecipeCatalog: Sendable {
 
 public struct RecipeBridge: Sendable {
     public var audio: RecipeAudio
-    public var parameters: DefaultRecipeSettings?
     public var values: String?
     public var stts: [RecipeResolver]
     public var llms: [RecipeResolver]
@@ -79,7 +78,6 @@ public struct RecipeBridge: Sendable {
 
     public init(
         audio: RecipeAudio,
-        parameters: DefaultRecipeSettings? = nil,
         values: String? = nil,
         stts: [RecipeResolver] = [],
         llms: [RecipeResolver] = [],
@@ -101,7 +99,6 @@ public struct RecipeBridge: Sendable {
         log: @escaping @Sendable (RecipeLogLevel, String) -> Void
     ) {
         self.audio = audio
-        self.parameters = parameters
         self.values = values
         self.stts = stts
         self.llms = llms
@@ -140,12 +137,10 @@ public struct Recipe: Sendable {
 
     public init(
         package: RecipePackage, runtime: RecipeRuntime, publishers: [String: Sink],
-        catalog: RecipeCatalog = RecipeCatalog(), parameters: DefaultRecipeSettings? = nil
+        catalog: RecipeCatalog = RecipeCatalog(), values: String? = nil
     ) {
         self.init(
-            shelf: .only(RecipeTarget(
-                key: package.key, name: package.key, kind: parameters == nil ? .code : .form, package: package,
-                parameters: parameters)),
+            shelf: .only(RecipeTarget(key: package.key, name: package.key, kind: .code, package: package, values: values)),
             runtime: runtime, publishers: publishers, catalog: catalog)
     }
 

@@ -32,7 +32,6 @@ nonisolated final class RecipeForms: Sendable {
         } catch {
             return .problem("\(error)")
         }
-        guard target.kind == .code else { return .noForm }
         let fingerprint = target.package.fingerprint
         if let hit = cache.withLock({ $0.first { $0.fingerprint == fingerprint && $0.lists == lists } }) {
             return hit.load

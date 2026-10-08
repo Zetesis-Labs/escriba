@@ -31,9 +31,10 @@ struct AppSettingsTests {
         let ahora = AppSettings(defaults: defaults, voiceMemos: nil)
 
         #expect(ahora.recipeBook.forms.map(\.name) == ["Por defecto"])
-        #expect(ahora.recipeBook.forms.first?.settings == DefaultRecipeSettings(
-            stt: "whisper", language: "en", detectSpeakers: true, speakerCount: 2, summarize: true, llm: "apple",
-            prompt: nil, connectors: []))
+        #expect(ahora.recipeBook.forms.first.flatMap { ahora.recipeBook.values[$0.key] } == dataText(formRecipeValues(
+            DefaultRecipeSettings(
+                stt: "whisper", language: "en", detectSpeakers: true, speakerCount: 2, summarize: true, llm: "apple",
+                prompt: nil, connectors: []))))
         #expect(ahora.recipeBook.defaultKey == ahora.recipeBook.forms.first?.key)
         #expect(defaults.data(forKey: "recipeBook") != nil)
     }
@@ -42,20 +43,20 @@ struct AppSettingsTests {
     func libroMigradoDeLaRecetaPorDefecto() throws {
         let defaults = freshDefaults()
         let guardada = DefaultRecipeSettings(
-            stt: "U1", language: nil, detectSpeakers: false, speakerCount: nil, summarize: true, llm: "U2",
-            prompt: "Breve", connectors: ["K1"])
+            stt: "whisper", language: nil, detectSpeakers: true, speakerCount: 3, summarize: true, llm: "apple",
+            prompt: "Breve", connectors: [])
         defaults.set(try JSONEncoder().encode(guardada), forKey: "defaultRecipe")
 
         let settings = AppSettings(defaults: defaults, voiceMemos: nil)
 
-        #expect(settings.recipeBook.forms.map(\.settings) == [guardada])
+        #expect(settings.recipeBook.forms.map { settings.recipeBook.values[$0.key] } == [dataText(formRecipeValues(guardada))])
     }
 
     @Test("lo que se cambia en las recetas sobrevive a una instancia nueva")
     func libroPersiste() {
         let defaults = freshDefaults()
         let settings = AppSettings(defaults: defaults, voiceMemos: nil)
-        let nueva = settings.recipeBook.add(key: "F2", name: "Reuniones", settings: .standard)
+        let nueva = settings.recipeBook.add(key: "F2", name: "Reuniones")
         settings.recipeBook.makeDefault(nueva.key)
 
         let otra = AppSettings(defaults: defaults, voiceMemos: nil)

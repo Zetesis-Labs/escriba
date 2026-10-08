@@ -73,6 +73,20 @@ struct ConectoresTests {
         #expect(ajustes.connector(conector.id) == nil)
     }
 
+    @Test("quitar un conector lo quita de lo que publican las recetas de formulario, para que no fallen")
+    func quitarDeLasRecetas() {
+        let ajustes = ajustes()
+        let modelo = ConnectorsModel(settings: ajustes, tokens: { _ in .inMemory() }, client: cliente)
+        let uno = modelo.add()
+        let otro = modelo.add()
+        let receta = ajustes.recipeBook.forms[0].key
+        ajustes.recipeBook.setValues(#"{"conectores":["\#(uno.key)","\#(otro.key)"]}"#, for: receta)
+
+        modelo.remove(uno.id)
+
+        #expect(ajustes.recipeBook.values[receta] == #"{"conectores":["\#(otro.key)"]}"#)
+    }
+
     @Test("los conectores se guardan y vuelven con sus ajustes")
     func persistencia() {
         let defaults = UserDefaults(suiteName: "escriba-conectores-persist-\(UUID().uuidString)")!

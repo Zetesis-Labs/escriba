@@ -44,7 +44,6 @@ private func receta(formulario: String?, flujo: String = "escriba.log(JSON.strin
 
 private func deCodigo(_ registro: Registro, valores: String? = nil) -> RecipeBridge {
     var bridge = puente(registro)
-    bridge.parameters = nil
     bridge.values = valores
     bridge.stts = listas.stts
     bridge.llms = listas.llms
@@ -137,6 +136,31 @@ struct ParametrosEnJavaScriptTests {
         #expect(throws: RecipeError.invalidPackage("SyntaxError: Unexpected end of script (línea 1)")) {
             try recipeFormSchema(RecipePackage(key: "rota", source: "var __receta = {", fingerprint: "r"), lists: listas)
         }
+    }
+
+    @Test("«Por defecto» declara su formulario con Zod: de serie hace lo de siempre y tiene los campos que lee la app")
+    func porDefecto() throws {
+        let conConectores = RecipeLists(
+            stts: listas.stts, llms: listas.llms,
+            connectors: [
+                RecipeConnector(key: "K1", name: "Notion", kind: "notion"),
+                RecipeConnector(key: "K2", name: "OKF", kind: "okf", isActive: false),
+            ])
+
+        let formulario = try recipeForm(
+            from: try parseData(try #require(try recipeFormSchema(.defaultRecipe, lists: conConectores))))
+
+        #expect(recipeFormDefaults(formulario) == formRecipeValues(.standard))
+        #expect(formulario.fields.map(\.name) == ["stt", "idioma", "hablantes", "resumir", "llm", "prompt", "conectores"])
+        #expect(formulario.fields.last?.kind == .choices([
+            RecipeFormOption(value: "K1", label: "Notion"), RecipeFormOption(value: "K2", label: "OKF (apagado)"),
+        ]))
+        let ajustes = DefaultRecipeSettings(
+            stt: "whisper", language: "en", detectSpeakers: true, speakerCount: 3, summarize: true, llm: "U2",
+            prompt: "Breve", connectors: ["K2"])
+        #expect(recipeFormValues(formulario, saved: formRecipeValues(ajustes)) == formRecipeValues(ajustes))
+        #expect(RecipeBook(migrating: ajustes, key: "F1").reading(of: "F1") == FormRecipeReading(
+            stt: "whisper", language: "en", summarize: true, llm: "U2", prompt: "Breve"))
     }
 
     @Test("con Zod de verdad: el formulario se construye con los LLM que hay y la ejecución rellena lo del script",
