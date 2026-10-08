@@ -23,16 +23,20 @@ cosa grande tiene su documento con el análisis y los criterios de salida.
      construido con los STT, LLM, conectores y recetas que hay, y la app pinta
      el formulario en la ficha de la receta y en «Reprocesar con…». El mismo
      día, «Por defecto» pasó a declarar así su formulario, y las recetas de
-     formulario se pintan desde él.
+     formulario se pintan desde él; una receta de formulario es ahora un
+     nombre y unos valores sobre cualquier receta con formulario («Guardar
+     como receta de formulario»).
    - Aplazado (Rubén, 2026-10-08): buscar en la biblioteca, dentro de las
      transcripciones y por datos.
-   - Siguiente: la fase 5.
+   - Siguiente: sin decidir. Rubén (2026-10-08) prefiere usar Escriba unos
+     días antes de añadir más; la fase 5 no es ahora.
    - Fase 5: la receta decide qué carga manda a cada conector (RF-9) y se
      borran los editores de mapeo, verificando contra una base real de
      Notion. Propuesto, sin decidir: que el conector sea la cuenta y su
      alcance (las bases compartidas con la integración, la carpeta raíz de
      OKF) y la receta elija el destino dentro.
-   - Fase 7, opcional: Escriba escribe una receta con su propio LLM.
+   - Fase 7 (Escriba escribe una receta con su propio LLM): descartada por
+     Rubén el 2026-10-08.
    - Sin decidir: acceso por MCP (RF-17).
    - Descartado el 2026-10-07: receta por carpeta y al grabar o importar,
      «Personalizar…», convertir una receta de formulario en código, exportar e
