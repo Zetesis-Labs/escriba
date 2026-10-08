@@ -1,19 +1,17 @@
+import EscribaCore
+
 let preludeSource = #"""
 (() => {
   "use strict"
   const puente = globalThis.__puente
   delete globalThis.__puente
-  const lista = (json) => Object.freeze(JSON.parse(json).map((elemento) => Object.freeze(elemento)))
-  const stts = lista(puente.stts)
-  const llms = lista(puente.llms)
-  const conectores = lista(puente.conectores)
-  const recetas = lista(puente.recetas)
+  const listas = \#(listsFunction)(puente.listas)
+  const { stts, llms, conectores, recetas } = listas
   const opciones = (valor) => JSON.stringify(valor ?? {})
   const congelar = (valor) => {
     if (valor && typeof valor === "object") Object.values(valor).forEach(congelar)
     return Object.freeze(valor)
   }
-  const parametros = congelar(JSON.parse(puente.parametros))
   const formatear = (valor) => {
     if (typeof valor === "string") return valor
     if (valor instanceof Error) return `${valor.name}: ${valor.message}`
@@ -90,7 +88,15 @@ let preludeSource = #"""
     }
   }
 
-  const escriba = Object.freeze({
+  const parametrosDe = async (receta) => {
+    const base = JSON.parse(puente.parametros)
+    if (typeof receta.\#(recipeFormExport) !== "function") return congelar(base)
+    const esquema = \#(formSchemaFunction)(receta, listas)
+    const valores = JSON.parse(puente.valores) ?? {}
+    return congelar(await validar(esquema, valores, "los parámetros de la receta no casan"))
+  }
+
+  const crearEscriba = (parametros) => Object.freeze({
     parametros,
     stts,
     llms,
@@ -164,15 +170,45 @@ let preludeSource = #"""
       return \#(packageProblemFunction)(globalThis.__receta)
     },
     ejecutar(audio, fin, fallo) {
-      let resultado
-      try {
-        resultado = globalThis.__receta.flujo(Object.freeze(JSON.parse(audio)), escriba)
-      } catch (error) {
-        fallo(error)
-        return
-      }
-      Promise.resolve(resultado).then(() => fin(), (error) => fallo(error))
+      const receta = globalThis.__receta
+      parametrosDe(receta)
+        .then((parametros) => receta.flujo(Object.freeze(JSON.parse(audio)), crearEscriba(parametros)))
+        .then(() => fin(), (error) => fallo(error))
     },
   }
 })()
+"""#
+
+let listsFunction = #"""
+((json) => {
+  const listas = JSON.parse(json)
+  const lista = (elementos) => Object.freeze(elementos.map((elemento) => Object.freeze(elemento)))
+  return Object.freeze({
+    stts: lista(listas.stts),
+    llms: lista(listas.llms),
+    conectores: lista(listas.conectores),
+    recetas: lista(listas.recetas),
+  })
+})
+"""#
+
+let formSchemaFunction = #"""
+((receta, listas) => {
+  const esquema = receta.\#(recipeFormExport)(listas)
+  if (typeof esquema?.["~standard"]?.validate !== "function")
+    throw new TypeError("\#(recipeFormExport) tiene que devolver un esquema de Zod: z.object({ … })")
+  return esquema
+})
+"""#
+
+let formSource = #"""
+((listas) => {
+  const receta = globalThis.__receta
+  if (typeof receta.\#(recipeFormExport) !== "function") return null
+  const esquema = \#(formSchemaFunction)(receta, \#(listsFunction)(listas))
+  const entrada = esquema["~standard"].jsonSchema?.input
+  if (typeof entrada !== "function")
+    throw new TypeError("\#(recipeFormExport) tiene que devolver un esquema de Zod: z.object({ … })")
+  return JSON.stringify(entrada({ target: "draft-2020-12" }))
+})
 """#

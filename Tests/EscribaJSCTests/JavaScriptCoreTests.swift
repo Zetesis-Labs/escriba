@@ -508,7 +508,7 @@ struct JavaScriptCoreTests {
         let raiz = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         let tipos = try String(contentsOf: raiz.appending(path: "recetas/escriba-recetas.d.ts"), encoding: .utf8)
-        let declarado = miembros(de: ["Audio", "Nota", "Conector", "Receta", "Escriba"], en: tipos)
+        let declarado = miembros(de: ["Audio", "Nota", "Conector", "Receta", "Escriba", "ListasDeEscriba"], en: tipos)
         let json = String(decoding: try JSONEncoder().encode(declarado), as: UTF8.self)
         let registro = Registro()
 
@@ -517,6 +517,7 @@ struct JavaScriptCoreTests {
                 const nota = await escriba.transcribir(audio)
                 const vistos = {
                   Audio: audio, Nota: nota, Conector: escriba.conector('x'), Receta: escriba.receta('x'), Escriba: escriba,
+                  ListasDeEscriba: escriba,
                 }
                 const declarado = \(json)
                 const faltan = Object.keys(vistos).flatMap((tipo) =>
@@ -534,7 +535,7 @@ private func miembros(de tipos: [String], en declaraciones: String) -> [String: 
     var resultado: [String: [String]] = [:]
     for tipo in tipos {
         guard
-            let inicio = declaraciones.range(of: "interface \(tipo) {"),
+            let inicio = declaraciones.range(of: "interface \(tipo)[ <][^{]*\\{", options: .regularExpression),
             let fin = declaraciones[inicio.upperBound...].range(of: "\n}")
         else { continue }
         resultado[tipo] = declaraciones[inicio.upperBound..<fin.lowerBound]

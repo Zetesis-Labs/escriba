@@ -116,7 +116,8 @@ publica donde ella diga, regenerando las páginas que ya existían.
   con qué LLM y prompt, a qué conectores publicar) y la app escribe su
   JavaScript. Vive en la app: no necesita proyecto ni entorno de desarrollo.
 - **Manual**: TypeScript o JavaScript escrito a mano, por una persona o por un
-  agente, en el proyecto de recetas (RF-18). No tiene formulario.
+  agente, en el proyecto de recetas (RF-18). Si exporta `buildRecipeForm`,
+  tiene un formulario que pinta la app a partir de su esquema (RF-4b).
 - Convertir una receta generada en manual: **descartado** (Rubén, 2026-10-07).
 - La app trae una receta generada, «Por defecto», que reproduce el
   comportamiento actual de Escriba. Todas las de formulario ejecutan el mismo
@@ -131,6 +132,7 @@ El fichero de entrada de cada receta (`recetas/<clave>/receta.ts` o
 |---|---|---|
 | `receta` | Sí | `{ nombre, datos? }`: `datos` es el esquema de Zod de los metadatos propios (RF-7) |
 | `flujo(audio, escriba)` | Sí | Función asíncrona: todo el recorrido de una grabación |
+| `buildRecipeForm(listas)` | No | Devuelve el esquema de Zod de sus parámetros (RF-4b) |
 | `publicar(nota, escriba)` | No | Función asíncrona: publicar una nota ya procesada (RF-9) |
 
 - Se escribe con **módulos normales**: `import` y `export` entre ficheros del
@@ -158,6 +160,44 @@ El fichero de entrada de cada receta (`recetas/<clave>/receta.ts` o
   quien quiera CI o desarrollar fuera. Nunca hace falta, porque la app compila,
   y el usuario nunca publica nada en npm. Sin fase asignada.
 - Se publica una galería de recetas de ejemplo.
+
+
+### RF-4b. Parámetros de una receta de código
+
+Decidido y hecho por Rubén el 2026-10-08: una receta de código declara sus
+parámetros con Zod y la app pinta el formulario, como el de las recetas de
+formulario.
+
+- La receta exporta `buildRecipeForm(listas)` (el nombre lo eligió Rubén; vive
+  en una sola constante, `recipeFormExport`). Recibe solo las listas de
+  `escriba` (`stts`, `llms`, `conectores`, `recetas`), las mismas que verá la
+  ejecución, y devuelve un `z.object`. Así las opciones salen de lo que hay
+  configurado: `z.union(llms.map((llm) => z.literal(llm.clave).meta({ title: llm.nombre })))`.
+- Los valores de serie son los `.default()` del script. Lo que el usuario
+  cambia en la ficha se guarda por receta en el libro de recetas, **solo lo
+  que difiere del script** (`recipeFormOverrides`), así que si el script
+  cambia un valor de serie, cambia para quien no lo había tocado. «Volver a
+  los valores del script» borra lo guardado.
+- La app pinta el esquema de entrada (`~standard.jsonSchema.input()`):
+  interruptores, desplegables (enumerados, uniones de literales con su
+  `title`, enteros con mínimo y máximo cercanos), casillas
+  (`z.array(z.enum(…))`), texto, números y grupos como secciones. Lo que no
+  sabe pintar (`z.record`, `z.tuple`, listas libres, uniones de tipos
+  distintos) lo dice con el camino del campo. `EscribaCore` decide todo esto
+  (`recipeForm`, `recipeFormValues`, `recipeFormIssue`); JavaScriptCore solo
+  calcula el esquema (`recipeFormSchema`), y la app lo guarda en caché por
+  huella del paquete y listas.
+- Al ejecutar, `escriba.parametros` sale de validar lo guardado con el mismo
+  esquema en la misma máquina virtual, con los de serie rellenos y tipado con
+  `Escriba<P>`. **Un valor guardado que ya no vale (un LLM quitado) hace fallar
+  la ejecución nombrando el campo**, y la ficha lo marca: nunca se cambia por
+  otro en silencio.
+- «Reprocesar con…» prefija el formulario con lo guardado y lo que se cambie
+  vale solo para esa vez y solo para la receta elegida: si ella pasa la
+  grabación a otra con `procesar`, la otra usa lo suyo guardado.
+- Un enumerado de una lista vacía (sin conectores) no lanza en Zod 4: sale un
+  desplegable sin opciones, así que la plantilla recomienda
+  `.nullable().default(null)`.
 
 ### RF-5. Lo que una receta puede pedir (`escriba` y `nota`)
 
@@ -336,8 +376,9 @@ El fichero de entrada de cada receta (`recetas/<clave>/receta.ts` o
   pasa la grabación; `await` sin `return` la usa como un paso y sigue.
 - Si la receta destino pide transcribir con lo mismo que ya se transcribió,
   recibe lo guardado al instante; con otros criterios sale una versión nueva.
-- Cada receta llamada recibe sus propios `parametros` (los de su formulario, o
-  `null` si es de código) y corre en su propia máquina virtual.
+- Cada receta llamada recibe sus propios `parametros` (los de su formulario,
+  los guardados de su `buildRecipeForm` o `null` si es de código sin él) y
+  corre en su propia máquina virtual.
 - Límite de profundidad (4) y detección de ciclos (A llama a B y B a A): la
   llamada falla con un error que dice la cadena.
 - Una receta que no existe es un error que la receta puede recoger; si no lo
@@ -631,7 +672,8 @@ Cada fase termina en la app, con tests, y la prueba Rubén.
 4. **Preguntar y metadatos.** Hecho el 2026-10-08: `preguntar` con esquema de
    Zod en los dos tipos de LLM, respuestas recordadas por versión, `datos` por
    versión validados con `receta.datos`, la biblioteca los muestra. Filtrar y
-   buscar, aplazado.
+   buscar, aplazado. Después, el mismo día: parámetros de las recetas de
+   código con `buildRecipeForm` (RF-4b).
 5. **Conectores decididos por la receta.** Cargas por tipo de conector,
    `publicar` exportado, acciones a mano, mapeo automático, migración de las
    configuraciones; verificación real en Notion y, después, borrar los

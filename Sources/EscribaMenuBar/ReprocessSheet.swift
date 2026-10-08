@@ -9,6 +9,9 @@ struct ReprocessSheet: View {
     let onCancel: () -> Void
     @State private var recipe: String
     @State private var parameters: DefaultRecipeSettings?
+    @State private var form: RecipeFormLoad?
+    @State private var values: DataValue = .object([])
+    @Environment(\.recipeForms) private var forms
 
     init(
         settings: AppSettings, listing: [RecipeListing], onRun: @escaping (RecipeChoice) -> Void,
@@ -36,12 +39,20 @@ struct ReprocessSheet: View {
                     }
                     .onChange(of: recipe) { _, key in parameters = settings.recipeBook.form(key)?.settings }
                 } footer: {
-                    Text(parameters == nil
+                    Text(parameters == nil && codeForm == nil
                         ? "Es de código: hace lo que diga su código."
                         : "Los cambios de abajo valen solo para esta vez; la receta no cambia.")
                 }
                 if let parameters = Binding($parameters) {
                     RecipeParametersFields(settings: settings, parameters: parameters)
+                } else if let codeForm {
+                    RecipeFormSections(form: codeForm, values: $values)
+                } else if case .problem(let problem)? = form {
+                    Section("Parámetros") {
+                        Text(problem)
+                            .foregroundStyle(.orange)
+                            .textSelection(.enabled)
+                    }
                 }
             }
             .formStyle(.grouped)
@@ -54,11 +65,30 @@ struct ReprocessSheet: View {
                 Spacer()
                 Button("Cancelar", role: .cancel, action: onCancel)
                     .keyboardShortcut(.cancelAction)
-                Button("Reprocesar") { onRun(RecipeChoice(recipe: recipe, parameters: parameters)) }
-                    .keyboardShortcut(.defaultAction)
+                Button("Reprocesar") {
+                    onRun(RecipeChoice(recipe: recipe, parameters: parameters, values: oneTimeValues))
+                }
+                .keyboardShortcut(.defaultAction)
             }
         }
         .padding()
         .frame(width: 520)
+        .task(id: recipe) {
+            form = nil
+            let loaded = await forms?.load(recipe)
+            if case .form(let loadedForm)? = loaded {
+                values = recipeFormValues(loadedForm, saved: savedRecipeValues(settings.recipeBook, recipe))
+            }
+            form = loaded
+        }
+    }
+
+    private var codeForm: RecipeForm? {
+        guard case .form(let form)? = form else { return nil }
+        return form
+    }
+
+    private var oneTimeValues: String? {
+        codeForm.map { dataText(recipeFormOverrides($0, values: values) ?? .object([])) }
     }
 }

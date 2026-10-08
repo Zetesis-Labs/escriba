@@ -96,10 +96,8 @@ actor RecipeRun {
         let bridge = bridge
         puente.setObject(
             bridge.parameters.flatMap { try? recipeJSON($0) } ?? "null", forKeyedSubscript: "parametros" as NSString)
-        puente.setObject(try? recipeJSON(bridge.stts), forKeyedSubscript: "stts" as NSString)
-        puente.setObject(try? recipeJSON(bridge.llms), forKeyedSubscript: "llms" as NSString)
-        puente.setObject(try? recipeJSON(bridge.connectors), forKeyedSubscript: "conectores" as NSString)
-        puente.setObject(try? recipeJSON(bridge.recipes), forKeyedSubscript: "recetas" as NSString)
+        puente.setObject(bridge.values ?? "null", forKeyedSubscript: "valores" as NSString)
+        puente.setObject(try? recipeJSON(bridge.lists), forKeyedSubscript: "listas" as NSString)
         let transcribe: @convention(block) (String) -> Int = { [weak self] options in
             self?.assumeIsolated { run in
                 run.ask {
@@ -253,10 +251,14 @@ private func errorToken(_ value: JSValue?) -> Int? {
     return Int(token.toInt32())
 }
 
+let internalSources: Set<String> = ["escriba://preludio.js", "escriba://formulario.js"]
+
 func describe(_ value: JSValue?, sourceMap: SourceMap? = nil) -> String {
     guard let value else { return "error desconocido" }
     let message = value.toString() ?? "error desconocido"
-    guard value.isObject, let line = value.objectForKeyedSubscript("line"), line.isNumber else { return message }
+    guard value.isObject, let line = value.objectForKeyedSubscript("line"), line.isNumber,
+        !internalSources.contains(value.objectForKeyedSubscript("sourceURL")?.toString() ?? "")
+    else { return message }
     let column = value.objectForKeyedSubscript("column").flatMap { $0.isNumber ? Int($0.toInt32()) : nil } ?? 1
     if let position = sourceMap?.original(line: Int(line.toInt32()), column: column) {
         return "\(message) (\(position))"

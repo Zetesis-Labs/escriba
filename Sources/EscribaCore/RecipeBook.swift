@@ -78,12 +78,14 @@ public struct RecipeBook: Sendable, Equatable, Codable {
 
     public private(set) var forms: [FormRecipe]
     public private(set) var defaultKey: String
+    public private(set) var values: [String: String]
 
-    public init(forms: [FormRecipe], defaultKey: String) {
+    public init(forms: [FormRecipe], defaultKey: String, values: [String: String] = [:]) {
         self.forms = forms.isEmpty
             ? [FormRecipe(key: "formulario", name: Self.defaultName, settings: .standard)]
             : forms
         self.defaultKey = defaultKey
+        self.values = values
     }
 
     public init(migrating settings: DefaultRecipeSettings, key: String) {
@@ -91,14 +93,15 @@ public struct RecipeBook: Sendable, Equatable, Codable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case forms, defaultKey
+        case forms, defaultKey, values
     }
 
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.init(
             forms: try container.decode([FormRecipe].self, forKey: .forms),
-            defaultKey: try container.decode(String.self, forKey: .defaultKey))
+            defaultKey: try container.decode(String.self, forKey: .defaultKey),
+            values: try container.decodeIfPresent([String: String].self, forKey: .values) ?? [:])
     }
 
     public func form(_ key: String) -> FormRecipe? {
@@ -137,6 +140,10 @@ public struct RecipeBook: Sendable, Equatable, Codable {
 
     public mutating func makeDefault(_ key: String) {
         defaultKey = key
+    }
+
+    public mutating func setValues(_ json: String?, for key: String) {
+        values[key] = json
     }
 
     public func forgettingResolver(_ key: String, stt: String, llm: String) -> RecipeBook {

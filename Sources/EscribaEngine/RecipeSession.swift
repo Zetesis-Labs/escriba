@@ -50,13 +50,15 @@ final class RecipeSession: Sendable {
 
     private func bridge(for target: RecipeTarget, chain: [RecipeInfo]) -> RecipeBridge {
         let origin = chain.count > 1 ? target.name : nil
+        let lists = availableLists()
         return RecipeBridge(
             audio: recipeAudio(recording, origin: catalog.origin(recording)),
             parameters: target.parameters,
-            stts: catalog.stts,
-            llms: catalog.llms,
-            connectors: catalog.connectors,
-            recipes: availableRecipes(),
+            values: target.values,
+            stts: lists.stts,
+            llms: lists.llms,
+            connectors: lists.connectors,
+            recipes: lists.recipes,
             transcribe: { try await self.transcribe($0, origin: origin) },
             summarize: { try await self.summarize($0, origin: origin) },
             save: { try await self.saveNote(data: nil, schema: nil, origin: origin) },
@@ -67,12 +69,12 @@ final class RecipeSession: Sendable {
             log: { self.log($0, $1, origin: origin) })
     }
 
-    private func availableRecipes() -> [RecipeInfo] {
+    private func availableLists() -> RecipeLists {
         do {
-            return try recipe.shelf.recipes()
+            return try recipe.lists()
         } catch {
             Log.error("\(recording.key) [receta] no se pudo leer la lista de recetas: \(error)")
-            return []
+            return RecipeLists(stts: catalog.stts, llms: catalog.llms, connectors: catalog.connectors)
         }
     }
 

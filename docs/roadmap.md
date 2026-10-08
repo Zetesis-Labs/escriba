@@ -18,9 +18,10 @@ cosa grande tiene su documento con el análisis y los criterios de salida.
    - Hecho (2026-10-08): la fase 4, `escriba.preguntar` con esquema de Zod
      (RF-6) y `datos` por versión que el detalle de la nota enseña (RF-7). Zod
      es el único paquete de npm que se importa; Escriba lo trae.
-   - Propuesto por Rubén (2026-10-08), sin empezar: que una receta de código
-     declare sus parámetros con un esquema de Zod y la app pinte el formulario
-     a partir de él, en la ficha de la receta y en «Reprocesar con…».
+   - Hecho (2026-10-08): parámetros de las recetas de código (RF-4b). La
+     receta exporta `buildRecipeForm(listas)`, que devuelve un esquema de Zod
+     construido con los STT, LLM, conectores y recetas que hay, y la app pinta
+     el formulario en la ficha de la receta y en «Reprocesar con…».
    - Aplazado (Rubén, 2026-10-08): buscar en la biblioteca, dentro de las
      transcripciones y por datos.
    - Siguiente: la fase 5.

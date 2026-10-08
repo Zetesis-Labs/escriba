@@ -44,7 +44,12 @@ npm con la huella fijada (`ZodPackage`), esbuild resuelve `zod` a esa copia y
 sus tipos van a `.escriba/zod/` del proyecto. Con él se escriben los esquemas
 de `escriba.preguntar` (respuesta estructurada, puerto `Asker`, traducida a
 `json_schema` o a `DynamicGenerationSchema` desde `answerSchema` en el núcleo) y
-de `receta.datos`, los datos propios que se guardan con cada versión. El editor Monaco dentro de
+de `receta.datos`, los datos propios que se guardan con cada versión, y los
+**parámetros de una receta de código**: exporta `buildRecipeForm(listas)`, que
+devuelve un esquema de Zod con las opciones de lo configurado; la app pinta el
+formulario (`recipeForm` en el núcleo) y guarda por receta solo lo que el
+usuario cambia, y un valor guardado que ya no vale hace fallar la ejecución
+nombrando el campo. El editor Monaco dentro de
 la app está aparcado (Rubén, 2026-10-07). Los
 conectores como plugins wasm se exploraron y se archivaron el 2026-10-06
 (viable, pero no merece la pena ahora): conclusiones y medidas en

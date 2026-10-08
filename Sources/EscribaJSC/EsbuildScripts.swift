@@ -1,3 +1,5 @@
+import EscribaCore
+
 let packageProblemFunction = #"""
 ((receta) => {
   if (typeof receta !== "object" || receta === null) return "no define ninguna receta"
@@ -7,6 +9,9 @@ let packageProblemFunction = #"""
   const datos = receta.receta.datos
   if (datos !== undefined && typeof datos?.["~standard"]?.validate !== "function")
     return "receta.datos tiene que ser un esquema de Zod: z.object({ … })"
+  const formulario = receta.\#(recipeFormExport)
+  if (formulario !== undefined && typeof formulario !== "function")
+    return "\#(recipeFormExport) tiene que ser una función que devuelva un esquema de Zod"
   return ""
 })
 """#

@@ -51,6 +51,7 @@ private func fingerprint(of connectors: [Connector]) -> String {
 @Observable
 final class AppRuntime {
     private(set) var model: LibraryModel?
+    private(set) var recipeForms: RecipeForms?
     private(set) var startupProblem: String?
     var section = MainSection.initial(from: ProcessInfo.processInfo.environment)
     let settings: AppSettings
@@ -169,6 +170,7 @@ final class AppRuntime {
                             recipeOrigin(forSource: $0.url.path(percentEncoded: false), inbox: inbox, folders: folders)
                         }))
             }
+            recipeForms = recipe.map(RecipeForms.init)
             let memory = store.memory()
             let saveSink = saveSink(for: store)
 
@@ -465,7 +467,7 @@ nonisolated private func reprocessed(
     guard let recipe else { return RecipeRunReport(trace: nil, failure: "las recetas no arrancan en este Mac") }
     let target: RecipeTarget
     do {
-        target = try recipe.shelf.target(choice.recipe).overriding(choice.parameters)
+        target = try recipe.shelf.target(choice.recipe).overriding(choice.parameters).overriding(values: choice.values)
     } catch {
         return RecipeRunReport(trace: nil, failure: "\(error)")
     }

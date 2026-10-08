@@ -222,6 +222,9 @@ private struct CodeRecipeDetail: View {
             } footer: {
                 Text("Se edita en la carpeta del proyecto, con tu editor o un agente. Escriba la compila al guardar.")
             }
+            if status.active != nil {
+                CodeRecipeParameters(settings: settings, key: status.key, fingerprint: status.active)
+            }
             Section("Compilación") {
                 Text(recipeStatusLine(status))
                     .foregroundStyle(status.issues.isEmpty ? Color.secondary : Color.orange)
@@ -241,6 +244,53 @@ private struct CodeRecipeDetail: View {
         }
         .formStyle(.grouped)
     }
+}
+
+private struct CodeRecipeParameters: View {
+    @Bindable var settings: AppSettings
+    let key: String
+    let fingerprint: String?
+    @Environment(\.recipeForms) private var forms
+    @State private var load: RecipeFormLoad?
+
+    var body: some View {
+        Group {
+            switch load {
+            case .form(let form)?:
+                RecipeFormSections(form: form, values: values(form))
+                Section {
+                    Button("Volver a los valores del script") { settings.recipeBook.setValues(nil, for: key) }
+                        .disabled(settings.recipeBook.values[key] == nil)
+                } footer: {
+                    Text("Lo que cambias aquí se guarda para esta receta y vale para todas las notas que procese, también cuando otra receta se la pasa. Los valores de serie y las opciones los pone su \(recipeFormExport).")
+                }
+            case .problem(let problem)?:
+                Section("Parámetros") {
+                    Text(problem)
+                        .foregroundStyle(.orange)
+                        .textSelection(.enabled)
+                }
+            case .noForm?, nil:
+                EmptyView()
+            }
+        }
+        .task(id: reloadKey) { load = await forms?.load(key) }
+    }
+
+    private var reloadKey: String {
+        let names = settings.recipeBook.forms.map(\.name).joined(separator: "|")
+        return "\(fingerprint ?? "")|\(forms?.id.uuidString ?? "")|\(names)"
+    }
+
+    private func values(_ form: RecipeForm) -> Binding<DataValue> {
+        Binding(
+            get: { recipeFormValues(form, saved: savedRecipeValues(settings.recipeBook, key)) },
+            set: { settings.recipeBook.setValues(recipeFormOverrides(form, values: $0).map { dataText($0) }, for: key) })
+    }
+}
+
+func savedRecipeValues(_ book: RecipeBook, _ key: String) -> DataValue? {
+    book.values[key].flatMap { try? parseData($0) }
 }
 
 private struct ProjectFooter: View {

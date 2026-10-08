@@ -91,6 +91,7 @@ struct MainWindow: View {
                 SettingsPane(settings: runtime.settings)
             }
         }
+        .environment(\.recipeForms, runtime.recipeForms)
         .frame(minWidth: 960, minHeight: 600)
     }
 }
