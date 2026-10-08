@@ -3,6 +3,8 @@
 Estado: **análisis para decisión de Rubén**, 2026-10-08. No modifica RF-9 ni
 autoriza construir la fase 5. Se basa en el estado de la rama
 `docs/encargo-conectores-js` (`4ed9957`), separado de `feat/personas`.
+Incluye después una prueba desechable solicitada por Rubén, en la rama
+`spike/conectores-js-npm`; eso no autoriza integrar la sustitución en la app.
 
 ## Punto de partida y términos
 
@@ -94,7 +96,7 @@ el código ya escrito.
 B reabre RF-9 y concreta la regla de núcleo funcional: transformaciones y
 decisiones de protocolo en funciones JS comprobables; permisos, estado y
 recuperación del host en funciones puras Swift. El uso del SDK oficial también
-requiere resolver la excepción a «solo Zod» y su compatibilidad con JSC antes
+requiere ampliar la regla «solo Zod» y comprobar su compatibilidad con JSC antes
 de implementarlo. La aprobación de esta arquitectura y sus fases sigue
 correspondiendo a Rubén.
 
@@ -118,7 +120,8 @@ flowchart LR
 
 ### Encaje del SDK oficial
 
-Se ha inspeccionado `@notionhq/client` **v5.25.2**, sin ejecutarlo. Su cliente
+Se ha inspeccionado `@notionhq/client` **v5.25.2** y después se ha ejecutado
+en la [prueba local](../spikes/conector-js/README.md). Su cliente
 admite `auth` opcional y `fetch` inyectado; `request()` permite peticiones
 además de los métodos tipados. Del código se deduce que se puede omitir
 `auth` y añadir la credencial en el transporte Swift. [Fuente oficial de
@@ -144,7 +147,7 @@ usar operaciones nuevas del SDK o `request()` dentro de la concesión de la
 cuenta. El SDK tampoco define qué recursos pertenecen a una publicación de
 Escriba: esa responsabilidad y la reconciliación quedan en la biblioteca.
 
-**Compatibilidad JSC pendiente:** la ruta JSON requiere URL y una respuesta
+**Compatibilidad JSC comprobada para los casos del spike:** la ruta JSON requiere URL y una respuesta
 con `status`, `ok`, `headers` y `text()`; las subidas usan FormData/Blob.
 [Cliente inspeccionado](https://github.com/makenotion/notion-sdk-js/blob/v5.25.2/src/Client.ts).
 Cada petición usa `setTimeout`/`clearTimeout`, incluso con `retry:false`.
@@ -153,12 +156,15 @@ El paquete declara Node >=18 y no declara dependencias de producción;
 eso no demuestra que funcione en JSC.
 [package.json de la versión](https://github.com/makenotion/notion-sdk-js/blob/v5.25.2/package.json).
 
-Por tanto, la primera prueba debe empaquetar ese SDK y darle un adaptador de
-las utilidades necesarias, con transporte falso. Los temporizadores se
-ofrecen solo en el contexto operativo del conector, con cancelación y límites;
-la evaluación declarativa sigue sin capacidades. La comprobación debe cubrir
-multipart antes de dar por conseguida la paridad de audio. No es necesario
-exponer Node, disco general ni red global para ofrecer esas utilidades.
+La prueba ha empaquetado ese SDK con las utilidades necesarias y transporte
+falso. Publicación, regeneración paginada, retirada y multipart con WAV
+sintético han funcionado. Los temporizadores pertenecen al contexto operativo
+y la inspección declarativa no hace HTTP. El spike no demuestra todavía el
+aislamiento sin capacidades del inspector de producción. No se expone Node,
+disco general ni red global. El fallback opcional de `crypto` de los webhooks
+requiere un módulo explícito que falla al usarse; esas funciones no están
+soportadas. El resultado valida esas operaciones, no todo el SDK ni cualquier
+librería de npm.
 
 Se propone desactivar el retry automático del SDK y decidirlo en la librería
 JS con el recibo de la operación. Así las creaciones inciertas no se repiten
@@ -174,7 +180,7 @@ diferencia es que la carga la ejecuta JS. El recibo específico del conector
 lleva versión y esquema propios, sin código ejecutable. Swift lo conserva y
 solo la ejecución autorizada puede actualizarlo.
 
-La librería no recibe `fetch`, una URL libre ni un token. Swift crea una
+La librería no recibe un `fetch` global con red libre ni un token. Swift crea una
 capacidad ligada al vínculo, destino, paquete y operación al ejecutar su
 contexto; no entrega `escriba.cuenta(...)` a cualquier receta. Contrato
 ilustrativo de esas capacidades:
@@ -573,24 +579,101 @@ un borrado inferido solo de las plantillas actuales.
 
 Las librerías del proyecto y el SDK oficial tienen funciones distintas. Las
 primeras contienen sus destinos y comportamiento; el SDK es una dependencia
-externa versionada. El resolvedor actual solo admite imports relativos y Zod,
-así que introducir `@notionhq/client` **requiere una excepción explícita**;
+externa versionada. El resolvedor actual solo admite imports relativos y Zod;
+además, `ignoredByRecipes` excluye `node_modules` de la lectura del proyecto.
+Ejecutar `npm install` por fuera hoy no hace que la app encuentre el paquete.
+Introducir `@notionhq/client` **requiere revisar esa regla explícitamente**;
 copiar su código como fichero local no elimina esa decisión.
 
 | Vía | Ventaja | Coste y condición |
 | --- | --- | --- |
 | Copia de la plantilla en `lib/conectores/` | Compatible con la regla actual; editable y reproducible con el repo del usuario. | Las mejoras no llegan solas. Actualización explícita con diff y versión/origen registrados; no sobrescribir cambios propios. |
 | Librería administrada por la app como Zod | Arreglos centralizados, sin pedir un gestor de paquetes al usuario. | Nuevo resolvedor/caché con versión y huella; conservar versiones referenciadas. La activación no puede modificar paquetes anteriores. |
-| Paquete npm propio | Distribución y herramientas externas conocidas. | Reabre «solo Zod», requiere aprobación de Rubén y una estrategia de resolución/lockfile; no implica aceptar cualquier npm ni scripts de instalación. |
+| Dependencias npm del proyecto, incluidos SDK y conectores propios | Cada proyecto elige y versiona sus librerías con las herramientas habituales. | Reabre «solo Zod»; requiere resolvedor, captura de dependencias y contrato de compatibilidad del runtime. Instalable no significa ejecutable en JSC. |
 
-Para B recomiendo **bibliotecas de destino locales y SDK administrado como
-dependencia permitida**, con versión y huella fijadas por proyecto. La app
-descarga y verifica el artefacto y sus tipos, esbuild lo incluye en el paquete
-autocontenido y el motor solo ejecuta ese paquete. No se abre la resolución a
-cualquier npm ni se ejecutan scripts de instalación. Actualizar el SDK es una
-acción explícita que recompila y valida una nueva revisión, conservando las
-anteriores. El primer spike determinará el artefacto y las utilidades JSC que
-hay que suministrar; no se ha instalado ninguna dependencia en este encargo.
+Tras la pregunta de Rubén sobre librerías instalables, recomiendo para B
+**dependencias npm declaradas y versionadas en el proyecto**, con instalación
+externa y compilación en la app. Sustituye la propuesta anterior de permitir
+solo un SDK administrado: evita que cada biblioteca nueva necesite ampliar
+una lista en Swift. Es una propuesta de arquitectura; no cambia todavía RF-4.
+
+### Instalación, compilación y ejecución
+
+Son tres pasos con responsabilidades distintas:
+
+1. **Instalar en el proyecto.** El autor o su agente usa npm desde el editor
+   o terminal; `package.json` declara las dependencias y `package-lock.json`
+   fija el árbol resuelto. La app no lanza npm, Node ni procesos de instalación.
+   Para la primera entrega se propone npm con `node_modules` convencional;
+   pnpm, Yarn PnP y workspaces necesitan sus propias pruebas de resolución,
+   no se prometen por usar el formato de paquetes npm. El recorrido propuesto
+   desactiva scripts de instalación; los paquetes que necesiten generarlos
+   quedan fuera de ese recorrido inicial.
+2. **Preparar y compilar.** La app captura las fuentes, los manifiestos y
+   los archivos necesarios del árbol instalado, y esbuild incorpora el grafo
+   al paquete final. El resolvedor deja de rechazar imports por nombre. Debe
+   resolver dependencias transitivas desde su importador, versiones anidadas,
+   subrutas y las condiciones de `exports`; también ESM, CommonJS y JSON.
+   No basta con buscar `node_modules/<nombre>/index.js`. Se define un perfil
+   de resolución compatible con JSC y se prueba con paquetes reales; elegir
+   una entrada de navegador no proporciona por sí solo las funciones de ese
+   navegador. Se reutilizará un resolvedor compatible si la prueba lo permite;
+   el spike prueba un resolvedor parcial sobre archivos del proyecto. Completar
+   e integrar esa resolución en el filesystem virtual actual queda pendiente.
+3. **Ejecutar el paquete.** JSC recibe el JavaScript ya agrupado, las
+   utilidades de compatibilidad y las capacidades concedidas. No consulta
+   npm ni `node_modules` al publicar, corregir o retirar. Los imports deben
+   quedar resueltos al compilar; una carga calculada que necesite buscar
+   módulos en ejecución se rechaza en el perfil inicial.
+
+El encaje se apoya en los callbacks de resolución y carga de módulos virtuales
+de [esbuild](https://esbuild.github.io/plugins/#namespaces), y exige respetar
+las [condiciones de los paquetes](https://esbuild.github.io/api/#conditions).
+Para reconstruir una instalación ya fijada, npm documenta `npm ci` con
+lockfile coherente y `--ignore-scripts`; esa opción omite los scripts del
+paquete, no comprueba su compatibilidad con JSC.
+[Referencia de npm](https://docs.npmjs.com/cli/commands/npm-ci/).
+
+La captura de dependencias pertenece al compilador, separado del código que
+descubre las recetas. Debe limitar tamaños y rutas, comprobar enlaces
+simbólicos y detectar una instalación que cambie durante la captura para no
+activar un árbol incompleto. Un paquete ausente, incompatible o una compilación
+fallida deja un diagnóstico y conserva la pareja anterior de receta/destino.
+No se recorre y recompila todo `node_modules` por cada evento de su instalación.
+
+El lockfile registra las versiones pretendidas; la huella del paquete final
+y de sus entradas identifica el código realmente compilado. Se conserva
+también la versión del compilador y del contrato de ejecución. Actualizar npm
+no altera un paquete ya archivado ni una publicación anterior. Los tipos del
+editor deben resolver la misma dependencia que esbuild: al adoptar este modo,
+Zod pasa al árbol del proyecto con una versión compatible con el contrato de
+esquemas; no se puede resolver silenciosamente a otra copia distinta en la app.
+
+### Compatibilidad de librerías y caso Notion
+
+El contrato de ejecución declara funciones disponibles y versión. JS puro
+y dependencias que solo usen ese contrato pueden incorporarse sin añadir
+operaciones del proveedor a Swift. Bibliotecas que necesiten `node:fs`,
+procesos, complementos nativos o un DOM requieren otro adaptador o una
+alternativa compatible. La compilación y la inspección permiten detectar
+parte de estas incompatibilidades; no demuestran que funcionen todos los
+caminos de una biblioteca. Hace falta ejercitar sus operaciones admitidas.
+
+Para Notion, `fetchDeCuenta` adapta las peticiones del SDK a la capacidad
+HTTP existente en la propuesta. JS recibe URL, temporizadores y los tipos de
+petición/respuesta necesarios; para audio, además el soporte multipart.
+Swift valida el destino HTTP, añade la credencial al enviar y devuelve la
+respuesta permitida. El SDK sigue decidiendo endpoints y cargas. Los
+temporizadores se cancelan al terminar la operación y no abren nuevas
+facultades de red o disco. Se ha ejercitado este recorrido con JSC real y
+servidor local falso, incluida la subida de audio sintético. Queda convertir
+ese subconjunto de compatibilidad en un contrato mantenible.
+
+El paquete opcional `@zetesis/escriba-recipes` podría distribuir tipos y
+adaptadores JS de ese contrato; el conector Notion podría ser otro paquete
+que dependa del SDK oficial. Ambos nombres describen distribución de código,
+no credenciales ni una instalación automática desde la app. No se han creado
+esos paquetes; las dependencias se han instalado solo dentro del spike.
 
 En C se podría empezar con fuentes copiadas por plantilla, porque el
 protocolo permanece en la app. El paquete opcional `@zetesis/escriba-recipes`
@@ -667,7 +750,8 @@ el editor.
 
 Estimación de ingeniería, **no medida**, en jornadas de una persona que
 conoce el repo. Incluye los dos conectores actuales, migración, pruebas locales
-y revisión; excluye OAuth, gestor general de npm, aislamiento en otro proceso,
+y revisión; excluye OAuth, instalación de npm administrada por la app,
+compatibilidad con todo Node, aislamiento en otro proceso,
 nuevos proveedores y esperas de autorización. Las horquillas se solapan porque
 el trabajo principal está en el ciclo de publicación, compartido por los tres
 caminos. No corresponde asignar toda la recuperación ante fallos solo a B.
@@ -677,14 +761,16 @@ caminos. No corresponde asignar toda la recuperación ante fallos solo a B.
 | Contrato y ejecución de la carga | 2–4 | 3–5 | 7–12 | A: cargas nativas; C: Zod/proyección pura; B: capacidades y librerías con paridad, incluido audio. |
 | Rastro y recuperación | 3–5 | 3–5 | 4–7 | Efectos parciales y resultado incierto visibles; localizador temprano; revocación y concurrencia probadas. |
 | Paquetes y ciclo manual | 3–5 | 4–6 | 4–6 | Actualizar/retirar con fuentes borradas o rotas; autor correcto en A; parejas receta/catálogo compatibles en B/C. |
+| Dependencias npm del proyecto | — | — | 3–6 | Árbol instalado externamente, imports transitivos/subrutas, lockfile y captura coherente; errores conservan el paquete anterior. |
 | Migración y vista de cuentas/destinos | 3–5 | 3–6 | 3–6 | Mapeos, N documentos, referencias y vínculos preservados; activación única y vuelta atrás con recibos actuales. |
 | Integración y documentación | 2–3 | 2–3 | 2–4 | Matriz de aceptación local completa y recorrido de usuario revisable. |
-| **Total** | **13–22** | **15–25** | **20–35** | Jornadas; no fecha de entrega prometida. |
+| **Total** | **13–22** | **15–25** | **23–41** | Jornadas; no fecha de entrega prometida. |
 
-Orden recomendado para B: primero SDK empaquetado en JSC con transporte falso
-y credencial ficticia inyectada por Swift; después un destino con publicación,
-actualización y retirada usando paquete retenido; después migración y vista
-de solo lectura. El SDK puede ahorrar cliente HTTP y tipos del proveedor;
+La prueba desechable ya ha ejercitado el SDK empaquetado en JSC con transporte
+falso, credencial ficticia inyectada por Swift y el ciclo de un destino con
+paquete retenido. El siguiente paso propuesto es integrar esos contratos,
+completar paridad y recuperación, y después migración y vista de solo lectura.
+El SDK puede ahorrar cliente HTTP y tipos del proveedor;
 no sustituye las reglas de Escriba para regenerar páginas, producir N documentos
 o recuperar un efecto incierto. Antes de retirar editores
 se mantiene la comprobación real de RF-9, con datos sintéticos y autorización
@@ -699,12 +785,14 @@ nuevo incompatible, rutas fuera de raíz y ausencia de secretos/huellas en el
 puente. Usar swift-testing, nombres en español, JSC real y SQLite/carpeta
 temporales; Notion se sustituye por transporte controlado o servidor local.
 
-No se ha realizado un spike. El puente asíncrono ya existe, pero el diseño de
-`pedir`, su confinamiento y el nuevo ciclo **no están validados por eso**. Si
-se elige B, una prueba local de 1–2 jornadas, incluida en su primera fase,
-debe comprobar inyección de una credencial ficticia, rechazo de redirecciones,
-presupuestos y recuperación después de un efecto confirmado. La mayor
-incertidumbre restante está en la migración y reconciliación remota.
+El [spike](../spikes/conector-js/README.md) ha pasado 67 comprobaciones locales:
+paquetes npm, esquema, HTTP autenticado, audio binario, retirada y corrección
+sin fuentes, recibo tras fallo parcial y cierre del proceso, revocación, 429
+y creación incierta sin reintento ciego. No implementa el host endurecido ni
+la reconciliación de esa creación incierta. Conserva resultados y huellas para
+reproducir la prueba. La mayor incertidumbre restante está en la integración,
+migración, paridad del conector y reconciliación remota; la estimación sigue
+siendo de ingeniería del producto, no el tiempo que tarda en correr el spike.
 
 No se introduce servidor propio ni una cuota de infraestructura por elegir
 JS. Sí hay coste de mantenimiento: A/C actualizan protocolos con la app; B
@@ -715,9 +803,11 @@ mejora de rendimiento por cambiar de lenguaje.
 
 ## Decisiones pendientes de Rubén
 
-1. El objetivo de flexibilidad ya está aclarado: B. Queda aprobar la excepción
-   concreta a «solo Zod» para empaquetar el SDK oficial con versión fijada y
-   validar primero su ejecución en JSC.
+1. El objetivo de flexibilidad ya está aclarado: B. Se propone sustituir
+   «solo Zod» por dependencias npm del proyecto compatibles con el contrato
+   de ejecución, instaladas externamente. Queda aprobar ese alcance y
+   definir el contrato de compatibilidad a partir del subconjunto del SDK
+   cuya resolución y ejecución ya se ha comprobado en JSC.
 2. ¿Las correcciones conservan la revisión que publicó, con actualización
    explícita a otra, o siguen siempre la última revisión buena? Recomiendo
    fijar revisión para que una corrección no cambie de ubicación o formato.
@@ -734,9 +824,11 @@ mejora de rendimiento por cambiar de lenguaje.
 ## Evidencia local y límites del análisis
 
 Lectura de código, revisión de tres diseños y consulta de fuente pública del
-SDK oficial. No se ejecutó la app, un spike ni llamadas a la API de Notion.
-Las propuestas de contrato, estados y costes necesitan
-validación durante su implementación. El único entregable es este documento.
+SDK oficial y documentación de esbuild/npm, además de la ejecución del spike
+con servidor local falso y datos sintéticos. No se ejecutó la app ni se llamó
+a la API real de Notion. Las propuestas de contrato, estados y costes
+necesitan validación durante su implementación. Los entregables son este
+documento y la prueba desechable solicitada posteriormente.
 
 | Evidencia | Fuentes |
 | --- | --- |
@@ -749,3 +841,5 @@ validación durante su implementación. El único entregable es este documento.
 | Notion: creación, regeneración, paginación y reintentos | [NotionPublish.swift](../Sources/EscribaNotion/NotionPublish.swift), [NotionClient.swift](../Sources/EscribaNotion/NotionClient.swift). |
 | OKF: N documentos, planificación y aplicación | [OKFBundle.swift](../Sources/EscribaOKF/OKFBundle.swift), [OKFSink.swift](../Sources/EscribaOKF/OKFSink.swift). |
 | Imports y esquema declarativo existentes | [EsbuildScripts.swift](../Sources/EscribaJSC/EsbuildScripts.swift), [ZodPackage.swift](../Sources/EscribaJSC/ZodPackage.swift), [RecipeFormSchema.swift](../Sources/EscribaJSC/RecipeFormSchema.swift). |
+| Exclusión actual de node_modules y captura de fuentes | [RecipeProject.swift](../Sources/EscribaCore/RecipeProject.swift), `ignoredByRecipes`; [RecipeProjectFolder.swift](../Sources/EscribaSystemKit/RecipeProjectFolder.swift), `recipeProjectSnapshot`. |
+| SDK npm, JSC, transporte y ciclo del paquete comprobados localmente | [Prueba reproducible](../spikes/conector-js/README.md), [resultados y huellas](../spikes/conector-js/resultado.json). |
