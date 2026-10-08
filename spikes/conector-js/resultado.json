@@ -123,7 +123,7 @@
       "detail": null
     },
     {
-      "name": "Los bloques reflejan la corrección",
+      "name": "La regeneración sustituye todos los bloques previos",
       "passed": true,
       "detail": null
     },
@@ -339,13 +339,13 @@
     }
   ],
   "metrics": {
-    "compileSeconds": 7.218,
+    "compileSeconds": 6.98,
     "bundleBytes": 907499,
     "sha256": "30aa226746c941a7f1a3a8928f0ef31efdb71d7514d866509057a17540dcd834",
-    "totalSeconds": 37.76
+    "totalSeconds": 38.355
   },
   "sources": {
-    "run.py": "6cc3a48618e3be102c156668b662e628c62373cb0a48f628fc00f56f08784e77",
+    "run.py": "8e6436a33f6af97f6dfa6ca1075ba55aeb99147c38b598fc2ad37b02a0b79e9d",
     "compiler/compile.swift": "582bb890ae435baafc6ef5c871d9d220c17157c5d1493a35fe1be2a42bd01f01",
     "runtime/run.swift": "9a6dd77bb0fe23713ee334dd10e9f921df2d40e55a53d3d6af8b15e4ec36874d",
     "runtime/prelude.js": "bc9e77b649f9acc4177ac319749055bc4bbe2b3469b404658a83148a78cf8120",
