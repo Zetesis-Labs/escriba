@@ -50,7 +50,7 @@ struct TraceDetail: View {
             if let data = trace.data.flatMap({ try? parseData($0) }), !dataRows(data).isEmpty {
                 Divider()
                 Text("Datos guardados").font(.caption).foregroundStyle(.secondary)
-                NoteDataView(data)
+                NoteDataView(data, schema: trace.dataSchema.flatMap { try? parseData($0) })
                     .font(.caption)
             }
             if let error = trace.error {

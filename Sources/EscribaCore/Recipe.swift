@@ -217,11 +217,12 @@ public struct RecipeTrace: Sendable, Equatable, Codable {
     public let startedAt: Date?
     public let seconds: Double?
     public let data: String?
+    public let dataSchema: String?
 
     public init(
         recipe: String, name: String? = nil, fingerprint: String, steps: [RecipeStep], logs: [RecipeLogLine],
         error: String?, outcome: RecipeRunOutcome? = nil, recipes: [String]? = nil, startedAt: Date? = nil,
-        seconds: Double? = nil, data: String? = nil
+        seconds: Double? = nil, data: String? = nil, dataSchema: String? = nil
     ) {
         self.recipe = recipe
         self.name = name
@@ -234,10 +235,11 @@ public struct RecipeTrace: Sendable, Equatable, Codable {
         self.startedAt = startedAt
         self.seconds = seconds
         self.data = data
+        self.dataSchema = dataSchema
     }
 
     private enum CodingKeys: String, CodingKey {
-        case recipe, name, fingerprint, steps, logs, error, outcome, recipes, startedAt, seconds, data
+        case recipe, name, fingerprint, steps, logs, error, outcome, recipes, startedAt, seconds, data, dataSchema
     }
 
     public init(from decoder: any Decoder) throws {
@@ -261,7 +263,8 @@ public struct RecipeTrace: Sendable, Equatable, Codable {
             recipes: try container.decodeIfPresent([String].self, forKey: .recipes),
             startedAt: try container.decodeIfPresent(Date.self, forKey: .startedAt),
             seconds: try container.decodeIfPresent(Double.self, forKey: .seconds),
-            data: try container.decodeIfPresent(String.self, forKey: .data))
+            data: try container.decodeIfPresent(String.self, forKey: .data),
+            dataSchema: try container.decodeIfPresent(String.self, forKey: .dataSchema))
     }
 }
 

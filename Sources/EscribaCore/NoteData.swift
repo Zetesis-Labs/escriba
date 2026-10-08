@@ -49,25 +49,42 @@ public enum DataRowValue: Sendable, Equatable {
     case group
 }
 
-public func dataRows(_ value: DataValue) -> [DataRow] {
+public func dataRows(_ value: DataValue, schema: DataValue? = nil) -> [DataRow] {
     guard case .object(let fields) = value else { return [] }
-    return fields.flatMap { rows(label: $0.name, value: $0.value, depth: 0) }
+    return fields.flatMap { field(of: $0, in: schema, depth: 0) }
 }
 
 private let emptyValue = "—"
 
-private func rows(label: String, value: DataValue, depth: Int) -> [DataRow] {
+private func field(of field: DataField, in schema: DataValue?, depth: Int) -> [DataRow] {
+    let node = solid(schema)?["properties"]?[field.name]
+    return rows(label: title(of: node) ?? field.name, value: field.value, schema: node, depth: depth)
+}
+
+private func solid(_ node: DataValue?) -> DataValue? {
+    guard case .array(let branches) = node?["anyOf"] else { return node }
+    return branches.first { $0["type"]?.text != "null" }
+}
+
+private func title(of node: DataValue?) -> String? {
+    node?["title"]?.text ?? solid(node)?["title"]?.text
+}
+
+private func rows(label: String, value: DataValue, schema: DataValue?, depth: Int) -> [DataRow] {
     switch value {
+    case .null:
+        return []
     case .object(let fields):
-        return [DataRow(label: label, depth: depth, value: .group)]
-            + fields.flatMap { rows(label: $0.name, value: $0.value, depth: depth + 1) }
-    case .array(let items) where items.isEmpty:
-        return [DataRow(label: label, depth: depth, value: .text(emptyValue))]
+        let children = fields.flatMap { field(of: $0, in: schema, depth: depth + 1) }
+        return children.isEmpty ? [] : [DataRow(label: label, depth: depth, value: .group)] + children
     case .array(let items):
         let scalars = items.compactMap(scalarText)
-        if scalars.count == items.count { return [DataRow(label: label, depth: depth, value: .list(scalars))] }
+        if scalars.count == items.count {
+            return scalars.isEmpty ? [] : [DataRow(label: label, depth: depth, value: .list(scalars))]
+        }
+        let itemSchema = solid(schema)?["items"]
         return items.enumerated().flatMap { index, item in
-            rows(label: "\(label) \(index + 1)", value: item, depth: depth)
+            rows(label: "\(label) \(index + 1)", value: item, schema: itemSchema, depth: depth)
         }
     default:
         return [DataRow(label: label, depth: depth, value: .text(scalarText(value) ?? emptyValue))]

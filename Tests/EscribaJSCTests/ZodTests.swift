@@ -94,7 +94,8 @@ struct ZodTests {
 
         #expect(registro.values.contains("log tareas: llamar"))
         #expect(registro.values.contains { $0.hasPrefix("log la respuesta del LLM no casa con el esquema: tareas: ") })
-        #expect(registro.values.last == #"guarda {"cliente":"Acme","tareas":["llamar"]}"#)
+        #expect(registro.values.last?.hasPrefix(#"guarda {"cliente":"Acme","tareas":["llamar"]} según {"#) == true)
+        #expect(registro.values.last?.contains(#""tareas":{"minItems":1,"type":"array""#) == true)
         #expect(registro.values.contains {
             $0.hasPrefix("pregunta hola con ") && $0.contains(#""tareas":{"minItems":1,"type":"array""#)
         })

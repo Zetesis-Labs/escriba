@@ -117,11 +117,12 @@ public struct TranscriptSummary: Sendable, Equatable {
     public let preview: String?
     public let duration: TimeInterval?
     public let data: DataValue?
+    public let dataSchema: DataValue?
 
     public init(
         backend: String, isSegmented: Bool, speakerCount: Int, version: Int = 1,
         versionCount: Int = 1, digest: Digest? = nil, preview: String? = nil, duration: TimeInterval? = nil,
-        data: DataValue? = nil
+        data: DataValue? = nil, dataSchema: DataValue? = nil
     ) {
         self.backend = backend
         self.isSegmented = isSegmented
@@ -132,6 +133,7 @@ public struct TranscriptSummary: Sendable, Equatable {
         self.preview = preview
         self.duration = duration
         self.data = data
+        self.dataSchema = dataSchema
     }
 }
 
@@ -237,7 +239,9 @@ public final class Store: Sendable {
         }
     }
 
-    public func setData(_ data: DataValue?, for key: String, version: Int64) async throws {
+    public func setData(
+        _ data: DataValue?, schema: DataValue? = nil, for key: String, version: Int64
+    ) async throws {
         try await writer.write { db in
             guard let recordingId = try Self.recordingId(of: key, in: db) else {
                 throw StoreError.unknownRecording(key)
@@ -246,6 +250,7 @@ public final class Store: Sendable {
                 throw StoreError.unknownVersion(version, key)
             }
             row.data = data.map { dataText($0) }
+            row.dataSchema = data == nil ? nil : schema.map { dataText($0) }
             try row.update(db)
         }
     }
@@ -721,8 +726,8 @@ public final class Store: Sendable {
             keepDigest: { recording, version, digest in
                 try await self.setDigest(digest, for: recording.key, version: version)
             },
-            keepData: { recording, version, data in
-                try await self.setData(data, for: recording.key, version: version)
+            keepData: { recording, version, data, schema in
+                try await self.setData(data, schema: schema, for: recording.key, version: version)
             },
             recallAnswer: { recording, version, fingerprint in
                 try await self.answer(for: recording.key, version: version, fingerprint: fingerprint)
@@ -828,7 +833,7 @@ private func latestSummaries(_ db: Database) throws -> [Int64: TranscriptSummary
         sql: """
             SELECT t.recordingId AS recordingId, t.backend AS backend,
                    t.digestTitle AS digestTitle, t.digestSummary AS digestSummary,
-                   t.digestTags AS digestTags, t.data AS data,
+                   t.digestTags AS digestTags, t.data AS data, t.dataSchema AS dataSchema,
                    substr(t.text, 1, \(recordingPreviewLength)) AS preview, MAX(s.endTime) AS duration,
                    COUNT(s.id) AS segments, COUNT(DISTINCT s.speaker) AS speakers,
                    (SELECT COUNT(*) FROM transcript v WHERE v.recordingId = r.id AND v.id <= t.id) AS version,
@@ -851,7 +856,8 @@ private func latestSummaries(_ db: Database) throws -> [Int64: TranscriptSummary
             digest: digest(in: row),
             preview: row["preview"],
             duration: row["duration"],
-            data: (row["data"] as String?).flatMap { try? parseData($0) })
+            data: (row["data"] as String?).flatMap { try? parseData($0) },
+            dataSchema: (row["dataSchema"] as String?).flatMap { try? parseData($0) })
     }
 }
 

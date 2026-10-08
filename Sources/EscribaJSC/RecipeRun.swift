@@ -118,11 +118,12 @@ actor RecipeRun {
             } ?? 0
         }
         puente.setObject(summarize, forKeyedSubscript: "resumir" as NSString)
-        let save: @convention(block) (JSValue) -> Int = { [weak self] data in
+        let save: @convention(block) (JSValue, JSValue) -> Int = { [weak self] data, schema in
             let json = data.isNull || data.isUndefined ? nil : data.toString()
+            let schemaJSON = schema.isNull || schema.isUndefined ? nil : schema.toString()
             return self?.assumeIsolated { run in
                 run.ask {
-                    if let json { try await bridge.saveData(json) } else { try await bridge.save() }
+                    if let json { try await bridge.saveData(json, schemaJSON) } else { try await bridge.save() }
                     return "null"
                 }
             } ?? 0

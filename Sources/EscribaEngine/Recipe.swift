@@ -70,7 +70,7 @@ public struct RecipeBridge: Sendable {
     public var transcribe: @Sendable (RecipeTranscription) async throws -> RecipeNote
     public var summarize: @Sendable (RecipeSummaryRequest) async throws -> RecipeNote
     public var save: @Sendable () async throws -> Void
-    public var saveData: @Sendable (_ json: String) async throws -> Void
+    public var saveData: @Sendable (_ json: String, _ schema: String?) async throws -> Void
     public var ask: @Sendable (RecipeQuestion, _ schema: String?) async throws -> String
     public var publish: @Sendable (String) async throws -> Void
     public var process: @Sendable (String) async throws -> Void
@@ -86,7 +86,7 @@ public struct RecipeBridge: Sendable {
         transcribe: @escaping @Sendable (RecipeTranscription) async throws -> RecipeNote,
         summarize: @escaping @Sendable (RecipeSummaryRequest) async throws -> RecipeNote,
         save: @escaping @Sendable () async throws -> Void,
-        saveData: @escaping @Sendable (String) async throws -> Void = { _ in
+        saveData: @escaping @Sendable (String, String?) async throws -> Void = { _, _ in
             throw RecipeError.unavailable("aquí no se pueden guardar datos")
         },
         ask: @escaping @Sendable (RecipeQuestion, String?) async throws -> String = { _, _ in

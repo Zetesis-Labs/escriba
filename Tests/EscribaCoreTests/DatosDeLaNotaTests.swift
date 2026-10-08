@@ -71,24 +71,52 @@ struct DatosDeLaNotaTests {
         #expect(throws: NoteDataProblem.tooLarge(maximumNoteDataBytes + 8)) { try noteData(enorme) }
     }
 
-    @Test("el detalle pinta cada campo en su orden, con listas, grupos y sí o no")
+    @Test("el detalle pinta cada campo en su orden, con listas, grupos y sí o no, y se salta lo vacío")
     func filas() throws {
         let datos = try parseData(
-            #"{"cliente":"Acme","urgente":false,"importe":12.5,"personas":3,"tareas":["llamar","enviar"],"#
-                + #""contacto":{"nombre":"Ana","email":null},"vacia":[],"pasos":[{"hecho":true}]}"#)
+            #"{"cliente":"Acme","urgente":false,"importe":12.5,"personas":3,"tareas":["llamar",null],"#
+                + #""contacto":{"nombre":"Ana","email":null},"vacia":[],"nada":{},"reunion":null,"#
+                + #""sinNada":{"a":null,"b":[]},"pasos":[{"hecho":true}]}"#)
 
         #expect(dataRows(datos) == [
             DataRow(label: "cliente", depth: 0, value: .text("Acme")),
             DataRow(label: "urgente", depth: 0, value: .text("no")),
             DataRow(label: "importe", depth: 0, value: .text("12,5")),
             DataRow(label: "personas", depth: 0, value: .text("3")),
-            DataRow(label: "tareas", depth: 0, value: .list(["llamar", "enviar"])),
+            DataRow(label: "tareas", depth: 0, value: .list(["llamar", "—"])),
             DataRow(label: "contacto", depth: 0, value: .group),
             DataRow(label: "nombre", depth: 1, value: .text("Ana")),
-            DataRow(label: "email", depth: 1, value: .text("—")),
-            DataRow(label: "vacia", depth: 0, value: .text("—")),
             DataRow(label: "pasos 1", depth: 0, value: .group),
             DataRow(label: "hecho", depth: 1, value: .text("sí")),
+        ])
+    }
+
+    @Test("unos datos sin nada que enseñar no dan ninguna fila")
+    func sinNada() throws {
+        #expect(dataRows(try parseData(#"{"a":null,"b":[],"c":{"d":null}}"#)).isEmpty)
+    }
+
+    @Test("con el esquema guardado, cada campo usa su title de Zod, también dentro de nulos, grupos y listas")
+    func titulos() throws {
+        let esquema = try parseData(#"""
+            {"type":"object","properties":{
+              "enUnaFrase":{"type":"string","title":"En una frase"},
+              "reunion":{"anyOf":[{"type":"object","properties":{"tareas":{"type":"array","items":{"type":"object","properties":{"que":{"type":"string","title":"Qué"}}},"title":"Tareas"}}},{"type":"null"}],"title":"Reunión"},
+              "idea":{"anyOf":[{"type":"object","properties":{"titulo":{"type":"string"}},"title":"Idea"},{"type":"null"}]},
+              "sin":{"type":"string"}}}
+            """#)
+        let datos = try parseData(
+            #"{"enUnaFrase":"Hola","reunion":{"tareas":[{"que":"llamar"}]},"idea":{"titulo":"T"},"sin":"x","extra":1}"#)
+
+        #expect(dataRows(datos, schema: esquema) == [
+            DataRow(label: "En una frase", depth: 0, value: .text("Hola")),
+            DataRow(label: "Reunión", depth: 0, value: .group),
+            DataRow(label: "Tareas 1", depth: 1, value: .group),
+            DataRow(label: "Qué", depth: 2, value: .text("llamar")),
+            DataRow(label: "Idea", depth: 0, value: .group),
+            DataRow(label: "titulo", depth: 1, value: .text("T")),
+            DataRow(label: "sin", depth: 0, value: .text("x")),
+            DataRow(label: "extra", depth: 0, value: .text("1")),
         ])
     }
 

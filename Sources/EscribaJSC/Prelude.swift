@@ -44,6 +44,13 @@ let preludeSource = #"""
     error.codigo = "fallo"
     throw error
   }
+  const esquemaJSON = (esquema) => {
+    try {
+      return JSON.stringify(esquema["~standard"].jsonSchema?.output({ target: "draft-2020-12" }) ?? null)
+    } catch {
+      return null
+    }
+  }
   const leerNota = (texto) => {
     const { datosJSON, ...campos } = JSON.parse(texto)
     return { campos, datosJSON: datosJSON ?? "null" }
@@ -76,7 +83,8 @@ let preludeSource = #"""
       const esquema = globalThis.__receta.receta.datos
       if (this.datos != null && esquema) this.datos = await validar(esquema, this.datos, "los datos de la nota no casan")
       const texto = JSON.stringify(this.datos ?? null)
-      await pedir(puente.guardar(texto === this.#guardados ? null : texto))
+      const cambiados = texto !== this.#guardados
+      await pedir(puente.guardar(cambiados ? texto : null, cambiados && esquema ? esquemaJSON(esquema) : null))
       this.#guardados = texto
       return this
     }

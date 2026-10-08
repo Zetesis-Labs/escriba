@@ -120,7 +120,7 @@ final class MemoryNotes: Sendable {
                 }
                 self.steps.append("guarda resumen v\(version)")
             },
-            keepData: { recording, version, data in
+            keepData: { recording, version, data, _ in
                 if self.keepingFails.withLock({ $0 }) { throw FakeError.memoryDown }
                 self.update(recording, version) {
                     Remembered(version: version, transcript: $0.transcript, digest: $0.digest, data: data)

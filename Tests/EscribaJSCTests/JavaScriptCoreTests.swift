@@ -70,7 +70,7 @@ func puente(
             return try await summarize(pedido)
         },
         save: { registro.append("guarda") },
-        saveData: { registro.append("guarda \($0)") },
+        saveData: { datos, esquema in registro.append("guarda \(datos)\(esquema.map { " según \($0)" } ?? "")") },
         ask: { pregunta, esquema in
             registro.append("pregunta \(pregunta.input)\(esquema.map { " con \($0)" } ?? "")")
             return try await ask(pregunta, esquema)
