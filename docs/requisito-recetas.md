@@ -196,7 +196,15 @@ formulario.
   `Escriba<P>`. **Un valor guardado que ya no vale (un LLM quitado) hace fallar
   la ejecución nombrando el campo**, y la ficha lo marca: nunca se cambia por
   otro en silencio.
-- Las recetas de formulario son lo mismo: «Por defecto» exporta su
+- **Una receta de formulario parte de cualquier receta con formulario**
+  (Rubén, 2026-10-08): es un nombre, unos valores guardados y la receta de la
+  que parte (`FormRecipe.base`). Desde la ficha de una receta de código,
+  «Guardar como receta de formulario» crea una con sus valores de ese
+  momento; sale en la lista, puede ser la por defecto, se usa en «Reprocesar
+  con…» y otra receta la llama con `escriba.receta(nombre)`. Ejecuta el
+  paquete de su receta base, así que si cambia su `receta.ts` cambia también
+  ella; si la base desaparece del proyecto, se queda sin paquete y lo dice.
+- Las recetas de formulario sin base son lo mismo: «Por defecto» exporta su
   `buildRecipeForm` y cada receta de formulario guarda sus valores. Para que
   quitar un resolutor o un conector no deje todas las notas fallando, se
   borra de los valores de las recetas de formulario y vuelven a lo de serie;

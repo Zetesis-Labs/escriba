@@ -39,6 +39,24 @@ struct ParametrosDeCodigoTests {
         #expect(try shelf.target("F1").package.fingerprint == deFormulario.fingerprint)
     }
 
+    @Test("una receta de formulario que parte de una de código ejecuta su paquete con sus propios valores")
+    func variante() throws {
+        var libro = libro(valores: ["reparto": #"{"idioma":"en"}"#])
+        libro.add(key: "V1", name: "Reparto en inglés", base: "reparto", values: #"{"idioma":"es"}"#)
+        libro.add(key: "V2", name: "Huérfana", base: "borrada")
+        let shelf = estante(libro)
+
+        let objetivo = try shelf.target("Reparto en inglés")
+
+        #expect(objetivo == RecipeTarget(
+            key: "V1", name: "Reparto en inglés", kind: .form,
+            package: RecipePackage(key: "V1", source: "/* reparto */", fingerprint: "f-reparto"),
+            values: #"{"idioma":"es"}"#))
+        #expect(throws: RecipeLookupError.missing(kind: .recipe, query: "V2")) { try shelf.target("V2") }
+        libro.makeDefault("V2")
+        #expect(throws: RecipeError.defaultUnavailable("V2")) { try estante(libro).target(nil) }
+    }
+
     @Test("retocar los valores para una vez cambia la receta elegida, sea del tipo que sea")
     func retocar() throws {
         let shelf = estante(libro(valores: ["reparto": #"{"idioma":"en"}"#]))

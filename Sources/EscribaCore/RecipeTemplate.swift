@@ -329,6 +329,10 @@ export async function flujo(audio: Audio, escriba: Escriba<Parametros>): Promise
   la ficha dice cuál es el campo.
 - Una lista puede venir vacía (por ejemplo, sin conectores): un desplegable
   sin opciones se ve vacío, así que hazlo `.nullable().default(null)`.
+- En la app, desde la ficha de una receta, «Guardar como receta de
+  formulario» crea otra con nombre propio que ejecuta este mismo código con
+  sus valores guardados; `escriba.receta("Su nombre").procesar(audio)` la
+  llama como a cualquier otra.
 - Los cambios de «Reprocesar con…» valen solo para esa vez y solo para la
   receta elegida; si esta pasa la grabación a otra con `procesar`, la otra usa
   sus valores guardados.
