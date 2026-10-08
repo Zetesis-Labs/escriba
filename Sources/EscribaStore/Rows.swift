@@ -77,10 +77,15 @@ struct TranscriptRow: Codable, FetchableRecord, MutablePersistableRecord {
     var digestTitle: String?
     var digestSummary: String?
     var digestTags: String?
+    var data: String?
 
     enum Columns {
         static let id = Column(CodingKeys.id)
         static let recordingId = Column(CodingKeys.recordingId)
+    }
+
+    var noteData: DataValue? {
+        data.flatMap { try? parseData($0) }
     }
 
     var digest: Digest? {
@@ -296,6 +301,18 @@ func makeMigrator() -> DatabaseMigrator {
             FROM recipeTrace
             """)
         try db.drop(table: "recipeTrace")
+    }
+    migrator.registerMigration("v9-datos") { db in
+        try db.alter(table: "transcript") { t in
+            t.add(column: "data", .text)
+        }
+        try db.create(table: "answer") { t in
+            t.column("transcriptId", .integer).notNull().references("transcript", onDelete: .cascade)
+            t.column("fingerprint", .text).notNull()
+            t.column("payload", .text).notNull()
+            t.column("savedAt", .datetime).notNull()
+            t.primaryKey(["transcriptId", "fingerprint"])
+        }
     }
     return migrator
 }

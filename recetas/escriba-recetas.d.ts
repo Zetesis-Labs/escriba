@@ -65,6 +65,23 @@ interface OpcionesDeResumen {
   prompt?: string | null
 }
 
+interface EsquemaDeZod<T = unknown> {
+  readonly "~standard": {
+    readonly validate: (valor: unknown) => unknown
+    readonly types?: { readonly output: T } | undefined
+  }
+}
+
+interface Pregunta {
+  entrada: string
+  instrucciones?: string
+  llm?: string
+}
+
+interface PreguntaConEsquema<T> extends Pregunta {
+  esquema: EsquemaDeZod<T>
+}
+
 interface ParametrosDeReceta {
   readonly stt: string
   readonly idioma: string | null
@@ -82,8 +99,9 @@ interface Nota {
   readonly hablantes: readonly string[]
   readonly segmentos: readonly Segmento[]
   readonly resumen: Resumen | null
+  datos: Record<string, unknown> | null
   resumir(opciones?: OpcionesDeResumen): Promise<Nota>
-  guardar(): Promise<Nota>
+  guardar(cambios?: { datos?: Record<string, unknown> | null }): Promise<Nota>
 }
 
 interface Conector {
@@ -107,6 +125,8 @@ interface Escriba {
   readonly conectores: readonly InfoDeConector[]
   readonly recetas: readonly InfoDeReceta[]
   transcribir(audio: Audio, opciones?: OpcionesDeTranscripcion): Promise<Nota>
+  preguntar<T>(pedido: PreguntaConEsquema<T>): Promise<T>
+  preguntar(pedido: Pregunta): Promise<string>
   conector(claveONombre: string): Conector
   receta(claveONombre: string): Receta
   log(texto: string): void

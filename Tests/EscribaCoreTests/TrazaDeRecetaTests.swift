@@ -57,7 +57,7 @@ struct TrazaEnTextoTests {
                 RecipeLogLine(level: .info, text: "hola", origin: nil, seconds: 0),
                 RecipeLogLine(level: .warn, text: "ojo", origin: "Por defecto", seconds: 1.5),
             ],
-            error: "la receta falló: sin red", seconds: 2)
+            error: "la receta falló: sin red", seconds: 2, data: #"{"cliente":"Acme"}"#)
 
         #expect(recipeTraceText(traza) == """
             Receta «Mi receta» · 8105438 · falló · 2,0 s
@@ -65,7 +65,19 @@ struct TrazaEnTextoTests {
             ✗ publicar · Notion (0,4 s): sin red
             +0,0 s hola
             +1,5 s aviso Por defecto › ojo
+            Datos: {"cliente":"Acme"}
             Error: la receta falló: sin red
             """)
+    }
+
+    @Test("los datos guardados viajan con la traza y una traza vieja, sin ellos, se sigue leyendo")
+    func datosEnLaTraza() throws {
+        let traza = RecipeTrace(recipe: "x", fingerprint: "f", steps: [], logs: [], error: nil, data: #"{"a":1}"#)
+        let leida = try JSONDecoder().decode(RecipeTrace.self, from: try JSONEncoder().encode(traza))
+        let vieja = try JSONDecoder().decode(
+            RecipeTrace.self, from: Data(#"{"recipe":"x","fingerprint":"f","steps":[],"logs":[]}"#.utf8))
+
+        #expect(leida.data == #"{"a":1}"#)
+        #expect(vieja.data == nil)
     }
 }

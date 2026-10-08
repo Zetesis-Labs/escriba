@@ -6,7 +6,9 @@
     "moduleResolution": "bundler",
     "strict": true,
     "noEmit": true,
-    "types": []
+    "skipLibCheck": true,
+    "types": [],
+    "paths": { "zod": ["./.escriba/zod/index.d.ts"] }
   },
   "include": ["escriba-recetas.d.ts", "**/*.ts"]
 }

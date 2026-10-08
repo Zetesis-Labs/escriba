@@ -15,12 +15,14 @@ recetas por su cuenta. No hace falta instalar nada ni ejecutar ningún comando.
   escribió Escriba al crear el proyecto. Escriba no vuelve a escribir en esta
   carpeta salvo en `.escriba/`.
 - `.escriba/estado.json` es el resultado de la última compilación.
+- `.escriba/zod/` son los tipos de Zod que trae Escriba, para el editor.
 
 ## Contrato
 
 Cada `receta.ts` exporta:
 
-- `receta`: `{ nombre }`, el nombre que se ve en la app.
+- `receta`: `{ nombre, datos? }`, el nombre que se ve en la app y, si quieres,
+  el esquema de Zod de los datos que guarda (ver más abajo).
 - `flujo(audio, escriba)`: una función asíncrona con todo el recorrido de una
   grabación.
 
@@ -37,6 +39,17 @@ Lo que puede pedir, con los tipos completos en `escriba-recetas.d.ts`:
   `llm`, Apple Intelligence; sin `prompt`, el de serie.
 - `nota.guardar()` es obligatorio: una receta que termina sin guardar deja la
   nota fallida.
+- `escriba.preguntar({ esquema, entrada, instrucciones, llm })` pregunta a un
+  LLM y devuelve un objeto con la forma de `esquema`, un `z.object` de Zod, ya
+  validado: si el LLM contesta otra cosa, es un error y nunca llegan datos a
+  medias. Sin `esquema` devuelve texto. Sin `llm`, Apple Intelligence, que
+  solo admite unos 3500 caracteres de `entrada` e `instrucciones`: para
+  notas largas, pregunta sobre `nota.resumen.texto` o usa un LLM remoto. La
+  misma pregunta sobre la misma versión de la nota se recuerda y no se repite.
+- `nota.datos` son los datos propios de la nota, un objeto JSON o `null`, y se
+  guardan con la versión: `await nota.guardar({ datos })` o cambiando
+  `nota.datos` y llamando a `guardar()`. Si `receta.datos` es un esquema, se
+  validan al guardar. La biblioteca los enseña en el detalle de la nota.
 - `escriba.conector(claveONombre).publicar(nota)` publica en un conector.
 - `escriba.stts`, `escriba.llms` y `escriba.conectores` listan lo configurado,
   con su clave, su nombre y su configuración, sin secretos.
@@ -60,10 +73,35 @@ export async function flujo(audio: Audio, escriba: Escriba): Promise<void> {
 }
 ```
 
+```ts
+import { z } from "zod"
+
+const Reunion = z.object({
+  cliente: z.string().nullable().describe("La empresa del cliente, si se menciona"),
+  tareas: z.array(z.string()),
+  urgente: z.boolean(),
+})
+
+export const receta = { nombre: "Reuniones", datos: Reunion }
+
+export async function flujo(audio: Audio, escriba: Escriba): Promise<void> {
+  const nota = await escriba.transcribir(audio, { idioma: "es" })
+  const datos = await escriba.preguntar({ esquema: Reunion, entrada: nota.texto })
+  if (datos.urgente) await escriba.conector("Notion").publicar(nota)
+  await nota.guardar({ datos })
+}
+```
+
+Los esquemas de `preguntar` admiten objetos, textos, números, enteros,
+booleanos, listas, enumerados, nulos, opcionales y descripciones
+(`.describe()`, que el LLM lee). No admiten `z.record`, `z.tuple`, uniones de
+tipos distintos ni esquemas recursivos, porque los LLM no saben responder a
+eso: la receta recibe un error que dice dónde está.
+
 ## Reglas
 
-- Solo se importan ficheros de este proyecto, con rutas relativas. Nada de
-  paquetes de npm.
+- Solo se importan ficheros de este proyecto, con rutas relativas, y `zod`, que
+  trae Escriba (la versión 4). Nada más de npm.
 - Una receta no tiene red, disco ni temporizadores: solo ve el audio, la nota y
   `escriba`.
 - Una receta puede ejecutar como mucho 10 segundos seguidos sin esperar a nada.

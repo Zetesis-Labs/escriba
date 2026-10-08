@@ -47,6 +47,12 @@ struct TraceDetail: View {
                     LogLineRow(line: line)
                 }
             }
+            if let data = trace.data.flatMap({ try? parseData($0) }), !dataRows(data).isEmpty {
+                Divider()
+                Text("Datos guardados").font(.caption).foregroundStyle(.secondary)
+                NoteDataView(data)
+                    .font(.caption)
+            }
             if let error = trace.error {
                 Divider()
                 Text(error)

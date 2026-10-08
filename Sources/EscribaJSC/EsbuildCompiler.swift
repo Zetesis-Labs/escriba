@@ -7,8 +7,8 @@ import EscribaEngine
 public final class EsbuildCompiler: Sendable {
     private let host: EsbuildHost
 
-    public init(tools: URL, idleAfter: TimeInterval = 300, inspectionLimit: Double = 2) {
-        host = EsbuildHost(tools: tools, idleAfter: idleAfter, inspectionLimit: inspectionLimit)
+    public init(tools: URL, zod: URL? = nil, idleAfter: TimeInterval = 300, inspectionLimit: Double = 2) {
+        host = EsbuildHost(tools: tools, zod: zod, idleAfter: idleAfter, inspectionLimit: inspectionLimit)
     }
 
     public var isLoaded: Bool {
@@ -59,6 +59,7 @@ actor EsbuildHost {
     nonisolated var unownedExecutor: UnownedSerialExecutor { executor.asUnownedSerialExecutor() }
 
     private let tools: URL
+    private let zod: URL?
     private let idleAfter: TimeInterval
     private let inspectionLimit: Double
     private var context: JSContext?
@@ -70,9 +71,10 @@ actor EsbuildHost {
     private var exception: String?
     private var nextId = 0
 
-    init(tools: URL, idleAfter: TimeInterval, inspectionLimit: Double) {
+    init(tools: URL, zod: URL?, idleAfter: TimeInterval, inspectionLimit: Double) {
         executor = RunLoopExecutor(name: "dev.ruben.escriba.compilador")
         self.tools = tools
+        self.zod = zod
         self.idleAfter = idleAfter
         self.inspectionLimit = inspectionLimit
     }
@@ -140,6 +142,11 @@ actor EsbuildHost {
             self?.assumeIsolated { $0.schedule(id, after: milliseconds) }
         }
         context.setObject(schedule, forKeyedSubscript: "__programar" as NSString)
+        let zod = zod
+        let readZod: @convention(block) (String) -> String? = { path in
+            zod.flatMap { ZodPackage.file(path, in: $0) }
+        }
+        context.setObject(readZod, forKeyedSubscript: "__zod" as NSString)
         context.evaluateScript(esbuildPolyfills, withSourceURL: URL(string: "escriba://polyfills.js"))
         context.evaluateScript(browser, withSourceURL: URL(string: "esbuild://browser.js"))
         let driver = context.evaluateScript(esbuildDriver, withSourceURL: URL(string: "escriba://compilador.js"))

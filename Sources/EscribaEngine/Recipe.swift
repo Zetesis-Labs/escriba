@@ -32,6 +32,7 @@ public struct RecipeCatalog: Sendable {
     public var origin: @Sendable (Recording) -> RecipeOrigin?
     public var transcriber: @Sendable (Recording, RecipeTranscription) throws -> TranscriptionBackend
     public var summarizer: @Sendable (Recording, RecipeSummaryRequest, _ language: String?) throws -> ChosenSummarizer
+    public var asker: @Sendable (Recording, _ llm: String?) throws -> Asker
 
     public init(
         stts: [RecipeResolver] = [],
@@ -44,6 +45,9 @@ public struct RecipeCatalog: Sendable {
         summarizer: @escaping @Sendable (Recording, RecipeSummaryRequest, String?) throws -> ChosenSummarizer = {
             _, _, _ in
             throw RecipeError.unavailable("aquí no se puede elegir con qué resumir")
+        },
+        asker: @escaping @Sendable (Recording, String?) throws -> Asker = { _, _ in
+            throw RecipeError.unavailable("aquí no se puede preguntar a un LLM")
         }
     ) {
         self.stts = stts
@@ -52,6 +56,7 @@ public struct RecipeCatalog: Sendable {
         self.origin = origin
         self.transcriber = transcriber
         self.summarizer = summarizer
+        self.asker = asker
     }
 }
 
@@ -65,6 +70,8 @@ public struct RecipeBridge: Sendable {
     public var transcribe: @Sendable (RecipeTranscription) async throws -> RecipeNote
     public var summarize: @Sendable (RecipeSummaryRequest) async throws -> RecipeNote
     public var save: @Sendable () async throws -> Void
+    public var saveData: @Sendable (_ json: String) async throws -> Void
+    public var ask: @Sendable (RecipeQuestion, _ schema: String?) async throws -> String
     public var publish: @Sendable (String) async throws -> Void
     public var process: @Sendable (String) async throws -> Void
     public var log: @Sendable (RecipeLogLevel, String) -> Void
@@ -79,6 +86,12 @@ public struct RecipeBridge: Sendable {
         transcribe: @escaping @Sendable (RecipeTranscription) async throws -> RecipeNote,
         summarize: @escaping @Sendable (RecipeSummaryRequest) async throws -> RecipeNote,
         save: @escaping @Sendable () async throws -> Void,
+        saveData: @escaping @Sendable (String) async throws -> Void = { _ in
+            throw RecipeError.unavailable("aquí no se pueden guardar datos")
+        },
+        ask: @escaping @Sendable (RecipeQuestion, String?) async throws -> String = { _, _ in
+            throw RecipeError.unavailable("aquí no se puede preguntar a un LLM")
+        },
         publish: @escaping @Sendable (String) async throws -> Void,
         process: @escaping @Sendable (String) async throws -> Void = { _ in
             throw RecipeError.unavailable("aquí no se puede pasar la grabación a otra receta")
@@ -94,6 +107,8 @@ public struct RecipeBridge: Sendable {
         self.transcribe = transcribe
         self.summarize = summarize
         self.save = save
+        self.saveData = saveData
+        self.ask = ask
         self.publish = publish
         self.process = process
         self.log = log

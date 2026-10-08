@@ -63,17 +63,19 @@ public struct RecipeNote: Sendable, Equatable, Encodable {
     public let version: Int64?
     public let transcript: Transcript
     public let digest: Digest?
+    public let data: DataValue?
 
-    public init(key: String, version: Int64?, transcript: Transcript, digest: Digest?) {
+    public init(key: String, version: Int64?, transcript: Transcript, digest: Digest?, data: DataValue? = nil) {
         self.key = key
         self.version = version
         self.transcript = transcript
         self.digest = digest
+        self.data = data
     }
 
     enum CodingKeys: String, CodingKey {
         case key = "clave", version, text = "texto", speakers = "hablantes", segments = "segmentos"
-        case digest = "resumen"
+        case digest = "resumen", data = "datosJSON"
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -84,6 +86,7 @@ public struct RecipeNote: Sendable, Equatable, Encodable {
         try container.encode(transcript.speakers, forKey: .speakers)
         try container.encode(transcript.segments.map(RecipeSegment.init), forKey: .segments)
         try container.encode(digest.map(RecipeDigest.init), forKey: .digest)
+        try container.encode(data.map { dataText($0) }, forKey: .data)
     }
 }
 
@@ -213,11 +216,12 @@ public struct RecipeTrace: Sendable, Equatable, Codable {
     public let recipes: [String]
     public let startedAt: Date?
     public let seconds: Double?
+    public let data: String?
 
     public init(
         recipe: String, name: String? = nil, fingerprint: String, steps: [RecipeStep], logs: [RecipeLogLine],
         error: String?, outcome: RecipeRunOutcome? = nil, recipes: [String]? = nil, startedAt: Date? = nil,
-        seconds: Double? = nil
+        seconds: Double? = nil, data: String? = nil
     ) {
         self.recipe = recipe
         self.name = name
@@ -229,10 +233,11 @@ public struct RecipeTrace: Sendable, Equatable, Codable {
         self.recipes = recipes ?? [recipe]
         self.startedAt = startedAt
         self.seconds = seconds
+        self.data = data
     }
 
     private enum CodingKeys: String, CodingKey {
-        case recipe, name, fingerprint, steps, logs, error, outcome, recipes, startedAt, seconds
+        case recipe, name, fingerprint, steps, logs, error, outcome, recipes, startedAt, seconds, data
     }
 
     public init(from decoder: any Decoder) throws {
@@ -255,7 +260,8 @@ public struct RecipeTrace: Sendable, Equatable, Codable {
             outcome: try container.decodeIfPresent(RecipeRunOutcome.self, forKey: .outcome),
             recipes: try container.decodeIfPresent([String].self, forKey: .recipes),
             startedAt: try container.decodeIfPresent(Date.self, forKey: .startedAt),
-            seconds: try container.decodeIfPresent(Double.self, forKey: .seconds))
+            seconds: try container.decodeIfPresent(Double.self, forKey: .seconds),
+            data: try container.decodeIfPresent(String.self, forKey: .data))
     }
 }
 
@@ -454,6 +460,34 @@ public struct RecipeSummaryRequest: Sendable, Equatable, Decodable {
     public var isDefault: Bool { llm == nil && prompt == nil }
 }
 
+public struct RecipeQuestion: Sendable, Equatable, Decodable {
+    public let llm: String?
+    public let instructions: String?
+    public let input: String
+
+    public init(llm: String? = nil, instructions: String? = nil, input: String) {
+        self.llm = llm
+        self.instructions = instructions
+        self.input = input
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case llm, instructions = "instrucciones", input = "entrada"
+    }
+}
+
+public func answerFingerprint(model: String, instructions: String?, input: String, schema: String?) -> String {
+    var hash: UInt64 = 0xcbf2_9ce4_8422_2325
+    for part in [model, instructions ?? "\u{1}", input, schema ?? "\u{1}"] {
+        for byte in part.utf8 + [0] {
+            hash ^= UInt64(byte)
+            hash &*= 0x0000_0100_0000_01b3
+        }
+    }
+    let hex = String(hash, radix: 16)
+    return String(repeating: "0", count: 16 - hex.count) + hex
+}
+
 public func transcriptionProblem(isLocal: Bool, options: TranscriptionOptions) -> String? {
     guard !isLocal, options.diarize else { return nil }
     return "un STT remoto no detecta hablantes: usa Whisper o pide hablantes: { detectar: false }"
@@ -479,7 +513,8 @@ public func recipeTraceText(_ trace: RecipeTrace) -> String {
         }
         return "+\(decimal(line.seconds)) s \(level)\(line.origin.map { "\($0) › " } ?? "")\(line.text)"
     }
-    return ([header] + steps + logs + (trace.error.map { ["Error: \($0)"] } ?? [])).joined(separator: "\n")
+    let data = trace.data.map { ["Datos: \($0)"] } ?? []
+    return ([header] + steps + logs + data + (trace.error.map { ["Error: \($0)"] } ?? [])).joined(separator: "\n")
 }
 
 private func decimal(_ value: Double) -> String {

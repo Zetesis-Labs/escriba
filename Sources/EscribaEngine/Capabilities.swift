@@ -5,9 +5,14 @@ struct Take: Sendable {
     let transcript: Transcript
     let version: Int64?
     let digest: Digest?
+    var data: DataValue? = nil
 
     func carrying(_ digest: Digest) -> Take {
-        Take(transcript: transcript, version: version, digest: digest)
+        Take(transcript: transcript, version: version, digest: digest, data: data)
+    }
+
+    func carrying(data: DataValue?) -> Take {
+        Take(transcript: transcript, version: version, digest: digest, data: data)
     }
 }
 
@@ -23,7 +28,8 @@ struct Capabilities: Sendable {
         if let remembered = try await memory?.recall(recording, inputs) {
             Log.info("\(recording.key) ya estaba transcrita, se recupera de la biblioteca")
             return Take(
-                transcript: remembered.transcript, version: remembered.version, digest: remembered.digest)
+                transcript: remembered.transcript, version: remembered.version, digest: remembered.digest,
+                data: remembered.data)
         }
         let transcript = try await backend.transcribe(recording.url)
         let version = readOnly ? nil : try await memory?.keepTranscript(recording, transcript, inputs)
@@ -40,5 +46,25 @@ struct Capabilities: Sendable {
             try await memory?.keepDigest(recording, version, digest)
         }
         return take.carrying(digest)
+    }
+
+    func ask(
+        _ recording: Recording, version: Int64?, asker: Asker, request: AnswerRequest, fingerprint: String
+    ) async throws -> (answer: DataValue, remembered: Bool) {
+        if let version, let kept = try await memory?.recallAnswer(recording, version, fingerprint),
+            let answer = try? parseData(kept)
+        {
+            return (answer, true)
+        }
+        let answer = try await asker.answer(request)
+        if !readOnly, let version {
+            try await memory?.keepAnswer(recording, version, fingerprint, dataText(answer))
+        }
+        return (answer, false)
+    }
+
+    func keep(_ data: DataValue?, of recording: Recording, in take: Take) async throws {
+        guard !readOnly, data != take.data, let version = take.version else { return }
+        try await memory?.keepData(recording, version, data)
     }
 }

@@ -4,6 +4,9 @@ let packageProblemFunction = #"""
   if (typeof receta.flujo !== "function") return "falta la función flujo"
   if (typeof receta.receta !== "object" || receta.receta === null || typeof receta.receta.nombre !== "string")
     return "falta receta.nombre"
+  const datos = receta.receta.datos
+  if (datos !== undefined && typeof datos?.["~standard"]?.validate !== "function")
+    return "receta.datos tiene que ser un esquema de Zod: z.object({ … })"
   return ""
 })
 """#
@@ -77,8 +80,21 @@ let esbuildDriver = #"""
     setup(build) {
       build.onResolve({ filter: /.*/ }, (args) => {
         if (args.kind === "entry-point") return { path: args.path, namespace: "proyecto" }
+        if (args.namespace === "zod") {
+          const ruta = normalizar([...args.importer.split("/").slice(0, -1), ...args.path.split("/")])
+          return globalThis.__zod(ruta) != null
+            ? { path: ruta, namespace: "zod" }
+            : { errors: [{ text: `zod no trae «${args.path}»` }] }
+        }
+        if (args.path === "zod") {
+          return globalThis.__zod("index.js") != null
+            ? { path: "index.js", namespace: "zod" }
+            : { errors: [{ text: "Zod aún no está instalado: vuelve a elegir la carpeta del proyecto con red" }] }
+        }
         if (!args.path.startsWith(".")) {
-          return { errors: [{ text: `solo se importan ficheros del proyecto, con rutas relativas: «${args.path}»` }] }
+          return {
+            errors: [{ text: `solo se importan ficheros del proyecto, con rutas relativas, y zod: «${args.path}»` }],
+          }
         }
         const base = args.importer.split("/").slice(0, -1)
         const ruta = normalizar([...base, ...args.path.split("/")])
@@ -92,6 +108,7 @@ let esbuildDriver = #"""
         contents: archivos[args.path],
         loader: args.path.endsWith(".js") ? "js" : "ts",
       }))
+      build.onLoad({ filter: /.*/, namespace: "zod" }, (args) => ({ contents: globalThis.__zod(args.path), loader: "js" }))
     },
   })
 

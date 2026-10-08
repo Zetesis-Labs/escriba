@@ -29,6 +29,14 @@ nonisolated func summarizer(
     return base
 }
 
+nonisolated func asker(for resolver: Resolver) -> Asker {
+    switch resolver.kind {
+    case .local: AppleIntelligence.asker()
+    case .remote:
+        openAIAsker(name: resolver.name, endpoint: openAIEndpoint(resolver, apiKey: nil), transport: remoteTransport)
+    }
+}
+
 nonisolated func recipeResolver(_ set: ResolverSet, key: String) -> Resolver {
     set.resolvers.first { $0.recipeKey(role: set.role) == key } ?? set.local
 }
@@ -83,6 +91,9 @@ nonisolated func recipeCatalog(
             let label = [resolver.name, request.prompt == nil ? nil : "prompt propio"]
                 .compactMap { $0 }.joined(separator: " · ")
             return ChosenSummarizer(label: label, enrich: enricher(chosen, language: language))
+        },
+        asker: { _, llm in
+            asker(for: try llm.map { try lookupResolver($0, in: llms) } ?? llms.local)
         })
 }
 
