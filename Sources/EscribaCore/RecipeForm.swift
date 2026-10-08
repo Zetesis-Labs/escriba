@@ -35,10 +35,11 @@ public struct RecipeFormField: Sendable, Equatable {
     public let nullable: Bool
     public let required: Bool
     public let defaultValue: DataValue?
+    public let dependsOn: String?
 
     public init(
         name: String, label: String? = nil, help: String? = nil, kind: Kind, nullable: Bool = false,
-        required: Bool = false, defaultValue: DataValue? = nil
+        required: Bool = false, defaultValue: DataValue? = nil, dependsOn: String? = nil
     ) {
         self.name = name
         self.label = label ?? name
@@ -47,6 +48,7 @@ public struct RecipeFormField: Sendable, Equatable {
         self.nullable = nullable
         self.required = required
         self.defaultValue = defaultValue
+        self.dependsOn = dependsOn
     }
 }
 
@@ -99,6 +101,14 @@ private func fields(of schema: DataValue, path: [String]) throws(RecipeFormProbl
     for property in properties(of: schema) {
         fields.append(try field(property, required: required.contains(property.name), path: path + [property.name]))
     }
+    for field in fields {
+        guard let switchName = field.dependsOn else { continue }
+        guard fields.contains(where: { $0.name == switchName && $0.kind == .toggle }) else {
+            throw .unsupported(
+                path: (path + [field.name]).joined(separator: "."),
+                what: "un «si» que no es un interruptor de su mismo grupo")
+        }
+    }
     return fields
 }
 
@@ -128,7 +138,8 @@ private func field(_ property: DataField, required: Bool, path: [String]) throws
     return RecipeFormField(
         name: property.name, label: node["title"]?.text ?? solid["title"]?.text,
         help: node["description"]?.text ?? solid["description"]?.text, kind: kind,
-        nullable: nullable, required: required, defaultValue: node["default"] ?? solid["default"])
+        nullable: nullable, required: required, defaultValue: node["default"] ?? solid["default"],
+        dependsOn: node["si"]?.text ?? solid["si"]?.text)
 }
 
 public let maximumTextLines = 20
@@ -242,6 +253,11 @@ private func sections(_ fields: [RecipeFormField], path: [String], titles: [Stri
     }
     closeLeaves()
     return result
+}
+
+public func recipeFormIsVisible(_ field: RecipeFormField, in values: DataValue, at parent: [String]) -> Bool {
+    guard let switchName = field.dependsOn else { return true }
+    return values.value(at: parent + [switchName]) == .bool(true)
 }
 
 public func recipeFormDefaults(_ form: RecipeForm) -> DataValue {

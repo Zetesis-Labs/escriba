@@ -314,7 +314,12 @@ export async function flujo(audio: Audio, escriba: Escriba<Parametros>): Promise
   de dentro.
 - La etiqueta de cada campo sale de `.meta({ title })` y la ayuda de
   `.describe()`. Un texto largo, como un prompt, se pide con
-  `.meta({ title: "Prompt", lineas: 6 })`: sale un cuadro de esas líneas. Un desplegable de `z.enum` enseña los valores tal cual; para
+  `.meta({ title: "Prompt", lineas: 6 })`: sale un cuadro de esas líneas.
+- Un campo que solo tiene sentido con un interruptor encendido lo dice con
+  `.meta({ si: "resumir" })`, donde `resumir` es un booleano del mismo
+  `z.object`: con el interruptor apagado el campo no se ve, y su valor se
+  conserva. Si `si` no apunta a un booleano hermano, la ficha dice qué campo
+  está mal. Un desplegable de `z.enum` enseña los valores tal cual; para
   que enseñe nombres, usa `z.union` de `z.literal(clave).meta({ title: nombre })`
   como arriba.
 - El formulario pinta interruptores (booleanos), desplegables (enumerados,
@@ -388,18 +393,18 @@ export function buildRecipeForm({ stts, llms, conectores }: ListasDeEscriba) {
           .max(6)
           .nullable()
           .default(null)
-          .meta({ title: "Cuántos" })
+          .meta({ title: "Cuántos", si: "detectar" })
           .describe("Vacío: los que salgan"),
       })
       .prefault({})
       .meta({ title: "Hablantes" }),
     resumir: z.boolean().default(false).meta({ title: "Resumir" }),
-    llm: opciones(llms).default(local(llms)).meta({ title: "Resume con" }),
+    llm: opciones(llms).default(local(llms)).meta({ title: "Resume con", si: "resumir" }),
     prompt: z
       .string()
       .nullable()
       .default(null)
-      .meta({ title: "Prompt", lineas: 6 })
+      .meta({ title: "Prompt", lineas: 6, si: "resumir" })
       .describe("Vacío: el de serie"),
     conectores: z
       .array(

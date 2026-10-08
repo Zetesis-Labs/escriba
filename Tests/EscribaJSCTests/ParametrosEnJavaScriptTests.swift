@@ -153,6 +153,7 @@ struct ParametrosEnJavaScriptTests {
         #expect(recipeFormDefaults(formulario) == formRecipeValues(.standard))
         #expect(formulario.fields.map(\.name) == ["stt", "idioma", "hablantes", "resumir", "llm", "prompt", "conectores"])
         #expect(formulario.fields.first { $0.name == "prompt" }?.kind == .text(lines: 6))
+        #expect(formulario.fields.filter { $0.dependsOn == "resumir" }.map(\.name) == ["llm", "prompt"])
         #expect(formulario.fields.last?.kind == .choices([
             RecipeFormOption(value: "K1", label: "Notion"), RecipeFormOption(value: "K2", label: "OKF (apagado)"),
         ]))

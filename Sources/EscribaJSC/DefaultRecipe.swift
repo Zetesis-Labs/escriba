@@ -19715,11 +19715,11 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
       idioma: external_exports.union([external_exports.literal("es").meta({ title: "Español" }), external_exports.literal("en").meta({ title: "English" })]).nullable().default(null).meta({ title: "Idioma" }).describe("Vacío: lo detecta en cada nota"),
       hablantes: external_exports.object({
         detectar: external_exports.boolean().default(false).meta({ title: "Detectar hablantes" }).describe("Solo con Whisper en este Mac"),
-        cuantos: external_exports.number().int().min(2).max(6).nullable().default(null).meta({ title: "Cuántos" }).describe("Vacío: los que salgan")
+        cuantos: external_exports.number().int().min(2).max(6).nullable().default(null).meta({ title: "Cuántos", si: "detectar" }).describe("Vacío: los que salgan")
       }).prefault({}).meta({ title: "Hablantes" }),
       resumir: external_exports.boolean().default(false).meta({ title: "Resumir" }),
-      llm: opciones(llms).default(local(llms)).meta({ title: "Resume con" }),
-      prompt: external_exports.string().nullable().default(null).meta({ title: "Prompt", lineas: 6 }).describe("Vacío: el de serie"),
+      llm: opciones(llms).default(local(llms)).meta({ title: "Resume con", si: "resumir" }),
+      prompt: external_exports.string().nullable().default(null).meta({ title: "Prompt", lineas: 6, si: "resumir" }).describe("Vacío: el de serie"),
       conectores: external_exports.array(
         external_exports.union(
           conectores.map(
@@ -19749,5 +19749,5 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
   return __toCommonJS(receta_exports);
 })();
 """##,
-        fingerprint: "52402cad2317fd0f")
+        fingerprint: "4445c659bd945c79")
 }
