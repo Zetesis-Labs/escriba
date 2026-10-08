@@ -1,7 +1,7 @@
 # Roadmap de Escriba
 
 Qué se está haciendo, qué viene después, qué quedó a medias y qué espera una
-decisión de Rubén. Actualizado el 2026-10-07. Este fichero es el índice: cada
+decisión de Rubén. Actualizado el 2026-10-08. Este fichero es el índice: cada
 cosa grande tiene su documento con el análisis y los criterios de salida.
 
 ## Orden
@@ -15,10 +15,15 @@ cosa grande tiene su documento con el análisis y los criterios de salida.
    - Hecho también (2026-10-08): depurar (`console`, historial de
      ejecuciones, ficha de la receta, sección Registro, errores con la línea
      del TypeScript) y «Probar con…» (RF-15).
-   - Siguiente: la fase 4.
-   - Fase 4: `escriba.preguntar` con respuesta estructurada (RF-6) y `datos`
-     por versión que la biblioteca muestra y filtra (RF-7); de paso, buscar
-     dentro de las transcripciones.
+   - Hecho (2026-10-08): la fase 4, `escriba.preguntar` con esquema de Zod
+     (RF-6) y `datos` por versión que el detalle de la nota enseña (RF-7). Zod
+     es el único paquete de npm que se importa; Escriba lo trae.
+   - Propuesto por Rubén (2026-10-08), sin empezar: que una receta de código
+     declare sus parámetros con un esquema de Zod y la app pinte el formulario
+     a partir de él, en la ficha de la receta y en «Reprocesar con…».
+   - Aplazado (Rubén, 2026-10-08): buscar en la biblioteca, dentro de las
+     transcripciones y por datos.
+   - Siguiente: la fase 5.
    - Fase 5: la receta decide qué carga manda a cada conector (RF-9) y se
      borran los editores de mapeo, verificando contra una base real de
      Notion. Propuesto, sin decidir: que el conector sea la cuenta y su

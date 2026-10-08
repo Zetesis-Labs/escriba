@@ -118,11 +118,26 @@ actor RecipeRun {
             } ?? 0
         }
         puente.setObject(summarize, forKeyedSubscript: "resumir" as NSString)
-        puente.setObject(
-            asking {
-                try await bridge.save()
-                return "null"
-            }, forKeyedSubscript: "guardar" as NSString)
+        let save: @convention(block) (JSValue) -> Int = { [weak self] data in
+            let json = data.isNull || data.isUndefined ? nil : data.toString()
+            return self?.assumeIsolated { run in
+                run.ask {
+                    if let json { try await bridge.saveData(json) } else { try await bridge.save() }
+                    return "null"
+                }
+            } ?? 0
+        }
+        puente.setObject(save, forKeyedSubscript: "guardar" as NSString)
+        let ask: @convention(block) (String, JSValue) -> Int = { [weak self] question, schema in
+            let schemaJSON = schema.isNull || schema.isUndefined ? nil : schema.toString()
+            return self?.assumeIsolated { run in
+                run.ask {
+                    let request = try decodeOptions(RecipeQuestion.self, question, for: "preguntar")
+                    return try await bridge.ask(request, schemaJSON)
+                }
+            } ?? 0
+        }
+        puente.setObject(ask, forKeyedSubscript: "preguntar" as NSString)
         let publish: @convention(block) (String) -> Int = { [weak self] key in
             self?.assumeIsolated { run in
                 run.ask {
@@ -146,12 +161,6 @@ actor RecipeRun {
         }
         puente.setObject(log, forKeyedSubscript: "log" as NSString)
         return puente
-    }
-
-    private nonisolated func asking(
-        _ work: @escaping @Sendable () async throws -> String
-    ) -> @convention(block) () -> Int {
-        { [weak self] in self?.assumeIsolated { $0.ask(work) } ?? 0 }
     }
 
     private func ask(_ work: @escaping @Sendable () async throws -> String) -> Int {
@@ -211,7 +220,7 @@ actor RecipeRun {
     private func jsError(for error: any Error) -> JSValue? {
         nextId += 1
         swiftErrors[nextId] = error
-        let code = (error as? TranscriptionError)?.isBackendUnavailable == true ? "no-disponible" : "fallo"
+        let code = isUnavailable(error) ? "no-disponible" : "fallo"
         return prelude?.objectForKeyedSubscript("error").call(withArguments: ["\(error)", code, nextId])
     }
 
@@ -229,6 +238,12 @@ private func decodeOptions<Options: Decodable>(
     } catch {
         throw RecipeError.failed("las opciones de \(capability) no son válidas: \(error)")
     }
+}
+
+private func isUnavailable(_ error: any Error) -> Bool {
+    if let transcription = error as? TranscriptionError { return transcription.isBackendUnavailable }
+    if case .unavailable = error as? AnswerError { return true }
+    return false
 }
 
 private func errorToken(_ value: JSValue?) -> Int? {

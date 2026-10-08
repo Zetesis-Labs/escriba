@@ -16,15 +16,16 @@ final class Registro: Sendable {
 private let grabacion = Recording(
     url: URL(fileURLWithPath: "/grabaciones/a.m4a"), startedAt: Date(timeIntervalSince1970: 0), key: "a")
 
-private func paquete(_ cuerpo: String) -> RecipePackage {
+func paquete(_ cuerpo: String, antes: String = "", datos: String? = nil) -> RecipePackage {
     RecipePackage(
         key: "prueba",
-        source: "var __receta = { receta: { nombre: \"Prueba\" }, flujo: async (audio, escriba) => {\n\(cuerpo)\n} };",
+        source: (antes.isEmpty ? "" : antes + "\n") + "var __receta = { receta: { nombre: \"Prueba\"\(datos.map { ", datos: \($0)" } ?? "") }, "
+            + "flujo: async (audio, escriba) => {\n\(cuerpo)\n} };",
         fingerprint: "prueba")
 }
 
-private func nota(_ texto: String = "hola", digest: Digest? = nil) -> RecipeNote {
-    RecipeNote(key: "a", version: 1, transcript: Transcript(text: texto), digest: digest)
+func nota(_ texto: String = "hola", digest: Digest? = nil, datos: DataValue? = nil) -> RecipeNote {
+    RecipeNote(key: "a", version: 1, transcript: Transcript(text: texto), digest: digest, data: datos)
 }
 
 private func formulario(
@@ -35,13 +36,14 @@ private func formulario(
         prompt: prompt, connectors: conectores)
 }
 
-private func puente(
+func puente(
     _ registro: Registro,
     connectors: [String] = [],
     parametros: DefaultRecipeSettings? = nil,
     recetas: [RecipeInfo] = [],
     transcribe: @escaping @Sendable (RecipeTranscription) async throws -> RecipeNote = { _ in nota() },
-    summarize: @escaping @Sendable (RecipeSummaryRequest) async throws -> RecipeNote = { _ in nota() }
+    summarize: @escaping @Sendable (RecipeSummaryRequest) async throws -> RecipeNote = { _ in nota() },
+    ask: @escaping @Sendable (RecipeQuestion, String?) async throws -> String = { _, _ in "{}" }
 ) -> RecipeBridge {
     RecipeBridge(
         audio: recipeAudio(grabacion),
@@ -68,12 +70,17 @@ private func puente(
             return try await summarize(pedido)
         },
         save: { registro.append("guarda") },
+        saveData: { registro.append("guarda \($0)") },
+        ask: { pregunta, esquema in
+            registro.append("pregunta \(pregunta.input)\(esquema.map { " con \($0)" } ?? "")")
+            return try await ask(pregunta, esquema)
+        },
         publish: { registro.append("publica \($0)") },
         process: { registro.append("procesa \($0)") },
         log: { nivel, texto in registro.append(nivel == .info ? "log \(texto)" : "log \(nivel.rawValue) \(texto)") })
 }
 
-private func ejecutar(_ package: RecipePackage, _ bridge: RecipeBridge, limite: Double = 10) async throws {
+func ejecutar(_ package: RecipePackage, _ bridge: RecipeBridge, limite: Double = 10) async throws {
     try await javaScriptCoreRuntime(timeLimit: limite).run(package, bridge)
 }
 

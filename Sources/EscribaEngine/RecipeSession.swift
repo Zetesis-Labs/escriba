@@ -10,6 +10,7 @@ final class RecipeSession: Sendable {
         var steps: [RecipeStep] = []
         var logs: [RecipeLogLine] = []
         var recipes: [String] = []
+        var savedData: DataValue?
     }
 
     private let recording: Recording
@@ -53,7 +54,9 @@ final class RecipeSession: Sendable {
             recipes: availableRecipes(),
             transcribe: { try await self.transcribe($0, origin: origin) },
             summarize: { try await self.summarize($0, origin: origin) },
-            save: { try await self.saveNote(origin: origin) },
+            save: { try await self.saveNote(data: nil, origin: origin) },
+            saveData: { try await self.saveNote(data: $0, origin: origin) },
+            ask: { try await self.ask($0, schema: $1, origin: origin) },
             publish: { try await self.publish(to: $0, origin: origin) },
             process: { try await self.process($0, chain: chain, origin: origin) },
             log: { self.log($0, $1, origin: origin) })
@@ -81,7 +84,7 @@ final class RecipeSession: Sendable {
             RecipeTrace(
                 recipe: target.key, name: target.name, fingerprint: target.package.fingerprint, steps: state.steps,
                 logs: state.logs, error: error.map { "\($0)" }, outcome: recipeOutcome(error), recipes: state.recipes,
-                startedAt: startedAt, seconds: seconds)
+                startedAt: startedAt, seconds: seconds, data: state.savedData.map { dataText($0) })
         }
     }
 
@@ -105,11 +108,12 @@ final class RecipeSession: Sendable {
         ) {
             try await capabilities.transcribe(heard, with: chosen)
         }
-        state.withLock { state in
-            state.take = take
+        let current = state.withLock { state in
+            state.take = sameVersion(state.take, take) ? take.carrying(data: state.take?.data) : take
             state.language = inputs.options.language
+            return state.take ?? take
         }
-        return note(take)
+        return note(current)
     }
 
     private func summarize(_ request: RecipeSummaryRequest, origin: String?) async throws -> RecipeNote {
@@ -136,15 +140,63 @@ final class RecipeSession: Sendable {
         return note(summarized)
     }
 
-    private func saveNote(origin: String?) async throws {
+    private func saveNote(data json: String?, origin: String?) async throws {
         let take = try current(for: "guardar")
+        let data: DataValue?
+        do {
+            data = try json.map(noteData) ?? take.data
+        } catch {
+            record(RecipeStep(capability: "guardar", detail: nil, seconds: 0, error: "\(error)", origin: origin))
+            throw error
+        }
         if dryRun {
             record(RecipeStep(capability: "guardar", detail: "sin guardar (prueba)", seconds: 0, error: nil, origin: origin))
-            state.withLock { $0.output = recording.url }
+            remember(saved: data, in: take, output: recording.url)
             return
         }
-        let output = try await step("guardar", origin: origin) { try await save(delivery(take)) }
-        state.withLock { $0.output = output }
+        let output = try await step("guardar", origin: origin) {
+            try await capabilities.keep(data, of: recording, in: take)
+            return try await save(delivery(take))
+        }
+        remember(saved: data, in: take, output: output)
+    }
+
+    private func remember(saved data: DataValue?, in take: Take, output: URL) {
+        state.withLock { state in
+            state.output = output
+            state.take = take.carrying(data: data)
+            state.savedData = data
+        }
+    }
+
+    private func ask(_ question: RecipeQuestion, schema json: String?, origin: String?) async throws -> String {
+        let schema: AnswerSchema?
+        let asker: Asker
+        do {
+            schema = try json.map { text in try answerSchema(from: try parseData(text)) }
+            asker = try catalog.asker(recording, question.llm)
+        } catch {
+            record(RecipeStep(capability: "preguntar", detail: question.llm, seconds: 0, error: "\(error)", origin: origin))
+            throw error
+        }
+        let request = AnswerRequest(instructions: question.instructions, input: question.input, schema: schema)
+        let fingerprint = answerFingerprint(
+            model: asker.name, instructions: question.instructions, input: question.input, schema: json)
+        let version = state.withLock { $0.take?.version }
+        let started = Date()
+        do {
+            let (answer, remembered) = try await capabilities.ask(
+                recording, version: version, asker: asker, request: request, fingerprint: fingerprint)
+            record(RecipeStep(
+                capability: "preguntar", detail: remembered ? "\(asker.name) · recordado" : asker.name,
+                seconds: Date().timeIntervalSince(started), error: nil, origin: origin))
+            return dataText(answer)
+        } catch {
+            record(RecipeStep(
+                capability: "preguntar", detail: asker.name, seconds: Date().timeIntervalSince(started),
+                error: "\(error)", origin: origin))
+            throw error
+        }
     }
 
     private func publish(to target: String, origin: String?) async throws {
@@ -229,7 +281,8 @@ final class RecipeSession: Sendable {
     }
 
     private func note(_ take: Take) -> RecipeNote {
-        RecipeNote(key: recording.key, version: take.version, transcript: take.transcript, digest: take.digest)
+        RecipeNote(
+            key: recording.key, version: take.version, transcript: take.transcript, digest: take.digest, data: take.data)
     }
 
     private func delivery(_ take: Take) -> Note {
@@ -247,4 +300,9 @@ private func recipeOutcome(_ error: (any Error)?) -> RecipeRunOutcome {
     guard let error else { return .ok }
     if let transcription = error as? TranscriptionError, transcription.isBackendUnavailable { return .waiting }
     return .failed
+}
+
+private func sameVersion(_ previous: Take?, _ next: Take) -> Bool {
+    guard let version = next.version else { return false }
+    return previous?.version == version
 }

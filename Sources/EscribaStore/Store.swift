@@ -116,10 +116,12 @@ public struct TranscriptSummary: Sendable, Equatable {
     public let digest: Digest?
     public let preview: String?
     public let duration: TimeInterval?
+    public let data: DataValue?
 
     public init(
         backend: String, isSegmented: Bool, speakerCount: Int, version: Int = 1,
-        versionCount: Int = 1, digest: Digest? = nil, preview: String? = nil, duration: TimeInterval? = nil
+        versionCount: Int = 1, digest: Digest? = nil, preview: String? = nil, duration: TimeInterval? = nil,
+        data: DataValue? = nil
     ) {
         self.backend = backend
         self.isSegmented = isSegmented
@@ -129,6 +131,7 @@ public struct TranscriptSummary: Sendable, Equatable {
         self.digest = digest
         self.preview = preview
         self.duration = duration
+        self.data = data
     }
 }
 
@@ -231,6 +234,47 @@ public final class Store: Sendable {
             if let version, row.id != version { throw StoreError.unknownVersion(version, key) }
             row.carry(digest)
             try row.update(db)
+        }
+    }
+
+    public func setData(_ data: DataValue?, for key: String, version: Int64) async throws {
+        try await writer.write { db in
+            guard let recordingId = try Self.recordingId(of: key, in: db) else {
+                throw StoreError.unknownRecording(key)
+            }
+            guard var row = try Self.transcript(version, of: recordingId, in: db), row.id == version else {
+                throw StoreError.unknownVersion(version, key)
+            }
+            row.data = data.map { dataText($0) }
+            try row.update(db)
+        }
+    }
+
+    private func answer(for key: String, version: Int64, fingerprint: String) async throws -> String? {
+        try await writer.read { db in
+            try String.fetchOne(
+                db,
+                sql: """
+                    SELECT a.payload FROM answer a
+                    JOIN transcript t ON t.id = a.transcriptId
+                    JOIN recording r ON r.id = t.recordingId
+                    WHERE r.key = ? AND a.transcriptId = ? AND a.fingerprint = ?
+                    """,
+                arguments: [key, version, fingerprint])
+        }
+    }
+
+    private func keepAnswer(_ answer: String, for key: String, version: Int64, fingerprint: String) async throws {
+        try await writer.write { db in
+            guard let recordingId = try Self.recordingId(of: key, in: db),
+                try Self.transcript(version, of: recordingId, in: db)?.id == version
+            else { throw StoreError.unknownVersion(version, key) }
+            try db.execute(
+                sql: """
+                    INSERT INTO answer (transcriptId, fingerprint, payload, savedAt) VALUES (?, ?, ?, ?)
+                    ON CONFLICT (transcriptId, fingerprint) DO UPDATE SET payload = excluded.payload, savedAt = excluded.savedAt
+                    """,
+                arguments: [version, fingerprint, answer, Date()])
         }
     }
 
@@ -676,6 +720,15 @@ public final class Store: Sendable {
             },
             keepDigest: { recording, version, digest in
                 try await self.setDigest(digest, for: recording.key, version: version)
+            },
+            keepData: { recording, version, data in
+                try await self.setData(data, for: recording.key, version: version)
+            },
+            recallAnswer: { recording, version, fingerprint in
+                try await self.answer(for: recording.key, version: version, fingerprint: fingerprint)
+            },
+            keepAnswer: { recording, version, fingerprint, answer in
+                try await self.keepAnswer(answer, for: recording.key, version: version, fingerprint: fingerprint)
             })
     }
 
@@ -691,7 +744,8 @@ public final class Store: Sendable {
                 let version = row.id
             else { return nil }
             return Remembered(
-                version: version, transcript: try Self.loadTranscript(row, in: db), digest: row.digest)
+                version: version, transcript: try Self.loadTranscript(row, in: db), digest: row.digest,
+                data: row.noteData)
         }
     }
 
@@ -774,7 +828,7 @@ private func latestSummaries(_ db: Database) throws -> [Int64: TranscriptSummary
         sql: """
             SELECT t.recordingId AS recordingId, t.backend AS backend,
                    t.digestTitle AS digestTitle, t.digestSummary AS digestSummary,
-                   t.digestTags AS digestTags,
+                   t.digestTags AS digestTags, t.data AS data,
                    substr(t.text, 1, \(recordingPreviewLength)) AS preview, MAX(s.endTime) AS duration,
                    COUNT(s.id) AS segments, COUNT(DISTINCT s.speaker) AS speakers,
                    (SELECT COUNT(*) FROM transcript v WHERE v.recordingId = r.id AND v.id <= t.id) AS version,
@@ -796,7 +850,8 @@ private func latestSummaries(_ db: Database) throws -> [Int64: TranscriptSummary
             versionCount: row["versionCount"],
             digest: digest(in: row),
             preview: row["preview"],
-            duration: row["duration"])
+            duration: row["duration"],
+            data: (row["data"] as String?).flatMap { try? parseData($0) })
     }
 }
 

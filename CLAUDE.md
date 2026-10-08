@@ -38,7 +38,13 @@ privada, cargada con `dlsym`, probada en macOS 26) y no cuenta las esperas. El
 proyecto de recetas vive en una carpeta que elige el usuario (la edita con su
 editor o un agente; git y GitHub son cosa suya) y la app la compila con
 **esbuild en WebAssembly** a paquetes, que se descarga al elegir la carpeta: el
-motor solo ejecuta paquetes y no lleva compilador. El editor Monaco dentro de
+motor solo ejecuta paquetes y no lleva compilador. **Zod es el único paquete
+de npm que importa una receta** (Rubén, 2026-10-08): Escriba baja su `.tgz` de
+npm con la huella fijada (`ZodPackage`), esbuild resuelve `zod` a esa copia y
+sus tipos van a `.escriba/zod/` del proyecto. Con él se escriben los esquemas
+de `escriba.preguntar` (respuesta estructurada, puerto `Asker`, traducida a
+`json_schema` o a `DynamicGenerationSchema` desde `answerSchema` en el núcleo) y
+de `receta.datos`, los datos propios que se guardan con cada versión. El editor Monaco dentro de
 la app está aparcado (Rubén, 2026-10-07). Los
 conectores como plugins wasm se exploraron y se archivaron el 2026-10-06
 (viable, pero no merece la pena ahora): conclusiones y medidas en
@@ -92,9 +98,9 @@ ad-hoc y puede caducar.
 | `EscribaOKF` | Conector a un bundle OKF v0.2 en una carpeta: N documentos por grabación (ruta, frontmatter y cuerpo con datos), `index.md` por carpeta y `log.md`. Decisiones puras (`okfPublication`, `okfRemoval`) y sink sobre el puerto `OKFFolder` | macOS, Linux, WASI | ninguna |
 | `EscribaSystemKit` | Host de sistema: FSEvents (macOS) o sondeo (Linux), stat/iCloud/materialización, flock, `offloaded`, ledger SQLite, migración legacy | macOS, Linux | SQLite del sistema (`CSQLite` en Linux) |
 | `EscribaWhisper` | Backend WhisperKit + SpeakerKit | Apple | argmax-oss-swift |
-| `EscribaIntelligence` | Adaptador del puerto `Summarizer` con FoundationModels (titulo, resumen, etiquetas) | Apple | ninguna |
+| `EscribaIntelligence` | Adaptadores de `Summarizer` (titulo, resumen, etiquetas) y `Asker` (respuesta con un esquema construido al vuelo) con FoundationModels | Apple | ninguna |
 | `EscribaJSC` | Adaptador del puerto `RecipeRuntime` con JavaScriptCore: una máquina virtual por ejecución en su propia cola, tiempo límite por tramo, errores de Swift que cruzan JavaScript con su identidad, y la receta por defecto compilada (`DefaultRecipe.swift`, generado) | macOS | JavaScriptCore del sistema |
-| `EscribaOpenAI` | Adaptadores de `Summarizer` (`/chat/completions` con `json_schema`) y `TranscriptionBackend` (`/audio/transcriptions`) sobre una API compatible con OpenAI; validación de URL y errores | macOS, Linux | ninguna (URLSession solo fuera de WASI) |
+| `EscribaOpenAI` | Adaptadores de `Summarizer` y `Asker` (`/chat/completions` con `json_schema`) y `TranscriptionBackend` (`/audio/transcriptions`) sobre una API compatible con OpenAI; validación de URL y errores | macOS, Linux | ninguna (URLSession solo fuera de WASI) |
 | `EscribaStore` | Biblioteca SQLite + copia del audio + rastro de publicaciones | macOS, Linux | GRDB |
 | `EscribaModel` | Modelos observables de la UI (biblioteca, conectores, ajustes), token en fichero 0600 | macOS | |
 | `escriba` | CLI | macOS | |
@@ -103,7 +109,7 @@ ad-hoc y puede caducar.
 
 - **Los puertos son structs de funciones**, no protocolos ni herencia:
   `TranscriptionBackend`, `RecordingSource`, `Sink`, `LedgerPort`, `NoteMemory`,
-  `NotionClient`, `NotionTransport`, `Summarizer`, `OKFFolder`, `RecipeRuntime`. Una implementación nueva es
+  `NotionClient`, `NotionTransport`, `Summarizer`, `Asker`, `OKFFolder`, `RecipeRuntime`. Una implementación nueva es
   una función `make(...)` que devuelve el struct.
 - **Las plantillas son texto con datos, compartidas por los conectores**:
   `{{titulo}}`, `{{transcripcion}}`, `{{enlace:<id>}}`… (`TemplateToken`,
@@ -331,6 +337,14 @@ Directriz (2026-08-31): usar lo último del lenguaje, cada cosa donde paga.
   lado de JS. El tiempo límite (`JSContextGroupSetExecutionTimeLimit`, por
   `dlsym`) necesita `JSC_usePollingTraps`: con las interrupciones por señal, un
   bucle compilado por el JIT no se corta dentro del proceso de tests.
+- **El tiempo límite de JavaScriptCore se activa antes del primer contexto**:
+  `JSC_usePollingTraps` solo cuenta si se pone antes de crear cualquier
+  `JSContext`, así que el compilador de esbuild también evalúa
+  `timeLimitWorks` antes de cargar. Si no, compilar antes de ejecutar dejaba
+  las recetas sin arrancar («el tiempo límite no corta un bucle»).
+- Los JSON que tienen que conservar el orden de sus campos (esquemas, `datos`)
+  pasan entre JS y Swift como texto y se leen con `parseData` (`DataValue`):
+  `JSONEncoder` y `JSONSerialization` no garantizan el orden.
 - La receta por defecto se escribe en `recetas/por-defecto/receta.ts` y se
   compila con `./scripts/build-recetas.sh`; el CI falla si
   `DefaultRecipe.swift` no coincide con su fuente. No editar el generado.

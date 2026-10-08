@@ -1,8 +1,8 @@
 # Requisito funcional: recetas
 
 Estado: **propuesto por Rubén el 2026-10-06**, en construcción desde el
-2026-10-07: fases 1, 2, 3 y 6 hechas, con la depuración (RF-14) y «Probar
-con…» (RF-15); siguiente, la fase 4. El recorte de alcance del 2026-10-07 está
+2026-10-07: fases 1, 2, 3, 4 y 6 hechas, con la depuración (RF-14) y «Probar
+con…» (RF-15); siguiente, la fase 5. El recorte de alcance del 2026-10-07 está
 en cada requisito afectado. El
 mismo día Rubén rediseñó cómo se escriben: un proyecto en una carpeta que elige
 el usuario, que la app compila a paquetes (RF-4, RF-16, RF-18). Sustituye a
@@ -129,14 +129,18 @@ El fichero de entrada de cada receta (`recetas/<clave>/receta.ts` o
 
 | Nombre | Obligatorio | Qué es |
 |---|---|---|
-| `receta` | Sí | `{ nombre }` |
+| `receta` | Sí | `{ nombre, datos? }`: `datos` es el esquema de Zod de los metadatos propios (RF-7) |
 | `flujo(audio, escriba)` | Sí | Función asíncrona: todo el recorrido de una grabación |
 | `publicar(nota, escriba)` | No | Función asíncrona: publicar una nota ya procesada (RF-9) |
-| `datos` | No | Esquema de los metadatos propios de la receta (RF-7) |
 
 - Se escribe con **módulos normales**: `import` y `export` entre ficheros del
   proyecto, en **TypeScript o JavaScript**. Solo se importan ficheros del
-  proyecto: un import de un paquete de npm es un error de compilación.
+  proyecto y **`zod`** (Rubén, 2026-10-08): cualquier otro paquete de npm es un
+  error de compilación. Escriba baja Zod 4 de npm junto a esbuild (versión
+  fijada y comprobada con su huella), esbuild resuelve `import { z } from "zod"`
+  a esa copia y la app deja sus tipos en `.escriba/zod/` del proyecto, al que
+  apunta `paths` en el `tsconfig.json` de la plantilla (con `skipLibCheck`,
+  porque los tipos de Zod nombran `URL`, que no está en `es2022`).
 - **La app compila y el motor ejecuta** (Rubén, 2026-10-07). JavaScriptCore no
   admite módulos en su API pública (verificado en las cabeceras de macOS 26),
   así que la app compila cada receta con **esbuild** a un **paquete**: un solo
@@ -163,9 +167,9 @@ El fichero de entrada de cada receta (`recetas/<clave>/receta.ts` o
 | `escriba.stts`, `escriba.llms` | Los resolutores configurados: clave, nombre, si es local, capacidad. Nunca las claves de API |
 | `escriba.transcribir(audio, opciones)` | STT, idioma, detectar hablantes y cuántos. Devuelve la `nota` con segmentos, hablantes (con nombre si Personas los reconoce) y palabras con tiempos |
 | `nota.resumir({ llm, prompt })` | El resumen de siempre (título, resumen, etiquetas), con el troceado y la reducción en cascada del motor |
-| `escriba.preguntar({ llm, instrucciones, entrada, esquema })` | Respuesta estructurada de cualquier LLM disponible (RF-6) |
+| `escriba.preguntar({ llm, instrucciones, entrada, esquema })` | Respuesta estructurada de cualquier LLM disponible, con un esquema de Zod (RF-6); sin esquema, texto |
 | `nota.datos` | El JSON de metadatos propios (RF-7) |
-| `nota.guardar()` | Punto de control (RF-8) |
+| `nota.guardar({ datos })` | Punto de control (RF-8); `datos` es opcional |
 | `escriba.conector(clave).publicar(carga)` | Publicar en un conector con los datos que decide la receta (RF-9) |
 | `escriba.receta(claveONombre).procesar(audio)` | Pasar la grabación a otra receta (RF-10) |
 | `escriba.log(texto)` | Al log de la app y a la traza de la nota |
@@ -210,17 +214,38 @@ El fichero de entrada de cada receta (`recetas/<clave>/receta.ts` o
 
 ### RF-6. Preguntas a los LLM con respuesta estructurada
 
-- `esquema` es un subconjunto de JSON Schema que traducen los dos tipos de
-  LLM: objetos, textos, números, enteros, booleanos, listas, enumerados,
-  obligatorios y descripciones. El contrato y la validación van en
-  `EscribaCore`; la traducción, en cada adaptador (`json_schema` en la API
-  compatible con OpenAI, `DynamicGenerationSchema` en FoundationModels).
+- **El esquema es de Zod** (Rubén, 2026-10-08): el mismo `z.object` da el tipo
+  de TypeScript (`z.infer`, o la inferencia de `preguntar`), el JSON Schema que
+  se manda al LLM y la validación de lo que vuelve. El preludio solo habla con
+  la interfaz Standard Schema (`~standard.jsonSchema` y `~standard.validate`),
+  así que nunca nombra a Zod.
+- Del JSON Schema que exporta Zod, `EscribaCore` (`answerSchema`) acepta el
+  subconjunto que traducen los dos tipos de LLM: objetos, textos, números,
+  enteros, booleanos, listas (con mínimo y máximo), enumerados y literales,
+  nulos, opcionales y descripciones. Ignora las restricciones que no traduce
+  (`minimum`, `pattern`, `format`…), que Zod vuelve a comprobar a la vuelta, y
+  rechaza con la ruta del campo lo que ningún LLM sabe responder: `z.record`,
+  `z.tuple`, uniones de tipos distintos y esquemas recursivos. La traducción va
+  en cada adaptador: `json_schema` limpio y en orden en la API compatible con
+  OpenAI (estricto solo si todos los campos son obligatorios en todos los
+  niveles; si el servicio no admite esquemas, repite pidiendo un objeto JSON
+  con el esquema en las instrucciones) y `DynamicGenerationSchema` en
+  FoundationModels, donde los campos que admiten nulo son opcionales y el motor
+  rellena con `null` los que no lleguen. Probado de verdad el 2026-10-08 con
+  Apple Intelligence y un esquema de reunión con objeto anidado: 6,1 s.
 - Probado el 2026-10-06 con Apple Intelligence: un esquema con categoría
   cerrada, cliente opcional y lista de tareas, construido en tiempo de
   ejecución, devolvió
   `{"categoria": "tarea", "cliente": "Acme", "tareas": [...]}` en 1,8 s.
-- El host **valida la respuesta contra el esquema** antes de dársela a la
-  receta; si no casa, la receta recibe un error, nunca datos a medias.
+- La respuesta **se valida contra el esquema** (Zod, en el preludio) antes de
+  dársela a la receta; si no casa, la receta recibe un error con cada campo que
+  falla, nunca datos a medias.
+- Un LLM no disponible llega con `codigo: "no-disponible"` y, si la receta no
+  lo recoge, la nota **falla** con ese motivo (no espera): esperar volvería a
+  ejecutar la receta en cada pasada contra un LLM caído.
+- La misma pregunta (LLM, instrucciones, entrada y esquema) sobre la misma
+  versión **se recuerda** y no se repite; «Probar con…» aprovecha lo recordado
+  pero no guarda respuestas nuevas.
 - **Sin troceado automático**: si la entrada no cabe en la capacidad del LLM
   (unos 3500 caracteres en Apple Intelligence), la receta recibe un error
   claro y decide (preguntar sobre el resumen o usar un LLM remoto).
@@ -228,23 +253,25 @@ El fichero de entrada de cada receta (`recetas/<clave>/receta.ts` o
 
 ### RF-7. Metadatos propios de la nota
 
-- Cada **versión** de la transcripción guarda un JSON `datos`, igual que hoy
-  guarda su resumen: reprocesar produce un análisis nuevo y no mezcla el
-  viejo.
-- Si la receta declara `datos`, se valida al guardar. Un cambio de esquema en
-  la receta no toca las notas ya guardadas.
-- **Un solo esquema para todo** (propuesto el 2026-10-07): TypeScript borra los
-  tipos al compilar y el LLM necesita el esquema al ejecutar, así que el
-  contrato trae un constructor de esquemas pequeño, sin npm
-  (`esquema.objeto({ … })` y `type T = Tipo<typeof T>`). El mismo esquema guía
-  a `preguntar`, valida al guardar con `nota.guardarDatos(datos)` y le da los
-  tipos al editor. Leer los datos de otras notas desde una receta queda
-  abierto.
-- La biblioteca **muestra los datos** de cada nota y permite **filtrar y buscar**
-  por ellos (consultas JSON de SQLite); de paso cubre la búsqueda en
-  transcripciones que estaba en las ideas sin dueño.
-- Las plantillas de texto con datos (`{{titulo}}`, `{{fecha}}`…) ganan
-  `{{datos.<campo>}}`.
+- Cada **versión** de la transcripción guarda un JSON `datos` (columna
+  `transcript.data`, migración `v9-datos`), igual que su resumen: reprocesar
+  produce un análisis nuevo y no mezcla el viejo. El orden de los campos se
+  conserva (`DataValue` en `EscribaCore`, con su propio lector de JSON).
+- `nota.datos` llega con los de la versión; `await nota.guardar({ datos })`, o
+  cambiar `nota.datos` y llamar a `guardar()`, los guarda. Si no cambiaron, no
+  se manda nada; `null` los quita. Son un objeto de hasta 100 KB.
+- Si `receta.datos` es un esquema de Zod, se validan al guardar y lo que no
+  casa no se guarda. Un `receta.datos` que no es un esquema hace que la receta
+  no cargue. Un cambio de esquema no toca las notas ya guardadas.
+- **Un solo esquema para todo**, ahora con Zod (Rubén, 2026-10-08, en vez del
+  constructor propio que se propuso el 2026-10-07).
+- La biblioteca **muestra los datos** en el detalle de la nota, en su orden,
+  con listas, grupos y sí o no, y «Cómo se procesó» enseña los que guardó cada
+  ejecución, también en las pruebas. **Filtrar y buscar** (por datos y dentro
+  de las transcripciones) queda fuera hasta que Rubén lo pida (2026-10-08).
+  Leer los datos de otras notas desde una receta sigue abierto.
+- `{{datos.<campo>}}` en las plantillas de los conectores **no se hace**: la
+  fase 5 quita esas plantillas y la receta decide la carga.
 
 ### RF-8. Guardar a mitad del proceso
 
@@ -587,8 +614,10 @@ Cada fase termina en la app, con tests, y la prueba Rubén.
    esbuild (RF-18), reprocesar con una receta y «Probar con…» (RF-15).
    Descartado: receta por carpeta y al grabar, «Personalizar», convertir una
    generada en manual, exportar e importar recetas sueltas. Aparcado: Monaco.
-4. **Preguntar y metadatos.** `preguntar` con esquema en los dos tipos de LLM,
-   `datos` por versión, la biblioteca los muestra y filtra.
+4. **Preguntar y metadatos.** Hecho el 2026-10-08: `preguntar` con esquema de
+   Zod en los dos tipos de LLM, respuestas recordadas por versión, `datos` por
+   versión validados con `receta.datos`, la biblioteca los muestra. Filtrar y
+   buscar, aplazado.
 5. **Conectores decididos por la receta.** Cargas por tipo de conector,
    `publicar` exportado, acciones a mano, mapeo automático, migración de las
    configuraciones; verificación real en Notion y, después, borrar los

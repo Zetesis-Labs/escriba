@@ -65,13 +65,7 @@ private struct ChatResponse: Decodable {
 }
 
 public func digest(fromChat body: Data) throws(RemoteAPIError) -> Digest {
-    guard let response = try? JSONDecoder().decode(ChatResponse.self, from: body) else {
-        throw .malformed("no es una respuesta de chat")
-    }
-    guard let content = response.choices.first?.message.content, !content.isEmpty else {
-        throw .malformed("el modelo no devolvió texto")
-    }
-    return try digest(fromContent: content)
+    try digest(fromContent: try chatContent(from: body))
 }
 
 private func digest(fromContent content: String) throws(RemoteAPIError) -> Digest {
@@ -139,4 +133,83 @@ public func remoteModels(
     endpoint: OpenAIEndpoint, transport: @escaping RemoteTransport
 ) async throws(RemoteAPIError) -> [String] {
     try modelIDs(from: try await send(modelsRequest(endpoint: endpoint), over: transport))
+}
+
+let answerFormatInstruction = "Devuelve solo un objeto JSON que cumpla este esquema: "
+
+public func answerRequest(_ request: AnswerRequest, endpoint: OpenAIEndpoint, format: DigestFormat) -> RemoteRequest {
+    var system = request.instructions ?? ""
+    if let schema = request.schema, format == .object {
+        system += (system.isEmpty ? "" : "\n\n") + answerFormatInstruction + dataText(jsonSchema(schema))
+    }
+    var messages: [DataValue] = []
+    if !system.isEmpty {
+        messages.append(.object([
+            DataField(name: "role", value: .string("system")), DataField(name: "content", value: .string(system)),
+        ]))
+    }
+    messages.append(.object([
+        DataField(name: "role", value: .string("user")), DataField(name: "content", value: .string(request.input)),
+    ]))
+    var body = [
+        DataField(name: "model", value: .string(endpoint.trimmedModel)),
+        DataField(name: "messages", value: .array(messages)),
+    ]
+    if let schema = request.schema {
+        body.append(DataField(name: "response_format", value: answerFormat(schema, format)))
+    }
+    return RemoteRequest(
+        method: "POST", url: endpointURL(endpoint.baseURL, "chat/completions"),
+        headers: endpoint.headers(contentType: "application/json"), body: Data(dataText(.object(body)).utf8))
+}
+
+private func answerFormat(_ schema: AnswerSchema, _ format: DigestFormat) -> DataValue {
+    switch format {
+    case .object:
+        return .object([DataField(name: "type", value: .string("json_object"))])
+    case .schema:
+        return .object([
+            DataField(name: "type", value: .string("json_schema")),
+            DataField(name: "json_schema", value: .object([
+                DataField(name: "name", value: .string("respuesta")),
+                DataField(name: "strict", value: .bool(isStrict(schema))),
+                DataField(name: "schema", value: jsonSchema(schema)),
+            ])),
+        ])
+    }
+}
+
+public func chatContent(from body: Data) throws(RemoteAPIError) -> String {
+    guard let response = try? JSONDecoder().decode(ChatResponse.self, from: body) else {
+        throw .malformed("no es una respuesta de chat")
+    }
+    guard let content = response.choices.first?.message.content, !content.isEmpty else {
+        throw .malformed("el modelo no devolvió texto")
+    }
+    return content
+}
+
+public func openAIAsker(
+    name: String, endpoint: OpenAIEndpoint, capacity: Int = openAICapacity, transport: @escaping RemoteTransport
+) -> Asker {
+    Asker(
+        name: name, capacity: capacity,
+        availability: { endpoint.problem.map(SummaryAvailability.unavailable) ?? .ready }
+    ) { request throws(AnswerError) in
+        do throws(RemoteAPIError) {
+            return try await askForAnswer(request, endpoint: endpoint, transport: transport)
+        } catch {
+            throw error.blocksEveryRecording ? .unavailable(error.message) : .failed(error.message)
+        }
+    }
+}
+
+private func askForAnswer(
+    _ request: AnswerRequest, endpoint: OpenAIEndpoint, transport: RemoteTransport
+) async throws(RemoteAPIError) -> String {
+    do {
+        return try chatContent(from: try await send(answerRequest(request, endpoint: endpoint, format: .schema), over: transport))
+    } catch where request.schema != nil && error.isAboutResponseFormat {
+        return try chatContent(from: try await send(answerRequest(request, endpoint: endpoint, format: .object), over: transport))
+    }
 }

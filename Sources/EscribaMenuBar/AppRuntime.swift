@@ -481,20 +481,33 @@ nonisolated private func reprocessed(
 
 private func recipeProjectModel() -> RecipeProjectModel {
     let tools = EsbuildTools.directory(in: Paths.applicationSupport)
+    let zod = ZodPackage.directory(in: Paths.applicationSupport)
     let installed = Paths.installedRecipes
-    let compiler = EsbuildCompiler(tools: tools)
+    let compiler = EsbuildCompiler(tools: tools, zod: zod)
     return RecipeProjectModel(
         prepare: {
-            guard !EsbuildTools.isInstalled(in: tools) else { return }
-            Log.info("recetas: bajando esbuild \(EsbuildTools.version)")
-            try await EsbuildTools.install(into: tools)
+            if !EsbuildTools.isInstalled(in: tools) {
+                Log.info("recetas: bajando esbuild \(EsbuildTools.version)")
+                try await EsbuildTools.install(into: tools)
+            }
+            if !ZodPackage.isInstalled(in: zod) {
+                Log.info("recetas: bajando Zod \(ZodPackage.version)")
+                do {
+                    try await ZodPackage.install(into: zod)
+                } catch {
+                    Log.error("recetas: no se pudo bajar Zod, las recetas que lo importen no compilarán: \(error)")
+                }
+            }
         },
         create: { folder in
             let written = try createRecipeProject(disk: folderRecipeProject(root: folder, installed: installed))
             if !written.isEmpty { Log.info("recetas: proyecto creado en \(folder.path(percentEncoded: false))") }
         },
         rebuild: { folder in
-            try await rebuildRecipeProject(
+            if ZodPackage.isInstalled(in: zod), try ZodPackage.installTypes(from: zod, intoProject: folder) {
+                Log.info("recetas: tipos de Zod \(ZodPackage.version) copiados a \(ZodPackage.projectFolder)")
+            }
+            return try await rebuildRecipeProject(
                 disk: folderRecipeProject(root: folder, installed: installed), toolchain: compiler.toolchain, now: Date())
         },
         watcher: recipeProjectWatcher)

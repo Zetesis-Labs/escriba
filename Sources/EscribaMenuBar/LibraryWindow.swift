@@ -682,6 +682,7 @@ struct TranscriptDetail: View {
                 Text("No se pudo leer: \(failure)")
             } else if let transcript {
                 summarySection
+                NoteDataSection(data: recording.transcript?.data)
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Transcripción").font(.headline)
                     KaraokeView(

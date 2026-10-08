@@ -51,6 +51,7 @@ final class MemoryNotes: Sendable {
     private let nextVersion = Mutex<Int64>(1)
     private let keepingFails = Mutex(false)
     private let recallFails = Mutex(false)
+    private let answers = Mutex<[String: String]>([:])
     let steps: Trace<String>
 
     static let defaultInputs = TranscriptionInputs(backend: "falso", options: .automatic)
@@ -82,6 +83,21 @@ final class MemoryNotes: Sendable {
     }
 
     var count: Int { kept.withLock { $0.count } }
+    var answerCount: Int { answers.withLock { $0.count } }
+
+    func data(_ key: String) -> DataValue? {
+        kept.withLock { kept in kept.first { $0.key.hasPrefix("\(key)|") }?.value.data }
+    }
+
+    private func update(_ recording: Recording, _ version: Int64, _ change: (Remembered) -> Remembered) {
+        kept.withLock { kept in
+            guard
+                let slot = kept.first(where: { $0.key.hasPrefix("\(recording.key)|") && $0.value.version == version })?.key,
+                let current = kept[slot]
+            else { return }
+            kept[slot] = change(current)
+        }
+    }
     func breakKeeping() { keepingFails.withLock { $0 = true } }
     func breakRecall() { recallFails.withLock { $0 = true } }
 
@@ -99,14 +115,24 @@ final class MemoryNotes: Sendable {
             },
             keepDigest: { recording, version, digest in
                 if self.keepingFails.withLock({ $0 }) { throw FakeError.memoryDown }
-                self.kept.withLock { kept in
-                    guard
-                        let slot = kept.first(where: { $0.key.hasPrefix("\(recording.key)|") && $0.value.version == version })?.key,
-                        let current = kept[slot]
-                    else { return }
-                    kept[slot] = Remembered(version: version, transcript: current.transcript, digest: digest)
+                self.update(recording, version) {
+                    Remembered(version: version, transcript: $0.transcript, digest: digest, data: $0.data)
                 }
                 self.steps.append("guarda resumen v\(version)")
+            },
+            keepData: { recording, version, data in
+                if self.keepingFails.withLock({ $0 }) { throw FakeError.memoryDown }
+                self.update(recording, version) {
+                    Remembered(version: version, transcript: $0.transcript, digest: $0.digest, data: data)
+                }
+                self.steps.append("guarda datos v\(version)")
+            },
+            recallAnswer: { recording, version, fingerprint in
+                self.answers.withLock { $0["\(recording.key)|\(version)|\(fingerprint)"] }
+            },
+            keepAnswer: { recording, version, fingerprint, answer in
+                self.answers.withLock { $0["\(recording.key)|\(version)|\(fingerprint)"] = answer }
+                self.steps.append("guarda respuesta v\(version)")
             })
     }
 }
