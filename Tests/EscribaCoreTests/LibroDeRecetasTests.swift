@@ -54,6 +54,26 @@ struct LibroDeRecetasTests {
             + #""conectores":["03823BB9-D0D1-4D90-9440-00711AEC3D9A","3DD3155B-1F5C-459D-BEF0-9B682167F9CA"]}"#)
     }
 
+    @Test("en un libro de antes con varias recetas, cada una migra o conserva lo suyo, y ninguna se pierde aunque sus ajustes no se lean")
+    func libroDeAntesMixto() throws {
+        let guardado = #"{"defaultKey":"B","values":{"B":"{\"resumir\":false}"},"forms":["#
+            + #"{"key":"A","name":"A","settings":{"stt":"whisper","idioma":"en","hablantes":{"detectar":false},"#
+            + #""resumir":true,"llm":"apple","conectores":[]}},"#
+            + #"{"key":"B","name":"B","settings":{"stt":"whisper","idioma":"es","hablantes":{"detectar":false},"#
+            + #""resumir":true,"llm":"apple","conectores":[]}},"#
+            + #"{"key":"C","name":"C"},"#
+            + #"{"key":"D","name":"D","settings":{"stt":7}}]}"#
+
+        let leido = try JSONDecoder().decode(RecipeBook.self, from: Data(guardado.utf8))
+
+        #expect(leido.forms.map(\.key) == ["A", "B", "C", "D"])
+        #expect(try valores(leido, "A")?["idioma"] == .string("en"))
+        #expect(leido.values["B"] == #"{"resumir":false}"#)
+        #expect(leido.values["C"] == nil)
+        #expect(leido.values["D"] == nil)
+        #expect(leido.defaultKey == "B")
+    }
+
     @Test("si ya hay valores guardados para una receta de formulario, mandan sobre sus ajustes de antes")
     func valoresMandan() throws {
         let guardado = #"{"defaultKey":"F1","values":{"F1":"{\"resumir\":false}"},"forms":[{"key":"F1","name":"A","#
@@ -120,8 +140,7 @@ struct LibroDeRecetasTests {
         #expect(libro.forgettingResolver("U1").values["V1"] == libro.values["V1"])
         #expect(libro.forgettingConnector("K1").values["V1"] == libro.values["V1"])
         #expect(libro.forgettingMissing(connectors: [], stts: [], llms: []).values["V1"] == libro.values["V1"])
-        #expect(libro.reading(of: "V1") == FormRecipeReading(
-            stt: nil, language: nil, summarize: false, llm: nil, prompt: nil))
+        #expect(libro.reading(of: "V1") == RecipeBook(migrating: .standard, key: "S").reading(of: "S"))
     }
 
     @Test("renombrar cambia el nombre y no la clave; un nombre en blanco no se acepta")
@@ -238,7 +257,7 @@ struct LibroDeRecetasTests {
             == #"{"conectores":["K1","borrado"],"stt":"borrado"}"#)
     }
 
-    @Test("lo que la app lee de una receta de formulario: con qué transcribe, si resume y con qué, el prompt y el idioma; lo que no se fijó o no es de formulario, nada")
+    @Test("lo que la app lee de una receta de formulario: lo guardado sobre los valores de serie de «Por defecto»; si no parte de «Por defecto», los de serie")
     func lectura() {
         var libro = RecipeBook(migrating: conGroq, key: "F1")
         libro.add(key: "F2", name: "De serie")
@@ -247,8 +266,11 @@ struct LibroDeRecetasTests {
         #expect(libro.reading(of: "F1") == FormRecipeReading(
             stt: "U1", language: nil, summarize: true, llm: "U2", prompt: "Tres viñetas"))
         #expect(libro.reading(of: "F2") == FormRecipeReading(
-            stt: nil, language: nil, summarize: false, llm: nil, prompt: nil))
+            stt: "whisper", language: "es", summarize: true, llm: "apple", prompt: nil))
         #expect(libro.reading(of: "analisis") == libro.reading(of: "F2"))
+        libro.setValues(#"{"resumir":false}"#, for: "F2")
+        #expect(libro.reading(of: "F2") == FormRecipeReading(
+            stt: "whisper", language: "es", summarize: false, llm: "apple", prompt: nil))
     }
 
     @Test("se guarda y se vuelve a leer igual")

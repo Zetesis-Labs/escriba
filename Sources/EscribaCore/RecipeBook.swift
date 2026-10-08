@@ -244,10 +244,11 @@ public struct RecipeBook: Sendable, Equatable, Codable {
 
     public func reading(of key: String) -> FormRecipeReading {
         let isDefaultRecipe = form(key).map { $0.base == nil } ?? false
-        let values = isDefaultRecipe ? self.values[key].flatMap { try? parseData($0) } : nil
+        let saved = isDefaultRecipe ? self.values[key].flatMap { try? parseData($0) } : nil
+        let values = overlay(formRecipeValues(.standard), with: saved)
         return FormRecipeReading(
-            stt: values?["stt"]?.text, language: values?["idioma"]?.text, summarize: values?["resumir"] == .bool(true),
-            llm: values?["llm"]?.text, prompt: values?["prompt"]?.text)
+            stt: values["stt"]?.text, language: values["idioma"]?.text, summarize: values["resumir"] == .bool(true),
+            llm: values["llm"]?.text, prompt: values["prompt"]?.text)
     }
 
     public func listing(code: [RecipeCodeEntry]) -> [RecipeListing] {

@@ -286,7 +286,9 @@ private struct LoadsRecipeForm: ViewModifier {
     @Environment(\.recipeForms) private var forms
 
     func body(content: Content) -> some View {
-        content.task(id: reloadKey) { load = await forms?.load(key) }
+        content.task(id: reloadKey) {
+            load = await forms?.load(key) ?? .problem("las recetas no arrancan en este Mac")
+        }
     }
 
     private var reloadKey: String {
