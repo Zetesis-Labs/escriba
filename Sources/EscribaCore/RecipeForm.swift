@@ -295,18 +295,28 @@ public func recipeFormIssue(_ field: RecipeFormField, value: DataValue?) -> Stri
         guard case .number(let number) = value else { return "no es un número" }
         if integer, number != number.rounded() { return "tiene que ser un número entero" }
         if let minimum, let maximum, number < minimum || number > maximum {
-            return "tiene que estar entre \(numberText(minimum)) y \(numberText(maximum))"
+            return "tiene que estar entre \(recipeFormNumberText(minimum)) y \(recipeFormNumberText(maximum))"
         }
-        if let minimum, number < minimum { return "tiene que ser \(numberText(minimum)) o más" }
-        if let maximum, number > maximum { return "tiene que ser \(numberText(maximum)) o menos" }
+        if let minimum, number < minimum { return "tiene que ser \(recipeFormNumberText(minimum)) o más" }
+        if let maximum, number > maximum { return "tiene que ser \(recipeFormNumberText(maximum)) o menos" }
         return nil
     case .toggle, .text, .group:
         return nil
     }
 }
 
-private func numberText(_ number: Double) -> String {
+public func recipeFormNumberText(_ number: Double) -> String {
     number == number.rounded() && abs(number) < 1e15 ? "\(Int(number))" : "\(number)"
+}
+
+public let maximumNumberChoices = 21
+
+public func recipeFormNumberChoices(_ field: RecipeFormField) -> [Int]? {
+    guard case .number(let minimum?, let maximum?, true) = field.kind,
+        minimum <= maximum, abs(minimum) < 1e9, abs(maximum) < 1e9
+    else { return nil }
+    let range = Int(minimum.rounded(.up))...Int(maximum.rounded(.down))
+    return range.count <= maximumNumberChoices ? Array(range) : nil
 }
 
 extension DataValue {

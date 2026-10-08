@@ -46,10 +46,12 @@ private struct RecipeFormRow: View {
             Toggle(field.label, isOn: Binding(get: { value == .bool(true) }, set: { set(.bool($0)) }))
         case .text:
             TextField(field.label, text: Binding(get: { value?.text ?? "" }, set: { set($0.isEmpty ? empty : .string($0)) }))
-        case .number(let minimum?, let maximum?, true) where maximum - minimum <= 20:
-            choice(Array(Int(minimum)...Int(maximum)).map { RecipeFormOption(value: "\($0)") }, number: true)
         case .number(_, _, let integer):
-            TextField(field.label, value: number(integer: integer), format: .number)
+            if let choices = recipeFormNumberChoices(field) {
+                choice(choices.map { RecipeFormOption(value: "\($0)") }, number: true)
+            } else {
+                TextField(field.label, value: number(integer: integer), format: .number)
+            }
         case .choice(let options):
             choice(options, number: false)
         case .choices(let options):
@@ -114,5 +116,5 @@ private func items(_ value: DataValue) -> [DataValue]? {
 
 private func numberText(_ value: DataValue) -> String? {
     guard case .number(let number) = value else { return nil }
-    return number == number.rounded() ? "\(Int(number))" : "\(number)"
+    return recipeFormNumberText(number)
 }

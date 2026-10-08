@@ -225,4 +225,20 @@ struct FormularioDeRecetaTests {
         #expect(secciones.map(\.title) == [nil, "Hablantes", "Hablantes · Avanzado"])
         #expect(secciones.map { $0.fields.map(\.name) } == [["a", "d"], ["b"], ["c"]])
     }
+
+    @Test("un entero con mínimo y máximo cercanos se elige de una lista; un rango absurdo o enorme, no")
+    func enterosEnLista() {
+        let entero = { (minimo: Double, maximo: Double) in
+            RecipeFormField(name: "n", kind: .number(minimum: minimo, maximum: maximo, integer: true))
+        }
+
+        #expect(recipeFormNumberChoices(entero(2, 6)) == [2, 3, 4, 5, 6])
+        #expect(recipeFormNumberChoices(entero(1.5, 4.5)) == [2, 3, 4])
+        #expect(recipeFormNumberChoices(entero(6, 2)) == nil)
+        #expect(recipeFormNumberChoices(entero(0, 100)) == nil)
+        #expect(recipeFormNumberChoices(entero(1e20, 1e20 + 5)) == nil)
+        #expect(recipeFormNumberChoices(RecipeFormField(name: "n", kind: .number(minimum: 2, maximum: 6, integer: false))) == nil)
+        #expect(recipeFormNumberText(1e20) == "1e+20")
+        #expect(recipeFormNumberText(3) == "3")
+    }
 }
