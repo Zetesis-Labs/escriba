@@ -172,6 +172,26 @@ struct GrabadoraTests {
         #expect(modelo.elapsed == 75)
         #expect(modelo.clock == "01:15")
     }
+
+    @Test("la onda guarda los últimos niveles, del más viejo al más nuevo, y empieza vacía en cada grabación")
+    func onda() async {
+        let registro = Registro()
+        let modelo = grabadora(registro)
+        await modelo.start()
+
+        for decibelios in stride(from: Float(-60), through: 0, by: 1) {
+            registro.decibelios = decibelios
+            modelo.refresh()
+        }
+
+        #expect(modelo.levels.count == RecorderModel.levelHistory)
+        #expect(modelo.levels.last == 1)
+        #expect(modelo.levels.first == meterLevel(decibels: Float(1 - RecorderModel.levelHistory)))
+        modelo.stop()
+        #expect(modelo.levels.isEmpty)
+        await modelo.start()
+        #expect(modelo.levels.isEmpty)
+    }
 }
 
 @MainActor

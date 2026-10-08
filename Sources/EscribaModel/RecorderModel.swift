@@ -39,7 +39,10 @@ public final class RecorderModel {
     }
 
     public private(set) var state: State = .idle
+    public static let levelHistory = 48
+
     public private(set) var level: Double = 0
+    public private(set) var levels: [Double] = []
     public private(set) var elapsed: TimeInterval = 0
     public private(set) var recipe: String?
 
@@ -99,6 +102,7 @@ public final class RecorderModel {
             file = url
             self.recipe = recipe
             level = 0
+            levels = []
             elapsed = 0
             release = keepAwake()
             state = .recording(now())
@@ -134,6 +138,7 @@ public final class RecorderModel {
     public func refresh() {
         guard isRecording else { return }
         level = meterLevel(decibels: recorder.decibels())
+        levels = Array((levels + [level]).suffix(Self.levelHistory))
         elapsed = recorder.elapsed()
     }
 
@@ -164,5 +169,6 @@ public final class RecorderModel {
         file = nil
         recipe = nil
         level = 0
+        levels = []
     }
 }

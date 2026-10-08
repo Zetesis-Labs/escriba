@@ -113,11 +113,6 @@ struct LibraryWindow: View {
                     }
                 }
             }
-            .safeAreaInset(edge: .top, spacing: 0) {
-                if recorder.isRecording {
-                    RecordingBar(recorder: recorder, recipeName: recorder.recipe.map(recipeName))
-                }
-            }
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 if let notice = inbox.notice {
                     NoticeBar(text: notice) { inbox.dismissNotice() }
@@ -245,9 +240,6 @@ struct LibraryWindow: View {
         }
     }
 
-    private func recipeName(_ key: String) -> String {
-        recipeListing.first { $0.key == key }?.name ?? key
-    }
 
     private func originName(_ recording: StoredRecording) -> String? {
         recipeOrigin(
@@ -801,50 +793,6 @@ struct TranscriptDetail: View {
     }
 }
 
-private struct RecordingBar: View {
-    @Bindable var recorder: RecorderModel
-    let recipeName: String?
-
-    var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "record.circle.fill")
-                .foregroundStyle(.red)
-                .symbolEffect(.pulse)
-            Text(recorder.clock)
-                .font(.body.monospacedDigit())
-            LevelMeter(level: recorder.level)
-                .frame(width: 140, height: 6)
-            if let recipeName {
-                Text("con «\(recipeName)»")
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-            Spacer()
-            Button("Descartar", role: .destructive) { recorder.cancel() }
-            Button("Detener y transcribir") { recorder.stop() }
-                .buttonStyle(.borderedProminent)
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
-        .background(.bar)
-    }
-}
-
-private struct LevelMeter: View {
-    let level: Double
-
-    var body: some View {
-        GeometryReader { geometry in
-            ZStack(alignment: .leading) {
-                Capsule().fill(.quaternary)
-                Capsule()
-                    .fill(level > 0.85 ? Color.orange : Color.green)
-                    .frame(width: geometry.size.width * level)
-                    .animation(.linear(duration: 0.1), value: level)
-            }
-        }
-    }
-}
 
 private struct NoticeBar: View {
     let text: String

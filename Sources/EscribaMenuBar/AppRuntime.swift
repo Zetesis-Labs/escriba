@@ -69,7 +69,15 @@ final class AppRuntime {
     @ObservationIgnored private var recipeBookWatch: Task<Void, Never>?
     @ObservationIgnored private let microphone: MicrophoneRecorder
     @ObservationIgnored private var recordingItem: RecordingStatusItem?
+    @ObservationIgnored private var recordingPanel: RecordingPanel?
     @ObservationIgnored private let recipeBook: Shared<RecipeBook>
+
+    var recipeListing: [RecipeListing] {
+        settings.recipeBook.listing(
+            code: (recipes.report?.recipes ?? []).filter { $0.active != nil }.map {
+                RecipeCodeEntry(key: $0.key, name: $0.name)
+            })
+    }
 
     var symbolName: String {
         if recorder.isRecording { return "record.circle" }
@@ -107,6 +115,9 @@ final class AppRuntime {
         }
         relay.wake = { [weak self] in self?.wake() }
         recordingItem = RecordingStatusItem(recorder: recorder)
+        recordingPanel = RecordingPanel(recorder: recorder) { [weak self] key in
+            self?.recipeListing.first { $0.key == key }?.name ?? key
+        }
         Notifier.requestAuthorization()
         start()
         watchSettings()
