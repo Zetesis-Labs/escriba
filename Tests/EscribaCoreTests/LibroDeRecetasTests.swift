@@ -161,6 +161,20 @@ struct LibroDeRecetasTests {
 
         #expect(leido.forms.map(\.name) == ["Por defecto"])
         #expect(leido.defaultKey == "ideas")
+        #expect(leido.values.isEmpty)
+    }
+
+    @Test("los valores del formulario de una receta de código se guardan por clave, se restablecen y sobreviven a leer el libro")
+    func valoresDeCodigo() throws {
+        var libro = RecipeBook(migrating: deHoy, key: "F1")
+
+        libro.setValues(#"{"idioma":"en"}"#, for: "analisis")
+        libro.setValues(#"{"llm":"U2"}"#, for: "reparto")
+        libro.setValues(nil, for: "reparto")
+
+        #expect(libro.values == ["analisis": #"{"idioma":"en"}"#])
+        let leido = try JSONDecoder().decode(RecipeBook.self, from: try JSONEncoder().encode(libro))
+        #expect(leido == libro)
     }
 
     @Test("las recetas llegan a JavaScript con clave, nombre y tipo")

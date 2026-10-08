@@ -118,12 +118,15 @@ interface Receta {
   procesar(audio: Audio): Promise<void>
 }
 
-interface Escriba {
-  readonly parametros: ParametrosDeReceta | null
+interface ListasDeEscriba {
   readonly stts: readonly Resolutor[]
   readonly llms: readonly Resolutor[]
   readonly conectores: readonly InfoDeConector[]
   readonly recetas: readonly InfoDeReceta[]
+}
+
+interface Escriba<P = ParametrosDeReceta | null> extends ListasDeEscriba {
+  readonly parametros: P
   transcribir(audio: Audio, opciones?: OpcionesDeTranscripcion): Promise<Nota>
   preguntar<T>(pedido: PreguntaConEsquema<T>): Promise<T>
   preguntar(pedido: Pregunta): Promise<string>

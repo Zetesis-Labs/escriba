@@ -8,10 +8,12 @@ import Observation
 nonisolated public struct RecipeChoice: Sendable, Equatable {
     public var recipe: String?
     public var parameters: DefaultRecipeSettings?
+    public var values: String?
 
-    public init(recipe: String? = nil, parameters: DefaultRecipeSettings? = nil) {
+    public init(recipe: String? = nil, parameters: DefaultRecipeSettings? = nil, values: String? = nil) {
         self.recipe = recipe
         self.parameters = parameters
+        self.values = values
     }
 }
 

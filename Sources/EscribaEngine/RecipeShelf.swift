@@ -7,22 +7,30 @@ public struct RecipeTarget: Sendable, Equatable {
     public let kind: RecipeKind
     public let package: RecipePackage
     public let parameters: DefaultRecipeSettings?
+    public let values: String?
 
     public init(
-        key: String, name: String, kind: RecipeKind, package: RecipePackage, parameters: DefaultRecipeSettings?
+        key: String, name: String, kind: RecipeKind, package: RecipePackage, parameters: DefaultRecipeSettings?,
+        values: String? = nil
     ) {
         self.key = key
         self.name = name
         self.kind = kind
         self.package = package
         self.parameters = parameters
+        self.values = values
     }
 
     public var info: RecipeInfo { RecipeInfo(key: key, name: name, kind: kind) }
 
     public func overriding(_ parameters: DefaultRecipeSettings?) -> RecipeTarget {
         guard kind == .form, let parameters else { return self }
-        return RecipeTarget(key: key, name: name, kind: kind, package: package, parameters: parameters)
+        return RecipeTarget(key: key, name: name, kind: kind, package: package, parameters: parameters, values: values)
+    }
+
+    public func overriding(values: String?) -> RecipeTarget {
+        guard kind == .code, let values else { return self }
+        return RecipeTarget(key: key, name: name, kind: kind, package: package, parameters: parameters, values: values)
     }
 }
 
@@ -66,7 +74,7 @@ public func recipeShelf(
                 package: RecipePackage(
                     key: package.key, source: package.source, fingerprint: package.fingerprint,
                     sourceMap: package.sourceMap),
-                parameters: nil)
+                parameters: nil, values: book.values[package.key])
         case .missing:
             nil
         }

@@ -63,6 +63,7 @@ public struct RecipeCatalog: Sendable {
 public struct RecipeBridge: Sendable {
     public var audio: RecipeAudio
     public var parameters: DefaultRecipeSettings?
+    public var values: String?
     public var stts: [RecipeResolver]
     public var llms: [RecipeResolver]
     public var connectors: [RecipeConnector]
@@ -79,6 +80,7 @@ public struct RecipeBridge: Sendable {
     public init(
         audio: RecipeAudio,
         parameters: DefaultRecipeSettings? = nil,
+        values: String? = nil,
         stts: [RecipeResolver] = [],
         llms: [RecipeResolver] = [],
         connectors: [RecipeConnector],
@@ -100,6 +102,7 @@ public struct RecipeBridge: Sendable {
     ) {
         self.audio = audio
         self.parameters = parameters
+        self.values = values
         self.stts = stts
         self.llms = llms
         self.connectors = connectors
@@ -112,6 +115,10 @@ public struct RecipeBridge: Sendable {
         self.publish = publish
         self.process = process
         self.log = log
+    }
+
+    public var lists: RecipeLists {
+        RecipeLists(stts: stts, llms: llms, connectors: connectors, recipes: recipes)
     }
 }
 
@@ -154,6 +161,11 @@ public struct Recipe: Sendable {
             catalog.connectors = publishers.keys.sorted().map { RecipeConnector(key: $0, name: $0, kind: "") }
         }
         self.catalog = catalog
+    }
+
+    public func lists() throws -> RecipeLists {
+        RecipeLists(
+            stts: catalog.stts, llms: catalog.llms, connectors: catalog.connectors, recipes: try shelf.recipes())
     }
 }
 

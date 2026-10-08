@@ -350,6 +350,27 @@ public struct RecipeConnector: Sendable, Equatable, Encodable {
     }
 }
 
+public struct RecipeLists: Sendable, Equatable, Encodable {
+    public var stts: [RecipeResolver]
+    public var llms: [RecipeResolver]
+    public var connectors: [RecipeConnector]
+    public var recipes: [RecipeInfo]
+
+    public init(
+        stts: [RecipeResolver] = [], llms: [RecipeResolver] = [], connectors: [RecipeConnector] = [],
+        recipes: [RecipeInfo] = []
+    ) {
+        self.stts = stts
+        self.llms = llms
+        self.connectors = connectors
+        self.recipes = recipes
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case stts, llms, connectors = "conectores", recipes = "recetas"
+    }
+}
+
 public enum RecipeLookupKind: Sendable, Equatable {
     case stt
     case llm
