@@ -1,0 +1,943 @@
+{
+  "prototype": true,
+  "completed": true,
+  "checks": [
+    {
+      "name": "Host nativo de prueba compilado: compile",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "Host nativo de prueba compilado: run",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "SDK npm y Zod compilados con esbuild WASM dentro de JSC",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "Credencial ausente del paquete JavaScript",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "Subruta npm y dependencia transitiva anidada compilan",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "resolution: resultado correcto",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "resolution: estado",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "resolution: JS y diagnóstico sin credencial",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "ESM, CommonJS, exports condicionales y JSON ejecutan en JSC",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "Dependencia de node:fs se rechaza al compilar",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "schema: resultado correcto",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "schema: estado",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "schema: JS y diagnóstico sin credencial",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "Destino Zod inspeccionado sin HTTP",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "publish: resultado correcto",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "publish: estado",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "publish: JS y diagnóstico sin credencial",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "Página y bloques creados; recibo guardado",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "Error de compilación conserva paquete anterior",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "Fuentes y node_modules retirados del proyecto de prueba",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "update-archived: resultado correcto",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "update-archived: estado",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "update-archived: JS y diagnóstico sin credencial",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "Regeneración con paquete archivado y paginación",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "Los bloques reflejan la corrección",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "upload: resultado correcto",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "upload: estado",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "upload: JS y diagnóstico sin credencial",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "SDK envía multipart con WAV binario sintético íntegro",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "El SDK adjunta el audio publicado",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "security: resultado correcto",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "security: estado",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "security: JS y diagnóstico sin credencial",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "Origen ajeno, Authorization y redirección rechazados",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "Cabeceras sensibles y eco literal ocultos",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "No se siguió la redirección ni salió Authorization del JS",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "revoked: resultado fallo esperado",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "revoked: estado",
+      "passed": true,
+      "detail": "@\n@\nPromise@[native code]\nfetch@\nexecuteSingleRequest@\nexecuteWithRetry@\nrequest@\nrun@\n@"
+    },
+    {
+      "name": "revoked: JS y diagnóstico sin credencial",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "Cuenta revocada impide HTTP incluso con paquete archivado",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "remove-archived: resultado correcto",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "remove-archived: estado",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "remove-archived: JS y diagnóstico sin credencial",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "Retirada con mismo localizador y paquete archivado",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "partial: resultado fallo esperado",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "partial: estado",
+      "passed": true,
+      "detail": "buildRequestError@\nexecuteSingleRequest@\nasync executeWithRetry@"
+    },
+    {
+      "name": "partial: JS y diagnóstico sin credencial",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "Fallo después de crear conserva el recibo",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "recover: resultado correcto",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "recover: estado",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "recover: JS y diagnóstico sin credencial",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "Recuperación usa la página creada sin duplicarla",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "Cierre del proceso tras crear conserva journal",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "recover-crash: resultado correcto",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "recover-crash: estado",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "recover-crash: JS y diagnóstico sin credencial",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "Proceso nuevo recupera tras cierre sin página duplicada",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "rate-limit: resultado fallo esperado",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "rate-limit: estado",
+      "passed": true,
+      "detail": "buildRequestError@\nexecuteSingleRequest@\nasync executeWithRetry@"
+    },
+    {
+      "name": "rate-limit: JS y diagnóstico sin credencial",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "429 propagado sin reintento automático",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "uncertain: resultado fallo esperado",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "uncertain: estado",
+      "passed": true,
+      "detail": "@"
+    },
+    {
+      "name": "uncertain: JS y diagnóstico sin credencial",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "Creación incierta no se repite a ciegas",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "Todas las peticiones recibidas fueron autenticadas por Swift",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "El paquete archivado conserva su huella",
+      "passed": true,
+      "detail": null
+    }
+  ],
+  "metrics": {
+    "compileSeconds": 7.218,
+    "bundleBytes": 907499,
+    "sha256": "30aa226746c941a7f1a3a8928f0ef31efdb71d7514d866509057a17540dcd834",
+    "totalSeconds": 37.76
+  },
+  "sources": {
+    "run.py": "6cc3a48618e3be102c156668b662e628c62373cb0a48f628fc00f56f08784e77",
+    "compiler/compile.swift": "582bb890ae435baafc6ef5c871d9d220c17157c5d1493a35fe1be2a42bd01f01",
+    "runtime/run.swift": "9a6dd77bb0fe23713ee334dd10e9f921df2d40e55a53d3d6af8b15e4ec36874d",
+    "runtime/prelude.js": "bc9e77b649f9acc4177ac319749055bc4bbe2b3469b404658a83148a78cf8120",
+    "project/destino.ts": "43613b8f41b943389f0ed1085eb23ebb05343c988e98e06bcdf363d13ea20b21",
+    "package-lock.json": "d6d67b31941d0a78c33e9069a374f5e5a8a66ca01f9404ce8b82f1fafbd2f392"
+  },
+  "requests": [
+    {
+      "method": "POST",
+      "path": "/v1/pages",
+      "query": {},
+      "authenticated": true,
+      "bodyBytes": 118
+    },
+    {
+      "method": "PATCH",
+      "path": "/v1/blocks/page-1/children",
+      "query": {},
+      "authenticated": true,
+      "bodyBytes": 303
+    },
+    {
+      "method": "PATCH",
+      "path": "/v1/pages/page-1",
+      "query": {},
+      "authenticated": true,
+      "bodyBytes": 77
+    },
+    {
+      "method": "GET",
+      "path": "/v1/blocks/page-1/children",
+      "query": {
+        "page_size": [
+          "100"
+        ]
+      },
+      "authenticated": true,
+      "bodyBytes": 0
+    },
+    {
+      "method": "GET",
+      "path": "/v1/blocks/page-1/children",
+      "query": {
+        "start_cursor": [
+          "1"
+        ],
+        "page_size": [
+          "100"
+        ]
+      },
+      "authenticated": true,
+      "bodyBytes": 0
+    },
+    {
+      "method": "DELETE",
+      "path": "/v1/blocks/block-1",
+      "query": {},
+      "authenticated": true,
+      "bodyBytes": 0
+    },
+    {
+      "method": "DELETE",
+      "path": "/v1/blocks/block-2",
+      "query": {},
+      "authenticated": true,
+      "bodyBytes": 0
+    },
+    {
+      "method": "PATCH",
+      "path": "/v1/blocks/page-1/children",
+      "query": {},
+      "authenticated": true,
+      "bodyBytes": 297
+    },
+    {
+      "method": "POST",
+      "path": "/v1/file_uploads",
+      "query": {},
+      "authenticated": true,
+      "bodyBytes": 22
+    },
+    {
+      "method": "POST",
+      "path": "/v1/file_uploads/upload-1/send",
+      "query": {},
+      "authenticated": true,
+      "bodyBytes": 410
+    },
+    {
+      "method": "PATCH",
+      "path": "/v1/blocks/page-1/children",
+      "query": {},
+      "authenticated": true,
+      "bodyBytes": 111
+    },
+    {
+      "method": "GET",
+      "path": "/poc/redirect",
+      "query": {},
+      "authenticated": true,
+      "bodyBytes": 0
+    },
+    {
+      "method": "GET",
+      "path": "/poc/headers",
+      "query": {},
+      "authenticated": true,
+      "bodyBytes": 0
+    },
+    {
+      "method": "PATCH",
+      "path": "/v1/pages/page-1",
+      "query": {},
+      "authenticated": true,
+      "bodyBytes": 17
+    },
+    {
+      "method": "POST",
+      "path": "/v1/pages",
+      "query": {},
+      "authenticated": true,
+      "bodyBytes": 118
+    },
+    {
+      "method": "PATCH",
+      "path": "/v1/blocks/page-2/children",
+      "query": {},
+      "authenticated": true,
+      "bodyBytes": 303
+    },
+    {
+      "method": "PATCH",
+      "path": "/v1/pages/page-2",
+      "query": {},
+      "authenticated": true,
+      "bodyBytes": 83
+    },
+    {
+      "method": "GET",
+      "path": "/v1/blocks/page-2/children",
+      "query": {
+        "page_size": [
+          "100"
+        ]
+      },
+      "authenticated": true,
+      "bodyBytes": 0
+    },
+    {
+      "method": "PATCH",
+      "path": "/v1/blocks/page-2/children",
+      "query": {},
+      "authenticated": true,
+      "bodyBytes": 303
+    },
+    {
+      "method": "POST",
+      "path": "/v1/pages",
+      "query": {},
+      "authenticated": true,
+      "bodyBytes": 118
+    },
+    {
+      "method": "PATCH",
+      "path": "/v1/pages/page-3",
+      "query": {},
+      "authenticated": true,
+      "bodyBytes": 83
+    },
+    {
+      "method": "GET",
+      "path": "/v1/blocks/page-3/children",
+      "query": {
+        "page_size": [
+          "100"
+        ]
+      },
+      "authenticated": true,
+      "bodyBytes": 0
+    },
+    {
+      "method": "PATCH",
+      "path": "/v1/blocks/page-3/children",
+      "query": {},
+      "authenticated": true,
+      "bodyBytes": 303
+    },
+    {
+      "method": "POST",
+      "path": "/v1/pages",
+      "query": {},
+      "authenticated": true,
+      "bodyBytes": 118
+    },
+    {
+      "method": "POST",
+      "path": "/v1/pages",
+      "query": {},
+      "authenticated": true,
+      "bodyBytes": 118
+    }
+  ],
+  "pages": {
+    "page-1": {
+      "object": "page",
+      "id": "page-1",
+      "url": "https://example.invalid/page-1",
+      "archived": true,
+      "properties": {
+        "title": {
+          "title": [
+            {
+              "text": {
+                "content": "Título corregido"
+              }
+            }
+          ]
+        }
+      },
+      "blocks": [
+        {
+          "object": "block",
+          "type": "paragraph",
+          "paragraph": {
+            "rich_text": [
+              {
+                "type": "text",
+                "text": {
+                  "content": "Nota sintética: Título corregido"
+                }
+              }
+            ]
+          },
+          "id": "block-3"
+        },
+        {
+          "object": "block",
+          "type": "paragraph",
+          "paragraph": {
+            "rich_text": [
+              {
+                "type": "text",
+                "text": {
+                  "content": "Contenido de prueba sin datos personales."
+                }
+              }
+            ]
+          },
+          "id": "block-4"
+        },
+        {
+          "object": "block",
+          "type": "audio",
+          "audio": {
+            "type": "file_upload",
+            "file_upload": {
+              "id": "upload-1"
+            }
+          },
+          "id": "block-5"
+        }
+      ]
+    },
+    "page-2": {
+      "object": "page",
+      "id": "page-2",
+      "url": "https://example.invalid/page-2",
+      "archived": false,
+      "properties": {
+        "title": {
+          "title": [
+            {
+              "text": {
+                "content": "Nota sintética del POC"
+              }
+            }
+          ]
+        }
+      },
+      "blocks": [
+        {
+          "object": "block",
+          "type": "paragraph",
+          "paragraph": {
+            "rich_text": [
+              {
+                "type": "text",
+                "text": {
+                  "content": "Nota sintética: Nota sintética del POC"
+                }
+              }
+            ]
+          },
+          "id": "block-6"
+        },
+        {
+          "object": "block",
+          "type": "paragraph",
+          "paragraph": {
+            "rich_text": [
+              {
+                "type": "text",
+                "text": {
+                  "content": "Contenido de prueba sin datos personales."
+                }
+              }
+            ]
+          },
+          "id": "block-7"
+        }
+      ]
+    },
+    "page-3": {
+      "object": "page",
+      "id": "page-3",
+      "url": "https://example.invalid/page-3",
+      "archived": false,
+      "properties": {
+        "title": {
+          "title": [
+            {
+              "text": {
+                "content": "Nota sintética del POC"
+              }
+            }
+          ]
+        }
+      },
+      "blocks": [
+        {
+          "object": "block",
+          "type": "paragraph",
+          "paragraph": {
+            "rich_text": [
+              {
+                "type": "text",
+                "text": {
+                  "content": "Nota sintética: Nota sintética del POC"
+                }
+              }
+            ]
+          },
+          "id": "block-8"
+        },
+        {
+          "object": "block",
+          "type": "paragraph",
+          "paragraph": {
+            "rich_text": [
+              {
+                "type": "text",
+                "text": {
+                  "content": "Contenido de prueba sin datos personales."
+                }
+              }
+            ]
+          },
+          "id": "block-9"
+        }
+      ]
+    },
+    "page-4": {
+      "object": "page",
+      "id": "page-4",
+      "url": "https://example.invalid/page-4",
+      "archived": false,
+      "properties": {
+        "title": {
+          "title": [
+            {
+              "text": {
+                "content": "Nota sintética del POC"
+              }
+            }
+          ]
+        }
+      },
+      "blocks": []
+    }
+  },
+  "uploads": {
+    "upload-1": {
+      "id": "upload-1",
+      "status": "uploaded",
+      "filename": "escriba-poc.wav",
+      "contentType": "audio/wav",
+      "bytes": [
+        82,
+        73,
+        70,
+        70,
+        196,
+        0,
+        0,
+        0,
+        87,
+        65,
+        86,
+        69,
+        102,
+        109,
+        116,
+        32,
+        16,
+        0,
+        0,
+        0,
+        1,
+        0,
+        1,
+        0,
+        64,
+        31,
+        0,
+        0,
+        128,
+        62,
+        0,
+        0,
+        2,
+        0,
+        16,
+        0,
+        100,
+        97,
+        116,
+        97,
+        160,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  }
+}

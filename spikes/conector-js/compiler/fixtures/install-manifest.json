@@ -1,0 +1,12 @@
+{
+  "copies": [
+    {
+      "from": "compiler/fixtures/packages/parent",
+      "to": "node_modules/@fixture/parent"
+    },
+    {
+      "from": "compiler/fixtures/packages/leaf",
+      "to": "node_modules/@fixture/parent/node_modules/@fixture/leaf"
+    }
+  ]
+}

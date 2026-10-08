@@ -1,0 +1,4 @@
+{
+  "name": "@fixture/leaf",
+  "exports": { "./*": { "import": "./dist/*.mjs", "require": "./dist/*.cjs" } }
+}
