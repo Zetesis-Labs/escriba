@@ -15,13 +15,16 @@ venta.
 **El núcleo viaja**: el mismo motor debe poder correr en un Mac, en un pod
 de Linux o en un runtime WebAssembly (WASI), cambiando solo el host que lo
 conecta. `EscribaCore` y `EscribaEngine` compilan a
-`wasm32-unknown-wasi` y a Linux, y el CI lo comprueba en cada PR. El
-escritorio en Windows y Linux está descartado por ahora; el análisis queda en
-`docs/requisito-multiplataforma.md`. Si se retoma, la decisión ya está tomada:
-SwiftUI en el Mac y **SwiftCrossUI** fuera, compartiendo `EscribaModel` (observa
-`@Observable`, verificado el 2026-09-22). **Tauri con sidecar está descartado
-por decisión de producto (la interfaz es Swift), no por CoreML**: el sidecar
-sería Swift y usaría el Neural Engine igual. No reabrirlo sin que Rubén lo pida. El núcleo como componente WebAssembly en
+`wasm32-unknown-wasi` y a Linux, y el CI lo comprueba en cada PR. El escritorio nuevo es **Tauri**, decisión definitiva de Rubén el 2026-10-09.
+La base de datos es **SurrealDB embebida con SurrealKV**, también por decisión
+expresa de Rubén. TypeScript lleva interfaz, recetas, conectores y reglas de
+procesamiento; Rust, persistencia, cola duradera y capacidades; Swift solo
+adapta APIs de Apple. Consultar `apps/tauri/README.md`,
+`docs/adr/0003-migracion-tauri-surrealdb.md` y `docs/tauri-persistence.md`.
+La implementación SwiftUI existente se conserva para transición y referencia;
+las reglas posteriores sobre su arquitectura Swift se aplican a esos targets,
+no trasladan lógica nueva de Tauri a Swift. macOS 26 sigue siendo el destino.
+El núcleo como componente WebAssembly en
 Kubernetes **está descartado** (Rubén, 2026-10-06: no se va a hacer; no
 reabrirlo sin que lo pida): el análisis queda en
 `docs/requisito-nucleo-wasm-kubernetes.md` y la prueba de `wasi:http` en
@@ -58,6 +61,24 @@ la app está aparcado (Rubén, 2026-10-07). Los
 conectores como plugins wasm se exploraron y se archivaron el 2026-10-06
 (viable, pero no merece la pena ahora): conclusiones y medidas en
 `docs/exploracion-plugins-wasm.md`, código en el PR en borrador #3.
+
+## Desarrollo de Tauri
+
+- La WebView solo muestra estado y envía acciones; Rust conserva y ejecuta los
+  trabajos aunque se recargue o desaparezca la ventana.
+- SurrealDB guarda entidades, versiones, recibos y trabajos transaccionalmente.
+  `library.json` y SQLite solo son entradas de migración, nunca almacenamiento
+  de la aplicación nueva. La importación no altera el origen ni lee secretos.
+- Los programas TypeScript se ejecutan en procesos aislados con permisos Deno
+  denegados. El controlador y cada receta tienen tuberías distintas; tokens,
+  rutas y bytes de audio permanecen en Rust.
+- El proceso nativo Swift expone inferencia y capacidades Apple concretas;
+  las reglas de procesamiento y persistencia pertenecen a TypeScript/Rust.
+- Pruebas de integridad con SurrealKV real y procesos reales, servidores locales
+  falsos y audios sintéticos. Notion real, tokens reales y publicación externa
+  siguen fuera del alcance autorizado de esta migración.
+- Compilar en macOS con `scripts/build-tauri.sh --release`; el devcontainer de
+  ZetesisPortal no aplica a este repositorio con SDK de Apple.
 
 ## Comandos
 

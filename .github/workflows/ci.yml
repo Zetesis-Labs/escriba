@@ -40,6 +40,18 @@ jobs:
       - run: swift test
       - name: Empaquetar la app
         run: ./scripts/build-app.sh
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.6.9
+      - name: Aplicación Tauri, runtime aislado y SurrealDB
+        run: |
+          ./scripts/build-tauri.sh
+          npm test --prefix apps/tauri
+          cargo test --manifest-path apps/tauri/src-tauri/Cargo.toml --lib
+          cargo clippy --manifest-path apps/tauri/src-tauri/Cargo.toml --all-targets -- -D warnings
 
   linux:
     name: Linux · targets portables y de sistema
