@@ -24,11 +24,11 @@ struct ProyectoRecetasTests {
         #expect(recipeKeys(in: rutas) == ["general", "otra"])
     }
 
-    @Test("lo que escribe Escriba, git y node_modules no cuentan como cambios del proyecto")
+    @Test("npm cuenta como cambio del proyecto y los ficheros internos se ignoran")
     func ignorados() {
         #expect(ignoredByRecipes(".escriba/estado.json"))
         #expect(ignoredByRecipes(".git/HEAD"))
-        #expect(ignoredByRecipes("node_modules/lodash/index.js"))
+        #expect(!ignoredByRecipes("node_modules/lodash/index.js"))
         #expect(ignoredByRecipes(".DS_Store"))
         #expect(!ignoredByRecipes("recetas/general/receta.ts"))
         #expect(!ignoredByRecipes("comun/.escriba.ts"))

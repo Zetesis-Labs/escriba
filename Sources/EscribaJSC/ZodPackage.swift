@@ -59,6 +59,7 @@ public enum ZodPackage {
     @discardableResult
     public static func installTypes(from directory: URL, intoProject project: URL) throws -> Bool {
         let files = FileManager.default
+        if files.fileExists(atPath: project.appending(path: "node_modules/zod/package.json").path) { return false }
         let destination = project.appending(path: projectFolder)
         let stamp = destination.appending(path: marker)
         if (try? String(contentsOf: stamp, encoding: .utf8)) == version { return false }

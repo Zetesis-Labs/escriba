@@ -83,3 +83,71 @@ public func visibleTags(_ tags: [String], limit: Int = 3) -> (shown: [String], h
 }
 
 private let shortMonthNames = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sept", "oct", "nov", "dic"]
+
+public let noteDescriptionLimit = 200
+
+public func noteDescription(summary: String?) -> String? {
+    guard let summary = summary?.trimmingCharacters(in: .whitespacesAndNewlines), !summary.isEmpty else {
+        return nil
+    }
+    let line = summary.split(whereSeparator: \.isNewline).first.map(String.init) ?? summary
+    let sentence = firstSentence(of: line)
+    guard sentence.count > noteDescriptionLimit else { return sentence }
+    var taken = ""
+    for word in sentence.split(whereSeparator: \.isWhitespace) {
+        let next = taken.isEmpty ? String(word) : taken + " " + word
+        guard next.count < noteDescriptionLimit else { break }
+        taken = next
+    }
+    return (taken.isEmpty ? String(sentence.prefix(noteDescriptionLimit - 1)) : taken) + "…"
+}
+
+private func firstSentence(of line: String) -> String {
+    var index = line.startIndex
+    while index < line.endIndex {
+        let next = line.index(after: index)
+        if ".?!".contains(line[index]), next == line.endIndex || line[next].isWhitespace {
+            return String(line[...index])
+        }
+        index = next
+    }
+    return line
+}
+
+
+private let monthNames = [
+    "enero", "febrero", "marzo", "abril", "mayo", "junio",
+    "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre",
+]
+
+
+private func calendar(_ timeZone: TimeZone) -> Calendar {
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = timeZone
+    return calendar
+}
+
+
+public func longDate(_ date: Date, timeZone: TimeZone) -> String {
+    let parts = calendar(timeZone).dateComponents([.year, .month, .day, .hour, .minute], from: date)
+    let month = monthNames[max(0, min(11, (parts.month ?? 1) - 1))]
+    let time = String(format: "%02d:%02d", parts.hour ?? 0, parts.minute ?? 0)
+    return "\(parts.day ?? 0) de \(month) de \(parts.year ?? 0), \(time)"
+}
+
+
+public func sampleNote(recordedAt: Date) -> Note {
+    Note(
+        recording: Recording(
+            url: URL(fileURLWithPath: "/Notas de voz/Reunion del lanzamiento.m4a"),
+            startedAt: recordedAt, key: "ejemplo"),
+        transcript: Transcript(segments: [
+            TranscriptSegment(start: 0, end: 8, speaker: "Ana", text: "¿Cómo vamos con el lanzamiento del jueves?"),
+            TranscriptSegment(start: 8, end: 21, speaker: "Luis", text: "La migración no llega; propongo moverla una semana."),
+            TranscriptSegment(start: 21, end: 29, speaker: "Ana", text: "Vale, y avisamos a soporte hoy mismo."),
+        ]),
+        digest: Digest(
+            title: "Lanzamiento del jueves",
+            summary: "Ana y Luis repasan el lanzamiento del jueves. Acuerdan mover la migración una semana y avisar hoy a soporte.",
+            tags: ["lanzamiento", "migración"]))
+}

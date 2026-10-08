@@ -24,7 +24,7 @@ private let herramientas = RecipeToolchain(
 
 @Suite("El proyecto de recetas en una carpeta de verdad")
 struct ProyectoEnDiscoTests {
-    @Test("la foto del proyecto no incluye lo que escribe Escriba, git ni node_modules, y lee el codigo")
+    @Test("la foto del proyecto incluye npm fijado y excluye lo que escribe Escriba y git")
     func foto() throws {
         let raiz = try carpeta()
         try escribir("export const a = 1", en: "recetas/a/receta.ts", dentro: raiz)
@@ -32,11 +32,12 @@ struct ProyectoEnDiscoTests {
         try escribir("{}", en: ".escriba/estado.json", dentro: raiz)
         try escribir("ref", en: ".git/HEAD", dentro: raiz)
         try escribir("x", en: "node_modules/l/index.js", dentro: raiz)
+        try escribir("{}", en: "package-lock.json", dentro: raiz)
         try escribir("", en: "recetas/.DS_Store", dentro: raiz)
 
         let foto = try folderRecipeProject(root: raiz, installed: raiz.appending(path: "../i.json")).snapshot()
 
-        #expect(foto.paths == ["recetas/a/receta.ts", "AGENTS.md"])
+        #expect(foto.paths == ["recetas/a/receta.ts", "AGENTS.md", "node_modules/l/index.js", "package-lock.json"])
         #expect(foto.sources["recetas/a/receta.ts"] == "export const a = 1")
     }
 
@@ -64,11 +65,12 @@ struct ProyectoEnDiscoTests {
         #expect(try folderRecipeProject(root: raiz, installed: raiz.appending(path: "no/existe.json")).loadInstalled().isEmpty)
     }
 
-    @Test("el vigilante del proyecto no se despierta con lo que escribe Escriba, git ni node_modules")
+    @Test("el vigilante observa npm y descarta cambios internos y git")
     func vigilante() {
         #expect(ignoredByRecipesWatch("/Users/r/recetas/.escriba/estado.json"))
         #expect(ignoredByRecipesWatch("/Users/r/recetas/.git/index"))
-        #expect(ignoredByRecipesWatch("/Users/r/recetas/node_modules/x/y.js"))
+        #expect(!ignoredByRecipesWatch("/Users/r/recetas/node_modules/x/y.js"))
+        #expect(!ignoredByRecipesWatch("/Users/r/recetas/package-lock.json"))
         #expect(ignoredByRecipesWatch("/Users/r/recetas/comun/.DS_Store"))
         #expect(!ignoredByRecipesWatch("/Users/r/recetas/recetas/general/receta.ts"))
     }

@@ -195,22 +195,12 @@ struct RecetaEleccionTests {
         #expect(local["url"] is NSNull)
     }
 
-    @Test("los conectores llegan con si estan activos y su destino, sin su token")
+    @Test("los conectores llegan como destinos genéricos sin configuración ni token")
     func conectorConfigurado() throws {
-        let notion = try objeto(try recipeJSON(RecipeConnector(
-            key: "K", name: "Notion trabajo", kind: "notion", isActive: true,
-            notionBase: RecipeConnector.NotionBase(id: "db1", name: "Voice Inbox"))))
-        let okf = try objeto(try recipeJSON(RecipeConnector(
-            key: "O", name: "Ideas", kind: "okf", isActive: false, folder: "/Users/r/ideas")))
-        let base = try #require(notion["base"] as? [String: Any])
-
-        #expect(Set(notion.keys) == ["clave", "nombre", "tipo", "activo", "base", "carpeta"])
-        #expect(notion["activo"] as? Bool == true)
-        #expect(base["id"] as? String == "db1")
-        #expect(base["nombre"] as? String == "Voice Inbox")
-        #expect(notion["carpeta"] is NSNull)
-        #expect(okf["activo"] as? Bool == false)
-        #expect(okf["base"] is NSNull)
-        #expect(okf["carpeta"] as? String == "/Users/r/ideas")
+        let connector = try objeto(try recipeJSON(RecipeConnector(
+            key: "K", name: "Archivo", kind: "mi-proveedor", isActive: true)))
+        #expect(Set(connector.keys) == ["clave", "nombre", "tipo", "activo"])
+        #expect(connector["activo"] as? Bool == true)
+        #expect(connector["tipo"] as? String == "mi-proveedor")
     }
 }

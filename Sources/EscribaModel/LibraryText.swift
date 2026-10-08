@@ -14,26 +14,10 @@ public enum RowActionText {
             : "El original ya no existe: sin la copia, el audio se pierde del todo. Las transcripciones se quedan."
     }
 
-    public static func unpublish(from kind: Connector.Kind) -> String {
-        switch kind {
-        case .notion:
-            "La página se archiva en \(kind.label) (se puede restaurar desde su papelera). La grabación y sus transcripciones se quedan en la biblioteca."
-        case .okf:
-            "Se borran sus ficheros .md de la carpeta del bundle y se anota la baja en el registro. La grabación y sus transcripciones se quedan en la biblioteca."
-        }
+    public static func unpublish(from provider: String) -> String {
+        "Se retira la publicación de «\(provider)». La grabación y sus transcripciones se quedan en la biblioteca."
     }
 
     public static let discard =
         "Desaparecen la fila, sus transcripciones y la copia de audio. El fichero original en su carpeta no se toca, pero la grabacion no volvera a aparecer en la biblioteca."
-}
-
-public enum ConnectorText {
-    public static func removal(of kind: Connector.Kind) -> String {
-        switch kind {
-        case .notion:
-            "Se borran su configuración y su token de Notion; tendrías que volver a pegarlo. Las páginas ya publicadas siguen en Notion."
-        case .okf:
-            "Se borra su configuración. Los ficheros ya escritos siguen en la carpeta."
-        }
-    }
 }

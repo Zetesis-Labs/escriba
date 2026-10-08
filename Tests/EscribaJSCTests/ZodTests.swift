@@ -101,7 +101,7 @@ struct ZodTests {
         })
     }
 
-    @Test("sin Zod instalado, importarlo es un error de compilación que dice qué hacer, y lo demás de npm sigue fuera")
+    @Test("sin Zod instalado ni copia administrada el diagnóstico pide instalar dependencias")
     func sinZod() async throws {
         let compilador = EsbuildCompiler(tools: esbuild)
 
@@ -111,7 +111,7 @@ struct ZodTests {
             Issue.record("no debía compilar")
             return
         }
-        #expect(errores.first?.text.contains("Zod aún no está instalado") == true)
+        #expect(errores.first?.text.contains("instala sus dependencias npm") == true)
     }
 
     @Test("los tipos de Zod se copian al proyecto una vez por versión")

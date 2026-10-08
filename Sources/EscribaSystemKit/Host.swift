@@ -68,8 +68,7 @@ public let systemFolderWatcher: FolderWatcher = folderWatcher { $0.lowercased().
 public let recipeProjectWatcher: FolderWatcher = folderWatcher { !ignoredByRecipesWatch($0) }
 
 public func ignoredByRecipesWatch(_ absolutePath: String) -> Bool {
-    let parts = absolutePath.split(separator: "/")
-    return parts.contains { [".escriba", ".git", "node_modules"].contains($0) } || parts.last == ".DS_Store"
+    ignoredByConnectorProject(absolutePath)
 }
 
 public func folderWatcher(isRelevant: @escaping @Sendable (String) -> Bool) -> FolderWatcher {

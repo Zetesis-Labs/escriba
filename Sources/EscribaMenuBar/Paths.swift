@@ -1,7 +1,10 @@
 import Foundation
 
-enum Paths {
-    private static var home: URL { FileManager.default.homeDirectoryForCurrentUser }
+nonisolated enum Paths {
+    static var isolatedRoot: URL? {
+        ProcessInfo.processInfo.environment["ESCRIBA_DATA_ROOT"].map { URL(fileURLWithPath: $0) }
+    }
+    private static var home: URL { isolatedRoot ?? FileManager.default.homeDirectoryForCurrentUser }
 
     static var defaultOutput: URL {
         home.appending(path: "Documents/Transcripciones JPR")

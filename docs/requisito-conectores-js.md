@@ -1,10 +1,105 @@
-# Análisis: conectores como librerías de JavaScript
+# Conectores como librerías de TypeScript
 
-Estado: **análisis para decisión de Rubén**, 2026-10-08. No modifica RF-9 ni
-autoriza construir la fase 5. Se basa en el estado de la rama
-`docs/encargo-conectores-js` (`4ed9957`), separado de `feat/personas`.
-Incluye después una prueba desechable solicitada por Rubén, en la rama
-`spike/conectores-js-npm`; eso no autoriza integrar la sustitución en la app.
+Estado a 2026-10-09: **arquitectura B implementada en la rama
+`spike/conectores-js-npm`, instalada localmente y entregada en el PR #21**.
+Decisión de Rubén de 2026-10-08: todos los conectores pertenecen a TypeScript;
+[ADR aceptado](adr/0001-conectores-en-typescript.md).
+
+## Verificación de la entrega
+
+- Suite Swift completa: 742 pruebas, incluidas integración JSC + host + Store,
+  recuperación tras fallo de checkpoint y publicación concurrente.
+- Librerías TypeScript: 32 pruebas y comprobación de tipos.
+- Motor portable compilado para WASI.
+- App release compilada y firmada; instalada en `/Applications/Escriba.app`.
+- Arranque de la app con configuración aislada, sin cuentas ni audio reales.
+  La herramienta de control de interfaz denegó el acceso a «Escriba Preview»;
+  la revisión visual no está verificada.
+- No se ha llamado a Notion real, leído tokens reales ni publicado paquetes npm.
+
+Para una apertura aislada se puede definir `ESCRIBA_DATA_ROOT` con una carpeta
+vacía: datos, ajustes y credenciales de esa ejecución se separan de la instalación
+normal. El transporte sigue sujeto a los permisos de cada cuenta.
+
+El `Sink` Swift conserva su retorno URL. Si un proveedor devuelve únicamente un
+localizador, el llamador recibe una URN local `urn:escriba:publication:…`; la
+biblioteca guarda el localizador y no inventa un enlace externo. El origen de la
+nota que ve TypeScript también es una URN, sin la ruta del audio del Mac.
+
+## Implementación actual
+
+`packages/conectores` contiene los proveedores Notion y OKF, sus esquemas Zod,
+la adaptación de configuraciones antiguas, las transformaciones, publicación,
+regeneración y retirada. Notion usa su SDK oficial. Los targets y tests Swift
+de proveedores y la sonda WASI que dependía de ellos se han retirado. Las
+pruebas de comportamiento correspondientes viven en la librería TypeScript
+y las de integración cruzan JSC, el host y la persistencia reales.
+
+Una **cuenta** conserva la credencial y el alcance local autorizado. Un
+**destino** declara identidad estable, cuenta, configuración y esquema de
+entrada en `conectores.ts`. Una **publicación** conserva el programa y la
+configuración usados, el localizador y el recibo, para corregir o retirar
+sin depender del proyecto actual. El catálogo de recetas expone únicamente
+identidad, nombre, proveedor y estado activo del destino; carece de tipos
+específicos de Notion u OKF.
+
+| Responsabilidad | Implementación |
+| --- | --- |
+| Protocolo y representación de proveedores | `packages/conectores/src` |
+| Ejecución e inspección sin autoridad de red | `EscribaJSC`, puerto `ConnectorRuntime` |
+| HTTP autenticado, carpeta confinada y audio opaco | `EscribaSystemKit`, puente JSON de capacidades |
+| Retención de programas y recibos | `ConnectorArchive` y coordinador `ConnectorPublications` |
+| Cuentas y catálogo del proyecto | `ConnectorsModel` y composición de la app |
+| Dependencias npm | Captura coherente del árbol instalado y esbuild WASM |
+
+Swift recibe la credencial en el host y no la entrega al programa. El audio
+viaja como un identificador opaco con metadatos; multipart permite seleccionar
+porciones sin exponer bytes ni la ruta local. La entrada identifica la nota
+con una URN. El acceso a carpetas usa rutas relativas y `openat/O_NOFOLLOW`.
+La ejecución tiene límites de CPU y pared y cancela sus tareas pendientes.
+Los fallos de persistencia de recibos se propagan; una publicación iniciada
+sin localizador recuperable se retiene como incierta para impedir duplicados.
+Un fallo de preparación anterior a efectos permite corregir y reintentar.
+
+El código antiguo de configuración se migra al catálogo y conserva los IDs.
+Cada corrección sigue la revisión que publicó. Al borrar un destino o todo
+`conectores.ts` se desactivan sus publicaciones nuevas, conservando el programa
+y recibos necesarios para gestionar lo ya publicado. La autorización vigente
+de la cuenta se vuelve a consultar aunque el programa sea antiguo.
+
+Recetas y destinos pueden importar paquetes npm compatibles con JSC,
+instalados externamente y fijados por lockfile. El compilador resuelve
+subrutas, `exports`, ESM, CommonJS y JSON; los imports calculados y módulos
+Node incompatibles fallan al compilar. El fallback criptográfico opcional del
+SDK se representa con un error explícito: no se soporta verificación de
+webhooks. Zod de `node_modules` prevalece sobre la copia administrada, también
+en el editor. La captura rechaza enlaces simbólicos y limita las fuentes a
+8 MiB por fichero, 128 MiB total y 50000 rutas. Escriba no instala dependencias
+ni ejecuta sus scripts.
+
+## Validación y trabajo restante
+
+Las pruebas locales usan el SDK oficial, transporte controlado, JSC real,
+carpetas temporales y SQLite. Cubren publicación, corrección, retirada,
+fallos parciales, recibos, audio multipart, autoridad revocada, compilación
+npm y conservación del paquete. El spike de `spikes/conector-js` conserva
+sus medidas y restricciones como evidencia histórica; no sustituye las
+pruebas de la implementación integrada.
+
+La comprobación contra Notion real sigue pendiente de autorización con datos
+sintéticos. No se han medido CPU/memoria de cargas de producción ni definido
+una política de limpieza de programas retenidos. La reconciliación de una
+creación remota sin recibo requiere resolver la incertidumbre antes de volver
+a crear. La verificación final de la app y su instalación pertenecen a la
+entrega de esta rama. La migración y la sustitución de proveedores ya están
+implementadas; no son fases propuestas pendientes de comenzar.
+
+## Análisis histórico de alternativas
+
+Lo que sigue conserva el análisis previo y sus estimaciones, basado en
+`4ed9957`. Sus alternativas, decisiones entonces pendientes, referencias al
+árbol Swift retirado y coste estimado describen ese momento, no el estado
+actual. Para consultar fuentes eliminadas: `git show 4ed9957:ruta/del/fichero`.
 
 ## Punto de partida y términos
 
@@ -746,7 +841,7 @@ solo lectura» no explica por sí sola cómo configura su primera base alguien
 sin proyecto, y el alcance OSS exige resolver ese recorrido antes de retirar
 el editor.
 
-## Coste, fases y criterios de salida
+## Estimación histórica de coste, fases y criterios de salida
 
 Estimación de ingeniería, **no medida**, en jornadas de una persona que
 conoce el repo. Incluye los dos conectores actuales, migración, pruebas locales
@@ -801,7 +896,7 @@ históricos ocupa disco y obliga a una política de retención. El coste de CPU
 y memoria de los paquetes de destino no se ha medido; no se promete una
 mejora de rendimiento por cambiar de lenguaje.
 
-## Decisiones pendientes de Rubén
+## Decisiones que estaban pendientes durante el análisis
 
 1. El objetivo de flexibilidad ya está aclarado: B. Se propone sustituir
    «solo Zod» por dependencias npm del proyecto compatibles con el contrato

@@ -1,8 +1,6 @@
 import EscribaCore
 import EscribaEngine
 import EscribaModel
-import EscribaNotion
-import EscribaOKF
 import EscribaWhisper
 import ServiceManagement
 import SwiftUI
@@ -217,227 +215,225 @@ private nonisolated func directorySize(_ folder: URL) -> String {
 
 struct ConnectorsPane: View {
     let connectors: ConnectorsModel
-    @State private var selected: UUID?
-    @State private var removing: Connector?
+    var openProject: () -> Void = {}
+    @State private var selected: String?
+    @State private var problem: String?
 
     var body: some View {
         ListDetailLayout(listWidth: 230) {
             VStack(spacing: 0) {
-                List(connectors.connectors, selection: $selected) { connector in
-                    HStack {
-                        Image(systemName: connector.isLive ? "circle.fill" : "circle")
-                            .foregroundStyle(connector.isLive ? .green : .secondary)
-                            .font(.caption2)
-                        VStack(alignment: .leading) {
-                            Text(connector.name)
-                            Text(subtitle(of: connector))
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                List(selection: $selected) {
+                    Section("Cuentas") {
+                        ForEach(connectors.accounts) { account in
+                            Label(account.name, systemImage: account.enabled ? "key" : "key.slash")
+                                .tag("account:" + account.id.uuidString)
                         }
                     }
-                    .tag(connector.id)
+                    Section("Destinos") {
+                        ForEach(connectors.connectors) { connector in
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(connector.name)
+                                Text(connector.sourceMissing ? "Fuera del proyecto" : connector.provider)
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                            .tag("destination:" + connector.id.uuidString)
+                        }
+                    }
                 }
                 .listStyle(.inset)
-                .onAppear {
-                    if let name = MainSection.connectorToSelect, selected == nil {
-                        selected = connectors.connectors.first { $0.name == name }?.id
-                    }
-                    if MainSection.selectsFirstItem, selected == nil {
-                        selected = connectors.connectors.first?.id
-                    }
-                }
                 Divider()
-                HStack(spacing: 0) {
+                HStack {
                     Menu {
-                        ForEach(Connector.Kind.allCases, id: \.self) { kind in
-                            Button(kind.label) { selected = connectors.add(kind).id }
+                        ForEach(connectors.providers) { provider in
+                            Button(provider.name) {
+                                do { selected = "account:" + (try connectors.addAccount(provider: provider.id)).id.uuidString }
+                                catch { problem = error.localizedDescription }
+                            }
                         }
-                    } label: {
-                        ListBarIcon(systemName: "plus")
-                    }
+                    } label: { ListBarIcon(systemName: "plus") }
                     .menuIndicator(.hidden)
-                    .fixedSize()
-                    Button {
-                        removing = connectors.connectors.first { $0.id == selected }
-                    } label: { ListBarIcon(systemName: "minus") }
-                    .disabled(selected == nil)
+                    .disabled(connectors.providers.isEmpty)
                     Spacer()
+                    Button("Abrir proyecto", action: openProject)
                 }
                 .buttonStyle(.borderless)
-                .padding(6)
+                .padding(8)
             }
         } detail: {
-            if let connector = connectors.connectors.first(where: { $0.id == selected }) {
-                switch connector.kind {
-                case .notion: NotionEditor(notion: connectors.editor(for: connector.id))
-                case .okf: OKFEditor(okf: connectors.okfEditor(for: connector.id))
-                }
+            if let account = connectors.accounts.first(where: { "account:" + $0.id.uuidString == selected }) {
+                ConnectorAccountEditor(account: account, connectors: connectors).id(account.id)
+            } else if let connector = connectors.connectors.first(where: { "destination:" + $0.id.uuidString == selected }) {
+                ConnectorDestinationDetail(connector: connector, accounts: connectors.accounts, openProject: openProject)
             } else {
-                ContentUnavailableView(
-                    "Sin conector elegido",
-                    systemImage: "square.and.arrow.up",
-                    description: Text("Añade uno con + o elige uno de la lista."))
+                ContentUnavailableView("Cuentas y destinos", systemImage: "square.and.arrow.up",
+                    description: Text("Añade una cuenta con + y define sus destinos en el proyecto."))
             }
         }
         .navigationTitle("Conectores")
-        .confirmationDialog(
-            "¿Quitar «\(removing?.name ?? "")»?",
-            isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } })
-        ) {
-            Button("Quitar", role: .destructive) {
-                if let removing { connectors.remove(removing.id) }
-                selected = nil
-                removing = nil
+        .onAppear {
+            if let name = MainSection.connectorToSelect, selected == nil {
+                selected = connectors.connectors.first { $0.name == name }.map { "destination:" + $0.id.uuidString }
             }
-        } message: {
-            Text(removing.map { ConnectorText.removal(of: $0.kind) } ?? "")
+            if MainSection.selectsFirstItem, selected == nil {
+                selected = connectors.connectors.first.map { "destination:" + $0.id.uuidString } ?? connectors.accounts.first.map { "account:" + $0.id.uuidString }
+            }
         }
-    }
-
-    private func subtitle(of connector: Connector) -> String {
-        switch connector.kind {
-        case .notion:
-            connector.notion?.source.label ?? "Sin base elegida"
-        case .okf:
-            connector.okf.flatMap { $0.isUsable ? abbreviated($0.folder) : nil } ?? "Sin carpeta elegida"
+        .overlay(alignment: .bottom) {
+            if let message = problem ?? connectors.problem {
+                Text(message).font(.callout).foregroundStyle(.red).padding().background(.regularMaterial)
+            }
         }
     }
 }
 
-private struct NotionEditor: View {
-    @Bindable var notion: NotionModel
+private struct ConnectorAccountEditor: View {
+    @State var account: ConnectorAccount
+    let connectors: ConnectorsModel
+    @State private var token = ""
+    @State private var tokenSaved = false
+    @State private var credentialProblem: String?
+    @State private var revoking = false
 
     var body: some View {
         Form {
+            Section("Cuenta") {
+                TextField("Nombre", text: $account.name)
+                LabeledContent("Proveedor", value: account.provider)
+                LabeledContent("Identificador", value: account.id.uuidString)
+                    .textSelection(.enabled)
+                Toggle("Permitir acceso", isOn: $account.enabled)
+            }
+            Section("Permisos") {
+                if account.capability == "folder" {
+                    LabeledContent("Carpeta", value: account.folder ?? "Sin elegir")
+                    Button("Elegir carpeta…") {
+                        if let path = chooseFolder() { account.folder = path }
+                    }
+                } else if account.capability == "http" {
+                    LabeledContent("Servidor autorizado", value: account.origin ?? "Sin servidor")
+                    SecureField("Nuevo token", text: $token)
+                    HStack {
+                        Button("Guardar token") {
+                            do {
+                                try connectors.saveToken(token, account: account.id)
+                                token = ""
+                                tokenSaved = true
+                                credentialProblem = nil
+                            } catch {
+                                tokenSaved = false
+                                credentialProblem = error.localizedDescription
+                            }
+                        }
+                        .disabled(token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        Button("Borrar token", role: .destructive) {
+                            do {
+                                try connectors.saveToken(nil, account: account.id)
+                                token = ""
+                                tokenSaved = false
+                                credentialProblem = nil
+                            } catch { credentialProblem = error.localizedDescription }
+                        }
+                    }
+                    if let credentialProblem { Text(credentialProblem).foregroundStyle(.red) }
+                    if tokenSaved { Text("Token guardado").font(.caption).foregroundStyle(.secondary) }
+                }
+            }
             Section {
-                TextField("Nombre", text: $notion.name)
-                Toggle("Publicar cada transcripción nueva", isOn: $notion.publishes)
-                    .disabled(notion.readiness != nil)
-                if let pending = notion.readiness {
-                    Text(pending).font(.caption).foregroundStyle(.secondary)
-                } else {
-                    Text("Corregir hablantes o reprocesar regenera la página ya publicada.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
+                Button("Guardar cuenta") { connectors.updateAccount(account) }
+                    .keyboardShortcut(.defaultAction)
+                Button("Revocar acceso", role: .destructive) { revoking = true }
             }
-
-            Section("Conexión con Notion") {
-                SecureField("Token de la integración", text: $notion.token)
-                    .textFieldStyle(.roundedBorder)
-                HStack {
-                    Button(notion.sources.isEmpty ? "Conectar" : "Actualizar bases y columnas") {
-                        Task { await notion.connect() }
-                    }
-                    .disabled(notion.token.isEmpty || notion.phase.isWorking)
-                    if notion.phase.isWorking { ProgressView().controlSize(.small) }
-                    Spacer()
-                    if !notion.token.isEmpty {
-                        Button("Desconectar", role: .destructive) { notion.disconnect() }
-                    }
-                }
-                if let problem = notion.phase.problem {
-                    Text(problem).font(.caption).foregroundStyle(.red)
-                }
-                Text("En Notion: Ajustes → Conexiones → nueva conexión con «Token de acceso», dale acceso a las bases que quieras y pega aquí el token. Si añades columnas a la base, pulsa «Actualizar».")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+        }
+        .formStyle(.grouped)
+        .confirmationDialog("¿Revocar el acceso de esta cuenta?", isPresented: $revoking) {
+            Button("Revocar", role: .destructive) {
+                account.enabled = false
+                tokenSaved = false
+                do {
+                    try connectors.removeAccount(account.id)
+                    token = ""
+                    credentialProblem = nil
+                } catch { credentialProblem = error.localizedDescription }
             }
+        } message: {
+            Text("Se borra su credencial y se impiden nuevas operaciones. Sus destinos y el rastro de publicaciones se conservan.")
+        }
+    }
+}
 
-            if !notion.sources.isEmpty {
-                Section("Base de datos") {
-                    Picker("Guardar en", selection: chosen) {
-                        Text("Sin elegir").tag(String?.none)
-                        ForEach(notion.sources) { source in
-                            Text(source.label).tag(String?.some(source.id))
-                        }
-                    }
-                }
+private struct ConnectorDestinationDetail: View {
+    let connector: Connector
+    let accounts: [ConnectorAccount]
+    let openProject: () -> Void
+
+    var body: some View {
+        Form {
+            Section(connector.name) {
+                LabeledContent("Proveedor", value: connector.provider)
+                LabeledContent("Cuenta", value: accounts.first { $0.id == connector.accountID }?.name ?? "No disponible")
+                LabeledContent("Identificador", value: connector.key).textSelection(.enabled)
+                LabeledContent("Estado", value: status)
+                if let description = connector.description { Text(description) }
+                if let problem = connector.migrationProblem { Text(problem).foregroundStyle(.red) }
+                Button("Editar en el proyecto", action: openProject)
             }
-
-            if notion.selected != nil {
-                Section {
-                    ForEach(notion.columns, id: \.name) { column in
-                        HStack(alignment: .top, spacing: 8) {
-                            VStack(alignment: .leading, spacing: 1) {
-                                Text(column.name)
-                                Text(columnTypeLabel(column.type)).font(.caption).foregroundStyle(.secondary)
+            if let schema = connector.inputSchemaJSON {
+                Section("Datos de entrada") {
+                    ForEach(fields(schema)) { field in
+                        VStack(alignment: .leading, spacing: 3) {
+                            HStack {
+                                Text(field.name).fontWeight(.medium)
+                                Spacer()
+                                Text(field.type).foregroundStyle(.secondary)
+                                if field.required { Text("Obligatorio").font(.caption).foregroundStyle(.secondary) }
                             }
-                            .frame(width: 150, alignment: .leading)
-                            .padding(.top, 2)
-                            TokenEditor(
-                                source: columnBinding(column.name), context: .property, placeholder: "No se exporta")
+                            if let description = field.description { Text(description).font(.caption).foregroundStyle(.secondary) }
                         }
                     }
-                } header: {
-                    Text("Propiedades")
-                } footer: {
-                    Text("Una fila por columna de tu base: escribe qué va en ella, con texto y datos. Vacía, Escriba no la toca. Las columnas de casilla, persona, archivo o relación no aparecen porque Escriba no escribe en ellas.")
-                }
-
-                Section {
-                    TokenEditor(
-                        source: $notion.body, context: .body,
-                        placeholder: "Escribe aquí. Pulsa / para insertar un dato.", multiline: true)
-                } header: {
-                    Text("Cuerpo de la página")
-                } footer: {
-                    Text("Escribe como en una página: # para títulos, - para viñetas, **negrita**. Pulsa / para insertar un dato; el dato Audio sube el fichero a Notion. Una línea cuyos datos salen vacíos no se escribe.")
-                }
-
-                if let preview = notion.preview {
-                    Section {
-                        VStack(alignment: .leading, spacing: 10) {
-                            Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 4) {
-                                ForEach(preview.properties) { property in
-                                    GridRow {
-                                        Text(property.name).foregroundStyle(.secondary)
-                                        Text(property.value).lineLimit(2)
-                                    }
-                                }
-                            }
-                            Divider()
-                            Text(preview.text)
-                                .textSelection(.enabled)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                        .font(.callout)
-                    } header: {
-                        Text("Así queda")
-                    } footer: {
-                        Text("Con una grabación de ejemplo. Se actualiza mientras escribes, antes de guardar.")
+                    DisclosureGroup("Ver esquema JSON") {
+                        Text(pretty(schema)).font(.system(.caption, design: .monospaced)).textSelection(.enabled)
                     }
+                }
+            }
+            Section("Configuración") {
+                DisclosureGroup("Ver configuración JSON") {
+                    Text(pretty(connector.configurationJSON)).font(.system(.caption, design: .monospaced)).textSelection(.enabled)
                 }
             }
         }
         .formStyle(.grouped)
-        .safeAreaInset(edge: .bottom) {
-            HStack {
-                if notion.isDirty {
-                    Text("Cambios sin guardar").font(.caption).foregroundStyle(.secondary)
-                }
-                Spacer()
-                Button("Descartar") { notion.discard() }
-                    .disabled(!notion.isDirty)
-                Button("Guardar") { notion.save() }
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(!notion.isDirty)
-            }
-            .padding(10)
-            .background(.bar)
+    }
+
+    private var status: String {
+        if connector.legacy { return "Pendiente de migración" }
+        if connector.sourceMissing { return "Fuera del proyecto; disponible para mantener publicaciones" }
+        if accounts.first(where: { $0.id == connector.accountID })?.enabled != true { return "Cuenta sin acceso" }
+        return connector.isLive ? "Disponible" : "Inactivo"
+    }
+    private struct InputField: Identifiable {
+        let name: String
+        let type: String
+        let required: Bool
+        let description: String?
+        var id: String { name }
+    }
+
+    private func fields(_ schema: String) -> [InputField] {
+        guard let object = try? JSONSerialization.jsonObject(with: Data(schema.utf8)) as? [String: Any],
+              let properties = object["properties"] as? [String: [String: Any]] else { return [] }
+        let required = Set(object["required"] as? [String] ?? [])
+        let labels = ["string": "Texto", "number": "Número", "integer": "Entero", "boolean": "Sí / no", "array": "Lista", "object": "Objeto", "null": "Vacío"]
+        return properties.keys.sorted().map { name in
+            let property = properties[name] ?? [:]
+            let types = property["type"] as? [String] ?? [property["type"] as? String ?? "Personalizado"]
+            return InputField(name: name, type: types.map { labels[$0] ?? $0 }.joined(separator: " / "),
+                required: required.contains(name), description: property["description"] as? String)
         }
     }
 
-    private var chosen: Binding<String?> {
-        Binding(
-            get: { notion.selected?.id },
-            set: { id in
-                guard let source = notion.sources.first(where: { $0.id == id }) else { return }
-                notion.choose(source)
-            })
-    }
-
-    private func columnBinding(_ name: String) -> Binding<String> {
-        Binding(get: { notion.value(forColumn: name) }, set: { notion.setValue($0, forColumn: name) })
+    private func pretty(_ text: String) -> String {
+        guard let value = try? JSONSerialization.jsonObject(with: Data(text.utf8)),
+              let data = try? JSONSerialization.data(withJSONObject: value, options: [.prettyPrinted, .sortedKeys, .fragmentsAllowed]) else { return text }
+        return String(decoding: data, as: UTF8.self)
     }
 }

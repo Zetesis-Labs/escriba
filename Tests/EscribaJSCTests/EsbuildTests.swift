@@ -122,7 +122,7 @@ struct EsbuildTests {
         #expect(errores.first?.line == 3)
     }
 
-    @Test("los paquetes de npm se rechazan")
+    @Test("un paquete npm no instalado da un diagnóstico")
     func npm() async throws {
         guard case .failed(let errores) = try await compilar("recetas/npm/receta.ts", con: EsbuildCompiler(tools: herramientas))
         else {
@@ -130,7 +130,7 @@ struct EsbuildTests {
             return
         }
 
-        #expect(errores.first?.text.contains("solo se importan ficheros del proyecto") == true)
+        #expect(errores.first?.text.contains("instala sus dependencias npm") == true)
     }
 
     @Test("un paquete sin flujo no vale, y uno que no termina de cargar tampoco cuelga nada")
@@ -202,4 +202,66 @@ struct EsbuildToolsTests {
         #expect(EsbuildTools.isInstalled(in: destino))
         #expect(!EsbuildTools.isInstalled(in: roto))
     }
+}
+
+@Suite("Dependencias npm de conectores", .enabled(if: disponibles))
+struct ConectoresNPMTests {
+    @Test("resuelve exports condicionales, subrutas, CommonJS y JSON transitivos")
+    func dependenciasTransitivas() async throws {
+        let compiler = EsbuildCompiler(tools: herramientas)
+        let files = [
+            "destino.ts": "import { value } from '@ejemplo/sdk/cliente'; export function run() { return value }",
+            "node_modules/@ejemplo/sdk/package.json": "{\"exports\":{\"./cliente\":{\"import\":\"./client.js\"}}}",
+            "node_modules/@ejemplo/sdk/client.js": "import value from 'valor'; export {value}",
+            "node_modules/valor/package.json": "{\"main\":\"index.cjs\"}",
+            "node_modules/valor/index.cjs": "module.exports = require('./data.json').value",
+            "node_modules/valor/data.json": "{\"value\":42}"
+        ]
+        guard case .compiled(let source, _) = try await compiler.compileConnector(files: files, entry: "destino.ts") else {
+            Issue.record("debe compilar los paquetes instalados")
+            return
+        }
+        let runtime = try javaScriptCoreConnectorRuntime()
+        let result = try await runtime.execute(ConnectorProgram(source: source, fingerprint: "npm"), "{}", ConnectorBridge { _ in "null" })
+        #expect(result == "42")
+    }
+
+    @Test("una ruta relativa no puede escapar del proyecto")
+    func fueraDelProyecto() async throws {
+        let compiler = EsbuildCompiler(tools: herramientas)
+        let files = ["destino.ts": "import '../../secret'; export function run() {}", "secret.ts": "export const token = 'no'" ]
+        guard case .failed(let issues) = try await compiler.compileConnector(files: files, entry: "destino.ts") else {
+            Issue.record("debía rechazar el escape")
+            return
+        }
+        #expect(issues.contains { $0.text.contains("escapa") })
+    }
+    @Test("compila el SDK Notion instalado con su fallback criptográfico explícito")
+    func sdkNPMReal() async throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().appending(path: "packages/conectores")
+        guard let walker = FileManager.default.enumerator(at: root.appending(path: "node_modules"), includingPropertiesForKeys: [.isRegularFileKey]) else {
+            Issue.record("instala npm de packages/conectores antes de validar el compilador")
+            return
+        }
+        var files = ["destino.ts": "import {Client} from '@notionhq/client'; export async function run(r,h) { const sdk=new Client({fetch:h.fetch}); return await sdk.search({}) }" ]
+        while let file = walker.nextObject() as? URL {
+            guard ["js","cjs","mjs","json"].contains(file.pathExtension), try file.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile == true else { continue }
+            files[String(file.path.dropFirst(root.path.count+1))] = try String(contentsOf:file,encoding:.utf8)
+        }
+        let compiler = EsbuildCompiler(tools: herramientas)
+        let compilation = try await compiler.compileConnector(files: files, entry: "destino.ts")
+        guard case .compiled(let source, _) = compilation else { Issue.record("SDK no compilado: \(compilation)"); return }
+        let result = try await javaScriptCoreConnectorRuntime().execute(ConnectorProgram(source:source,fingerprint:"sdk-npm"), "{}", ConnectorBridge { _ in
+            "{\"status\":200,\"headers\":{},\"body\":\"{\\\"results\\\":[]}\"}"
+        })
+        #expect(result == "{\"results\":[]}")
+    }
+
+    @Test("los imports calculados no se dejan para el runtime")
+    func importDinamico() async throws {
+        let compiler = EsbuildCompiler(tools: herramientas)
+        let result = try await compiler.compileConnector(files: ["destino.ts":"export async function run(r) { return import(r.path) }"], entry: "destino.ts")
+        guard case .failed = result else { Issue.record("debe diagnosticar un import que no puede empaquetar"); return }
+    }
+
 }

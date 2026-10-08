@@ -14,8 +14,8 @@ struct LibraryTextTests {
 
     @Test("borrar de un conector deja claro que la pagina se archiva y la biblioteca no se toca")
     func borrarDelConector() {
-        let texto = RowActionText.unpublish(from: .notion)
-        #expect(texto.contains("se archiva en Notion"))
+        let texto = RowActionText.unpublish(from: "Destino")
+        #expect(texto.contains("Se retira la publicación de «Destino»"))
         #expect(texto.contains("se quedan en la biblioteca"))
     }
 

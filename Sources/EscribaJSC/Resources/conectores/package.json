@@ -1,0 +1,22 @@
+{
+  "name": "@escriba/conectores",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "import": "./index.js"
+    }
+  },
+  "types": "./index.d.ts",
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "types.d.ts",
+    "conectores.js",
+    "vendor",
+    "licenses",
+    "LICENSE"
+  ],
+  "license": "MIT"
+}

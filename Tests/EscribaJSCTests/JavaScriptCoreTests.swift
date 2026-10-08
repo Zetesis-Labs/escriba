@@ -58,8 +58,7 @@ func puente(
         llms: [RecipeResolver(key: "apple", name: "Apple Intelligence", isLocal: true)],
         connectors: connectors.map {
             RecipeConnector(
-                key: $0, name: $0, kind: "notion", isActive: !$0.hasPrefix("apagado"),
-                notionBase: RecipeConnector.NotionBase(id: "db1", name: "Voice Inbox"))
+                key: $0, name: $0, kind: "archivo", isActive: !$0.hasPrefix("apagado"))
         },
         recipes: recetas,
         transcribe: { pedido in
@@ -173,11 +172,11 @@ struct JavaScriptCoreTests {
                 const groq = escriba.stts.find((s) => s.nombre === "Groq")
                 escriba.log(`${groq.modelo} ${groq.url} ${groq.local}`)
                 const conector = escriba.conectores[0]
-                escriba.log(`${conector.activo} ${conector.base.nombre}`)
+                escriba.log(`${conector.activo} ${conector.tipo}`)
                 """),
             puente(registro, connectors: ["notion"]))
 
-        #expect(registro.values == ["log whisper-large-v3 https://api.groq.com/openai/v1 false", "log true Voice Inbox"])
+        #expect(registro.values == ["log whisper-large-v3 https://api.groq.com/openai/v1 false", "log true archivo"])
     }
 
     @Test("la receta por defecto sigue con los demas conectores si uno falla, y lo apunta")
@@ -412,7 +411,7 @@ struct JavaScriptCoreTests {
             puente(registro, connectors: ["Notion trabajo"]))
 
         #expect(registro.values == [
-            "log whisper,U1", "log Apple Intelligence", "log Notion trabajo notion", "transcribe",
+            "log whisper,U1", "log Apple Intelligence", "log Notion trabajo archivo", "transcribe",
             "publica NOTION TRABAJO",
         ])
     }

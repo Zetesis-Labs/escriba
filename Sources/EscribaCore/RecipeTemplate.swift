@@ -44,10 +44,8 @@ interface Resolutor {
 interface InfoDeConector {
   readonly clave: string
   readonly nombre: string
-  readonly tipo: "notion" | "okf"
+  readonly tipo: string
   readonly activo: boolean
-  readonly base: { readonly id: string; readonly nombre: string } | null
-  readonly carpeta: string | null
 }
 
 interface InfoDeReceta {
@@ -99,7 +97,7 @@ interface Nota {
 interface Conector {
   readonly clave: string
   readonly nombre: string
-  readonly tipo: "notion" | "okf" | null
+  readonly tipo: string | null
   publicar(nota: Nota): Promise<void>
 }
 
@@ -151,7 +149,7 @@ declare const console: {
     "noEmit": true,
     "skipLibCheck": true,
     "types": [],
-    "paths": { "zod": ["./.escriba/zod/index.d.ts"] }
+    "paths": { "zod": ["./node_modules/zod/index.d.ts", "./.escriba/zod/index.d.ts"], "@escriba/conectores": ["./node_modules/@escriba/conectores/dist/index.d.ts", "./.escriba/conectores/index.d.ts"] }
   },
   "include": ["escriba-recetas.d.ts", "**/*.ts"]
 }
@@ -163,7 +161,8 @@ declare const console: {
 Este proyecto contiene recetas de Escriba: programas en TypeScript que deciden
 qué pasa con cada grabación (transcribir, resumir, guardar y publicar).
 Escriba compila este proyecto en cuanto cambia un fichero y ejecuta las
-recetas por su cuenta. No hace falta instalar nada ni ejecutar ningún comando.
+recetas por su cuenta. Las dependencias adicionales se instalan con npm en
+esta carpeta y su lockfile se conserva junto al proyecto.
 
 ## Estructura
 
@@ -175,7 +174,8 @@ recetas por su cuenta. No hace falta instalar nada ni ejecutar ningún comando.
   escribió Escriba al crear el proyecto. Escriba no vuelve a escribir en esta
   carpeta salvo en `.escriba/`.
 - `.escriba/estado.json` es el resultado de la última compilación.
-- `.escriba/zod/` son los tipos de Zod que trae Escriba, para el editor.
+- `.escriba/zod/` y `.escriba/conectores/` contienen los tipos de serie para el
+  editor; los paquetes instalados en `node_modules` tienen prioridad.
 
 ## Contrato
 
@@ -341,8 +341,10 @@ export async function flujo(audio: Audio, escriba: Escriba<Parametros>): Promise
 
 ## Reglas
 
-- Solo se importan ficheros de este proyecto, con rutas relativas, y `zod`, que
-  trae Escriba (la versión 4). Nada más de npm.
+- Se importan ficheros del proyecto y paquetes instalados en `node_modules`,
+  con lockfile. Deben ser compatibles con JavaScriptCore: los módulos de Node
+  no están disponibles. La versión de Zod del proyecto prevalece sobre la
+  copia de serie; sin npm se mantiene Zod 4 administrado por Escriba.
 - Una receta no tiene red, disco ni temporizadores: solo ve el audio, la nota y
   `escriba`.
 - Una receta puede ejecutar como mucho 10 segundos seguidos sin esperar a nada.

@@ -42,10 +42,8 @@ interface Resolutor {
 interface InfoDeConector {
   readonly clave: string
   readonly nombre: string
-  readonly tipo: "notion" | "okf"
+  readonly tipo: string
   readonly activo: boolean
-  readonly base: { readonly id: string; readonly nombre: string } | null
-  readonly carpeta: string | null
 }
 
 interface InfoDeReceta {
@@ -97,7 +95,7 @@ interface Nota {
 interface Conector {
   readonly clave: string
   readonly nombre: string
-  readonly tipo: "notion" | "okf" | null
+  readonly tipo: string | null
   publicar(nota: Nota): Promise<void>
 }
 
