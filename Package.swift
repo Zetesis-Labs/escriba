@@ -55,6 +55,10 @@ let package = Package(
                 "EscribaJSC",
             ],
             swiftSettings: [.defaultIsolation(MainActor.self)]),
+        .executableTarget(
+            name: "EscribaNativeHost",
+            dependencies: ["EscribaCore", "EscribaEngine", "EscribaWhisper", "EscribaIntelligence"],
+            swiftSettings: [.defaultIsolation(MainActor.self)]),
         .testTarget(name: "EscribaCoreTests", dependencies: ["EscribaCore"]),
         .testTarget(name: "EscribaEngineTests", dependencies: ["EscribaEngine", "EscribaCore"]),
         .testTarget(
@@ -77,6 +81,10 @@ let package = Package(
             dependencies: [
                 "EscribaModel", "EscribaStore", "EscribaCore", "EscribaSystemKit", "EscribaJSC",
             ],
+            swiftSettings: [.defaultIsolation(MainActor.self)]),
+        .testTarget(
+            name: "EscribaNativeHostTests",
+            dependencies: ["EscribaNativeHost", "EscribaCore"],
             swiftSettings: [.defaultIsolation(MainActor.self)]),
     ]
 )
