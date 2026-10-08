@@ -286,7 +286,7 @@ public func recipeFormValues(_ form: RecipeForm, saved: DataValue?) -> DataValue
     return overlay(base, with: .object(savedFields.filter { known.contains($0.name) }))
 }
 
-private func overlay(_ base: DataValue, with top: DataValue?) -> DataValue {
+func overlay(_ base: DataValue, with top: DataValue?) -> DataValue {
     guard case .object(var fields) = base, case .object(let changes)? = top else { return top ?? base }
     for change in changes {
         if let index = fields.firstIndex(where: { $0.name == change.name }) {
