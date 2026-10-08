@@ -60,7 +60,6 @@ private struct RunsLog: View {
                 }
                 .fixedSize()
                 OutcomePicker(outcome: $outcome)
-                    .labelsHidden()
                 TextField("Buscar en la nota o en el log", text: $text)
                     .textFieldStyle(.roundedBorder)
             }
