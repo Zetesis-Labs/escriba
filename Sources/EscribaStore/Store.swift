@@ -374,7 +374,7 @@ public final class Store: Sendable {
         }
     }
 
-    private static func attach(
+    static func attach(
         _ transcript: Transcript, to key: String, backend: String,
         options: TranscriptionOptions?, digest: Digest?, in db: Database
     ) throws {
@@ -410,6 +410,12 @@ public final class Store: Sendable {
         for (position, segment) in transcript.segments.enumerated() {
             try SegmentRow(transcriptId: transcriptId, position: position, segment: segment)
                 .insert(db)
+        }
+        for (position, voice) in transcript.voices.enumerated() {
+            try VoiceRow(transcriptId: transcriptId, position: position, voice: voice).insert(db)
+        }
+        for (position, recognition) in transcript.recognitions.enumerated() {
+            try RecognitionRow(transcriptId: transcriptId, position: position, recognition: recognition).insert(db)
         }
         return transcriptId
     }
@@ -719,15 +725,31 @@ public final class Store: Sendable {
         }
     }
 
+    private static func lacksVoices(_ row: TranscriptRow, in db: Database) throws -> Bool {
+        guard row.diarize, let id = row.id else { return false }
+        let speakers = try SegmentRow.filter(SegmentRow.Columns.transcriptId == id && Column("speaker") != nil).fetchCount(db)
+        let voices = try VoiceRow.filter(VoiceRow.Columns.transcriptId == id).fetchCount(db)
+        return speakers > 0 && voices == 0
+    }
+
     private static func loadTranscript(_ row: TranscriptRow, in db: Database) throws -> Transcript {
         guard let transcriptId = row.id else { throw StoreError.missingRowID }
         let segments = try SegmentRow
             .filter(SegmentRow.Columns.transcriptId == transcriptId)
             .order(SegmentRow.Columns.position)
             .fetchAll(db)
-        return segments.isEmpty
-            ? Transcript(text: row.text)
-            : Transcript(segments: segments.map(\.segment))
+        guard !segments.isEmpty else { return Transcript(text: row.text) }
+        let voices = try VoiceRow
+            .filter(VoiceRow.Columns.transcriptId == transcriptId)
+            .order(VoiceRow.Columns.position)
+            .fetchAll(db)
+        let recognitions = try RecognitionRow
+            .filter(RecognitionRow.Columns.transcriptId == transcriptId)
+            .order(RecognitionRow.Columns.position)
+            .fetchAll(db)
+        return Transcript(
+            segments: segments.map(\.segment), voices: readable(voices.map { ($0.voice, $0.speaker) }),
+            recognitions: recognitions.map(\.recognition))
     }
 
     public func memory() -> NoteMemory {
@@ -754,7 +776,8 @@ public final class Store: Sendable {
             },
             keepSaved: { recording, version, recipe in
                 try await self.markSaved(version: version, for: recording.key, by: recipe)
-            })
+            },
+            knownVoices: { try self.knownVoices() })
     }
 
     private func remembered(_ key: String, matching inputs: TranscriptionInputs) async throws -> Remembered? {
@@ -765,7 +788,9 @@ public final class Store: Sendable {
                 .order(TranscriptRow.Columns.id.desc)
                 .fetchAll(db)
             guard
-                let row = rows.first(where: { inputs.matches(backend: $0.backend, options: $0.options) }),
+                let row = try rows.first(where: {
+                    try inputs.matches(backend: $0.backend, options: $0.options) && !Self.lacksVoices($0, in: db)
+                }),
                 let version = row.id
             else { return nil }
             return Remembered(
@@ -892,6 +917,7 @@ public enum StoreError: Error, CustomStringConvertible {
     case unknownRecording(String)
     case unknownVersion(Int64, String)
     case nothingToSummarize(String)
+    case unknownPerson(String)
 
     public var description: String {
         switch self {
@@ -899,6 +925,7 @@ public enum StoreError: Error, CustomStringConvertible {
         case .unknownRecording(let key): "no hay ninguna grabacion con clave \(key)"
         case .unknownVersion(let id, let key): "la version \(id) no es de la grabacion \(key)"
         case .nothingToSummarize(let key): "la grabacion \(key) aun no tiene transcripcion"
+        case .unknownPerson(let name): "no hay ninguna persona que se llame «\(name)»"
         }
     }
 }

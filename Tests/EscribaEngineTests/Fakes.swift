@@ -52,6 +52,8 @@ final class MemoryNotes: Sendable {
     private let keepingFails = Mutex(false)
     private let recallFails = Mutex(false)
     private let answers = Mutex<[String: String]>([:])
+    private let known = Mutex<[KnownVoice]>([])
+    private let knownFails = Mutex(false)
     let steps: Trace<String>
 
     static let defaultInputs = TranscriptionInputs(backend: "falso", options: .automatic)
@@ -98,6 +100,8 @@ final class MemoryNotes: Sendable {
             kept[slot] = change(current)
         }
     }
+    func know(_ voices: [KnownVoice]) { known.withLock { $0 = voices } }
+    func breakKnown() { knownFails.withLock { $0 = true } }
     func breakKeeping() { keepingFails.withLock { $0 = true } }
     func breakRecall() { recallFails.withLock { $0 = true } }
 
@@ -136,6 +140,10 @@ final class MemoryNotes: Sendable {
             },
             keepSaved: { _, version, recipe in
                 self.steps.append("v\(version) queda como la nota, de \(recipe)")
+            },
+            knownVoices: {
+                if self.knownFails.withLock({ $0 }) { throw FakeError.memoryDown }
+                return self.known.withLock { $0 }
             })
     }
 }

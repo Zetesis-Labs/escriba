@@ -43,9 +43,15 @@ struct Capabilities: Sendable {
                 transcript: remembered.transcript, version: remembered.version, digest: remembered.digest,
                 data: remembered.data, storedData: remembered.data)
         }
-        let transcript = try await backend.transcribe(recording.url)
+        let transcript = try await recognized(try await backend.transcribe(recording.url))
         let version = readOnly ? nil : try await memory?.keepTranscript(recording, transcript, inputs)
         return Take(transcript: transcript, version: version, digest: nil)
+    }
+
+    private func recognized(_ transcript: Transcript) async throws -> Transcript {
+        guard !transcript.voices.isEmpty, let memory else { return transcript }
+        let found = recognize(transcript.voices, known: try await memory.knownVoices(), threshold: voiceMatchThreshold)
+        return transcript.recognizing(found)
     }
 
     func summarize(_ recording: Recording, _ take: Take, with chosen: Enricher? = nil) async throws -> Take {

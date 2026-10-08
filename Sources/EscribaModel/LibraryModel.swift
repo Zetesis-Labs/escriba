@@ -143,6 +143,43 @@ public final class LibraryModel {
         await republish(corrected, digest: digest, for: key)
     }
 
+    public func baptize(_ speaker: String, as name: String, in key: String) async throws -> SpeakerCorrection {
+        let person = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !person.isEmpty else { throw LibraryModelError.emptyName }
+        let transcript = try await currentTranscript(key)
+        return try await correct(
+            transcript.renaming(speaker, to: person), in: key,
+            teaching: transcript.voices.filter { $0.speaker == speaker }, to: person)
+    }
+
+    public func merge(_ speaker: String, into target: String, in key: String) async throws -> SpeakerCorrection {
+        let transcript = try await currentTranscript(key)
+        let isPerson = try store.people().contains { $0.name == target }
+        return try await correct(
+            transcript.merging([speaker], into: target), in: key,
+            teaching: isPerson ? transcript.voices.filter { $0.speaker == speaker } : [], to: target)
+    }
+
+    private func correct(
+        _ corrected: Transcript, in key: String, teaching voices: [SpeakerVoice], to person: String
+    ) async throws -> SpeakerCorrection {
+        let digest = try await store.digest(for: key)
+        try await store.addCorrection(corrected, for: key, digest: digest, teaching: voices, to: person)
+        await republish(corrected, digest: digest, for: key)
+        return SpeakerCorrection(transcript: corrected, learnedVoices: voices.count)
+    }
+
+    public func forgetRecognition(of person: String, in key: String) async throws -> Transcript {
+        let corrected = try await currentTranscript(key).forgettingRecognition(of: person)
+        try await applyCorrection(corrected, to: key)
+        return corrected
+    }
+
+    private func currentTranscript(_ key: String) async throws -> Transcript {
+        guard let transcript = try await store.transcript(for: key) else { throw LibraryModelError.unknownRecording }
+        return transcript
+    }
+
     public var canSummarize: Bool { digester != nil }
 
     public func isSummarizing(_ key: String) -> Bool { summarizing.contains(key) }
@@ -310,6 +347,11 @@ public final class LibraryModel {
     }
 }
 
+public struct SpeakerCorrection: Sendable, Equatable {
+    public let transcript: Transcript
+    public let learnedVoices: Int
+}
+
 public enum LibraryModelError: Error, Equatable, CustomStringConvertible {
     case reprocessUnavailable
     case recipeFailed(String)
@@ -320,6 +362,7 @@ public enum LibraryModelError: Error, Equatable, CustomStringConvertible {
     case nothingToPublish
     case unknownRecording
     case nothingToUnpublish
+    case emptyName
 
     public var description: String {
         switch self {
@@ -332,6 +375,7 @@ public enum LibraryModelError: Error, Equatable, CustomStringConvertible {
         case .nothingToPublish: "esta grabacion aun no tiene transcripcion"
         case .unknownRecording: "esta grabacion ya no esta en la biblioteca"
         case .nothingToUnpublish: "esta grabacion no esta publicada en ese conector"
+        case .emptyName: "hace falta un nombre"
         }
     }
 }

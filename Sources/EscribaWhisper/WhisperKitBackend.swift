@@ -95,7 +95,23 @@ public enum WhisperKitBackend {
         return Transcript(text: clean(fallbackText))
     }
 
-    static func transcript(speakerSegments: [SpeakerSegment]) -> Transcript {
+    public static let voiceModel = "speakerkit/pyannote-v3/speaker_embedder"
+
+    static func voices(of result: DiarizationResult) -> [SpeakerVoice] {
+        result.speakerCentroidEmbeddings.sorted { $0.key < $1.key }.map { id, embedding in
+            SpeakerVoice(speaker: "Speaker \(id + 1)", embedding: embedding, model: voiceModel)
+        }
+    }
+
+    static func spans(of result: DiarizationResult) -> [SpeakerSpan] {
+        result.segments.compactMap { segment in
+            guard case .speakerId(let id) = segment.speaker else { return nil }
+            return SpeakerSpan(
+                speaker: "Speaker \(id + 1)", start: TimeInterval(segment.startTime), end: TimeInterval(segment.endTime))
+        }
+    }
+
+    static func transcript(speakerSegments: [SpeakerSegment], voices: [SpeakerVoice] = []) -> Transcript {
         let segments = speakerSegments.compactMap { segment -> TranscriptSegment? in
             let text = clean(spokenText(of: segment))
             guard !text.isEmpty else { return nil }
@@ -113,7 +129,7 @@ public enum WhisperKitBackend {
                         text: word)
                 })
         }
-        return Transcript(segments: segments)
+        return Transcript(segments: segments, voices: voices)
     }
 
     static func spokenText(of segment: SpeakerSegment) -> String {
@@ -150,6 +166,10 @@ public final class WhisperKitEngine: Sendable {
         engine = Engine(
             language: language, variant: variant, modelsRoot: modelsRoot,
             unloadAfter: unloadAfter)
+    }
+
+    public func diarizedVoices(of audio: URL, speakerCount: Int? = nil) async throws -> VoiceDiarization {
+        try await engine.diarizedVoices(for: audio.path(percentEncoded: false), speakerCount: speakerCount)
     }
 
     public func backend(diarize: Bool = false, speakerCount: Int? = nil) -> TranscriptionBackend {
@@ -245,7 +265,17 @@ private actor Engine {
         logCentroidDistances(diarization)
         let labelled = diarization.addSpeakerInfo(to: transcriptions).flatMap { $0 }
 
-        return WhisperKitBackend.transcript(speakerSegments: labelled)
+        return WhisperKitBackend.transcript(speakerSegments: labelled, voices: WhisperKitBackend.voices(of: diarization))
+    }
+
+    func diarizedVoices(for path: String, speakerCount: Int?) async throws -> VoiceDiarization {
+        let unloader = idleUnloader()
+        await unloader.cancel()
+        defer { Task { await unloader.touch() } }
+        let audio = try AudioProcessor.loadAudioAsFloatArray(fromPath: path)
+        let diarization = try await loadedSpeakerKit().diarize(
+            audioArray: audio, options: speakerCount.map { PyannoteDiarizationOptions(numberOfSpeakers: $0) })
+        return VoiceDiarization(voices: WhisperKitBackend.voices(of: diarization), spans: WhisperKitBackend.spans(of: diarization))
     }
 
     private func unwrap(

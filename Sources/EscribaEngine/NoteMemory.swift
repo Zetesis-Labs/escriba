@@ -23,6 +23,7 @@ public struct NoteMemory: Sendable {
     public var recallAnswer: @Sendable (_ recording: Recording, _ version: Int64, _ fingerprint: String) async throws -> String?
     public var keepAnswer: @Sendable (_ recording: Recording, _ version: Int64, _ fingerprint: String, _ answer: String) async throws -> Void
     public var keepSaved: @Sendable (_ recording: Recording, _ version: Int64, _ recipe: String) async throws -> Void
+    public var knownVoices: @Sendable () async throws -> [KnownVoice]
 
     public init(
         recall: @escaping @Sendable (Recording, TranscriptionInputs) async throws -> Remembered?,
@@ -31,7 +32,8 @@ public struct NoteMemory: Sendable {
         keepData: @escaping @Sendable (Recording, Int64, DataValue?, DataValue?) async throws -> Void = { _, _, _, _ in },
         recallAnswer: @escaping @Sendable (Recording, Int64, String) async throws -> String? = { _, _, _ in nil },
         keepAnswer: @escaping @Sendable (Recording, Int64, String, String) async throws -> Void = { _, _, _, _ in },
-        keepSaved: @escaping @Sendable (Recording, Int64, String) async throws -> Void = { _, _, _ in }
+        keepSaved: @escaping @Sendable (Recording, Int64, String) async throws -> Void = { _, _, _ in },
+        knownVoices: @escaping @Sendable () async throws -> [KnownVoice] = { [] }
     ) {
         self.recall = recall
         self.keepTranscript = keepTranscript
@@ -40,5 +42,6 @@ public struct NoteMemory: Sendable {
         self.recallAnswer = recallAnswer
         self.keepAnswer = keepAnswer
         self.keepSaved = keepSaved
+        self.knownVoices = knownVoices
     }
 }

@@ -433,6 +433,7 @@ struct TranscriptDetail: View {
     @State private var failure: String?
     @State private var player = PlayerModel()
     @State private var renameTarget: String?
+    @State private var learningNotice: String?
     @State private var newName = ""
     @State private var actionError: String?
 
@@ -493,6 +494,17 @@ struct TranscriptDetail: View {
             TextField("Nombre", text: $newName)
             Button("Renombrar") { renameCurrent() }
             Button("Cancelar", role: .cancel) { renameTarget = nil }
+        } message: {
+            Text("Si la grabación tiene huellas de voz, Escriba recordará a esta persona y la reconocerá en las siguientes.")
+        }
+        .alert(
+            "Renombrado, pero sin aprender su voz",
+            isPresented: Binding(get: { learningNotice != nil }, set: { if !$0 { learningNotice = nil } })
+        ) {
+            Button("Vale") { learningNotice = nil }
+        } message: {
+            Text(
+                "Esta versión no tiene huellas de voz: se transcribió antes de Personas o sin detectar hablantes. Para que Escriba reconozca a \(learningNotice ?? "") en otras grabaciones, reprocesa esta con «Detectar hablantes» y vuelve a renombrar, o registra su voz en Personas.")
         }
         .alert(
             "No se pudo",
@@ -558,7 +570,13 @@ struct TranscriptDetail: View {
             if let transcript, !transcript.speakers.isEmpty {
                 Section("Hablantes") {
                     ForEach(transcript.speakers, id: \.self) { speaker in
-                        Menu(speaker) {
+                        Menu(speakerTitle(speaker, in: transcript)) {
+                            if transcript.recognition(of: speaker) != nil {
+                                Button("No es \(speaker)") {
+                                    correct { try await model.forgetRecognition(of: speaker, in: recording.key) }
+                                }
+                                Divider()
+                            }
                             Button("Renombrar…") {
                                 newName = speaker
                                 renameTarget = speaker
@@ -567,7 +585,7 @@ struct TranscriptDetail: View {
                                 transcript.speakers.filter { $0 != speaker }, id: \.self
                             ) { other in
                                 Button("Fusionar con \(other)") {
-                                    correct(transcript.merging([speaker], into: other))
+                                    correct { try await model.merge(speaker, into: other, in: recording.key).transcript }
                                 }
                             }
                         }
@@ -635,11 +653,10 @@ struct TranscriptDetail: View {
         }
     }
 
-    private func correct(_ corrected: Transcript) {
+    private func correct(_ change: @escaping () async throws -> Transcript) {
         Task {
             do {
-                try await model.applyCorrection(corrected, to: recording.key)
-                transcript = corrected
+                transcript = try await change()
             } catch {
                 actionError = "\(error)"
             }
@@ -648,10 +665,19 @@ struct TranscriptDetail: View {
 
     private func renameCurrent() {
         let name = newName.trimmingCharacters(in: .whitespaces)
-        if let renameTarget, let transcript, !name.isEmpty {
-            correct(transcript.renaming(renameTarget, to: name))
+        if let speaker = renameTarget, !name.isEmpty, name != speaker {
+            correct {
+                let baptism = try await model.baptize(speaker, as: name, in: recording.key)
+                if baptism.learnedVoices == 0 { learningNotice = name }
+                return baptism.transcript
+            }
         }
         renameTarget = nil
+    }
+
+    private func speakerTitle(_ speaker: String, in transcript: Transcript) -> String {
+        guard let recognition = transcript.recognition(of: speaker) else { return speaker }
+        return "\(speaker) · reconocido (\(recognition.distance.formatted(.number.precision(.fractionLength(2)))))"
     }
 
     private func summarize() {
