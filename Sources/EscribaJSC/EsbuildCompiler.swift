@@ -128,6 +128,7 @@ actor EsbuildHost {
     }
 
     private func load() async throws {
+        _ = timeLimitWorks
         let browser = try String(contentsOf: tools.appending(path: "browser.js"), encoding: .utf8)
         let bytes = try Data(contentsOf: tools.appending(path: "esbuild.wasm"))
         guard let context = JSContext() else { throw EsbuildError.failed("JavaScriptCore no arranca") }
