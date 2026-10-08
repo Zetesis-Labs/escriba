@@ -67,8 +67,8 @@ struct ReprocessSheet: View {
         .frame(width: 520)
         .task(id: recipe) {
             form = nil
-            let loaded = await forms?.load(recipe)
-            if case .form(let loadedForm)? = loaded {
+            let loaded = await forms?.load(recipe) ?? .problem("las recetas no arrancan en este Mac")
+            if case .form(let loadedForm) = loaded {
                 values = recipeFormValues(loadedForm, saved: savedRecipeValues(settings.recipeBook, recipe))
             }
             form = loaded
