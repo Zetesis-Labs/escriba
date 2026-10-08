@@ -26,33 +26,61 @@ public func readInstalledRecipes(at installed: URL) throws -> [String: Installed
     return try JSONDecoder().decode([String: InstalledRecipe].self, from: data)
 }
 
-private let readableExtensions: Set<String> = ["ts", "js", "json", "md", "mts", "cts"]
-private let largestReadable = 1_000_000
-
 func recipeProjectSnapshot(root: URL) throws -> RecipeProjectSnapshot {
-    let base = root.standardizedFileURL.resolvingSymlinksInPath().path(percentEncoded: false)
-    guard
-        let walker = FileManager.default.enumerator(
-            at: root, includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey], options: [])
-    else { throw CocoaError(.fileReadNoSuchFile) }
+    try snapshotConnectorProject(root: root)
+}
 
+public enum ConnectorProjectSnapshotError: Error, CustomStringConvertible {
+    case invalid(String)
+    public var description: String {
+        switch self { case .invalid(let message): "no se pudo capturar el proyecto: \(message)" }
+    }
+}
+
+public func snapshotConnectorProject(root: URL) throws -> RecipeProjectSnapshot {
+    let root = connectorCanonicalFolder(root)
+    let first = try captureConnectorProject(root: root)
+    let second = try captureConnectorProject(root: root)
+    guard first.paths == second.paths, first.sources == second.sources else {
+        throw ConnectorProjectSnapshotError.invalid("los ficheros cambiaron durante la captura; vuelve a compilar")
+    }
+    if first.paths.contains(where: { $0.hasPrefix("node_modules/") }),
+        !["package-lock.json", "npm-shrinkwrap.json", "pnpm-lock.yaml", "yarn.lock"].contains(where: first.paths.contains)
+    {
+        throw ConnectorProjectSnapshotError.invalid("las dependencias instaladas necesitan un lockfile del proyecto")
+    }
+    return first
+}
+
+private func captureConnectorProject(root: URL) throws -> RecipeProjectSnapshot {
+    guard let walker = FileManager.default.enumerator(
+        at: root, includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey], options: [])
+    else { throw ConnectorProjectSnapshotError.invalid("la carpeta no existe") }
+    let base = root.path.hasSuffix("/") ? root.path : root.path + "/"
+    let extensions: Set<String> = ["ts", "tsx", "js", "jsx", "json", "mts", "cts", "mjs", "cjs", "yaml", "lock", "md"]
+    let files = ConnectorFiles(root: root)
     var paths: Set<String> = []
     var sources: [String: String] = [:]
+    var total = 0
     for case let url as URL in walker {
-        let absolute = url.standardizedFileURL.resolvingSymlinksInPath().path(percentEncoded: false)
-        let relative = String(absolute.dropFirst(base.count)).trimmingPrefix("/")
-        if ignoredByRecipes(String(relative)) {
-            if (try? url.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile != true {
-                walker.skipDescendants()
-            }
+        guard url.path.hasPrefix(base) else { throw ConnectorProjectSnapshotError.invalid("ruta fuera de la carpeta") }
+        let relative = String(url.path.dropFirst(base.count))
+        if ignoredByConnectorProject(relative) {
+            if try url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory == true { walker.skipDescendants() }
             continue
         }
-        let values = try url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey])
+        let values = try url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
+        if values.isSymbolicLink == true { throw ConnectorProjectSnapshotError.invalid("enlace simbólico no permitido: \(relative)") }
         guard values.isRegularFile == true else { continue }
-        paths.insert(String(relative))
-        if readableExtensions.contains(url.pathExtension), (values.fileSize ?? 0) <= largestReadable {
-            sources[String(relative)] = try String(contentsOf: url, encoding: .utf8)
+        paths.insert(relative)
+        guard paths.count <= 50_000 else { throw ConnectorProjectSnapshotError.invalid("más de 50000 ficheros") }
+        guard extensions.contains(url.pathExtension) else { continue }
+        guard let contents = try files.read(relative, limit: 8 * 1024 * 1024) else {
+            throw ConnectorProjectSnapshotError.invalid("no se pudo leer UTF-8: \(relative)")
         }
+        total += contents.utf8.count
+        guard total <= 128 * 1024 * 1024 else { throw ConnectorProjectSnapshotError.invalid("más de 128 MiB de fuentes") }
+        sources[relative] = contents
     }
     return RecipeProjectSnapshot(paths: paths, sources: sources)
 }

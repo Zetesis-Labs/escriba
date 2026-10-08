@@ -8,7 +8,7 @@
     "noEmit": true,
     "skipLibCheck": true,
     "types": [],
-    "paths": { "zod": ["./.escriba/zod/index.d.ts"] }
+    "paths": { "zod": ["./node_modules/zod/index.d.ts", "./.escriba/zod/index.d.ts"], "@escriba/conectores": ["./node_modules/@escriba/conectores/dist/index.d.ts", "./.escriba/conectores/index.d.ts"] }
   },
   "include": ["escriba-recetas.d.ts", "**/*.ts"]
 }

@@ -519,7 +519,7 @@ struct RecetaTests {
                 },
                 publishers: [:],
                 catalog: RecipeCatalog(connectors: [
-                    RecipeConnector(key: "O", name: "Ideas", kind: "okf", isActive: false, folder: "/ideas"),
+                    RecipeConnector(key: "O", name: "Ideas", kind: "okf", isActive: false),
                 ])))
 
         try await pipeline.runOnce()

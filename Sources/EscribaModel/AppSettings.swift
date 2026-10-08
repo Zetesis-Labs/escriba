@@ -2,7 +2,6 @@ import Foundation
 import EscribaCore
 import EscribaEngine
 import Observation
-import EscribaNotion
 
 nonisolated public struct WatchedFolder: Codable, Sendable, Equatable, Identifiable {
     public enum Style: String, Codable, Sendable {
@@ -120,6 +119,9 @@ public final class AppSettings {
     public var connectors: [Connector] {
         didSet { persist(connectors, forKey: Keys.connectors) }
     }
+    public var connectorAccounts: [ConnectorAccount] {
+        didSet { persist(connectorAccounts, forKey: Keys.connectorAccounts) }
+    }
     public var sttResolvers: ResolverSet {
         didSet { persist(sttResolvers, forKey: Keys.sttResolvers) }
     }
@@ -146,6 +148,7 @@ public final class AppSettings {
         let stt = Self.restore(ResolverSet.self, from: defaults, key: Keys.sttResolvers) ?? ResolverSet(role: .stt)
         let llm = Self.restore(ResolverSet.self, from: defaults, key: Keys.llmResolvers) ?? ResolverSet(role: .llm)
         connectors = storedConnectors
+        connectorAccounts = Self.restore([ConnectorAccount].self, from: defaults, key: Keys.connectorAccounts) ?? []
         sttResolvers = stt
         llmResolvers = llm
         let (sttFavorite, llmFavorite) = (stt.resolver(stt.legacyFavorite), llm.resolver(llm.legacyFavorite))
@@ -156,7 +159,7 @@ public final class AppSettings {
                 language: defaults.string(forKey: Keys.language) ?? "es",
                 diarization: defaults.object(forKey: Keys.diarization) as? Int ?? -1,
                 summarize: defaults.object(forKey: Keys.summarize) as? Bool ?? false,
-                connectors: storedConnectors.filter(\.isLive).map(\.key))
+                connectors: storedConnectors.filter { $0.enabled }.map(\.key))
         recipeBook = (Self.restore(RecipeBook.self, from: defaults, key: Keys.recipeBook)
             ?? RecipeBook(migrating: savedDefaultRecipe, key: UUID().uuidString))
             .forgettingMissing(
@@ -192,7 +195,9 @@ public final class AppSettings {
         }
     }
 
-    public var liveConnectors: [Connector] { connectors.filter(\.isLive) }
+    public var liveConnectors: [Connector] { connectors.filter { connector in
+        connector.isLive && connectorAccounts.contains { $0.id == connector.accountID && $0.enabled }
+    } }
 
     public func connector(_ id: UUID) -> Connector? {
         connectors.first { $0.id == id }
@@ -247,6 +252,7 @@ public final class AppSettings {
         static let watchedFolders = "watchedFolders"
         static let voiceMemosSeeded = "voiceMemosSeeded"
         static let connectors = "connectors"
+        static let connectorAccounts = "connectorAccounts"
         static let sttResolvers = "sttResolvers"
         static let llmResolvers = "llmResolvers"
     }

@@ -150,11 +150,12 @@ El fichero de entrada de cada receta (`recetas/<clave>/receta.ts` o
 
 - Se escribe con **módulos normales**: `import` y `export` entre ficheros del
   proyecto, en **TypeScript o JavaScript**. Solo se importan ficheros del
-  proyecto y **`zod`** (Rubén, 2026-10-08): cualquier otro paquete de npm es un
-  error de compilación. Escriba baja Zod 4 de npm junto a esbuild (versión
-  fijada y comprobada con su huella), esbuild resuelve `import { z } from "zod"`
-  a esa copia y la app deja sus tipos en `.escriba/zod/` del proyecto, al que
-  apunta `paths` en el `tsconfig.json` de la plantilla (con `skipLibCheck`,
+  proyecto y dependencias npm instaladas externamente, fijadas por lockfile
+  y compatibles con JavaScriptCore (decisión de Rubén, 2026-10-08). La versión
+  de Zod del proyecto prevalece; sin npm se conserva la copia administrada.
+  La copia administrada se comprueba con su huella y deja sus tipos en
+  `.escriba/zod/`, como segunda opción de `paths` después de `node_modules`
+  en el `tsconfig.json` de la plantilla (con `skipLibCheck`,
   porque los tipos de Zod nombran `URL`, que no está en `es2022`).
 - **La app compila y el motor ejecuta** (Rubén, 2026-10-07). JavaScriptCore no
   admite módulos en su API pública (verificado en las cabeceras de macOS 26),

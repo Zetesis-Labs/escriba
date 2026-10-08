@@ -109,9 +109,7 @@ nonisolated private func recipeResolvers(_ set: ResolverSet) -> [RecipeResolver]
 
 func recipeConnector(_ connector: Connector, isActive: Bool) -> RecipeConnector {
     RecipeConnector(
-        key: connector.key, name: connector.name, kind: connector.kind.rawValue, isActive: isActive,
-        notionBase: connector.notion.map { RecipeConnector.NotionBase(id: $0.source.id, name: $0.source.databaseTitle) },
-        folder: connector.okf.map(\.folder))
+        key: connector.key, name: connector.name, kind: connector.provider, isActive: isActive)
 }
 
 nonisolated private func lookupResolver(_ query: String, in set: ResolverSet) throws -> Resolver {

@@ -31,21 +31,16 @@ let package = Package(
                 "EscribaCore", "EscribaEngine", "EscribaSystemKit",
                 .product(name: "GRDB", package: "GRDB.swift"),
             ]),
-        .target(name: "EscribaNotion", dependencies: ["EscribaCore", "EscribaEngine"]),
-        .target(name: "EscribaOKF", dependencies: ["EscribaCore", "EscribaEngine"]),
         .target(name: "EscribaIntelligence", dependencies: ["EscribaCore", "EscribaEngine"]),
         .target(name: "EscribaOpenAI", dependencies: ["EscribaCore", "EscribaEngine"]),
-        .target(name: "EscribaJSC", dependencies: ["EscribaCore", "EscribaEngine"]),
+        .target(name: "EscribaJSC", dependencies: ["EscribaCore", "EscribaEngine"], resources: [.copy("Resources/conectores")]),
         .target(
             name: "EscribaModel",
             dependencies: [
-                "EscribaCore", "EscribaEngine", "EscribaSystemKit", "EscribaStore", "EscribaNotion",
-                "EscribaOKF", "EscribaOpenAI",
+                "EscribaCore", "EscribaEngine", "EscribaSystemKit", "EscribaStore",
+                "EscribaOpenAI",
             ],
             swiftSettings: [.defaultIsolation(MainActor.self)]),
-        .executableTarget(
-            name: "escriba-wasm-probe",
-            dependencies: ["EscribaCore", "EscribaEngine", "EscribaNotion", "EscribaOKF"]),
         .executableTarget(
             name: "escriba",
             dependencies: [
@@ -56,7 +51,7 @@ let package = Package(
             name: "EscribaMenuBar",
             dependencies: [
                 "EscribaCore", "EscribaEngine", "EscribaSystemKit", "EscribaWhisper", "EscribaStore",
-                "EscribaModel", "EscribaNotion", "EscribaOKF", "EscribaIntelligence", "EscribaOpenAI",
+                "EscribaModel", "EscribaIntelligence", "EscribaOpenAI",
                 "EscribaJSC",
             ],
             swiftSettings: [.defaultIsolation(MainActor.self)]),
@@ -69,10 +64,6 @@ let package = Package(
             name: "EscribaWhisperTests",
             dependencies: ["EscribaWhisper", "EscribaCore", "EscribaEngine", "EscribaSystemKit"]),
         .testTarget(
-            name: "EscribaNotionTests", dependencies: ["EscribaNotion", "EscribaCore", "EscribaEngine"]),
-        .testTarget(
-            name: "EscribaOKFTests", dependencies: ["EscribaOKF", "EscribaCore", "EscribaEngine"]),
-        .testTarget(
             name: "EscribaOpenAITests", dependencies: ["EscribaOpenAI", "EscribaCore", "EscribaEngine"]),
         .testTarget(name: "EscribaJSCTests", dependencies: ["EscribaJSC", "EscribaCore", "EscribaEngine"]),
         .testTarget(
@@ -84,7 +75,7 @@ let package = Package(
         .testTarget(
             name: "EscribaModelTests",
             dependencies: [
-                "EscribaModel", "EscribaStore", "EscribaCore", "EscribaNotion", "EscribaOKF", "EscribaSystemKit",
+                "EscribaModel", "EscribaStore", "EscribaCore", "EscribaSystemKit", "EscribaJSC",
             ],
             swiftSettings: [.defaultIsolation(MainActor.self)]),
     ]

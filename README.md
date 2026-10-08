@@ -11,6 +11,28 @@ Mac, y el texto aparece solo.
 Swift nativo. Cada transcripcion acaba en un `.txt` y en una biblioteca propia
 (SQLite + copia del audio), que es la base de la app que viene.
 
+## Proyectos TypeScript y dependencias npm
+
+Las recetas y los conectores se compilan con esbuild en WebAssembly dentro de
+la app. Para usar paquetes adicionales, instala sus versiones en la carpeta
+del proyecto con tu gestor de npm y conserva el lockfile. Escriba captura los
+ficheros de `node_modules` y compila imports relativos, paquetes transitivos,
+subrutas `exports`, ESM, CommonJS y JSON. No ejecuta scripts de instalación.
+Una instalación o edición que cambie durante la captura da un error y no
+sustituye el último paquete válido.
+
+Los paquetes deben poder funcionar en JavaScriptCore: no hay Node, acceso
+directo al disco ni `fetch` global. Un conector recibe las capacidades de su
+cuenta mediante `host.fetch`, `host.files`, `host.audio` y `host.checkpoint`.
+El audio es un adjunto opaco que se puede dividir y enviar por multipart sin
+exponer su ruta ni el token de la cuenta al código JavaScript. Las operaciones
+criptográficas de webhooks no están disponibles y fallan explícitamente.
+
+La captura rechaza enlaces simbólicos y rutas fuera de la carpeta, limita las
+fuentes a 8 MiB por fichero y 128 MiB en total, y observa también los cambios
+en dependencias y lockfiles. Los proyectos antiguos sin dependencias conservan
+la copia administrada de Zod; si el proyecto instala Zod, esa versión prevalece.
+
 ## Por que no se leen las transcripciones de la propia app
 
 Just Press Record no las expone. Su unica superficie programable son tres App
@@ -322,35 +344,27 @@ Cada conector es un destino, y puede haber tantos como quieras. Hay dos tipos:
   v0.2: un fichero Markdown con frontmatter YAML por documento, un `index.md`
   en cada carpeta y un `log.md` con las altas, actualizaciones y bajas.
 
-Los dos se configuran igual, como una página:
+La app administra las cuentas y los permisos: el token de Notion o la carpeta
+raíz de OKF. Los destinos y sus reglas viven en `conectores.ts`, usando
+`@escriba/conectores`. La app muestra su nombre, cuenta y esquema como un
+catálogo; las columnas, Markdown y documentos se editan en el proyecto.
+Los destinos anteriores se migran conservando sus identidades.
 
-- **Propiedades.** En Notion, una fila por columna de la base; en OKF, el
-  frontmatter, con las claves que quieras (`type` es obligatorio). Cada valor
-  mezcla texto fijo y datos de la grabación (título, descripción, resumen,
-  etiquetas, fecha, hablantes, duración, clave, audio…), y toma el tipo que
-  toque: lista, número, fecha o texto.
-- **Cuerpo.** Un editor de texto donde se escribe Markdown (`#` para títulos,
-  `-` para viñetas, `**negrita**`) y `/` abre en el cursor un menú para
-  insertar un dato. La transcripción va con hablantes, con tiempos o solo el
-  texto; en Notion el dato Audio sube el fichero.
-- **Así queda.** Debajo, el resultado con una grabación de ejemplo, al momento.
-
-En OKF, además, un conector escribe **N documentos** por grabación, cada uno
-con su ruta (`notas/[Día]-[Título].md`). La plantilla de partida es una nota
-con el resumen que enlaza su transcripción completa, en otro documento.
-
-Con «Publicar cada transcripción nueva» activo, cada nota entra sola. Corregir
-o fusionar hablantes, reprocesar o resumir **regenera** lo publicado en cada
-conector donde ya estaba: la misma página de Notion, o los mismos ficheros del
-bundle (renombrados si cambia el título). Si un destino falla, la
-transcripción no se pierde: el error queda en la fila y se reintenta desde su
-menú.
+OKF puede escribir varios documentos por grabación, con sus rutas,
+frontmatter, índices y registro. Notion representa las propiedades según sus
+tipos, regenera bloques y puede subir audio. La receta elige cuándo publicar.
+Corregir o reprocesar usa el programa y recibo retenidos de cada publicación,
+incluso con el proyecto roto. Un destino borrado deja de recibir publicaciones
+nuevas y conserva lo necesario para corregir o retirar las existentes. Los
+fallos se muestran en la biblioteca; una creación incierta requiere resolver
+su estado antes de volver a crear.
 
 ## El nucleo viaja
 
-El motor no sabe en que maquina corre. `EscribaCore`, `EscribaEngine` y
-`EscribaNotion` compilan tal cual a Linux y a `wasm32-unknown-wasi`; el CI lo
-comprueba en cada cambio y ejecuta una sonda en un runtime WASI. Lo que cambia
+El motor no sabe en que maquina corre. `EscribaCore` y `EscribaEngine`
+compilan a Linux y a `wasm32-unknown-wasi`; el CI comprueba esos targets.
+Los conectores TypeScript se ejecutan actualmente en JavaScriptCore en macOS
+detrás de un puerto. Lo que cambia
 por host son los puertos: quien vigila la carpeta, quien guarda el ledger, quien
 habla HTTP y, sobre todo, quien transcribe (CoreML en Apple; whisper.cpp o
 `wasi:nn` en otros sitios).
@@ -363,8 +377,8 @@ habla HTTP y, sobre todo, quien transcribe (CoreML en Apple; whisper.cpp o
 | `EscribaEngine` | Motor portable: puertos, `Pipeline`, demonio, log. Compila a Linux y a WebAssembly (WASI). Sin dependencias. |
 | `EscribaIntelligence` | Adaptador del puerto `Summarizer` con FoundationModels: titulo, resumen y etiquetas en el propio Mac. |
 | `EscribaOpenAI` | Adaptadores de `Summarizer` y `TranscriptionBackend` sobre una API compatible con OpenAI, con transporte HTTP propio. |
-| `EscribaNotion` | Conector Notion: valor de cada columna según su tipo, cuerpo de texto con datos convertido a bloques, subida de audio, publicación que regenera sin duplicar. Portable. |
-| `EscribaOKF` | Conector a un bundle OKF v0.2: N documentos por grabación con su ruta, frontmatter y cuerpo, índices por carpeta y registro. Portable. |
+| `packages/conectores` | Proveedores TypeScript, SDK Notion, OKF, esquemas, representación y ciclo de publicación. |
+| `EscribaJSC` | Compilador esbuild WASM y adaptadores JSC de recetas y conectores. |
 | `EscribaSystemKit` | Host de sistema (macOS y Linux): FSEvents o sondeo, stat e iCloud, flock, ledger SQLite. |
 | `EscribaWhisper` | Backend WhisperKit + SpeakerKit (argmax-oss-swift). |
 | `EscribaStore` | Biblioteca: SQLite con GRDB y copia del audio. |

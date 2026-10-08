@@ -11,6 +11,10 @@ public final class EsbuildCompiler: Sendable {
         host = EsbuildHost(tools: tools, zod: zod, idleAfter: idleAfter, inspectionLimit: inspectionLimit)
     }
 
+    public func compileConnector(files: [String: String], entry: String) async throws -> RecipeCompilation {
+        try await host.compile(files: files, entry: entry, global: "__conectores")
+    }
+
     public var isLoaded: Bool {
         get async { await host.isLoaded }
     }
@@ -41,6 +45,7 @@ public enum EsbuildError: Error, Equatable, CustomStringConvertible {
 private struct CompileRequest: Encodable {
     let archivos: [String: String]
     let entrada: String
+    let global: String
 }
 
 private struct CompileReply: Decodable {
@@ -81,11 +86,11 @@ actor EsbuildHost {
 
     var isLoaded: Bool { context != nil }
 
-    func compile(files: [String: String], entry: String) async throws -> RecipeCompilation {
+    func compile(files: [String: String], entry: String, global: String = "__receta") async throws -> RecipeCompilation {
         idleTimer?.invalidate()
         defer { scheduleUnload() }
         try await ready()
-        let request = String(decoding: try JSONEncoder().encode(CompileRequest(archivos: files, entrada: entry)), as: UTF8.self)
+        let request = String(decoding: try JSONEncoder().encode(CompileRequest(archivos: files, entrada: entry, global: global)), as: UTF8.self)
         let reply = try await settle(driver?.invokeMethod("compilar", withArguments: [request]))
         let decoded = try JSONDecoder().decode(CompileReply.self, from: Data(reply.utf8))
         if let code = decoded.codigo { return .compiled(code, sourceMap: decoded.mapa) }

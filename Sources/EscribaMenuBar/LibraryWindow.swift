@@ -215,7 +215,7 @@ struct LibraryWindow: View {
         case .discard:
             RowActionText.discard
         case .unpublish(_, let connector):
-            RowActionText.unpublish(from: connector.kind)
+            RowActionText.unpublish(from: connector.provider)
         }
     }
 
@@ -269,15 +269,12 @@ struct PublishMenu: View {
         let live = connectors.filter { model.canPublish(to: $0.key) }
         if !live.isEmpty {
             ForEach(live) { connector in
-                let kind = connector.kind.label
+                let kind = connector.name
                 if let publication = recording.publication(in: connector.key), publication.isPublished {
                     Menu(connector.name) {
                         if let page = publication.url {
-                            switch connector.kind {
-                            case .notion:
-                                Button("Abrir en \(kind)") { NSWorkspace.shared.open(page) }
-                            case .okf:
-                                Button("Abrir el .md") { NSWorkspace.shared.open(page) }
+                            Button("Abrir publicación") { NSWorkspace.shared.open(page) }
+                            if page.isFileURL {
                                 Button("Mostrar en Finder") { NSWorkspace.shared.activateFileViewerSelecting([page]) }
                             }
                         }
