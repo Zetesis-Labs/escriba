@@ -190,6 +190,7 @@ private struct FormRecipeEditor: View {
     let base: RecipeStatus?
     let library: LibraryModel?
     @State private var name: String
+    @State private var load: RecipeFormLoad?
 
     init(settings: AppSettings, recipe: FormRecipe, base: RecipeStatus?, library: LibraryModel?) {
         self.settings = settings
@@ -208,13 +209,14 @@ private struct FormRecipeEditor: View {
             } footer: {
                 Text("\(origin) Desde una receta de código se llama con escriba.receta(\"\(name)\").procesar(audio).")
             }
-            RecipeParameters(settings: settings, key: recipe.key, fingerprint: base?.active)
+            RecipeParameters(settings: settings, key: recipe.key, load: load)
             if let library {
                 RecipeTestSection(library: library, recipe: recipe.key)
                 RecipeRunsSection(library: library, recipe: recipe.key)
             }
         }
         .formStyle(.grouped)
+        .loadingRecipeForm($load, key: recipe.key, fingerprint: base?.active, settings: settings)
     }
 
     private var origin: String {
@@ -232,6 +234,7 @@ private struct CodeRecipeDetail: View {
     let folder: String?
     let library: LibraryModel?
     let onSaveAsForm: () -> Void
+    @State private var load: RecipeFormLoad?
 
     var body: some View {
         Form {
@@ -251,7 +254,7 @@ private struct CodeRecipeDetail: View {
                 Text("Se edita en la carpeta del proyecto, con tu editor o un agente. Escriba la compila al guardar.")
             }
             if status.active != nil {
-                RecipeParameters(settings: settings, key: status.key, fingerprint: status.active)
+                RecipeParameters(settings: settings, key: status.key, load: load)
             }
             Section("Compilación") {
                 Text(recipeStatusLine(status))
@@ -271,15 +274,39 @@ private struct CodeRecipeDetail: View {
             }
         }
         .formStyle(.grouped)
+        .loadingRecipeForm($load, key: status.key, fingerprint: status.active, settings: settings)
+    }
+}
+
+private struct LoadsRecipeForm: ViewModifier {
+    let settings: AppSettings
+    let key: String
+    let fingerprint: String?
+    @Binding var load: RecipeFormLoad?
+    @Environment(\.recipeForms) private var forms
+
+    func body(content: Content) -> some View {
+        content.task(id: reloadKey) { load = await forms?.load(key) }
+    }
+
+    private var reloadKey: String {
+        let names = settings.recipeBook.forms.map(\.name).joined(separator: "|")
+        return "\(fingerprint ?? "")|\(forms?.id.uuidString ?? "")|\(names)"
+    }
+}
+
+extension View {
+    fileprivate func loadingRecipeForm(
+        _ load: Binding<RecipeFormLoad?>, key: String, fingerprint: String?, settings: AppSettings
+    ) -> some View {
+        modifier(LoadsRecipeForm(settings: settings, key: key, fingerprint: fingerprint, load: load))
     }
 }
 
 private struct RecipeParameters: View {
     @Bindable var settings: AppSettings
     let key: String
-    let fingerprint: String?
-    @Environment(\.recipeForms) private var forms
-    @State private var load: RecipeFormLoad?
+    let load: RecipeFormLoad?
 
     var body: some View {
         Group {
@@ -302,12 +329,6 @@ private struct RecipeParameters: View {
                 EmptyView()
             }
         }
-        .task(id: reloadKey) { load = await forms?.load(key) }
-    }
-
-    private var reloadKey: String {
-        let names = settings.recipeBook.forms.map(\.name).joined(separator: "|")
-        return "\(fingerprint ?? "")|\(forms?.id.uuidString ?? "")|\(names)"
     }
 
     private func values(_ form: RecipeForm) -> Binding<DataValue> {
