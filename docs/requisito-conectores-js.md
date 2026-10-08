@@ -39,6 +39,11 @@ Nada en este análisis requiere leer un token ni consultar Notion.
 
 ## Criterios para decidir
 
+La prioridad de producto es **máxima flexibilidad desde JS**: poder usar las
+operaciones del proveedor y evolucionar el conector sin añadir cada función
+a Swift ni distribuir otra versión de Escriba. Reducir la reescritura inicial
+es un criterio secundario frente a ese objetivo.
+
 Los tres caminos se comparan con las mismas obligaciones: una corrección
 debe llegar a los destinos ya publicados sin repetir STT o LLM; un proyecto
 roto no debe perder el rastro para retirar publicaciones; un reintento no
@@ -65,26 +70,228 @@ puertos internos no tienen que convertirse en capacidades de cada receta.
 | **B. Idea completa** | Cuenta, permisos, transporte, escritura física, runtime y rastro duradero | Librerías implementan todo el conector: declaración, transformación, protocolo, paginación, política de reintento, regeneración y retirada | Mayor extensibilidad del protocolo. El paquete de conector es necesario también para retirar. El alcance del transporte requiere una política explícita. |
 | **C. Intermedio** | Cuenta y alcance, protocolo Notion/OKF, paginación, 429, escritura confinada, regeneración, retirada y rastro | Cada destino declara Zod y una transformación pura de la nota vigente a una carga, ejecutable sin receta | Personalización declarativa y ciclo independiente de la receta. Hay que añadir paquetes de destino y coordinar sus versiones con las recetas. Un proveedor nuevo sigue exigiendo Swift. |
 
-**Recomiendo C cuando se retome la fase 5.** El cambio con más valor es hacer
-que la publicación sobreviva a la receta que la originó. La transformación
-del destino conserva la relación entre la nota y lo publicado; Swift conserva
-la operación con efectos y su recuperación. La interfaz tiene profundidad:
-publicar, actualizar y retirar concentran reglas que de otro modo reaparecen
-en recetas y biblioteca.
+**Recomiendo B: conector y SDK del proveedor en JS, sobre un host Swift de
+capacidades comunes.** Una biblioteca Notion debe poder consultar, crear,
+actualizar y retirar usando el contrato del proveedor, no limitarse a producir
+una carga que otro conector Swift sabe interpretar. Swift conserva el secreto,
+el transporte autorizado, el almacenamiento y la ejecución duradera; la
+semántica de Notion vive en la biblioteca JS.
 
-A es razonable si ahora prima terminar RF-9 con el menor cambio. B es viable
-y permite cambiar protocolos desde el proyecto, pero necesita un runtime de
-conectores operativos y aceptar su modelo de confianza. Las aproximadamente
-1.327 líneas de Notion y 756 de OKF dimensionan la paridad, no demuestran que
-Swift sea intrínsecamente mejor ni sirven por sí solas para estimar el coste.
+C añade destinos declarativos y una transformación ejecutable sin receta.
+Frente a lo actual mejora la autoría y el ciclo manual, pero el repertorio de
+operaciones sigue fijado por el adaptador Swift. En ese aspecto conserva el
+límite de RF-9 y no alcanza la flexibilidad pedida. A queda como alternativa
+de menor cambio; C como compromiso si se decide reducir alcance, no como
+arquitectura objetivo.
 
-C **reabre una decisión de RF-9**: las acciones manuales ejecutarían la
-transformación del destino, en lugar del export `publicar` de la receta.
-También precisa que las decisiones de representación puedan ser funciones
-puras TS; las decisiones de permisos, estado y recuperación siguen en
-`EscribaCore`. Ambas modificaciones se proponen, no se dan por aprobadas.
+La publicación sigue siendo un módulo profundo con publicar, actualizar y
+retirar. El host conserva los paquetes y recibos; el paquete JS ejecuta esas
+acciones. Así el ciclo duradero no obliga a mantener el conocimiento del
+proveedor en Swift. Las aproximadamente 1.327 líneas actuales de Notion y 756
+de OKF sirven para inventariar paridad, no para justificar la arquitectura por
+el código ya escrito.
 
-## Frontera e interfaz propuesta para C
+B reabre RF-9 y concreta la regla de núcleo funcional: transformaciones y
+decisiones de protocolo en funciones JS comprobables; permisos, estado y
+recuperación del host en funciones puras Swift. El uso del SDK oficial también
+requiere resolver la excepción a «solo Zod» y su compatibilidad con JSC antes
+de implementarlo. La aprobación de esta arquitectura y sus fases sigue
+correspondiendo a Rubén.
+
+## Arquitectura recomendada B: conector y SDK en JS
+
+En B, la transformación, los bloques Notion, el Markdown OKF y la secuencia de
+operaciones pertenecen a librerías TS. Para que también funcionen fuera de una
+receta, esbuild genera **paquetes de destino independientes y autocontenidos**
+que incorporan esas librerías. Importar la librería únicamente dentro del
+paquete de una receta no resuelve el ciclo manual.
+
+```mermaid
+flowchart LR
+  R[Receta o acción de biblioteca] --> J[Destino y conector · JS]
+  J --> S[SDK de Notion · JS]
+  S --> F[fetch de la cuenta · puente]
+  F --> H[Swift · permisos, credencial y transporte]
+  H --> N[Notion]
+  J --> D[Swift · paquetes y recibos duraderos]
+```
+
+### Encaje del SDK oficial
+
+Se ha inspeccionado `@notionhq/client` **v5.25.2**, sin ejecutarlo. Su cliente
+admite `auth` opcional y `fetch` inyectado; `request()` permite peticiones
+además de los métodos tipados. Del código se deduce que se puede omitir
+`auth` y añadir la credencial en el transporte Swift. [Fuente oficial de
+Client.ts](https://github.com/makenotion/notion-sdk-js/blob/v5.25.2/src/Client.ts).
+
+Esquema de uso propuesto; `fetchDeCuenta` sería el adaptador de compatibilidad:
+
+```ts
+import { Client } from "@notionhq/client"
+
+const notion = new Client({
+  fetch: fetchDeCuenta(contexto.cuenta),
+  retry: false
+})
+
+const pagina = await notion.pages.create(carga)
+await contexto.checkpoint({ pagina: pagina.id })
+```
+
+Swift recibe una petición HTTP autorizada y conserva su rastro; no interpreta
+`pages.create` ni define las columnas o bloques disponibles. La librería puede
+usar operaciones nuevas del SDK o `request()` dentro de la concesión de la
+cuenta. El SDK tampoco define qué recursos pertenecen a una publicación de
+Escriba: esa responsabilidad y la reconciliación quedan en la biblioteca.
+
+**Compatibilidad JSC pendiente:** la ruta JSON requiere URL y una respuesta
+con `status`, `ok`, `headers` y `text()`; las subidas usan FormData/Blob.
+[Cliente inspeccionado](https://github.com/makenotion/notion-sdk-js/blob/v5.25.2/src/Client.ts).
+Cada petición usa `setTimeout`/`clearTimeout`, incluso con `retry:false`.
+[Implementación del timeout](https://github.com/makenotion/notion-sdk-js/blob/v5.25.2/src/errors.ts).
+El paquete declara Node >=18 y no declara dependencias de producción;
+eso no demuestra que funcione en JSC.
+[package.json de la versión](https://github.com/makenotion/notion-sdk-js/blob/v5.25.2/package.json).
+
+Por tanto, la primera prueba debe empaquetar ese SDK y darle un adaptador de
+las utilidades necesarias, con transporte falso. Los temporizadores se
+ofrecen solo en el contexto operativo del conector, con cancelación y límites;
+la evaluación declarativa sigue sin capacidades. La comprobación debe cubrir
+multipart antes de dar por conseguida la paridad de audio. No es necesario
+exponer Node, disco general ni red global para ofrecer esas utilidades.
+
+Se propone desactivar el retry automático del SDK y decidirlo en la librería
+JS con el recibo de la operación. Así las creaciones inciertas no se repiten
+por dos capas distintas. Swift aplica límites comunes, sin añadir otra política
+de reintento del protocolo.
+
+### Contrato del conector y capacidades del host
+
+El runtime del destino ofrece `aplicar(nota, anterior, contexto)` y
+`retirar(anterior, contexto)`, además de validación con permisos de lectura.
+La declaración y proyección pura pueden tener la misma forma que en C; la
+diferencia es que la carga la ejecuta JS. El recibo específico del conector
+lleva versión y esquema propios, sin código ejecutable. Swift lo conserva y
+solo la ejecución autorizada puede actualizarlo.
+
+La librería no recibe `fetch`, una URL libre ni un token. Swift crea una
+capacidad ligada al vínculo, destino, paquete y operación al ejecutar su
+contexto; no entrega `escriba.cuenta(...)` a cualquier receta. Contrato
+ilustrativo de esas capacidades:
+
+```ts
+type JSONValor = null | boolean | number | string
+  | readonly JSONValor[] | { readonly [clave: string]: JSONValor }
+
+interface PeticionLimitada {
+  paso: string // Clave estable para el registro de esta operación.
+  metodo: "GET" | "POST" | "PATCH" | "DELETE"
+  ruta: string // Relativa al origen fijo de la cuenta; sin URL absoluta.
+  consulta?: Readonly<Record<string, string>>
+  cabeceras?: Readonly<Record<string, string>> // Solo las permitidas por el host.
+  cuerpo?: string // El SDK serializa su cuerpo; Swift no interpreta Notion.
+}
+interface RespuestaLimitada {
+  readonly estado: number
+  readonly cabeceras: Readonly<Record<string, string>> // Subconjunto permitido.
+  readonly cuerpo: string // Acotado; el adaptador ofrece text() al SDK.
+}
+interface CuentaHTTPCapaz {
+  pedir(peticion: PeticionLimitada): Promise<RespuestaLimitada>
+  enviarAdjunto(peticion: {
+    paso: string
+    ruta: string
+    audio: { readonly clave: string } // Referencia ligada a la nota, no ruta.
+    formato: "binario" | "multipart"
+    campos?: Readonly<Record<string, string>>
+    porcion?: { inicio: number; bytes: number }
+  }): Promise<RespuestaLimitada>
+}
+interface CarpetaOKFCapaz {
+  leer(): Promise<{
+    revision: string
+    archivos: Readonly<Record<string, string>>
+  }>
+  aplicar(cambios: {
+    revisionEsperada: string
+    escrituras: readonly { rutaRelativa: string; contenido: string }[]
+    borrados: readonly string[]
+  }): Promise<void>
+}
+interface ContextoDeConector {
+  readonly operacion: string
+  readonly audio: { readonly clave: string } | null
+  readonly cuenta: CuentaHTTPCapaz | CarpetaOKFCapaz
+  esperar(ms: number): Promise<void> // Acotado, cancelable y contabilizado.
+  checkpoint(recibo: JSONValor): Promise<void>
+}
+```
+
+El boceto muestra el caso JSON. La paridad con la subida de audio existente
+añade `enviarAdjunto({ paso, ruta, audio, formato, campos })`: `audio` es una
+referencia opaca concedida solo para la nota en curso, `formato` es binario o
+multipart y `campos` son las partes de texto. Reutiliza las restricciones de
+`pedir`, con método POST fijado por el host. Swift valida la referencia y el
+rango, lee el archivo y codifica/transmite el cuerpo; JS decide la secuencia
+del protocolo sin obtener una ruta del Mac ni capacidad para leer cualquier
+archivo. Esta ampliación está incluida en
+la fase de capacidades de B.
+
+`fetchDeCuenta` adapta la forma de `fetch` a esta capacidad: comprueba que la
+URL del SDK corresponde al origen concedido, transmite el cuerpo y reconstruye
+la respuesta permitida. Swift vuelve a verificar todo al ejecutar; el adapter
+JS no es la autoridad. Los errores del proveedor se entregan acotados para que
+el SDK los interprete, sin que Swift necesite conocer cada tipo de respuesta.
+
+`checkpoint` escribe solo el recibo de la operación en curso; JS no elige otra
+nota, cuenta o publicación ni escribe configuración. El host valida formato,
+tamaño y vínculo antes de persistir; la biblioteca interpreta los recursos.
+Los efectos confirmados se guardan por
+operación, paso y huella de petición antes de entregar su resultado al JS;
+repetir el mismo paso puede recuperarlo. Los intentos transitorios, como un
+429, se registran sin tratarlos como éxito reutilizable; un reintento admitido
+crea otro intento del mismo paso. Reutilizar un paso con otra petición es un
+conflicto. Esto no elimina la ventana de resultado incierto.
+
+| Aspecto | Garantía que debe imponer Swift |
+| --- | --- |
+| Destino de red | Origen HTTPS exacto y puerto fijados en la cuenta; rutas normalizadas y métodos concedidos. El host no enumera cada endpoint Notion. Sin destinos arbitrarios, redirecciones ni cookies compartidas. |
+| Autenticación | Lee el secreto solo en el host y añade la cabecera al enviar. JS no puede proporcionar Authorization, Host ni cabeceras de proxy. Cabeceras de protocolo sin secreto, como la versión de API, pueden proceder del SDK bajo una lista permitida. |
+| Respuesta | Estado, cuerpo acotado y cabeceras seleccionadas como Content-Type o Retry-After. Sin cabeceras completas, objetos del transporte, volcado de petición autenticada ni mensajes de error que incluyan secretos. |
+| Presupuesto | Tamaño por petición/respuesta y acumulado, llamadas, páginas, intentos y concurrencia. Timeout por petición y cancelación. El límite actual de CPU por tramo no frena un bucle infinito de `await`. |
+| Revocación | Comprobar permisos actuales en cada efecto, también con paquetes históricos; un paquete nunca amplía los permisos del vínculo. |
+| OKF | Solo el bundle dentro de la raíz vinculada, sin rutas absolutas, `..` ni escapes por symlinks, incluyendo cambios entre comprobar y abrir. Validar revisión y archivos gestionados antes de reemplazar/borrar. |
+
+En B, **JS decide paginación y reintentos semánticos**, porque conoce el
+protocolo. Swift impone presupuestos y cuotas compartidas de cuenta y ofrece
+esperas cancelables. `Retry-After` puede exponerse como número validado; nunca
+autoriza reintentos ilimitados. Swift no repite automáticamente una creación
+`POST`. En A y C, tanto paginación como política de reintento permanecen en el
+adaptador Swift.
+
+Dominio y método **no restringen una base concreta**. La política propuesta
+para B confía en el código del proyecto dentro del alcance concedido a la
+cuenta; Notion aplica los permisos de esa integración. La ubicación declarada
+sirve a la biblioteca para publicar, no se presenta como una barrera frente a
+la propia biblioteca. Escriba protege el secreto y los recursos del host.
+
+Añadir en Swift una lista de operaciones semánticas Notion volvería a limitar
+qué puede hacer el SDK. Si se exige aislamiento fuerte por base incluso ante
+código malicioso, habrá que aceptar ese coste o conceder cuentas de menor
+alcance. Un manifiesto JS nunca amplía la concesión del host. Además, POST
+puede ser lectura: un permiso «solo lectura» necesita entender operaciones;
+no debe prometerse como una consecuencia de filtrar verbos.
+
+La garantía de secreto consiste en que el puente nunca introduce el token
+en la VM, y depende de perfiles de autenticación con orígenes de confianza
+fijados por el host. No es válida con servidores arbitrarios que puedan
+reflejar la credencial en una respuesta. Ocultar el token tampoco impide usar
+su autoridad. El código del proyecto se considera confiado para publicar en
+el alcance concedido; JSC dentro del proceso no se presenta como aislamiento
+frente a código hostil. Son los límites explícitos de la confianza concedida
+a bibliotecas que pueden usar toda la API accesible a esa cuenta.
+
+## Alternativa C: declaración JS con protocolo Swift
 
 La app conserva cuenta, secreto y alcance. El proyecto declara una referencia
 lógica como `notion-trabajo`; la persona la vincula a una cuenta local en la
@@ -263,124 +470,6 @@ su código ni descarta el último paquete bueno. La declaración de una base no
 amplía los permisos de la integración. En C, Swift comprueba recursos y tipos
 antes de actuar; en OKF controla raíz, rutas, duplicados y recursos gestionados.
 
-## B: conector operativo en JS y capacidad autenticada
-
-En B, la transformación, los bloques Notion, el Markdown OKF y la secuencia de
-operaciones pertenecen a librerías TS. Para que también funcionen fuera de una
-receta, esbuild genera **paquetes de destino independientes y autocontenidos**
-que incorporan esas librerías. Importar la librería únicamente dentro del
-paquete de una receta no resuelve el ciclo manual.
-
-El runtime del destino ofrece `aplicar(nota, anterior, contexto)` y
-`retirar(anterior, contexto)`, además de validación con permisos de lectura.
-La declaración y proyección pura pueden tener la misma forma que en C; la
-diferencia es que la carga la ejecuta JS. El recibo específico del conector
-lleva versión y esquema propios, sin código ejecutable. Swift lo conserva y
-solo la ejecución autorizada puede actualizarlo.
-
-La librería no recibe `fetch`, una URL libre ni un token. Swift crea una
-capacidad ligada al vínculo, destino, paquete y operación al ejecutar su
-contexto; no entrega `escriba.cuenta(...)` a cualquier receta. Contrato
-ilustrativo de esas capacidades:
-
-```ts
-interface PeticionLimitada {
-  paso: string // Clave estable para el registro de esta operación.
-  metodo: "GET" | "POST" | "PATCH" | "DELETE"
-  ruta: string // Relativa al origen fijo de la cuenta; sin URL absoluta.
-  consulta?: Readonly<Record<string, string>>
-  cuerpo?: JSONValor
-}
-interface RespuestaLimitada {
-  readonly estado: number
-  readonly cuerpo: JSONValor
-  readonly reintentarTrasMs?: number // Campo permitido, no headers completos.
-}
-interface CuentaNotionCapaz {
-  pedir(peticion: PeticionLimitada): Promise<RespuestaLimitada>
-  enviarAdjunto(peticion: {
-    paso: string
-    ruta: string
-    audio: { readonly clave: string } // Referencia ligada a la nota, no ruta.
-    formato: "binario" | "multipart"
-    campos?: Readonly<Record<string, string>>
-    porcion?: { inicio: number; bytes: number }
-  }): Promise<RespuestaLimitada>
-}
-interface CarpetaOKFCapaz {
-  leer(): Promise<{
-    revision: string
-    archivos: Readonly<Record<string, string>>
-  }>
-  aplicar(cambios: {
-    revisionEsperada: string
-    escrituras: readonly { rutaRelativa: string; contenido: string }[]
-    borrados: readonly string[]
-  }): Promise<void>
-}
-interface ContextoDeConector {
-  readonly operacion: string
-  readonly audio: { readonly clave: string } | null
-  readonly cuenta: CuentaNotionCapaz | CarpetaOKFCapaz
-  esperar(ms: number): Promise<void> // Acotado, cancelable y contabilizado.
-  checkpoint(recibo: JSONValor): Promise<void>
-}
-```
-
-El boceto muestra el caso JSON. La paridad con la subida de audio existente
-añade `enviarAdjunto({ paso, ruta, audio, formato, campos })`: `audio` es una
-referencia opaca concedida solo para la nota en curso, `formato` es binario o
-multipart y `campos` son las partes de texto. Reutiliza las restricciones de
-`pedir`, con método POST fijado por el host. Swift valida la referencia y el
-rango, lee el archivo y codifica/transmite el cuerpo; JS decide la secuencia
-del protocolo sin obtener una ruta del Mac ni capacidad para leer cualquier
-archivo. Esta ampliación está incluida en
-la fase de capacidades de B.
-
-`checkpoint` escribe solo el recibo de la operación en curso; JS no elige otra
-nota, cuenta o publicación ni escribe configuración. El host valida formato,
-tamaño y recursos antes de persistir. Los efectos confirmados se guardan por
-operación, paso y huella de petición antes de entregar su resultado al JS;
-repetir el mismo paso puede recuperarlo. Los intentos transitorios, como un
-429, se registran sin tratarlos como éxito reutilizable; un reintento admitido
-crea otro intento del mismo paso. Reutilizar un paso con otra petición es un
-conflicto. Esto no elimina la ventana de resultado incierto.
-
-| Aspecto | Garantía que debe imponer Swift |
-| --- | --- |
-| Destino de red | Origen HTTPS exacto y puerto fijados en la cuenta; rutas normalizadas y métodos permitidos; sin URL absoluta, redirecciones ni cookies compartidas. |
-| Autenticación | Lee el secreto solo en el host y añade la cabecera al enviar. JS no puede proporcionar Authorization, Host ni cabeceras de proxy. La versión del protocolo se fija en el perfil permitido. |
-| Respuesta | Estado, JSON acotado y metadatos seleccionados. Sin cabeceras completas, objetos del transporte, volcado de petición autenticada ni mensajes de error que incluyan secretos. |
-| Presupuesto | Tamaño por petición/respuesta y acumulado, llamadas, páginas, intentos y concurrencia. Timeout por petición y cancelación. El límite actual de CPU por tramo no frena un bucle infinito de `await`. |
-| Revocación | Comprobar permisos actuales en cada efecto, también con paquetes históricos; un paquete nunca amplía los permisos del vínculo. |
-| OKF | Solo el bundle dentro de la raíz vinculada, sin rutas absolutas, `..` ni escapes por symlinks, incluyendo cambios entre comprobar y abrir. Validar revisión y archivos gestionados antes de reemplazar/borrar. |
-
-En B, **JS decide paginación y reintentos semánticos**, porque conoce el
-protocolo. Swift impone presupuestos y cuotas compartidas de cuenta y ofrece
-esperas cancelables. `Retry-After` puede exponerse como número validado; nunca
-autoriza reintentos ilimitados. Swift no repite automáticamente una creación
-`POST`. En A y C, tanto paginación como política de reintento permanecen en el
-adaptador Swift.
-
-Hay un límite de arquitectura que debe decidirse: dominio y método **no
-restringen una base concreta**. Una petición puede nombrar otra página a la
-que la integración tenga acceso. B admite dos políticas: confiar en la
-librería para operar dentro del alcance remoto de la cuenta, o mantener una
-guardia Swift por proveedor que valide padres, recursos y operaciones. La
-segunda ofrece aislamiento por destino y reduce la facilidad de añadir un
-proveedor solo con JS. El manifiesto escrito por la propia librería no basta
-para autorizarla. Incluso una consulta de solo lectura puede usar POST: el
-perfil debe entender la operación, no basarse solo en el verbo.
-
-La garantía de secreto consiste en que el puente nunca introduce el token
-en la VM, y depende de perfiles de autenticación con orígenes de confianza
-fijados por el host. No es válida con servidores arbitrarios que puedan
-reflejar la credencial en una respuesta. Ocultar el token tampoco impide usar
-su autoridad. El código del proyecto se considera confiado para publicar en
-el alcance concedido; JSC dentro del proceso no se presenta como aislamiento
-frente a código hostil. Estas limitaciones hacen preferible C si se exige
-control fuerte por destino sin construir un host general de plugins.
-
 ## Publicar fuera de una receta y rastro
 
 Hoy corrección de hablantes, cambio o eliminación del resumen y elección de
@@ -482,9 +571,11 @@ un borrado inferido solo de las plantillas actuales.
 
 ## Distribución y versiones
 
-Las librerías de JS no tienen por qué ser paquetes npm. El resolvedor actual
-solo admite imports relativos y Zod; esbuild incorpora todo al paquete que
-ejecuta JSC. Para C recomiendo fuentes locales versionadas con el proyecto:
+Las librerías del proyecto y el SDK oficial tienen funciones distintas. Las
+primeras contienen sus destinos y comportamiento; el SDK es una dependencia
+externa versionada. El resolvedor actual solo admite imports relativos y Zod,
+así que introducir `@notionhq/client` **requiere una excepción explícita**;
+copiar su código como fichero local no elimina esa decisión.
 
 | Vía | Ventaja | Coste y condición |
 | --- | --- | --- |
@@ -492,13 +583,18 @@ ejecuta JSC. Para C recomiendo fuentes locales versionadas con el proyecto:
 | Librería administrada por la app como Zod | Arreglos centralizados, sin pedir un gestor de paquetes al usuario. | Nuevo resolvedor/caché con versión y huella; conservar versiones referenciadas. La activación no puede modificar paquetes anteriores. |
 | Paquete npm propio | Distribución y herramientas externas conocidas. | Reabre «solo Zod», requiere aprobación de Rubén y una estrategia de resolución/lockfile; no implica aceptar cualquier npm ni scripts de instalación. |
 
-En C, las fuentes locales contienen builders y transformaciones; los
-adaptadores de protocolo y seguridad se actualizan con la app. En B contienen
-también la implementación del proveedor, con más mantenimiento para el dueño
-del proyecto. Una librería administrada podría añadirse después si distribuir
-arreglos del proveedor se convierte en un problema real. El paquete opcional
-`@zetesis/escriba-recipes` de RF-4 no está implementado ni resuelve por sí solo
-la distribución de conectores.
+Para B recomiendo **bibliotecas de destino locales y SDK administrado como
+dependencia permitida**, con versión y huella fijadas por proyecto. La app
+descarga y verifica el artefacto y sus tipos, esbuild lo incluye en el paquete
+autocontenido y el motor solo ejecuta ese paquete. No se abre la resolución a
+cualquier npm ni se ejecutan scripts de instalación. Actualizar el SDK es una
+acción explícita que recompila y valida una nueva revisión, conservando las
+anteriores. El primer spike determinará el artefacto y las utilidades JSC que
+hay que suministrar; no se ha instalado ninguna dependencia en este encargo.
+
+En C se podría empezar con fuentes copiadas por plantilla, porque el
+protocolo permanece en la app. El paquete opcional `@zetesis/escriba-recipes`
+de RF-4 no está implementado ni sustituye al SDK del proveedor.
 
 Hay tres revisiones: contrato del host, paquete de destino y paquete de
 receta. La receta instalada referencia una revisión compatible del catálogo.
@@ -585,10 +681,12 @@ caminos. No corresponde asignar toda la recuperación ante fallos solo a B.
 | Integración y documentación | 2–3 | 2–3 | 2–4 | Matriz de aceptación local completa y recorrido de usuario revisable. |
 | **Total** | **13–22** | **15–25** | **20–35** | Jornadas; no fecha de entrega prometida. |
 
-Orden recomendado para C: primero contrato y prueba vertical de un destino
-con transporte falso; después archivo de paquetes y actualización/retirada;
-después migración y vista de solo lectura. No portar primero todo el conector
-sin haber resuelto cómo conservar su publicación. Antes de retirar editores
+Orden recomendado para B: primero SDK empaquetado en JSC con transporte falso
+y credencial ficticia inyectada por Swift; después un destino con publicación,
+actualización y retirada usando paquete retenido; después migración y vista
+de solo lectura. El SDK puede ahorrar cliente HTTP y tipos del proveedor;
+no sustituye las reglas de Escriba para regenerar páginas, producir N documentos
+o recuperar un efecto incierto. Antes de retirar editores
 se mantiene la comprobación real de RF-9, con datos sintéticos y autorización
 futura; esa comprobación no se ha hecho en esta investigación.
 
@@ -617,9 +715,9 @@ mejora de rendimiento por cambiar de lenguaje.
 
 ## Decisiones pendientes de Rubén
 
-1. ¿El objetivo es personalizar destinos y representación (C), o añadir y
-   mantener protocolos de proveedores sin recompilar la app (B)? Recomiendo C
-   para la necesidad descrita; A sigue siendo la entrega menor de RF-9.
+1. El objetivo de flexibilidad ya está aclarado: B. Queda aprobar la excepción
+   concreta a «solo Zod» para empaquetar el SDK oficial con versión fijada y
+   validar primero su ejecución en JSC.
 2. ¿Las correcciones conservan la revisión que publicó, con actualización
    explícita a otra, o siguen siempre la última revisión buena? Recomiendo
    fijar revisión para que una corrección no cambie de ubicación o formato.
@@ -628,15 +726,16 @@ mejora de rendimiento por cambiar de lenguaje.
 4. Para quien no tiene proyecto, ¿se mantiene un recorrido de serie y
    compatibilidad administrada, o personalizar/vincular el primer destino
    exige crear un proyecto? Recomiendo preservar el caso sin código.
-5. Solo si se elige B: ¿se confía en la librería dentro de todo el alcance
-   concedido a la cuenta, o se exige aislamiento por destino incluso frente
-   a una librería equivocada? Lo segundo requiere guardias semánticas por
-   proveedor y aumenta el coste de extensibilidad.
+5. Para B se propone confiar en la librería dentro del alcance de la cuenta.
+   Si se exige además aislamiento fuerte por destino, hay que concretarlo
+   antes de construir el transporte: cambia la arquitectura y puede volver a
+   introducir conocimiento del proveedor en Swift.
 
 ## Evidencia local y límites del análisis
 
-Lectura de código y revisión de tres diseños; no se ejecutó la app, un spike
-ni llamadas remotas. Las propuestas de contrato, estados y costes necesitan
+Lectura de código, revisión de tres diseños y consulta de fuente pública del
+SDK oficial. No se ejecutó la app, un spike ni llamadas a la API de Notion.
+Las propuestas de contrato, estados y costes necesitan
 validación durante su implementación. El único entregable es este documento.
 
 | Evidencia | Fuentes |
