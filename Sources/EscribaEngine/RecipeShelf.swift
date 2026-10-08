@@ -51,13 +51,23 @@ public func recipeShelf(
         }).map { RecipeInfo(key: $0.key, name: $0.name, kind: $0.kind) }
     }
 
+    @Sendable func basePackage(of recipe: FormRecipe, installed: [String: InstalledRecipe]) -> RecipePackage? {
+        guard let base = recipe.base else { return formPackage }
+        return installed[base].map {
+            RecipePackage(key: $0.key, source: $0.source, fingerprint: $0.fingerprint, sourceMap: $0.sourceMap)
+        }
+    }
+
     @Sendable func target(_ key: String, in book: RecipeBook, installed: [String: InstalledRecipe]) -> RecipeTarget? {
         switch book.resolve(key, installed: installed) {
         case .form(let recipe):
-            RecipeTarget(
-                key: recipe.key, name: recipe.name, kind: .form,
-                package: RecipePackage(key: recipe.key, source: formPackage.source, fingerprint: formPackage.fingerprint),
-                values: book.values[recipe.key])
+            basePackage(of: recipe, installed: installed).map { base in
+                RecipeTarget(
+                    key: recipe.key, name: recipe.name, kind: .form,
+                    package: RecipePackage(
+                        key: recipe.key, source: base.source, fingerprint: base.fingerprint, sourceMap: base.sourceMap),
+                    values: book.values[recipe.key])
+            }
         case .code(let package):
             RecipeTarget(
                 key: package.key, name: package.name, kind: .code,

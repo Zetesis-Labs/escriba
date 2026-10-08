@@ -93,6 +93,37 @@ struct LibroDeRecetasTests {
         #expect(ninguna == nil)
     }
 
+    @Test("una receta de código se guarda como receta de formulario: con su nombre, sus valores y la receta de la que parte")
+    func variante() throws {
+        var libro = RecipeBook(migrating: deHoy, key: "F1")
+        libro.setValues(#"{"llm":"U2"}"#, for: "analisis")
+
+        let variante = libro.add(key: "V1", name: "Análisis con Groq", base: "analisis", values: libro.values["analisis"])
+        libro.makeDefault("V1")
+
+        #expect(variante == FormRecipe(key: "V1", name: "Análisis con Groq", base: "analisis"))
+        #expect(libro.values["V1"] == #"{"llm":"U2"}"#)
+        #expect(libro.resolve("V1", installed: [:]) == .form(variante))
+        #expect(libro.listing(code: [RecipeCodeEntry(key: "analisis", name: "Análisis completo")]).map(\.key)
+            == ["F1", "V1", "analisis"])
+        #expect(libro.duplicate("V1", as: "V2")?.base == "analisis")
+        let leido = try JSONDecoder().decode(RecipeBook.self, from: try JSONEncoder().encode(libro))
+        #expect(leido == libro)
+        #expect(leido.form("F1")?.base == nil)
+    }
+
+    @Test("lo que se limpia y se lee de los ajustes de «Por defecto» no toca las recetas que parten de una de código")
+    func varianteNoSeLimpia() {
+        var libro = RecipeBook(migrating: conGroq, key: "F1")
+        libro.add(key: "V1", name: "Otra", base: "analisis", values: #"{"stt":"U1","llm":"U2","conectores":["K1"]}"#)
+
+        #expect(libro.forgettingResolver("U1").values["V1"] == libro.values["V1"])
+        #expect(libro.forgettingConnector("K1").values["V1"] == libro.values["V1"])
+        #expect(libro.forgettingMissing(connectors: [], stts: [], llms: []).values["V1"] == libro.values["V1"])
+        #expect(libro.reading(of: "V1") == FormRecipeReading(
+            stt: nil, language: nil, summarize: false, llm: nil, prompt: nil))
+    }
+
     @Test("renombrar cambia el nombre y no la clave; un nombre en blanco no se acepta")
     func renombrar() {
         var libro = RecipeBook(migrating: deHoy, key: "F1")

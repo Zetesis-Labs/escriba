@@ -25,7 +25,7 @@ struct RecipesPane: View {
                 List(selection: $selected) {
                     Section("De formulario") {
                         ForEach(listing.filter { $0.kind == .form }) { recipe in
-                            RecipeRow(recipe: recipe, subtitle: "Se configura aquí")
+                            RecipeRow(recipe: recipe, subtitle: formSubtitle(recipe.key))
                                 .tag(recipe.key)
                                 .contextMenu {
                                     Button("Duplicar") {
@@ -41,7 +41,12 @@ struct RecipesPane: View {
                     }
                     Section("De código") {
                         ForEach(listing.filter { $0.kind == .code }) { recipe in
-                            RecipeRow(recipe: recipe, subtitle: codeSubtitle(recipe.key)).tag(recipe.key)
+                            RecipeRow(recipe: recipe, subtitle: codeSubtitle(recipe.key))
+                                .tag(recipe.key)
+                                .contextMenu {
+                                    Button("Guardar como receta de formulario") { saveAsForm(recipe.key) }
+                                        .disabled(statuses.first { $0.key == recipe.key }?.active == nil)
+                                }
                         }
                         ProjectFooter(settings: settings, recipes: recipes)
                     }
@@ -72,10 +77,14 @@ struct RecipesPane: View {
             }
         } detail: {
             if let key = selected, let form = book.form(key) {
-                FormRecipeEditor(settings: settings, recipe: form, library: library)
+                FormRecipeEditor(
+                    settings: settings, recipe: form, base: form.base.flatMap { base in statuses.first { $0.key == base } },
+                    library: library)
                     .id(key)
             } else if let key = selected, let status = statuses.first(where: { $0.key == key }) {
-                CodeRecipeDetail(settings: settings, status: status, folder: settings.recipesFolderPath, library: library)
+                CodeRecipeDetail(
+                    settings: settings, status: status, folder: settings.recipesFolderPath, library: library,
+                    onSaveAsForm: { saveAsForm(key) })
                     .id(key)
             } else {
                 ContentUnavailableView(
@@ -109,6 +118,19 @@ struct RecipesPane: View {
             !listing.contains(where: { $0.key == book.defaultKey })
         else { return nil }
         return "La receta por defecto «\(book.defaultKey)» ya no está en el proyecto: las notas esperan hasta que elijas otra."
+    }
+
+    private func saveAsForm(_ key: String) {
+        let name = statuses.first { $0.key == key }?.name ?? key
+        selected = settings.recipeBook.add(
+            key: UUID().uuidString, name: "\(name) (copia)", base: key, values: settings.recipeBook.values[key]
+        ).key
+    }
+
+    private func formSubtitle(_ key: String) -> String {
+        guard let base = book.form(key)?.base else { return "De serie · se configura aquí" }
+        guard let status = statuses.first(where: { $0.key == base }) else { return "Su receta «\(base)» ya no está" }
+        return "De «\(status.name ?? base)» · se configura aquí"
     }
 
     private func codeSubtitle(_ key: String) -> String {
@@ -165,12 +187,14 @@ private struct DefaultRecipeSection: View {
 private struct FormRecipeEditor: View {
     @Bindable var settings: AppSettings
     let recipe: FormRecipe
+    let base: RecipeStatus?
     let library: LibraryModel?
     @State private var name: String
 
-    init(settings: AppSettings, recipe: FormRecipe, library: LibraryModel?) {
+    init(settings: AppSettings, recipe: FormRecipe, base: RecipeStatus?, library: LibraryModel?) {
         self.settings = settings
         self.recipe = recipe
+        self.base = base
         self.library = library
         _name = State(initialValue: recipe.name)
     }
@@ -182,15 +206,23 @@ private struct FormRecipeEditor: View {
                     .onChange(of: name) { _, value in settings.recipeBook.rename(recipe.key, to: value) }
                 DefaultRecipeSection(settings: settings, key: recipe.key, isUsable: true)
             } footer: {
-                Text("Las recetas de formulario ejecutan el mismo código que «Por defecto» con estos parámetros. Desde una receta de código se llaman con escriba.receta(\"\(name)\").procesar(audio).")
+                Text("\(origin) Desde una receta de código se llama con escriba.receta(\"\(name)\").procesar(audio).")
             }
-            RecipeParameters(settings: settings, key: recipe.key, fingerprint: nil)
+            RecipeParameters(settings: settings, key: recipe.key, fingerprint: base?.active)
             if let library {
                 RecipeTestSection(library: library, recipe: recipe.key)
                 RecipeRunsSection(library: library, recipe: recipe.key)
             }
         }
         .formStyle(.grouped)
+    }
+
+    private var origin: String {
+        guard let key = recipe.base else {
+            return "Ejecuta el código de serie de Escriba, el de «Por defecto», con estos valores."
+        }
+        guard let base else { return "Su receta de código, «\(key)», ya no está en el proyecto: no se puede usar." }
+        return "Ejecuta el código de «\(base.name ?? key)» con estos valores: si cambias su receta.ts, cambia también esta."
     }
 }
 
@@ -199,6 +231,7 @@ private struct CodeRecipeDetail: View {
     let status: RecipeStatus
     let folder: String?
     let library: LibraryModel?
+    let onSaveAsForm: () -> Void
 
     var body: some View {
         Form {
@@ -206,6 +239,9 @@ private struct CodeRecipeDetail: View {
                 LabeledContent("Nombre", value: status.name ?? status.key)
                 LabeledContent("Clave", value: status.key)
                 DefaultRecipeSection(settings: settings, key: status.key, isUsable: status.active != nil)
+                Button("Guardar como receta de formulario", action: onSaveAsForm)
+                    .disabled(status.active == nil)
+                    .help("Crea una receta con nombre propio que ejecuta este código con los valores que le dejes")
                 if status.active == nil {
                     Text("Todavía no ha compilado nunca: no se puede usar hasta que compile.")
                         .font(.caption)

@@ -8,28 +8,32 @@ public enum RecipeKind: String, Sendable, Equatable, Codable {
 public struct FormRecipe: Sendable, Equatable, Codable, Identifiable {
     public let key: String
     public var name: String
+    public let base: String?
 
     public var id: String { key }
 
-    public init(key: String, name: String) {
+    public init(key: String, name: String, base: String? = nil) {
         self.key = key
         self.name = name
+        self.base = base
     }
 }
 
 private struct StoredFormRecipe: Decodable {
     let key: String
     let name: String
+    let base: String?
     let settings: DefaultRecipeSettings?
 
     enum CodingKeys: String, CodingKey {
-        case key, name, settings
+        case key, name, base, settings
     }
 
     init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         key = try container.decode(String.self, forKey: .key)
         name = try container.decode(String.self, forKey: .name)
+        base = try container.decodeIfPresent(String.self, forKey: .base)
         settings = try? container.decodeIfPresent(DefaultRecipeSettings.self, forKey: .settings)
     }
 }
@@ -151,7 +155,7 @@ public struct RecipeBook: Sendable, Equatable, Codable {
             values[form.key] = form.settings.map { dataText(formRecipeValues($0)) }
         }
         self.init(
-            forms: stored.map { FormRecipe(key: $0.key, name: $0.name) },
+            forms: stored.map { FormRecipe(key: $0.key, name: $0.name, base: $0.base) },
             defaultKey: try container.decode(String.self, forKey: .defaultKey), values: values)
     }
 
@@ -167,18 +171,17 @@ public struct RecipeBook: Sendable, Equatable, Codable {
     }
 
     @discardableResult
-    public mutating func add(key: String, name: String) -> FormRecipe {
-        let recipe = FormRecipe(key: key, name: nextRecipeName(name, taken: forms.map(\.name)))
+    public mutating func add(key: String, name: String, base: String? = nil, values: String? = nil) -> FormRecipe {
+        let recipe = FormRecipe(key: key, name: nextRecipeName(name, taken: forms.map(\.name)), base: base)
         forms.append(recipe)
+        self.values[key] = values
         return recipe
     }
 
     @discardableResult
     public mutating func duplicate(_ key: String, as newKey: String) -> FormRecipe? {
         guard let original = form(key) else { return nil }
-        let copy = add(key: newKey, name: "\(original.name) (copia)")
-        values[newKey] = values[key]
-        return copy
+        return add(key: newKey, name: "\(original.name) (copia)", base: original.base, values: values[key])
     }
 
     public mutating func rename(_ key: String, to name: String) {
@@ -231,7 +234,7 @@ public struct RecipeBook: Sendable, Equatable, Codable {
 
     private func changingFormValues(_ change: (DataValue) -> DataValue) -> RecipeBook {
         var book = self
-        for form in forms {
+        for form in forms where form.base == nil {
             guard let text = values[form.key], let current = try? parseData(text) else { continue }
             let changed = change(current)
             if changed != current { book.values[form.key] = dataText(changed) }
@@ -240,7 +243,8 @@ public struct RecipeBook: Sendable, Equatable, Codable {
     }
 
     public func reading(of key: String) -> FormRecipeReading {
-        let values = form(key) == nil ? nil : self.values[key].flatMap { try? parseData($0) }
+        let isDefaultRecipe = form(key).map { $0.base == nil } ?? false
+        let values = isDefaultRecipe ? self.values[key].flatMap { try? parseData($0) } : nil
         return FormRecipeReading(
             stt: values?["stt"]?.text, language: values?["idioma"]?.text, summarize: values?["resumir"] == .bool(true),
             llm: values?["llm"]?.text, prompt: values?["prompt"]?.text)

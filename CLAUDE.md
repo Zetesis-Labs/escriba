@@ -201,7 +201,11 @@ ad-hoc y puede caducar.
   «Por defecto» con Zod** (Rubén, 2026-10-08): `recetas/por-defecto/receta.ts`
   exporta `buildRecipeForm`, la app pinta ese esquema igual que el de una
   receta de código y cada receta de formulario guarda sus valores en
-  `RecipeBook.values` (el formulario hecho a mano en Swift y
+  `RecipeBook.values`. Una receta de formulario es **un nombre, unos valores y
+  la receta de la que parte** (`FormRecipe.base`: sin base, el código de serie
+  de «Por defecto»; con base, una receta de código del proyecto, que se guarda
+  así desde su ficha con «Guardar como receta de formulario»). Puede ser la por
+  defecto y se llama con `escriba.receta(nombre)` como cualquier otra (el formulario hecho a mano en Swift y
   `DefaultRecipeSettings` como ajustes vivos se retiraron; este último solo
   queda para leer y migrar lo guardado antes). Quitar un resolutor o un
   conector lo borra de los valores de las recetas de formulario, para que
