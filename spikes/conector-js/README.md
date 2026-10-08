@@ -9,8 +9,8 @@ regenera, retira y adjunta audio. Swift aporta transporte, credencial ficticia,
 temporizadores y un journal local; no interpreta endpoints de Notion.
 
 Ejecución del 2026-10-08: **67 comprobaciones correctas y 25 peticiones al
-servidor falso**. Paquete: **907.499 bytes**; compilación JS: **7,218 s**;
-recorrido completo: **37,760 s**, incluida la compilación de los ejecutables
+servidor falso**. Paquete: **907.499 bytes**; compilación JS: **6,980 s**;
+recorrido completo: **38,355 s**, incluida la compilación de los ejecutables
 nativos de prueba. Es una medida puntual de este Mac, no un benchmark de la app.
 El [resultado completo](resultado.json) conserva las comprobaciones, las
 peticiones sintéticas y las huellas de las fuentes ejecutadas.
