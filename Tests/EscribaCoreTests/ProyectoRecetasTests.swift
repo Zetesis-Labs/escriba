@@ -47,6 +47,15 @@ struct ProyectoRecetasTests {
         #expect(escritos.first { $0.path == "escriba-recetas.d.ts" }?.contents == RecipeTemplate.contract + "\n")
     }
 
+    @Test("la receta de ejemplo es «Por defecto» con otro nombre: trae su formulario de Zod para tocarlo")
+    func ejemploComoPorDefecto() throws {
+        let ejemplo = try #require(templateWrites(paths: []).first { $0.path == "recetas/mi-receta/receta.ts" })
+
+        #expect(ejemplo.contents.contains(#"export const receta = { nombre: "Mi receta" }"#))
+        #expect(ejemplo.contents.contains("export function \(recipeFormExport)("))
+        #expect(ejemplo.contents.contains("escriba: Escriba<Parametros>"))
+    }
+
     @Test("una carpeta con algo dentro recibe la plantilla sin pisar lo que ya habia")
     func carpetaConCosas() {
         let escritos = templateWrites(paths: ["README.md", "AGENTS.md"])

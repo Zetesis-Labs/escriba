@@ -16,6 +16,9 @@ js=$(npx --yes esbuild@0.28.2 recetas/por-defecto/receta.ts \
   --alias:zod=./recetas/.escriba/zod)
 fingerprint=$(printf '%s' "$js" | shasum -a 256 | cut -c1-16)
 
+starter=$(sed 's/^export const receta = { nombre: "Por defecto" }$/export const receta = { nombre: "Mi receta" }/' recetas/por-defecto/receta.ts)
+grep -q '^export const receta = { nombre: "Mi receta" }$' <<<"$starter" || { echo "la plantilla no sale de por-defecto" >&2; exit 1; }
+
 cat > Sources/EscribaJSC/DefaultRecipe.swift <<SWIFT
 import EscribaEngine
 
@@ -41,6 +44,6 @@ swift_text() {
   echo
   swift_text agents recetas/plantilla/AGENTS.md
   echo
-  swift_text starter recetas/plantilla/mi-receta.ts
+  printf '    public static let starter = ##"""\n%s\n"""##\n' "$starter"
   echo '}'
 } > Sources/EscribaCore/RecipeTemplate.swift
