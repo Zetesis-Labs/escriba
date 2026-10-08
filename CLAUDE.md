@@ -14,7 +14,7 @@ venta.
 
 **El núcleo viaja**: el mismo motor debe poder correr en un Mac, en un pod
 de Linux o en un runtime WebAssembly (WASI), cambiando solo el host que lo
-conecta. `EscribaCore`, `EscribaEngine` y `EscribaNotion` compilan a
+conecta. `EscribaCore` y `EscribaEngine` compilan a
 `wasm32-unknown-wasi` y a Linux, y el CI lo comprueba en cada PR. El
 escritorio en Windows y Linux está descartado por ahora; el análisis queda en
 `docs/requisito-multiplataforma.md`. Si se retoma, la decisión ya está tomada:
@@ -39,10 +39,13 @@ privada, cargada con `dlsym`, probada en macOS 26) y no cuenta las esperas. El
 proyecto de recetas vive en una carpeta que elige el usuario (la edita con su
 editor o un agente; git y GitHub son cosa suya) y la app la compila con
 **esbuild en WebAssembly** a paquetes, que se descarga al elegir la carpeta: el
-motor solo ejecuta paquetes y no lleva compilador. **Zod es el único paquete
-de npm que importa una receta** (Rubén, 2026-10-08): Escriba baja su `.tgz` de
-npm con la huella fijada (`ZodPackage`), esbuild resuelve `zod` a esa copia y
-sus tipos van a `.escriba/zod/` del proyecto. Con él se escriben los esquemas
+motor solo ejecuta paquetes y no lleva compilador. **Dependencias npm del proyecto**
+(Rubén, 2026-10-08): recetas y conectores pueden importar paquetes compatibles
+con JavaScriptCore, instalados externamente y fijados por lockfile. Esbuild
+resuelve el árbol de `node_modules`, `exports`, ESM, CommonJS y JSON. La versión
+de Zod instalada en el proyecto prevalece tanto al compilar como en los tipos
+del editor; sin ella se conserva la copia administrada (`ZodPackage`).
+Con él se escriben los esquemas
 de `escriba.preguntar` (respuesta estructurada, puerto `Asker`, traducida a
 `json_schema` o a `DynamicGenerationSchema` desde `answerSchema` en el núcleo) y
 de `receta.datos`, los datos propios que se guardan con cada versión, y los
@@ -69,11 +72,10 @@ swift test                  # swift-testing; --filter NO casa con nombres de @Su
 # Portabilidad (lo mismo que hace el CI)
 docker run --rm -v "$PWD":/src -w /src swift:6.4-noble bash -c \
   "apt-get update -qq && apt-get install -y -qq libsqlite3-dev && swift build --target EscribaSystemKit"
-swift build --swift-sdk swift-6.4.0-RELEASE_wasm --product escriba-wasm-probe   # toolchain swift.org 6.4
-node scripts/run-wasi.mjs "$(swift build --swift-sdk swift-6.4.0-RELEASE_wasm --product escriba-wasm-probe --show-bin-path)/escriba-wasm-probe.wasm"
+swift build --swift-sdk swift-6.4.0-RELEASE_wasm --target EscribaEngine
 
-# Prueba en vivo del conector (crea y regenera una página real)
-ESCRIBA_NOTION_TOKEN=ntn_… [ESCRIBA_NOTION_AUDIO=fichero.m4a] swift test --filter EnVivoTests
+# Conectores TypeScript: tipos, pruebas de paridad y paquete de serie
+./scripts/build-conectores.sh
 ```
 
 Desde Swift 6.4 SwiftPM construye con Swift Build y los productos salen en
@@ -100,8 +102,6 @@ ad-hoc y puede caducar.
 |---|---|---|---|
 | `EscribaCore` | Modelo (`Transcript`, `Recording`), parseo, decisiones puras | macOS, Linux, WASI | ninguna |
 | `EscribaEngine` | Puertos (`TranscriptionBackend`, `RecordingSource`, `Sink`, `LedgerPort`, `NoteMemory`, `FolderWatcher`, `ReadinessProbe`), capacidades, `Pipeline`, `Daemon`, `Log`. Orquestación que solo habla con puertos | macOS, Linux, WASI | ninguna |
-| `EscribaNotion` | Conector Notion: valor de cada columna según su tipo, cuerpo de texto con datos convertido a bloques, cliente API sobre un transporte HTTP propio, publicación, sink | macOS, Linux, WASI | ninguna (URLSession solo fuera de WASI) |
-| `EscribaOKF` | Conector a un bundle OKF v0.2 en una carpeta: N documentos por grabación (ruta, frontmatter y cuerpo con datos), `index.md` por carpeta y `log.md`. Decisiones puras (`okfPublication`, `okfRemoval`) y sink sobre el puerto `OKFFolder` | macOS, Linux, WASI | ninguna |
 | `EscribaSystemKit` | Host de sistema: FSEvents (macOS) o sondeo (Linux), stat/iCloud/materialización, flock, `offloaded`, ledger SQLite, migración legacy | macOS, Linux | SQLite del sistema (`CSQLite` en Linux) |
 | `EscribaWhisper` | Backend WhisperKit + SpeakerKit | Apple | argmax-oss-swift |
 | `EscribaIntelligence` | Adaptadores de `Summarizer` (titulo, resumen, etiquetas) y `Asker` (respuesta con un esquema construido al vuelo) con FoundationModels | Apple | ninguna |
@@ -111,24 +111,22 @@ ad-hoc y puede caducar.
 | `EscribaModel` | Modelos observables de la UI (biblioteca, conectores, ajustes), token en fichero 0600 | macOS | |
 | `escriba` | CLI | macOS | |
 | `EscribaMenuBar` | App: ventana única con Biblioteca / Conectores / STT / LLMs / Recetas / Registro / Ajustes | macOS | aislamiento MainActor por defecto |
-| `escriba-wasm-probe` | Sonda que ejercita Core+Engine+Notion; la ejecuta el CI en un runtime WASI | WASI | |
 
 - **Los puertos son structs de funciones**, no protocolos ni herencia:
   `TranscriptionBackend`, `RecordingSource`, `Sink`, `LedgerPort`, `NoteMemory`,
-  `NotionClient`, `NotionTransport`, `Summarizer`, `Asker`, `OKFFolder`, `RecipeRuntime`. Una implementación nueva es
+  `Summarizer`, `Asker`, `RecipeRuntime`, `ConnectorRuntime`, `ConnectorBridge`. Una implementación nueva es
   una función `make(...)` que devuelve el struct.
-- **Las plantillas son texto con datos, compartidas por los conectores**:
-  `{{titulo}}`, `{{transcripcion}}`, `{{enlace:<id>}}`… (`TemplateToken`,
-  `templatePieces`) y su valor (`NoteValues`) viven en `EscribaCore`; cada
-  conector decide cómo pinta un dato (YAML en OKF, tipo de columna o bloques
-  en Notion). El editor de la app es un `NSTextView` con los datos como
-  pastillas y «/» en el cursor (`TokenEditor.swift`). `BodyTemplate` y el
-  `mapping` antiguos solo existen para leer configuraciones guardadas antes.
+- **Las plantillas y representación de proveedores viven en TypeScript**:
+  `packages/conectores/src/template.ts` interpreta sus marcadores; Notion y
+  OKF aplican sus propias reglas en esa librería. La app muestra el catálogo
+  declarado y administra cuentas. El antiguo editor Swift de pastillas y sus
+  tipos de plantillas están retirados. Core conserva solo la presentación
+  genérica usada por la biblioteca y los ejemplos de resolutores.
 - **Un destino recibe una `Note`** (`Recording` + `Transcript` + `Digest?`), no
   una transcripción suelta: así el resumen llega a la biblioteca y a Notion sin
   que el pipeline conozca a ninguno de los dos.
 - **Nada de Dispatch, CoreServices, `Process`, `URLSession` ni CoreFoundation
-  en `EscribaCore`, `EscribaEngine` o `EscribaNotion`**: si lo necesitas, es
+  en `EscribaCore` o `EscribaEngine`**: si lo necesitas, es
   un puerto y su implementación va a `EscribaSystemKit` (o al host que
   toque). Comprobación: `swift build --swift-sdk <sdk wasm> --target
   EscribaEngine`; el job `wasi` del CI falla si se rompe.
@@ -136,7 +134,7 @@ ad-hoc y puede caducar.
   solo ejecuta. Si un bloque pide un comentario, extráelo a una función con
   nombre.
 - **Cada dependencia externa vive en su propio target.** `EscribaCore`,
-  `EscribaEngine` y `EscribaNotion` no importan nada.
+  `EscribaEngine` no importan dependencias externas.
 - **Tests primero**, con swift-testing (`@Suite`/`@Test`/`#expect`), nunca
   XCTest. Los nombres de test describen el comportamiento en castellano.
 
@@ -250,11 +248,20 @@ ad-hoc y puede caducar.
   interruptor. El
   rastro de publicación es por conector (tabla `publication`). Reprocesar o
   corregir **regenera** la página en cada conector donde estaba (mismo
-  enlace). Un fallo del conector nunca tumba el pipeline: `notionSink`
+  enlace). Un fallo del conector nunca tumba el pipeline: el host
   lo anota en el diario **y lo lanza**, y es `forgiving(_:)` (en la
   composición de sinks del pipeline, `AppRuntime.sink(for:)`) quien lo traga
   para que la pasada siga. «Publicar» a mano usa el sink sin envolver, así
   el error llega al usuario.
+- **Conectores en TypeScript** (Rubén, 2026-10-08): toda lógica de Notion y
+  OKF vive en `packages/conectores`, con el SDK oficial de Notion y Zod. Swift
+  aporta únicamente el host genérico: ejecución JSC, HTTP autenticado, carpeta
+  autorizada, audio opaco y persistencia de recibos. Los targets Swift de los
+  proveedores y la sonda que los ejercitaba están retirados. Para cambiar
+  comportamiento de proveedores, editar TypeScript y validar su suite antes
+  de regenerar `Sources/EscribaJSC/Resources/conectores`. Las pruebas con datos
+  reales siguen necesitando la autorización de Rubén; las locales usan host
+  controlado. Detalles y límites: `docs/requisito-conectores-js.md`.
 - **Token del usuario, no OAuth**: para un binario que cada uno se baja, OAuth
   obligaría a un backend con `client_secret`. Cada usuario crea su conexión
   «Token de acceso» en Notion y le comparte las bases.
@@ -372,7 +379,7 @@ Directriz (2026-08-31): usar lo último del lenguaje, cada cosa donde paga.
   dejaba la transcripción sin guardar todo ese rato: parecía colgado.
 - `Tests/EscribaIntelligenceTests/EnVivoTests.swift` resume de verdad con el
   modelo del sistema si le pasas `ESCRIBA_RESUMEN_TEXTO=<fichero>`; sin esa
-  variable se salta, como el test en vivo de Notion.
+  variable se salta, cuando no hay credenciales de prueba configuradas.
 - Un closure que se pasa a un puerto con `throws(SummaryError)` necesita la
   anotación explícita (`{ request throws(SummaryError) in`): sin ella el
   compilador infiere `any Error` y no compila.

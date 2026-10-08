@@ -26,7 +26,7 @@ nonisolated public struct RecipeRunReport: Sendable, Equatable {
 }
 
 public typealias RecipeRunner = @Sendable (StoredRecording, RecipeChoice, _ dryRun: Bool) async -> RecipeRunReport
-public typealias Unpublisher = @Sendable (String) async throws -> Void
+public typealias Unpublisher = @Sendable (_ recording: String, _ locator: String) async throws -> Void
 public typealias Digester = @Sendable (StoredRecording, Transcript) async throws -> Digest
 
 @Observable
@@ -69,7 +69,7 @@ public final class LibraryModel {
         guard let pageId = try store.recording(for: key)?.publication(in: connector)?.pageId else {
             throw LibraryModelError.nothingToUnpublish
         }
-        try await unpublish(pageId)
+        try await unpublish(key, pageId)
         try store.removePublication(key: key, connector: connector)
     }
 

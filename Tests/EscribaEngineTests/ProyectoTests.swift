@@ -163,7 +163,7 @@ struct ProyectoTests {
         #expect(Array(disco.escrituras.values.dropFirst(antes)) == [".escriba/estado.json"])
     }
 
-    @Test("el compilador recibe el proyecto sin lo que escribe Escriba, git ni node_modules")
+    @Test("el compilador recibe npm junto al código y excluye los ficheros internos")
     func sinIgnorados() async throws {
         let vistos = Trace<String>()
         let disco = DiscoFalso([
@@ -180,7 +180,8 @@ struct ProyectoTests {
         _ = try await rebuildRecipeProject(disk: disco.puerto, toolchain: espia, now: ahora)
 
         let rutas = Set((vistos.values.first ?? "").split(separator: ",").map(String.init))
-        #expect(rutas.isDisjoint(with: [".escriba/estado.json", ".git/HEAD", "node_modules/l/index.js"]))
+        #expect(rutas.isDisjoint(with: [".escriba/estado.json", ".git/HEAD"]))
+        #expect(rutas.contains("node_modules/l/index.js"))
         #expect(rutas.isSuperset(of: ["recetas/a/receta.ts", "comun/x.ts"]))
     }
 }

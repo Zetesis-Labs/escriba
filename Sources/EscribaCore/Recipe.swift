@@ -301,42 +301,22 @@ public struct RecipeResolver: Sendable, Equatable, Encodable {
 }
 
 public struct RecipeConnector: Sendable, Equatable, Encodable {
-    public struct NotionBase: Sendable, Equatable, Encodable {
-        public let id: String
-        public let name: String
-
-        public init(id: String, name: String) {
-            self.id = id
-            self.name = name
-        }
-
-        enum CodingKeys: String, CodingKey {
-            case id, name = "nombre"
-        }
-    }
-
     public let key: String
     public let name: String
     public let kind: String
     public let isActive: Bool
-    public let notionBase: NotionBase?
-    public let folder: String?
 
     public init(
-        key: String, name: String, kind: String, isActive: Bool = true, notionBase: NotionBase? = nil,
-        folder: String? = nil
+        key: String, name: String, kind: String, isActive: Bool = true
     ) {
         self.key = key
         self.name = name
         self.kind = kind
         self.isActive = isActive
-        self.notionBase = notionBase
-        self.folder = folder
     }
 
     enum CodingKeys: String, CodingKey {
-        case key = "clave", name = "nombre", kind = "tipo", isActive = "activo", notionBase = "base"
-        case folder = "carpeta"
+        case key = "clave", name = "nombre", kind = "tipo", isActive = "activo"
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -345,8 +325,6 @@ public struct RecipeConnector: Sendable, Equatable, Encodable {
         try container.encode(name, forKey: .name)
         try container.encode(kind, forKey: .kind)
         try container.encode(isActive, forKey: .isActive)
-        try container.encode(notionBase, forKey: .notionBase)
-        try container.encode(folder, forKey: .folder)
     }
 }
 

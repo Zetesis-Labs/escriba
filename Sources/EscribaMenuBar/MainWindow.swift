@@ -77,7 +77,7 @@ struct MainWindow: View {
             case .people:
                 PeoplePane(people: runtime.people)
             case .connectors:
-                ConnectorsPane(connectors: runtime.connectors)
+                ConnectorsPane(connectors: runtime.connectors, openProject: runtime.openConnectorProject)
             case .stt:
                 ResolversPane(resolvers: runtime.stt, settings: runtime.settings)
             case .llms:

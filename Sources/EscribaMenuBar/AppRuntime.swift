@@ -1,12 +1,11 @@
 import Foundation
+import AppKit
 import EscribaModel
 import EscribaCore
 import EscribaEngine
 import EscribaSystemKit
 import EscribaIntelligence
 import EscribaJSC
-import EscribaNotion
-import EscribaOKF
 import EscribaOpenAI
 import EscribaStore
 import EscribaWhisper
@@ -73,6 +72,9 @@ final class AppRuntime {
     @ObservationIgnored private var recordingItem: RecordingStatusItem?
     @ObservationIgnored private var recordingPanel: RecordingPanel?
     @ObservationIgnored private let recipeBook: Shared<RecipeBook>
+    @ObservationIgnored private let connectorArchive: ConnectorArchive
+    @ObservationIgnored private let connectorServices: ConnectorServices
+    @ObservationIgnored private var connectorPublications: ConnectorPublications?
 
     var recipeListing: [RecipeListing] {
         settings.recipeBook.listing(
@@ -96,11 +98,21 @@ final class AppRuntime {
         Log.mirrorToFile(Paths.logFile)
         Log.info("Escriba arrancando")
         if case .failure(let error) = rotation { Log.error("no se pudo rotar el log: \(error)") }
-        LegacyMigration.run()
-        AppSettings.adoptLegacyDefaults(from: UserDefaults(suiteName: "dev.ruben.jpr-transcribe"))
-        settings = AppSettings()
+        if let isolated = Paths.isolatedRoot {
+            settings = AppSettings(defaults: UserDefaults(suiteName: "dev.escriba.preview." + connectorFingerprint(isolated.path))!,
+                recorderRoot: nil, voiceMemos: nil)
+        } else {
+            LegacyMigration.run()
+            AppSettings.adoptLegacyDefaults(from: UserDefaults(suiteName: "dev.ruben.jpr-transcribe"))
+            settings = AppSettings()
+        }
         recipeBook = Shared(settings.recipeBook)
-        connectors = ConnectorsModel(settings: settings)
+        let bundled = Result { try BundledConnectors.program() }
+        let archive = ConnectorArchive(directory: Paths.applicationSupport.appending(path: "conectores"))
+        connectorArchive = archive
+        let services = EscribaMenuBar.connectorServices(program: bundled)
+        connectorServices = services
+        connectors = ConnectorsModel(settings: settings, tokens: { appTokenStore(account: $0.uuidString) }, services: services)
         stt = ResolversModel(role: .stt, settings: settings, services: resolverServices())
         llm = ResolversModel(role: .llm, settings: settings, services: resolverServices())
         let relay = WakeRelay()
@@ -111,18 +123,26 @@ final class AppRuntime {
             recorder: microphone.port(), inbox: box, wake: { relay.wake() },
             keepAwake: keepRecordingAwake)
         inbox = InboxModel(inbox: box, wake: { relay.wake() })
-        recipes = recipeProjectModel()
-        if let path = settings.recipesFolderPath {
-            Task { [recipes] in await recipes.open(URL(fileURLWithPath: path)) }
-        }
+        recipes = recipeProjectModel(connectors: connectors, archive: archive)
         relay.wake = { [weak self] in self?.wake() }
         recordingItem = RecordingStatusItem(recorder: recorder)
         recordingPanel = RecordingPanel(recorder: recorder) { [weak self] key in
             self?.recipeListing.first { $0.key == key }?.name ?? key
         }
-        Notifier.requestAuthorization()
-        start()
-        watchSettings()
+        if Paths.isolatedRoot == nil { Notifier.requestAuthorization() }
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await archive.retain(bundled.get())
+                try await connectors.initialize()
+                if let path = settings.recipesFolderPath { await recipes.open(URL(fileURLWithPath: path)) }
+                start()
+                watchSettings()
+            } catch {
+                startupProblem = "No se pudieron preparar los conectores: \(error.localizedDescription)"
+                Log.error(startupProblem ?? "Error de conectores")
+            }
+        }
     }
 
     func wake() {
@@ -165,6 +185,15 @@ final class AppRuntime {
             let unchosen = TranscriptionOptions(language: nil, diarize: false)
             let backend = recipeTranscriber(stts.local, options: unchosen, engine: engine)
             let enrich = enricher(summarizer(for: llms.local), language: nil)
+            if connectorPublications == nil {
+                connectorPublications = ConnectorPublications(store: store, archive: connectorArchive,
+                    runtime: try javaScriptCoreConnectorRuntime(),
+                    authority: { [settings] id in
+                        await MainActor.run {
+                            settings.connectorAccounts.first { $0.id.uuidString == id }.map(connectorPermission)
+                        }
+                    }, credentials: { appTokenStore(account: $0).read() })
+            }
             let publishers = publishers(for: store)
             let installed = Paths.installedRecipes
             let recipe = recipeRuntime().map { runtime in
@@ -176,7 +205,7 @@ final class AppRuntime {
                     catalog: recipeCatalog(
                         stts: stts, llms: llms,
                         connectors: settings.connectors.map {
-                            recipeConnector($0, isActive: publishers[$0.key] != nil)
+                            recipeConnector($0, isActive: $0.isLive && publishers[$0.key] != nil)
                         },
                         unchosen: unchosen, engine: engine,
                         origin: { [folders = settings.watchedFolders, inbox = Paths.inbox.path(percentEncoded: false)] in
@@ -358,95 +387,56 @@ final class AppRuntime {
         store.audioCopySink()
     }
 
-    private func publishers(for store: Store) -> [String: Sink] {
-        var publishers: [String: Sink] = [:]
-        for connector in settings.liveConnectors {
-            switch connector.kind {
-            case .notion:
-                guard let export = connector.notion,
-                    let token = defaultTokenStore(account: connector.key).read(), !token.isEmpty
-                else { continue }
-                publishers[connector.key] = notionSink(
-                    export: export,
-                    client: makeNotionClient(token: token),
-                    journal: journal(for: store, connector: connector.key))
-            case .okf:
-                guard let export = connector.okf, export.isUsable else { continue }
-                let folder = fileFolder(URL(fileURLWithPath: export.folder))
-                publishers[connector.key] = okfSink(
-                    export: export, folder: folder,
-                    journal: okfJournal(for: store, connector: connector.key, root: folder.root),
-                    producer: Self.producer)
-            }
+    private func bindings() -> [ConnectorBinding] {
+        settings.connectors.compactMap { destination in
+            guard destination.enabled, destination.isReady,
+                  let account = settings.connectorAccounts.first(where: { $0.id == destination.accountID }), account.enabled,
+                  let fingerprint = destination.programFingerprint else { return nil }
+            return ConnectorBinding(key: destination.key, provider: destination.provider,
+                destination: destination.destinationID, configurationJSON: destination.configurationJSON,
+                programFingerprint: fingerprint, permission: connectorPermission(account),
+                allowsNewPublications: !destination.sourceMissing)
         }
-        return publishers
+    }
+
+    private func publishers(for store: Store) -> [String: Sink] {
+        guard let publications = connectorPublications else { return [:] }
+        return Dictionary(uniqueKeysWithValues: bindings().map { binding in
+            (binding.key, { @Sendable note in
+                if let url = try await publications.publish(note, to: binding) { return url }
+                return URL(string: "urn:escriba:publication:" + connectorFingerprint(binding.key + ":" + note.recording.key))!
+            } as Sink)
+        })
     }
 
     private func unpublishers() -> [String: Unpublisher] {
-        var result: [String: Unpublisher] = [:]
-        for connector in settings.liveConnectors {
-            switch connector.kind {
-            case .notion:
-                guard let token = defaultTokenStore(account: connector.key).read(), !token.isEmpty
-                else { continue }
-                let client = makeNotionClient(token: token)
-                result[connector.key] = { pageId in try await unpublish(pageId: pageId, using: client) }
-            case .okf:
-                guard let export = connector.okf, export.isUsable else { continue }
-                let folder = fileFolder(URL(fileURLWithPath: export.folder))
-                let documents = export.documents
-                result[connector.key] = { notePath in try okfUnpublish(notePath, from: folder, documents: documents) }
-            }
+        guard let publications = connectorPublications else { return [:] }
+        return Dictionary(uniqueKeysWithValues: bindings().map { binding in
+            (binding.key, { @Sendable key, locator in try await publications.remove(key: key, locator: locator, from: binding) } as Unpublisher)
+        })
+    }
+
+    func openConnectorProject() {
+        Task {
+            do {
+                let folder: URL
+                if let path = settings.recipesFolderPath { folder = URL(fileURLWithPath: path) }
+                else {
+                    let panel = NSOpenPanel()
+                    panel.canChooseFiles = false
+                    panel.canChooseDirectories = true
+                    panel.canCreateDirectories = true
+                    panel.prompt = "Elegir proyecto"
+                    guard panel.runModal() == .OK, let chosen = panel.url else { return }
+                    folder = chosen
+                    settings.recipesFolderPath = chosen.path
+                }
+                try await writeConnectorProject(folder: folder, destinations: settings.connectors,
+                    accounts: settings.connectorAccounts, services: connectorServices)
+                await recipes.open(folder)
+                NSWorkspace.shared.open(folder.appending(path: "conectores.ts"))
+            } catch { startupProblem = "No se pudo abrir el proyecto: \(error.localizedDescription)" }
         }
-        return result
-    }
-
-    private static let producer =
-        "escriba/\(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev")"
-
-    private func okfJournal(for store: Store, connector: String, root: URL) -> OKFJournal {
-        OKFJournal(
-            published: { key, notePath, moment in
-                do {
-                    try store.markPublished(
-                        key: key, connector: connector, pageId: notePath,
-                        url: root.appending(path: notePath), at: moment)
-                } catch {
-                    Log.error("no se pudo anotar la exportacion de \(key): \(error)")
-                }
-            },
-            failed: { key, problem in
-                do {
-                    try store.markPublishFailed(key: key, connector: connector, error: problem)
-                } catch {
-                    Log.error("no se pudo anotar el fallo al exportar \(key): \(error)")
-                }
-            })
-    }
-
-    private func journal(for store: Store, connector: String) -> NotionJournal {
-        NotionJournal(
-            known: { key in
-                guard let publication = try store.recording(for: key)?.publication(in: connector),
-                    let pageId = publication.pageId
-                else { return nil }
-                return NotionPageRef(id: pageId, url: publication.url)
-            },
-            published: { key, page, moment in
-                do {
-                    try store.markPublished(
-                        key: key, connector: connector, pageId: page.id, url: page.url, at: moment)
-                } catch {
-                    Log.error("no se pudo anotar la publicacion de \(key): \(error)")
-                }
-            },
-            failed: { key, problem in
-                do {
-                    try store.markPublishFailed(key: key, connector: connector, error: problem)
-                } catch {
-                    Log.error("no se pudo anotar el fallo al publicar \(key): \(error)")
-                }
-            })
     }
 
     private func stopPipelines() {
@@ -465,6 +455,7 @@ final class AppRuntime {
                     "\(settings.sttResolvers)",
                     "\(settings.llmResolvers)",
                     fingerprint(of: settings.connectors),
+                    "\(settings.connectorAccounts)",
                 ].joined(separator: "|")
             }
 
@@ -507,7 +498,7 @@ nonisolated private func reprocessed(
     }
 }
 
-private func recipeProjectModel() -> RecipeProjectModel {
+private func recipeProjectModel(connectors: ConnectorsModel, archive: ConnectorArchive) -> RecipeProjectModel {
     let tools = EsbuildTools.directory(in: Paths.applicationSupport)
     let zod = ZodPackage.directory(in: Paths.applicationSupport)
     let installed = Paths.installedRecipes
@@ -535,8 +526,36 @@ private func recipeProjectModel() -> RecipeProjectModel {
             if ZodPackage.isInstalled(in: zod), try ZodPackage.installTypes(from: zod, intoProject: folder) {
                 Log.info("recetas: tipos de Zod \(ZodPackage.version) copiados a \(ZodPackage.projectFolder)")
             }
-            return try await rebuildRecipeProject(
-                disk: folderRecipeProject(root: folder, installed: installed), toolchain: compiler.toolchain, now: Date())
+            try BundledConnectors.install(intoProject: folder)
+            let snapshot = try snapshotConnectorProject(root: folder)
+            let sources = try BundledConnectors.resolving(in: snapshot.sources)
+            let base = folderRecipeProject(root: folder, installed: installed)
+            let disk = RecipeProjectDisk(snapshot: { RecipeProjectSnapshot(paths: snapshot.paths, sources: sources) },
+                write: base.write, loadInstalled: base.loadInstalled, saveInstalled: base.saveInstalled)
+            var catalog = (#"{"destinations":[]}"#, "empty")
+            if snapshot.paths.contains("conectores.ts") {
+                switch try await compiler.compileConnector(files: sources, entry: "conectores.ts") {
+                case .compiled(let source, _):
+                    let program = ConnectorProgram(source: source, fingerprint: connectorFingerprint(source))
+                    let inspected = try await inspectConnectorProgram(program)
+                    try await archive.retain(program)
+                    catalog = (inspected, program.fingerprint)
+                case .failed(let issues):
+                    throw ConnectorCatalogError.invalid(issues.map(\.text).joined(separator: "\n"))
+                }
+            }
+            let (inspection, fingerprint) = catalog
+            try await connectors.validateDestinations(inspectJSON: inspection, fingerprint: fingerprint)
+            let staged = Shared<[String: InstalledRecipe]?>(nil)
+            let stagedDisk = RecipeProjectDisk(snapshot: disk.snapshot, write: disk.write,
+                loadInstalled: disk.loadInstalled, saveInstalled: { staged.value = $0 })
+            let report = try await rebuildRecipeProject(disk: stagedDisk, toolchain: compiler.toolchain, now: Date())
+            try await MainActor.run {
+                try connectors.validateDestinations(inspectJSON: inspection, fingerprint: fingerprint)
+                if let installed = staged.value { try disk.saveInstalled(installed) }
+                try connectors.installDestinations(inspectJSON: inspection, fingerprint: fingerprint)
+            }
+            return report
         },
         watcher: recipeProjectWatcher)
 }

@@ -91,3 +91,15 @@ struct MigratingTokenStoreTests {
         #expect(llavero.read() == nil)
     }
 }
+
+@Test("guardar una credencial propaga un fallo de disco sin borrar la credencial antigua")
+func credencialNoFingeGuardado() throws {
+    let root = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+    try FileManager.default.createDirectory(at: root.appending(path: "account.token"), withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let legacy = TokenStore.inMemory("anterior")
+    let store = migratingTokenStore(primary: fileTokenStore(directory: root, account: "account"), legacy: legacy)
+    #expect(throws: (any Error).self) { try store.save("nueva") }
+    #expect(legacy.read() == "anterior")
+    #expect(try FileManager.default.contentsOfDirectory(atPath: root.path) == ["account.token"])
+}

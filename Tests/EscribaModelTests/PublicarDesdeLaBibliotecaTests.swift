@@ -29,7 +29,7 @@ private final class Archivador: Sendable {
     let archivadas = Mutex<[String]>([])
 
     var unpublish: Unpublisher {
-        { pageId in self.archivadas.withLock { $0.append(pageId) } }
+        { _, pageId in self.archivadas.withLock { $0.append(pageId) } }
     }
 
     var registro: [String] { archivadas.withLock { $0 } }
@@ -146,7 +146,7 @@ struct PublicarDesdeLaBibliotecaTests {
         let (base, store) = try sandbox()
         _ = try store.save(try grabacion(in: base, key: "a"), Transcript(text: "Hola"), backend: "wk")
         try store.markPublished(key: "a", connector: "c1", pageId: "pg-1", url: nil, at: .now)
-        let roto: Unpublisher = { _ in throw FakeError.caido }
+        let roto: Unpublisher = { _, _ in throw FakeError.caido }
         let modelo = LibraryModel(store: store, unpublishers: ["c1": roto])
 
         await #expect(throws: FakeError.self) { try await modelo.unpublish("a", from: "c1") }
@@ -157,7 +157,7 @@ struct PublicarDesdeLaBibliotecaTests {
     func nadaQueBorrar() async throws {
         let (base, store) = try sandbox()
         _ = try store.save(try grabacion(in: base, key: "a"), Transcript(text: "Hola"), backend: "wk")
-        let modelo = LibraryModel(store: store, unpublishers: ["c1": { _ in }])
+        let modelo = LibraryModel(store: store, unpublishers: ["c1": { _, _ in }])
 
         await #expect(throws: LibraryModelError.self) { try await modelo.unpublish("a", from: "c1") }
     }

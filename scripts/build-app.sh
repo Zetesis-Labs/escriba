@@ -23,6 +23,7 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN/EscribaMenuBar" "$APP/Contents/MacOS/EscribaMenuBar"
 cp "$PROJECT/Resources/Info.plist" "$APP/Contents/Info.plist"
 cp "$PROJECT/Resources/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
+cp -R "$PROJECT/Sources/EscribaJSC/Resources/conectores" "$APP/Contents/Resources/conectores"
 
 IDENTITY=$(security find-identity -v -p codesigning 2>/dev/null | grep -o '"[^"]*Escriba[^"]*"' | head -1 | tr -d '"' || true)
 if [ -n "${IDENTITY:-}" ]; then

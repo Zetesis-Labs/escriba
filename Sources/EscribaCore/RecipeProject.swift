@@ -12,9 +12,7 @@ public func recipeKeys(in paths: Set<String>) -> [String] {
 }
 
 public func ignoredByRecipes(_ path: String) -> Bool {
-    let parts = path.split(separator: "/")
-    guard let first = parts.first else { return true }
-    return [".escriba", ".git", "node_modules"].contains(first) || parts.last == ".DS_Store"
+    ignoredByConnectorProject(path)
 }
 
 public struct RecipeProjectFile: Sendable, Equatable {
@@ -178,4 +176,10 @@ public func recipeStatusLine(_ status: RecipeStatus) -> String {
     guard let issue = status.issues.first else { return "compilada · \(active ?? "sin paquete")" }
     let place = issue.location.map { "error en \($0): " } ?? "error: "
     return place + issue.text + (active.map { " · sigue con \($0)" } ?? " · sin paquete")
+}
+
+public func ignoredByConnectorProject(_ path: String) -> Bool {
+    let parts = path.split(separator: "/")
+    guard !parts.isEmpty else { return true }
+    return parts.contains(".git") || parts.contains(".escriba") || parts.contains(".bin") || parts.last == ".DS_Store"
 }
