@@ -42,7 +42,12 @@ export function buildRecipeForm({ stts, llms, conectores }: ListasDeEscriba) {
       .meta({ title: "Hablantes" }),
     resumir: z.boolean().default(false).meta({ title: "Resumir" }),
     llm: opciones(llms).default(local(llms)).meta({ title: "Resume con" }),
-    prompt: z.string().nullable().default(null).meta({ title: "Prompt" }).describe("Vacío: el de serie"),
+    prompt: z
+      .string()
+      .nullable()
+      .default(null)
+      .meta({ title: "Prompt", lineas: 6 })
+      .describe("Vacío: el de serie"),
     conectores: z
       .array(
         z.union(

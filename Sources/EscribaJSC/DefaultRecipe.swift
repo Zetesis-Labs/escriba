@@ -19719,7 +19719,7 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
       }).prefault({}).meta({ title: "Hablantes" }),
       resumir: external_exports.boolean().default(false).meta({ title: "Resumir" }),
       llm: opciones(llms).default(local(llms)).meta({ title: "Resume con" }),
-      prompt: external_exports.string().nullable().default(null).meta({ title: "Prompt" }).describe("Vacío: el de serie"),
+      prompt: external_exports.string().nullable().default(null).meta({ title: "Prompt", lineas: 6 }).describe("Vacío: el de serie"),
       conectores: external_exports.array(
         external_exports.union(
           conectores.map(
@@ -19749,5 +19749,5 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
   return __toCommonJS(receta_exports);
 })();
 """##,
-        fingerprint: "d164e70cd72cfc23")
+        fingerprint: "52402cad2317fd0f")
 }

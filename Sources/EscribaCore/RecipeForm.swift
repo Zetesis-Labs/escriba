@@ -21,7 +21,7 @@ public struct RecipeFormOption: Sendable, Equatable {
 public struct RecipeFormField: Sendable, Equatable {
     public indirect enum Kind: Sendable, Equatable {
         case toggle
-        case text
+        case text(lines: Int)
         case number(minimum: Double?, maximum: Double?, integer: Bool)
         case choice([RecipeFormOption])
         case choices([RecipeFormOption])
@@ -123,10 +123,19 @@ private func typeNames(_ value: DataValue?) -> [String] {
 private func field(_ property: DataField, required: Bool, path: [String]) throws(RecipeFormProblem) -> RecipeFormField {
     let node = property.value
     let (solid, nullable) = unwrapNull(node)
+    var kind = try kind(of: solid, path: path)
+    if case .text = kind { kind = .text(lines: textLines(node["lineas"] ?? solid["lineas"])) }
     return RecipeFormField(
         name: property.name, label: node["title"]?.text ?? solid["title"]?.text,
-        help: node["description"]?.text ?? solid["description"]?.text, kind: try kind(of: solid, path: path),
+        help: node["description"]?.text ?? solid["description"]?.text, kind: kind,
         nullable: nullable, required: required, defaultValue: node["default"] ?? solid["default"])
+}
+
+public let maximumTextLines = 20
+
+private func textLines(_ value: DataValue?) -> Int {
+    guard case .number(let lines) = value, lines >= 1 else { return 1 }
+    return Int(min(lines, Double(maximumTextLines)))
 }
 
 private func unwrapNull(_ node: DataValue) -> (DataValue, nullable: Bool) {
@@ -154,7 +163,7 @@ private func kind(of node: DataValue, path: [String]) throws(RecipeFormProblem) 
     case "boolean":
         return .toggle
     case "string":
-        return .text
+        return .text(lines: 1)
     case "number", "integer":
         return .number(
             minimum: number(node["minimum"]), maximum: number(node["maximum"]), integer: type == "integer")
