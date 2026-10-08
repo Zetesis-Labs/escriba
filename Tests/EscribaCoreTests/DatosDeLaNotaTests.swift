@@ -39,6 +39,21 @@ struct DatosDeLaNotaTests {
         #expect(dataText(.string("\u{1}")) == #""\u0001""#)
     }
 
+    @Test("un sustituto suelto en un escape \\u no tumba nada: sale el carácter de reemplazo")
+    func sustitutoSuelto() throws {
+        #expect(try parseData(#""\ud83dA""#) == .string("\u{FFFD}A"))
+        #expect(try parseData(#""\ud83d\u0041""#) == .string("\u{FFFD}A"))
+        #expect(try parseData(#""\udc00x""#) == .string("\u{FFFD}x"))
+    }
+
+    @Test("un anidamiento absurdo es un error, no un desbordamiento de pila")
+    func profundidad() {
+        let hondo = String(repeating: "[", count: 10_000) + String(repeating: "]", count: 10_000)
+        #expect(throws: DataParseError.self) { try parseData(hondo) }
+        let razonable = String(repeating: "[", count: 60) + String(repeating: "]", count: 60)
+        #expect(throws: Never.self) { try parseData(razonable) }
+    }
+
     @Test("rechaza lo que no es JSON")
     func rechaza() {
         for roto in ["", "{", #"{"a":}"#, "[1,]", "tru", #"{"a":1} x"#, #""sin cerrar"#, "{a:1}"] {

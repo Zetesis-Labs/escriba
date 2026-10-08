@@ -164,7 +164,7 @@ final class RecipeSession: Sendable {
     private func remember(saved data: DataValue?, in take: Take, output: URL) {
         state.withLock { state in
             state.output = output
-            state.take = take.carrying(data: data)
+            state.take = (state.take ?? take).carrying(data: data)
             state.savedData = data
         }
     }

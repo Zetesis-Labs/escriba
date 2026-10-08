@@ -111,9 +111,12 @@ private func quoted(_ text: String) -> String {
     return output + "\""
 }
 
+private let maximumDataDepth = 64
+
 private struct DataParser {
     let bytes: [UInt8]
     var position = 0
+    var depth = 0
 
     var atEnd: Bool { position == bytes.count }
 
@@ -128,14 +131,23 @@ private struct DataParser {
     mutating func value() throws(DataParseError) -> DataValue {
         guard position < bytes.count else { throw failure("se acabó el texto") }
         switch bytes[position] {
-        case UInt8(ascii: "{"): return try object()
-        case UInt8(ascii: "["): return try array()
+        case UInt8(ascii: "{"): return try nested { (parser: inout DataParser) throws(DataParseError) in try parser.object() }
+        case UInt8(ascii: "["): return try nested { (parser: inout DataParser) throws(DataParseError) in try parser.array() }
         case UInt8(ascii: "\""): return .string(try string())
         case UInt8(ascii: "t"): return try literal("true", .bool(true))
         case UInt8(ascii: "f"): return try literal("false", .bool(false))
         case UInt8(ascii: "n"): return try literal("null", .null)
         default: return .number(try number())
         }
+    }
+
+    private mutating func nested(
+        _ body: (inout DataParser) throws(DataParseError) -> DataValue
+    ) throws(DataParseError) -> DataValue {
+        guard depth < maximumDataDepth else { throw failure("más de \(maximumDataDepth) niveles anidados") }
+        depth += 1
+        defer { depth -= 1 }
+        return try body(&self)
     }
 
     private mutating func literal(_ word: String, _ value: DataValue) throws(DataParseError) -> DataValue {
@@ -250,8 +262,13 @@ private struct DataParser {
             guard bytes.count - position >= 6, bytes[position] == UInt8(ascii: "\\"),
                 bytes[position + 1] == UInt8(ascii: "u")
             else { return "\u{FFFD}" }
+            let start = position
             position += 2
             let low = try hexUnit()
+            guard (0xDC00..<0xE000).contains(low) else {
+                position = start
+                return "\u{FFFD}"
+            }
             return Unicode.Scalar(0x10000 + ((high - 0xD800) << 10) + (low - 0xDC00)) ?? "\u{FFFD}"
         default:
             throw failure("escape desconocido")
