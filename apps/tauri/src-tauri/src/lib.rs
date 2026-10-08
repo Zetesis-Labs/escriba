@@ -1,0 +1,864 @@
+mod capabilities;
+mod catalog;
+mod jobs;
+mod migration;
+mod native;
+mod persistence;
+mod project;
+mod remote;
+mod scripts;
+mod store;
+mod watcher;
+
+use serde_json::{json, Value};
+use std::{
+    collections::HashMap,
+    fs,
+    path::{Path, PathBuf},
+    sync::{Arc, Mutex},
+    time::{Duration, SystemTime},
+};
+use store::{text, Store};
+use tauri::{Emitter, Manager};
+
+struct Runtime {
+    store: Arc<Mutex<Store>>,
+    jobs: Arc<jobs::Queue>,
+    scripts: scripts::Scripts,
+    materializer: native::Native,
+    materializing: Mutex<HashMap<PathBuf, SystemTime>>,
+    scanner: Mutex<watcher::Scanner>,
+    watch_wake: tokio::sync::mpsc::Sender<()>,
+    inference: native::Native,
+    recorder: native::Native,
+    vendor: PathBuf,
+    compiler: PathBuf,
+}
+impl Runtime {
+    fn store(&self) -> Result<std::sync::MutexGuard<'_, Store>, String> {
+        self.store
+            .lock()
+            .map_err(|_| "No se pudo acceder a la biblioteca".into())
+    }
+}
+
+#[tauri::command]
+async fn app_command(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, Arc<Runtime>>,
+    method: String,
+    params: Value,
+) -> Result<Value, String> {
+    let runtime = state.inner().clone();
+    let result = dispatch(&app, &runtime, &method, params).await;
+    if result.is_ok()
+        && !["snapshot", "native", "project_read", "connector_audio"].contains(&method.as_str())
+    {
+        let _ = app.emit("escriba://changed", ());
+    }
+    state.jobs.wake.notify_one();
+    result
+}
+
+fn dispatch<'a>(
+    app: &'a tauri::AppHandle,
+    state: &'a Arc<Runtime>,
+    method: &'a str,
+    p: Value,
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Value, String>> + Send + 'a>> {
+    Box::pin(async move {
+        match method {
+            "snapshot" => Ok(state.store()?.snapshot()),
+            "runtime_run" => {
+                let operation = text(&p, "operation")?;
+                let args = p.get("args").cloned().unwrap_or(json!({}));
+                if jobs::durable(operation) {
+                    let id = state.jobs.enqueue(operation, args)?;
+                    emit_jobs(app, state);
+                    state.jobs.wait(&id).await
+                } else {
+                    script_call(app, state, &store::id(), operation, args).await
+                }
+            }
+            "runtime_jobs" => state.jobs.visible(),
+            "runtime_history" => Ok(json!(state.jobs.jobs()?)),
+            "memory_recall" => Ok(state
+                .store()?
+                .memory_recall(
+                    text(&p, "recordingId")?,
+                    text(&p, "versionId")?,
+                    text(&p, "fingerprint")?,
+                )?
+                .unwrap_or(Value::Null)),
+            "memory_keep" => {
+                state.store()?.memory_keep(
+                    text(&p, "recordingId")?,
+                    text(&p, "versionId")?,
+                    text(&p, "fingerprint")?,
+                    &p["value"],
+                )?;
+                Ok(Value::Null)
+            }
+            "trace_save" => {
+                state.store()?.trace_save(&p)?;
+                Ok(Value::Null)
+            }
+            "trace_list" => Ok(json!(state
+                .store()?
+                .trace_list(p["recordingId"].as_str())?)),
+            "runtime_cancel" => {
+                let recording = text(&p, "recordingId")?;
+                let running = state
+                    .jobs
+                    .jobs()?
+                    .iter()
+                    .any(|j| j["recordingId"] == recording && j["state"] == "running");
+                let ids = state.jobs.cancel(recording)?;
+                if running {
+                    state.inference.cancel();
+                }
+                for id in ids {
+                    state.scripts.cancel(&id).await;
+                }
+                emit_jobs(app, state);
+                Ok(Value::Null)
+            }
+            "library_import" => {
+                let path = PathBuf::from(text(&p, "path")?);
+                let settings = p["settingsPath"].as_str().map(PathBuf::from);
+                let state = state.clone();
+                tokio::task::spawn_blocking(move || match settings {
+                    Some(settings) => state
+                        .store()?
+                        .import_legacy_with_settings(&path, Some(&settings)),
+                    None => state.store()?.import_legacy(&path),
+                })
+                .await
+                .map_err(|e| e.to_string())?
+            }
+            "recording_discard" | "recording_delete" => {
+                let recording = text(&p, "id")?;
+                dispatch(
+                    app,
+                    state,
+                    "runtime_cancel",
+                    json!({"recordingId":recording}),
+                )
+                .await?;
+                let result = state.store()?.mutate(method, &p)?;
+                Ok(result)
+            }
+            "recording_remove_audio" => {
+                let recording = text(&p, "id")?;
+                if state.jobs.jobs()?.iter().any(|j| {
+                    j["recordingId"] == recording
+                        && ["running", "queued", "retry"]
+                            .contains(&j["state"].as_str().unwrap_or(""))
+                }) {
+                    return Err("Cancela el trabajo antes de quitar su audio".into());
+                }
+                state.store()?.mutate(method, &p)
+            }
+            "notification_permission" => {
+                notify(app, state, "Escriba", "Las notificaciones de Escriba están disponibles. Puedes ajustarlas en Ajustes del Sistema.")?;
+                Ok(json!("sent"))
+            }
+            "recording_restore" => {
+                let record = state.store()?.mutate(method, &p)?;
+                let automatic = state.store()?.data["settings"]["autoProcess"] == true;
+                if automatic && record["audioPath"].is_string() {
+                    state.jobs.enqueue(
+                        "processRecording",
+                        json!({"recordingId":record["id"],"options":{"force":false}}),
+                    )?;
+                }
+                Ok(record)
+            }
+            "recording_status" => state.recorder.call("recordingStatus", json!({})).await,
+            "import_audio" => {
+                let paths = p["paths"]
+                    .as_array()
+                    .ok_or("Faltan los audios")?
+                    .iter()
+                    .map(|v| {
+                        v.as_str()
+                            .map(PathBuf::from)
+                            .ok_or_else(|| "Ruta no válida".to_owned())
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                let recipe = p["recipeId"].as_str().map(str::to_owned);
+                let state = state.clone();
+                tokio::task::spawn_blocking(move || {
+                    let mut store = state.store()?;
+                    paths
+                        .iter()
+                        .map(|path| store.import(path, recipe.as_deref()))
+                        .collect::<Result<Vec<_>, _>>()
+                        .map(|v| json!(v))
+                })
+                .await
+                .map_err(|e| e.to_string())?
+            }
+            "credential_save" => {
+                state.store()?.save_credential(
+                    text(&p, "id")?,
+                    p["value"].as_str().ok_or("Falta la credencial")?,
+                )?;
+                Ok(Value::Null)
+            }
+            "native" => {
+                let method = text(&p, "method")?;
+                if !["status", "downloadModel"].contains(&method) {
+                    return Err("Esta capacidad se ejecuta a través de la biblioteca".into());
+                }
+                state
+                    .inference
+                    .call(method, p.get("params").cloned().unwrap_or(json!({})))
+                    .await
+            }
+            "native_cancel" => {
+                state.inference.cancel();
+                Ok(Value::Null)
+            }
+            "transcribe" => {
+                let (audio, resolver, secret, model) = {
+                    let store = state.store()?;
+                    let key = p["resolverId"].as_str().unwrap_or("local-stt");
+                    (
+                        store.audio(text(&p, "recordingId")?)?,
+                        store.item("resolvers", key)?,
+                        store.credential(key)?,
+                        store.data["settings"]["whisperModel"].clone(),
+                    )
+                };
+                if resolver["enabled"] == false {
+                    return Err("El resolutor está apagado".into());
+                }
+                if resolver["local"] == true {
+                    let mut params = p.clone();
+                    params["audioPath"] = json!(audio);
+                    params["model"] = model;
+                    state.inference.call("transcribe", params).await
+                } else {
+                    remote::transcribe(&resolver, secret, &audio, &p).await
+                }
+            }
+            "summarize" | "ask" => {
+                let (resolver, secret) = {
+                    let store = state.store()?;
+                    let key = p["resolverId"].as_str().unwrap_or("local-llm");
+                    (store.item("resolvers", key)?, store.credential(key)?)
+                };
+                if resolver["enabled"] == false {
+                    return Err("El resolutor está apagado".into());
+                }
+                if resolver["local"] == true {
+                    state.inference.call(method, p).await
+                } else {
+                    let mut params = p;
+                    if method == "summarize" {
+                        params["schema"] = remote::digest_schema();
+                    }
+                    remote::ask(&resolver, secret, &params).await
+                }
+            }
+            "recording_start" => {
+                let path = state.store()?.root.join("captures").join(format!(
+                    "Grabación-{}.m4a",
+                    chrono::Local::now().format("%Y-%m-%d-%H%M%S")
+                ));
+                state
+                    .recorder
+                    .call("recordingStart", json!({"outputPath":path}))
+                    .await
+            }
+            "recording_pause" | "recording_resume" => {
+                state
+                    .recorder
+                    .call(
+                        if method == "recording_pause" {
+                            "recordingPause"
+                        } else {
+                            "recordingResume"
+                        },
+                        json!({}),
+                    )
+                    .await
+            }
+            "recording_stop" => {
+                let result = state.recorder.call("recordingStop", json!({})).await?;
+                let path = PathBuf::from(text(&result, "audioPath")?);
+                let mut store = state.store()?;
+                let record = store.import(&path, p["recipeId"].as_str())?;
+                let updated = store.mutate(
+                    "recording_update",
+                    &json!({"id":record["id"],"duration":result["duration"]}),
+                )?;
+                fs::remove_file(path).map_err(|e| {
+                    format!("Audio guardado; no se pudo retirar la captura temporal: {e}")
+                })?;
+                Ok(updated)
+            }
+            "connector_http" => {
+                let (account, secret, audio) = {
+                    let store = state.store()?;
+                    let key = text(&p, "accountId")?;
+                    let record_id = p["multipart"].as_array().and_then(|a| {
+                        a.iter()
+                            .find_map(|part| part["audio"]["recordingId"].as_str())
+                    });
+                    let audio = record_id
+                        .map(|id| {
+                            store.audio(id).map(|path| capabilities::AudioFile {
+                                path,
+                                recording_id: id.to_owned(),
+                            })
+                        })
+                        .transpose()?;
+                    (store.item("accounts", key)?, store.credential(key)?, audio)
+                };
+                capabilities::http(&account, secret, &p, audio).await
+            }
+            "connector_files" => {
+                let account = state.store()?.item("accounts", text(&p, "accountId")?)?;
+                tokio::task::spawn_blocking(move || capabilities::files(&account, &p))
+                    .await
+                    .map_err(|e| e.to_string())?
+            }
+            "connector_audio" => {
+                let store = state.store()?;
+                let record = store.recording(text(&p, "recordingId")?)?;
+                if record["audioPath"].is_null() {
+                    return Ok(Value::Null);
+                }
+                let path = store.audio(text(&p, "recordingId")?)?;
+                let size = fs::metadata(&path).map_err(|e| e.to_string())?.len();
+                Ok(
+                    json!({"size":size,"type":audio_type(&path),"filename":path.file_name().unwrap_or_default().to_string_lossy()}),
+                )
+            }
+            "project_init" => {
+                let path = PathBuf::from(text(&p, "path")?);
+                let accounts = state.store()?.data["accounts"].clone();
+                project::initialize(&path, &accounts, &state.vendor)?;
+                state
+                    .store()?
+                    .mutate("settings_save", &json!({"settings":{"projectPath":path}}))?;
+                Ok(Value::Null)
+            }
+            "project_build" => {
+                let path = project_path(state)?;
+                let compiler = state.compiler.clone();
+                let vendor = state.vendor.clone();
+                tokio::task::spawn_blocking(move || project::build(&path, &compiler, &vendor))
+                    .await
+                    .map_err(|e| e.to_string())?
+            }
+            "project_read" => project::read(&project_path(state)?, text(&p, "entry")?),
+            "project_write" => {
+                project::write(
+                    &project_path(state)?,
+                    text(&p, "entry")?,
+                    p["source"].as_str().ok_or("Falta el código")?,
+                )?;
+                Ok(Value::Null)
+            }
+            "project_install" => {
+                let mut store = state.store()?;
+                catalog::install(&mut store, &p)?;
+                Ok(Value::Null)
+            }
+            "export_file" => {
+                let path = PathBuf::from(text(&p, "path")?);
+                store::atomic_write(&path, text(&p, "contents")?.as_bytes())?;
+                Ok(Value::Null)
+            }
+            "reveal" => {
+                let path = PathBuf::from(text(&p, "path")?);
+                if !path.exists() {
+                    return Err("El archivo no existe".into());
+                }
+                let status = std::process::Command::new("/usr/bin/open")
+                    .args(["-R"])
+                    .arg(path)
+                    .status()
+                    .map_err(|e| e.to_string())?;
+                if !status.success() {
+                    return Err("Finder no pudo abrir la ubicación".into());
+                }
+                Ok(Value::Null)
+            }
+            "open_url" => {
+                let url = reqwest::Url::parse(text(&p, "url")?).map_err(|_| "Enlace inválido")?;
+                if !["http", "https"].contains(&url.scheme()) {
+                    return Err("Solo se pueden abrir enlaces web".into());
+                }
+                let status = std::process::Command::new("/usr/bin/open")
+                    .arg(url.as_str())
+                    .status()
+                    .map_err(|e| e.to_string())?;
+                if !status.success() {
+                    return Err("No se pudo abrir el enlace".into());
+                }
+                Ok(Value::Null)
+            }
+            "watch_scan" => scan(state).await,
+            "settings_save" => {
+                if let Some(enabled) = p["settings"]["launchAtLogin"].as_bool() {
+                    use tauri_plugin_autostart::ManagerExt;
+                    let auto = app.autolaunch();
+                    if enabled {
+                        auto.enable()
+                    } else {
+                        auto.disable()
+                    }
+                    .map_err(|e| format!("No se pudo cambiar el inicio automático: {e}"))?;
+                }
+                let saved = state.store()?.mutate(method, &p)?;
+                let _ = state.watch_wake.try_send(());
+                state.jobs.wake.notify_one();
+                Ok(saved)
+            }
+            _ => state.store()?.mutate(method, &p),
+        }
+    })
+}
+fn project_path(state: &Runtime) -> Result<PathBuf, String> {
+    state.store()?.data["settings"]["projectPath"]
+        .as_str()
+        .map(PathBuf::from)
+        .ok_or_else(|| "Elige la carpeta del proyecto en Recetas".into())
+}
+fn audio_type(path: &Path) -> &'static str {
+    match path
+        .extension()
+        .and_then(|v| v.to_str())
+        .unwrap_or("")
+        .to_lowercase()
+        .as_str()
+    {
+        "mp3" => "audio/mpeg",
+        "wav" => "audio/wav",
+        "flac" => "audio/flac",
+        "aac" => "audio/aac",
+        "ogg" | "oga" | "opus" => "audio/ogg",
+        "aif" | "aiff" => "audio/aiff",
+        "caf" => "audio/x-caf",
+        "webm" => "audio/webm",
+        _ => "audio/mp4",
+    }
+}
+fn folders(state: &Runtime) -> Result<Vec<watcher::Folder>, String> {
+    state.store()?.data["settings"]["watchedFolders"]
+        .as_array()
+        .ok_or("Carpetas inválidas")?
+        .iter()
+        .map(|folder| {
+            Ok(watcher::Folder {
+                id: text(folder, "id")?.to_owned(),
+                path: PathBuf::from(text(folder, "path")?),
+                enabled: folder["enabled"] != false,
+                style: watcher::Style::parse(folder["style"].as_str())?,
+            })
+        })
+        .collect()
+}
+fn log_error(state: &Runtime, message: &str) {
+    if let Ok(mut store) = state.store() {
+        if let Err(error) = store.mutate("log", &json!({"level":"error","message":message})) {
+            eprintln!("{message}; no se pudo guardar el error: {error}");
+        }
+    } else {
+        eprintln!("{message}");
+    }
+}
+async fn scan(state: &Arc<Runtime>) -> Result<Value, String> {
+    recover_captures(state).await?;
+    let watched = folders(state)?;
+    let runtime = state.clone();
+    let batch = tokio::task::spawn_blocking(move || {
+        runtime
+            .scanner
+            .lock()
+            .map_err(|_| "Escaneo ocupado".to_owned())
+            .map(|mut scanner| scanner.scan(&watched, SystemTime::now()))
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    for error in batch.errors {
+        log_error(
+            state,
+            &format!(
+                "Carpeta {} ({}): {}",
+                error.folder_id,
+                error.path.display(),
+                error.message
+            ),
+        );
+    }
+    let mut added = Vec::new();
+    for candidate in batch
+        .ready
+        .into_iter()
+        .chain(batch.zero)
+        .chain(batch.abandoned)
+    {
+        let status = match watcher::file_status(&candidate.path) {
+            Ok(status) => status,
+            Err(error) => {
+                log_error(state, &error);
+                continue;
+            }
+        };
+        if status["dataless"] == true {
+            let start = {
+                let mut inflight = state
+                    .materializing
+                    .lock()
+                    .map_err(|_| "Materialización ocupada")?;
+                let should = inflight.get(&candidate.path).is_none_or(|last| {
+                    last.elapsed().unwrap_or_default() >= Duration::from_secs(600)
+                });
+                if should {
+                    inflight.insert(candidate.path.clone(), SystemTime::now());
+                }
+                should
+            };
+            if start {
+                let runtime = state.clone();
+                tokio::spawn(async move {
+                    if let Err(error) = runtime
+                        .materializer
+                        .call(
+                            "materialize",
+                            json!({"path":candidate.path,"timeoutSeconds":60}),
+                        )
+                        .await
+                    {
+                        log_error(&runtime, &error);
+                    }
+                    let _ = runtime.watch_wake.try_send(());
+                });
+            }
+            continue;
+        }
+        if status["size"].as_u64().unwrap_or(0) == 0 {
+            if candidate.stamp.modified.elapsed().unwrap_or_default() >= Duration::from_secs(3600) {
+                let mut store = state.store()?;
+                store.mutate("recording_abandoned", &json!({"path":candidate.path,"source":candidate.folder_id,"sourceKey":candidate.source_key,"title":candidate.title,"modifiedAt":chrono::DateTime::<chrono::Utc>::from(candidate.started_at).to_rfc3339()}))?;
+                state
+                    .scanner
+                    .lock()
+                    .map_err(|_| "Escaneo ocupado")?
+                    .acknowledge(&candidate);
+            }
+            continue;
+        }
+        let result = state.store()?.import_with_metadata(
+            &candidate.path,
+            None,
+            &candidate.title,
+            candidate.started_at,
+            &candidate.source_key,
+        );
+        match result {
+            Ok(record) => {
+                state
+                    .scanner
+                    .lock()
+                    .map_err(|_| "Escaneo ocupado")?
+                    .acknowledge(&candidate);
+                added.push(record);
+            }
+            Err(error) => log_error(state, &format!("{}: {error}", candidate.path.display())),
+        }
+    }
+    state.jobs.wake.notify_one();
+    Ok(json!(added))
+}
+async fn recover_captures(state: &Arc<Runtime>) -> Result<(), String> {
+    let root = state.store()?.root.join("captures");
+    let captures = fs::read_dir(root)
+        .map_err(|e| e.to_string())?
+        .filter_map(|entry| entry.ok())
+        .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "m4a"))
+        .collect::<Vec<_>>();
+    if captures.is_empty() {
+        return Ok(());
+    }
+    let status = state.recorder.call("recordingStatus", json!({})).await?;
+    if status["active"] == true {
+        return Ok(());
+    }
+    for capture in captures {
+        let path = capture.path();
+        let metadata = capture.metadata().map_err(|e| e.to_string())?;
+        if metadata.len() == 0 {
+            continue;
+        }
+        let result = state.store()?.import(&path, None);
+        match result {
+            Ok(record) => {
+                state.store()?.mutate("log", &json!({"level":"warn","recordingId":record["id"],"message":"Recuperada una captura pendiente de guardar"}))?;
+                fs::remove_file(&path).map_err(|e| {
+                    format!("Captura recuperada; no se pudo retirar el temporal: {e}")
+                })?;
+            }
+            Err(error) => log_error(
+                state,
+                &format!("No se pudo recuperar {}: {error}", path.display()),
+            ),
+        }
+    }
+    Ok(())
+}
+fn notify(
+    app: &tauri::AppHandle,
+    state: &Runtime,
+    title: &str,
+    message: &str,
+) -> Result<(), String> {
+    use tauri_plugin_notification::NotificationExt;
+    app.notification()
+        .builder()
+        .title(title)
+        .body(message.chars().take(240).collect::<String>())
+        .show()
+        .map_err(|e| {
+            let message = format!("No se pudo mostrar la notificación: {e}");
+            log_error(state, &message);
+            message
+        })
+}
+fn emit_jobs(app: &tauri::AppHandle, state: &Runtime) {
+    match state.jobs.visible() {
+        Ok(jobs) => {
+            let _ = app.emit("escriba://jobs", jobs);
+        }
+        Err(error) => log_error(state, &error),
+    }
+    let _ = app.emit("escriba://changed", ());
+}
+async fn script_call(
+    app: &tauri::AppHandle,
+    state: &Arc<Runtime>,
+    id: &str,
+    operation: &str,
+    args: Value,
+) -> Result<Value, String> {
+    let weak = Arc::downgrade(state);
+    let handle = app.clone();
+    let capability: scripts::Capability = Arc::new(move |method, params, _task, lease| {
+        let weak = weak.clone();
+        let handle = handle.clone();
+        Box::pin(async move {
+            let state = weak.upgrade().ok_or("La aplicación se cerró")?;
+            lease.ensure_active()?;
+            let result = dispatch(&handle, &state, &method, params).await;
+            if result.is_ok() && !["snapshot", "connector_audio"].contains(&method.as_str()) {
+                let _ = handle.emit("escriba://changed", ());
+            }
+            result
+        })
+    });
+    let weak = Arc::downgrade(state);
+    let handle = app.clone();
+    let events: scripts::Events = Arc::new(move |event| {
+        if let Some(state) = weak.upgrade() {
+            if event["event"] == "jobs" {
+                if let Err(error) = state.jobs.stages(&event["value"]) {
+                    log_error(&state, &error);
+                }
+                emit_jobs(&handle, &state);
+            }
+        }
+    });
+    state
+        .scripts
+        .call(id, operation, args, capability, events)
+        .await
+}
+fn start_jobs(app: tauri::AppHandle, state: Arc<Runtime>) {
+    tauri::async_runtime::spawn(async move {
+        loop {
+            if let Err(error) = state.jobs.automatic() {
+                log_error(&state, &error);
+            }
+            match state.jobs.claim() {
+                Ok(Some(job)) => {
+                    emit_jobs(&app, &state);
+                    let id = job["id"].as_str().unwrap_or("");
+                    let result = script_call(
+                        &app,
+                        &state,
+                        id,
+                        job["operation"].as_str().unwrap_or(""),
+                        job["args"].clone(),
+                    )
+                    .await;
+                    if job["args"]["options"]["dryRun"] != true {
+                        match &result {
+                            Ok(_) if job["operation"] == "processRecording" => {
+                                let setting = state
+                                    .store()
+                                    .map(|s| s.data["settings"]["notifyEveryNote"] != false)
+                                    .unwrap_or(false);
+                                if setting {
+                                    let _ = notify(
+                                        &app,
+                                        &state,
+                                        "Nota transcrita",
+                                        "La grabación está lista en la biblioteca.",
+                                    );
+                                }
+                            }
+                            Err(error) if job["attempt"] == 1 && error != "Proceso cancelado" => {
+                                let _ = notify(&app, &state, "Escriba necesita atención", error);
+                            }
+                            _ => {}
+                        }
+                    }
+                    if let Err(error) = state.jobs.finish(id, result) {
+                        log_error(&state, &error);
+                    }
+                    emit_jobs(&app, &state);
+                }
+                Ok(None) => {
+                    state.inference.unload_if_idle(Duration::from_secs(300));
+                    tokio::select! { _ = state.jobs.wake.notified() => {}, _ = tokio::time::sleep(Duration::from_secs(5)) => {} }
+                }
+                Err(error) => {
+                    log_error(&state, &error);
+                    tokio::time::sleep(Duration::from_secs(5)).await;
+                }
+            }
+        }
+    });
+}
+fn start_watcher(
+    app: tauri::AppHandle,
+    state: Arc<Runtime>,
+    mut wake: tokio::sync::mpsc::Receiver<()>,
+) {
+    tauri::async_runtime::spawn(async move {
+        let mut previous = Value::Null;
+        let mut watcher = None;
+        loop {
+            let current = state
+                .store()
+                .map(|s| s.data["settings"]["watchedFolders"].clone());
+            match current {
+                Ok(current) if current != previous => {
+                    match folders(&state).and_then(|f| watcher::watch(&f, state.watch_wake.clone()))
+                    {
+                        Ok(next) => {
+                            for error in &next.errors {
+                                log_error(&state, &error.message);
+                            }
+                            watcher = Some(next);
+                            previous = current;
+                        }
+                        Err(error) => log_error(&state, &error),
+                    }
+                }
+                Err(error) => log_error(&state, &error),
+                _ => {}
+            }
+            match scan(&state).await {
+                Ok(items) if items.as_array().is_some_and(|v| !v.is_empty()) => {
+                    let _ = app.emit("escriba://imported", items);
+                    let _ = app.emit("escriba://changed", ());
+                }
+                Err(error) => log_error(&state, &error),
+                _ => {}
+            }
+            tokio::select! { _ = wake.recv() => {}, _ = tokio::time::sleep(Duration::from_secs(15)) => {} }
+            std::hint::black_box(&watcher);
+        }
+    });
+}
+
+pub fn run() {
+    tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_notification::init())
+        .plugin(
+            tauri_plugin_autostart::Builder::new()
+                .macos_launcher(tauri_plugin_autostart::MacosLauncher::LaunchAgent)
+                .build(),
+        )
+        .setup(|app| {
+            let root = std::env::var_os("ESCRIBA_TAURI_DATA")
+                .map(PathBuf::from)
+                .unwrap_or(app.path().app_data_dir()?);
+            let store = Store::open(root.clone()).map_err(std::io::Error::other)?;
+            app.asset_protocol_scope()
+                .allow_directory(root.join("audio"), true)?;
+            let resource_vendor = app.path().resource_dir()?.join("vendor");
+            let vendor = if resource_vendor.is_dir() {
+                resource_vendor
+            } else {
+                Path::new(env!("CARGO_MANIFEST_DIR")).join("vendor")
+            };
+            let engine = native::binary("EscribaNativeHost").map_err(std::io::Error::other)?;
+            let store = Arc::new(Mutex::new(store));
+            let jobs = Arc::new(jobs::Queue::new(store.clone()).map_err(std::io::Error::other)?);
+            let (watch_wake, wake) = tokio::sync::mpsc::channel(1);
+            let state = Arc::new(Runtime {
+                store,
+                jobs,
+                scripts: scripts::Scripts::new(
+                    native::binary("escriba-runtime").map_err(std::io::Error::other)?,
+                ),
+                materializer: native::Native::new(engine.clone()),
+                materializing: Mutex::new(HashMap::new()),
+                scanner: Mutex::new(watcher::Scanner::new()),
+                watch_wake,
+                inference: native::Native::new(engine.clone()),
+                recorder: native::Native::new(engine),
+                vendor,
+                compiler: native::binary("escriba-esbuild").map_err(std::io::Error::other)?,
+            });
+            app.manage(state.clone());
+            let menu = tauri::menu::Menu::with_items(
+                app,
+                &[
+                    &tauri::menu::MenuItem::with_id(
+                        app,
+                        "show",
+                        "Abrir Escriba Tauri",
+                        true,
+                        None::<&str>,
+                    )?,
+                    &tauri::menu::MenuItem::with_id(app, "quit", "Salir", true, None::<&str>)?,
+                ],
+            )?;
+            tauri::tray::TrayIconBuilder::new()
+                .icon(app.default_window_icon().cloned().ok_or("Falta el icono")?)
+                .tooltip("Escriba Tauri")
+                .menu(&menu)
+                .on_menu_event(|app, event| match event.id.as_ref() {
+                    "show" => {
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.show();
+                            let _ = window.set_focus();
+                        }
+                    }
+                    "quit" => app.exit(0),
+                    _ => {}
+                })
+                .build(app)?;
+            start_jobs(app.handle().clone(), state.clone());
+            start_watcher(app.handle().clone(), state, wake);
+            Ok(())
+        })
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                api.prevent_close();
+                let _ = window.hide();
+            }
+        })
+        .invoke_handler(tauri::generate_handler![app_command])
+        .run(tauri::generate_context!())
+        .expect("No se pudo iniciar Escriba Tauri");
+}
