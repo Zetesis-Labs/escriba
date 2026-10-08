@@ -217,6 +217,7 @@ def main():
         published = run("publish", "publish", title="Primera nota sintética")
         receipt = published["result"]["receipt"]
         check("Página y bloques creados; recibo guardado", len(state.pages) == 1 and len(state.pages[receipt["pageId"]]["blocks"]) == 2 and published["checkpoints"] == [receipt])
+        previous_block_ids = {block["id"] for block in state.pages[receipt["pageId"]]["blocks"]}
 
         (project / "project/destino.ts").write_text("export async function run( { this is broken")
         broken = subprocess.run([str(compiler), str(project), "project/destino.ts", str(work / "rejected.js")], capture_output=True, text=True, timeout=90)
@@ -227,7 +228,8 @@ def main():
         check("Fuentes y node_modules retirados del proyecto de prueba", not project.exists())
         updated = run("update-archived", "update", receipt=receipt, title="Título corregido")
         check("Regeneración con paquete archivado y paginación", len(state.pages) == 1 and updated["result"]["removed"] == 2 and updated["result"]["receipt"] == receipt and any(r["query"].get("start_cursor") for r in state.requests))
-        check("Los bloques reflejan la corrección", "Título corregido" in json.dumps(state.pages[receipt["pageId"]], ensure_ascii=False))
+        new_blocks = state.pages[receipt["pageId"]]["blocks"]
+        check("La regeneración sustituye todos los bloques previos", len(new_blocks) == 2 and previous_block_ids.isdisjoint(block["id"] for block in new_blocks) and "Título corregido" in json.dumps(new_blocks, ensure_ascii=False))
         upload = run("upload", "upload", receipt=receipt, attachUpload=True)
         saved = state.uploads[upload["result"]["uploadId"]]
         with wave.open(io.BytesIO(bytes(saved["bytes"])), "rb") as wav:
