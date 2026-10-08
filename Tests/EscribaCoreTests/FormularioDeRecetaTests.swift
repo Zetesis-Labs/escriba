@@ -60,10 +60,27 @@ struct FormularioDeRecetaTests {
         #expect(campo(leido, "conectores")?.kind == .choices([
             RecipeFormOption(value: "notion"), RecipeFormOption(value: "okf"),
         ]))
-        #expect(campo(leido, "nota") == RecipeFormField(name: "nota", label: "nota", kind: .text))
+        #expect(campo(leido, "nota") == RecipeFormField(name: "nota", label: "nota", kind: .text(lines: 1)))
         #expect(campo(leido, "umbral")?.kind == .number(minimum: 0, maximum: 1, integer: false))
         #expect(campo(leido, "obligatorio")?.required == true)
         #expect(campo(leido, "obligatorio")?.defaultValue == nil)
+    }
+
+    @Test("un texto con .meta({ lineas }) es un cuadro de esas líneas, con un tope; sin ellas, de una")
+    func lineas() throws {
+        let leido = try formulario(#"""
+            {"type":"object","properties":{
+             "prompt":{"default":null,"title":"Prompt","lineas":6,"type":["string","null"]},
+             "mucho":{"type":"string","lineas":500},
+             "raro":{"type":"string","lineas":"seis"},
+             "corto":{"type":"string"}}}
+            """#)
+
+        #expect(campo(leido, "prompt")?.kind == .text(lines: 6))
+        #expect(campo(leido, "prompt")?.nullable == true)
+        #expect(campo(leido, "mucho")?.kind == .text(lines: maximumTextLines))
+        #expect(campo(leido, "raro")?.kind == .text(lines: 1))
+        #expect(campo(leido, "corto")?.kind == .text(lines: 1))
     }
 
     @Test("una unión de literales con título se ve con sus nombres, y una constante es una opción fija")

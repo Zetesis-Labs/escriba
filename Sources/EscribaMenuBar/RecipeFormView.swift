@@ -32,7 +32,7 @@ private struct RecipeFormRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             control
-            if let help = field.help, field.kind != .text {
+            if let help = field.help, !isText {
                 Text(help)
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -45,16 +45,36 @@ private struct RecipeFormRow: View {
         }
     }
 
+    private var isText: Bool {
+        if case .text = field.kind { true } else { false }
+    }
+
     @ViewBuilder private var control: some View {
         switch field.kind {
         case .toggle:
             Toggle(field.label, isOn: Binding(get: { value == .bool(true) }, set: { set(.bool($0)) }))
+        case .text(let lines) where lines > 1:
+            VStack(alignment: .leading, spacing: 6) {
+                Text(field.label)
+                TextEditor(text: text)
+                    .font(.body)
+                    .scrollContentBackground(.hidden)
+                    .padding(6)
+                    .frame(height: CGFloat(lines) * 17 + 12)
+                    .background(.background.secondary, in: RoundedRectangle(cornerRadius: 6))
+                    .overlay(alignment: .topLeading) {
+                        if (value?.text ?? "").isEmpty, let help = field.help {
+                            Text(help)
+                                .foregroundStyle(.tertiary)
+                                .padding(.horizontal, 11)
+                                .padding(.vertical, 6)
+                                .allowsHitTesting(false)
+                        }
+                    }
+            }
         case .text:
-            TextField(
-                field.label, text: Binding(get: { value?.text ?? "" }, set: { set($0.isEmpty ? empty : .string($0)) }),
-                prompt: Text(field.help ?? "Vacío"), axis: .vertical
-            )
-            .lineLimit(1...6)
+            TextField(field.label, text: text, prompt: Text(field.help ?? "Vacío"), axis: .vertical)
+                .lineLimit(1...6)
         case .number(_, _, let integer):
             if let choices = recipeFormNumberChoices(field) {
                 choice(choices.map { RecipeFormOption(value: "\($0)") }, number: true)
@@ -95,6 +115,10 @@ private struct RecipeFormRow: View {
                 Text("\(stale) (ya no está)").tag(String?.some(stale))
             }
         }
+    }
+
+    private var text: Binding<String> {
+        Binding(get: { value?.text ?? "" }, set: { set($0.isEmpty ? empty : .string($0)) })
     }
 
     private func number(integer: Bool) -> Binding<Double?> {

@@ -153,7 +153,8 @@ export async function flujo(audio: Audio, escriba: Escriba<Parametros>): Promise
   y no `.default({})`: con `.default({})` Zod no rellena los valores de serie
   de dentro.
 - La etiqueta de cada campo sale de `.meta({ title })` y la ayuda de
-  `.describe()`. Un desplegable de `z.enum` enseña los valores tal cual; para
+  `.describe()`. Un texto largo, como un prompt, se pide con
+  `.meta({ title: "Prompt", lineas: 6 })`: sale un cuadro de esas líneas. Un desplegable de `z.enum` enseña los valores tal cual; para
   que enseñe nombres, usa `z.union` de `z.literal(clave).meta({ title: nombre })`
   como arriba.
 - El formulario pinta interruptores (booleanos), desplegables (enumerados,
