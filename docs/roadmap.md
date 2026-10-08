@@ -46,6 +46,9 @@ cosa grande tiene su documento con el análisis y los criterios de salida.
    le reconozca en las siguientes grabaciones. Primero el camino 1 (huellas
    propias guardadas por Escriba); el camino 2 (Sortformer con voces
    inscritas) solo si el banco de pruebas demuestra que mejora.
+   - En construcción desde el 2026-10-08: el camino 1 entero (guardar huellas,
+     medir, sección Personas con N huellas por persona, reconocer al
+     transcribir) y «Registrar voz», que Rubén añadió ese día.
 
 ## A medias
 

@@ -56,9 +56,21 @@ struct KaraokeView: View {
     private func turn(_ segment: TranscriptSegment, at index: Int) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             if let speaker = segment.speaker, transcript.startsNewSpeaker(at: index) {
-                Text(speaker)
-                    .font(.caption.bold())
-                    .foregroundStyle(.secondary)
+                HStack(spacing: 6) {
+                    Text(speaker)
+                        .font(.caption.bold())
+                        .foregroundStyle(.secondary)
+                    if let recognition = transcript.recognition(of: speaker) {
+                        Text("reconocido")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 1)
+                            .background(.quaternary, in: Capsule())
+                            .help(
+                                "Escriba lo ha reconocido por la voz (distancia \(recognition.distance.formatted(.number.precision(.fractionLength(2))))). Si no es, corrígelo en Hablantes.")
+                    }
+                }
             }
 
             if segment.words.isEmpty || position?.segment != index {

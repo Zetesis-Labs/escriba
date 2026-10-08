@@ -4,6 +4,7 @@ import SwiftUI
 
 enum MainSection: String, CaseIterable, Identifiable {
     case library
+    case people
     case connectors
     case stt
     case llms
@@ -16,6 +17,7 @@ enum MainSection: String, CaseIterable, Identifiable {
     var label: String {
         switch self {
         case .library: "Biblioteca"
+        case .people: "Personas"
         case .connectors: "Conectores"
         case .stt: "STT"
         case .llms: "LLMs"
@@ -40,6 +42,7 @@ enum MainSection: String, CaseIterable, Identifiable {
     var symbol: String {
         switch self {
         case .library: "waveform"
+        case .people: "person.2"
         case .connectors: "square.and.arrow.up"
         case .stt: "waveform.badge.mic"
         case .llms: "sparkles"
@@ -71,6 +74,8 @@ struct MainWindow: View {
                     recorder: runtime.recorder,
                     inbox: runtime.inbox,
                     settings: runtime.settings)
+            case .people:
+                PeoplePane(people: runtime.people)
             case .connectors:
                 ConnectorsPane(connectors: runtime.connectors)
             case .stt:

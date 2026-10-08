@@ -187,7 +187,23 @@ ad-hoc y puede caducar.
   y diarizan a la vez como VibeVoice-ASR) están en
   `docs/exploracion-transcripcion-diarizacion.md`. Cambiar de motor reabre esta
   decisión y solo con el banco de pruebas de `docs/requisito-hablantes.md`
-  (memoria de hablantes, «Personas», aprobada y sin empezar).
+  (`escriba hablantes` vuelve a diarizar la biblioteca sobre una copia y mide
+  las huellas; deja `huellas.json` en el directorio actual, que es biométrico y
+  está en `.gitignore`).
+- **Personas** (camino 1 de `docs/requisito-hablantes.md`, 2026-10-08): la
+  diarización local guarda la huella de cada hablante con la versión
+  (`Transcript.voices`, tabla `voice`) y, al transcribir, los que casan con
+  alguien de la sección Personas salen con su nombre y marcados como
+  reconocidos (`Transcript.recognitions`), con «No es X» para deshacer. Una
+  persona guarda N huellas: cada bautizo (renombrar a un hablante, o fusionarlo
+  con alguien que ya es persona) y cada «Registrar voz» suma una. Se compara con
+  la más cercana del mismo modelo, uno a uno por nota, con umbral 0,30
+  (`voiceMatchThreshold`, medido el 2026-10-08). Solo se reconoce lo recién
+  transcrito, no lo que se recupera de la biblioteca. **Las huellas no salen del
+  Mac**: ni las recetas ni los conectores ni la exportación las ven, y un test lo
+  vigila. Una versión diarizada sin huellas (anterior a Personas) no se recupera
+  al reprocesar: se vuelve a diarizar para tenerlas. «Registrar voz» graba aparte de la bandeja y exige 30 s de voz: con
+  menos la huella no separa a las personas.
 - **STT y LLM son resolutores, en plural** (Rubén, 2026-10-06, a imagen de
   los proveedores de Biiak Next pero con N por papel): cada papel tiene una
   lista (`ResolverSet`) **sin favorito** (fuera el 2026-10-07: lo que una

@@ -26,6 +26,7 @@ struct Options {
     var source = "jpr"
     var speakerCount: Int?
     var summarize = false
+    var sample: URL?
 }
 
 func fail(_ message: String) -> Never {
@@ -62,7 +63,10 @@ func parseOptions() -> Options {
             options.speakerCount = count
             options.diarize = true
         case "-v", "--verbose": Log.verbose = true
-        case "watch", "once", "status", "download": options.command = argument
+        case "watch", "once", "status", "download", "hablantes": options.command = argument
+        case "huella":
+            options.command = argument
+            options.sample = URL(fileURLWithPath: value("huella"))
         case "-h", "--help":
             print("""
                 uso: escriba <watch|once|status> [opciones]
@@ -71,6 +75,8 @@ func parseOptions() -> Options {
                   once     hace una pasada y sale
                   status   muestra que hay en disco y que se ha transcrito
                   download descarga el modelo de WhisperKit
+                  hablantes vuelve a diarizar la biblioteca y mide las huellas de voz
+                  huella <audio> imprime la huella de quien más habla en ese audio
 
                 opciones:
                   --root <ruta>      carpeta de Just Press Record
@@ -116,6 +122,26 @@ func makeEnricher(_ options: Options) -> Enricher? {
 func makeBackend(_ options: Options) -> TranscriptionBackend {
     WhisperKitBackend.make(
         language: options.language, diarize: options.diarize, speakerCount: options.speakerCount)
+}
+
+if options.command == "huella", let sample = options.sample {
+    do {
+        try await printVoiceSample(sample)
+        exit(0)
+    } catch {
+        fail("no se pudo sacar la huella: \(error)")
+    }
+}
+
+if options.command == "hablantes" {
+    do {
+        try await runVoiceBench(
+            library: options.library,
+            output: URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appending(path: "huellas.json"))
+        exit(0)
+    } catch {
+        fail("no se pudo medir: \(error)")
+    }
 }
 
 if options.command == "download" {

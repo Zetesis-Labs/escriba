@@ -172,6 +172,116 @@ struct PublicationRow: Codable, FetchableRecord, MutablePersistableRecord {
     }
 }
 
+struct VoiceRow: Codable, FetchableRecord, PersistableRecord {
+    static let databaseTableName = "voice"
+
+    var transcriptId: Int64
+    var position: Int
+    var speaker: String
+    var model: String
+    var embedding: Data
+
+    enum Columns {
+        static let transcriptId = Column(CodingKeys.transcriptId)
+        static let position = Column(CodingKeys.position)
+    }
+
+    init(transcriptId: Int64, position: Int, voice: SpeakerVoice) {
+        self.transcriptId = transcriptId
+        self.position = position
+        speaker = voice.speaker
+        model = voice.model
+        embedding = encodedEmbedding(voice.embedding)
+    }
+
+    var voice: SpeakerVoice? {
+        decodedEmbedding(embedding).map { SpeakerVoice(speaker: speaker, embedding: $0, model: model) }
+    }
+}
+
+struct RecognitionRow: Codable, FetchableRecord, PersistableRecord {
+    static let databaseTableName = "recognition"
+
+    var transcriptId: Int64
+    var position: Int
+    var speaker: String
+    var person: String
+    var distance: Double
+
+    enum Columns {
+        static let transcriptId = Column(CodingKeys.transcriptId)
+        static let position = Column(CodingKeys.position)
+    }
+
+    init(transcriptId: Int64, position: Int, recognition: Recognition) {
+        self.transcriptId = transcriptId
+        self.position = position
+        speaker = recognition.speaker
+        person = recognition.person
+        distance = Double(recognition.distance)
+    }
+
+    var recognition: Recognition {
+        Recognition(speaker: speaker, person: person, distance: Float(distance))
+    }
+}
+
+struct PersonRow: Codable, FetchableRecord, MutablePersistableRecord {
+    static let databaseTableName = "person"
+
+    var id: Int64?
+    var name: String
+    var createdAt: Date
+
+    enum Columns {
+        static let id = Column(CodingKeys.id)
+        static let name = Column(CodingKeys.name)
+    }
+
+    mutating func didInsert(_ inserted: InsertionSuccess) {
+        id = inserted.rowID
+    }
+}
+
+struct PersonVoiceRow: Codable, FetchableRecord, MutablePersistableRecord {
+    static let databaseTableName = "personVoice"
+
+    var id: Int64?
+    var personId: Int64
+    var model: String
+    var embedding: Data
+    var source: String
+    var addedAt: Date
+
+    enum Columns {
+        static let id = Column(CodingKeys.id)
+        static let personId = Column(CodingKeys.personId)
+    }
+
+    mutating func didInsert(_ inserted: InsertionSuccess) {
+        id = inserted.rowID
+    }
+}
+
+func encodedEmbedding(_ embedding: [Float]) -> Data {
+    embedding.withUnsafeBufferPointer { Data(buffer: $0) }
+}
+
+func decodedEmbedding(_ data: Data) -> [Float]? {
+    let width = MemoryLayout<Float>.size
+    guard !data.isEmpty, data.count % width == 0 else { return nil }
+    return data.withUnsafeBytes { raw in
+        stride(from: 0, to: raw.count, by: width).map { raw.loadUnaligned(fromByteOffset: $0, as: Float.self) }
+    }
+}
+
+func readable<Value>(_ decoded: [(Value?, String)]) -> [Value] {
+    decoded.compactMap { value, owner in
+        if value == nil { Log.error("una huella de voz de «\(owner)» no se puede leer y se ignora") }
+        return value
+    }
+}
+
 func encodedTags(_ tags: [String]) -> String {
     guard let data = try? JSONEncoder().encode(tags) else { return "[]" }
     return String(decoding: data, as: UTF8.self)
@@ -324,6 +434,35 @@ func makeMigrator() -> DatabaseMigrator {
     migrator.registerMigration("v11-receta-de-la-version") { db in
         try db.alter(table: "transcript") { t in
             t.add(column: "recipe", .text)
+        }
+    }
+    migrator.registerMigration("v12-huellas") { db in
+        try db.create(table: "voice") { t in
+            t.column("transcriptId", .integer).notNull().indexed().references("transcript", onDelete: .cascade)
+            t.column("position", .integer).notNull()
+            t.column("speaker", .text).notNull()
+            t.column("model", .text).notNull()
+            t.column("embedding", .blob).notNull()
+        }
+        try db.create(table: "recognition") { t in
+            t.column("transcriptId", .integer).notNull().indexed().references("transcript", onDelete: .cascade)
+            t.column("position", .integer).notNull()
+            t.column("speaker", .text).notNull()
+            t.column("person", .text).notNull()
+            t.column("distance", .double).notNull()
+        }
+        try db.create(table: "person") { t in
+            t.autoIncrementedPrimaryKey("id")
+            t.column("name", .text).notNull().unique()
+            t.column("createdAt", .datetime).notNull()
+        }
+        try db.create(table: "personVoice") { t in
+            t.autoIncrementedPrimaryKey("id")
+            t.column("personId", .integer).notNull().indexed().references("person", onDelete: .cascade)
+            t.column("model", .text).notNull()
+            t.column("embedding", .blob).notNull()
+            t.column("source", .text).notNull()
+            t.column("addedAt", .datetime).notNull()
         }
     }
     return migrator

@@ -51,6 +51,7 @@ private func fingerprint(of connectors: [Connector]) -> String {
 @Observable
 final class AppRuntime {
     private(set) var model: LibraryModel?
+    private(set) var people: PeopleModel?
     private(set) var recipeForms: RecipeForms?
     private(set) var startupProblem: String?
     var section = MainSection.initial(from: ProcessInfo.processInfo.environment)
@@ -68,6 +69,7 @@ final class AppRuntime {
     @ObservationIgnored private var settingsWatch: Task<Void, Never>?
     @ObservationIgnored private var recipeBookWatch: Task<Void, Never>?
     @ObservationIgnored private let microphone: MicrophoneRecorder
+    @ObservationIgnored private let sampleMicrophone = MicrophoneRecorder()
     @ObservationIgnored private var recordingItem: RecordingStatusItem?
     @ObservationIgnored private var recordingPanel: RecordingPanel?
     @ObservationIgnored private let recipeBook: Shared<RecipeBook>
@@ -204,6 +206,15 @@ final class AppRuntime {
                 discarded: { key, source in try ledger.markDiscarded(key: key, source: source) })
             model.startObserving()
             self.model = model
+            let people = PeopleModel(
+                store: store, recorder: sampleMicrophone.port(),
+                printer: { try await engine.diarizedVoices(of: $0) })
+            do {
+                try people.reload()
+            } catch {
+                Log.error("no se pudieron leer las personas: \(error)")
+            }
+            self.people = people
 
             let form = formReading()
             warnAboutUnusable(

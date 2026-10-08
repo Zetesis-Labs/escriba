@@ -1,7 +1,8 @@
 # Requisito funcional: memoria de hablantes
 
-Estado: **aprobado, sin empezar** (Rubén, 2026-09-22). Análisis y plan; los
-criterios de salida están al final de cada paso. Traído al repo público el
+Estado: **aprobado** (Rubén, 2026-09-22) y **en construcción** desde el
+2026-10-08: el camino 1 entero, con las medidas del paso 2 abajo. Análisis y
+plan; los criterios de salida están al final de cada paso. Traído al repo público el
 2026-10-06; en la app la feature se llama **Personas**. Las opciones de motor,
 con la dirección de computación local, están en
 `docs/exploracion-transcripcion-diarizacion.md`.
@@ -119,11 +120,30 @@ calcular la distancia de cada uno consigo mismo y con los demás.
 *Criterio de salida*: hay un umbral que separa «misma persona» de «otra» sin
 solaparse. **Si no lo hay, la feature no se hace** y se dice.
 
+**Medido el 2026-10-08** con `escriba hablantes` (vuelve a diarizar las 8
+grabaciones con hablantes de la biblioteca, sobre una copia, con las mismas
+opciones que la app) tomando como referencia a Rubén, bautizado en una nota:
+
+- Rubén consigo mismo en otras seis grabaciones: 0,125 a 0,234, y un solo
+  hablante por nota por debajo de 0,30.
+- Personas distintas: lo más cercano a Rubén fuera de ese grupo queda a 0,374,
+  y entre hablantes de una misma nota el mínimo es 0,389 (el resto, por encima
+  de 0,42).
+- **Umbral: 0,30**, en el hueco y con margen a los dos lados.
+
+Muestras cortas de la voz de Rubén recortadas de esas grabaciones (para
+«Registrar voz»): con 10 s la huella no sirve (más de 1 contra todo); con 20 s
+se solapa con otras personas (0,28–0,42 frente a 0,37–0,49); con unos 30 s de
+voz vuelve a separar (0,14–0,25 frente a 0,31 o más). Por eso la muestra
+exige 30 s de voz y se pide hablar un minuto.
+
 ### Paso 3: encender el reconocimiento (Personas)
 
 Al bautizar a alguien, su huella queda con el nombre. En la siguiente
 grabación, los hablantes que casen aparecen con nombre y marcados como
-reconocidos, con deshacer. La decisión de si dos huellas son la misma persona
+reconocidos, con deshacer. **Registrar voz** (Rubén, 2026-10-08): además de
+bautizar, en Personas se puede grabar una muestra de alguien y su huella se
+suma a sus N; el audio de la muestra se borra al sacarla. La decisión de si dos huellas son la misma persona
 va en `EscribaCore` como función pura y con test.
 
 - **Una persona guarda N huellas**, no la media: cada bautizo añade una, y así
