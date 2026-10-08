@@ -1,0 +1,4 @@
+{
+  "name": "@fixture/parent",
+  "exports": { ".": { "import": "./lib/main.mjs", "require": "./lib/main.cjs" } }
+}
