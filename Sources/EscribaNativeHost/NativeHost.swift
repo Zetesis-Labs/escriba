@@ -96,7 +96,12 @@ final class NativeHost {
         let variant = try modelName(params)
         let language = try transcriptionLanguage(params)
         let diarize = try optionalBool(params, "diarize") ?? false
-        let speakers = try optionalPositiveInt(params, "speakers")
+        let speakers: Int?
+        if params["speakers"] == .null {
+            speakers = nil
+        } else {
+            speakers = try optionalPositiveInt(params, "speakers")
+        }
         let key = variant + "\u{0}" + (language ?? "auto")
         let engine: WhisperKitEngine
         if let existing = transcriptionEngines[key] {

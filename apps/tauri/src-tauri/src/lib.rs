@@ -332,10 +332,7 @@ fn dispatch<'a>(
                     return Err("El resolutor está apagado".into());
                 }
                 if resolver["local"] == true {
-                    let mut params = p.clone();
-                    params["audioPath"] = json!(audio);
-                    params["model"] = model;
-                    state.inference.call("transcribe", params).await
+                    state.inference.transcribe(&audio, model, p).await
                 } else {
                     remote::transcribe(&resolver, secret, &audio, &p).await
                 }
