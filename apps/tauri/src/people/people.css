@@ -8,7 +8,7 @@
 .people-voice { justify-content: flex-start; gap: 10px; padding: 8px 0; }
 .people-voice-info { display: flex; flex: 1; min-width: 0; flex-direction: column; gap: 2px; }
 .people-voice-info span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.people-voice-remove { border: 0; background: transparent; color: var(--secondary); display: flex; align-items: center; padding: 4px; border-radius: 5px; }
+.people-voice-remove { border: 0; background: transparent; color: var(--red); display: flex; align-items: center; padding: 4px; border-radius: 5px; }
 .people-voice-remove:active:not(:disabled) { background: var(--fill-strong); }
 .people-voice-remove:disabled { opacity: 0.4; }
 .people-sample { display: flex; flex-direction: column; gap: 16px; }
@@ -16,4 +16,5 @@
 .people-sample p { margin: 0; }
 .people-sample-status { display: flex; align-items: center; gap: 8px; min-height: 18px; }
 .people-clock { font-variant-numeric: tabular-nums; }
-.people-sample-error { color: var(--orange); }
+.people-sample-error { display: flex; align-items: flex-start; gap: 8px; color: var(--orange); }
+.people-sample-error svg { flex: none; margin-top: 1px; }
