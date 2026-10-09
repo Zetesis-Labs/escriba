@@ -553,6 +553,35 @@ impl Store {
         Ok(redacted_folder(&saved))
     }
 
+    pub fn seed_voice_memos(&mut self, path: &Path) -> Result<bool, String> {
+        let settings = &self.data["settings"];
+        if settings["voiceMemosSeeded"] == true {
+            return Ok(false);
+        }
+        let adopted = settings["legacyWatchAdopted"] == true;
+        let present = settings["watchedFolders"]
+            .as_array()
+            .ok_or("Carpetas inválidas")?
+            .iter()
+            .any(|folder| {
+                folder["style"] == "voiceMemos"
+                    || folder["path"]
+                        .as_str()
+                        .is_some_and(|existing| same_folder(Path::new(existing), path))
+            });
+        let seeds = !adopted && !present;
+        let mut next = self.data.clone();
+        if seeds {
+            next["settings"]["watchedFolders"]
+                .as_array_mut()
+                .ok_or("Carpetas inválidas")?
+                .push(json!({"id":id(),"path":path,"name":"Notas de Voz","style":"voiceMemos","enabled":true}));
+        }
+        next["settings"]["voiceMemosSeeded"] = json!(true);
+        self.replace(next)?;
+        Ok(seeds)
+    }
+
     pub fn watched_folder_bookmarks(&self) -> Result<Vec<(String, PathBuf, Vec<u8>)>, String> {
         let folders = self.data["settings"]["watchedFolders"]
             .as_array()
@@ -1204,7 +1233,7 @@ impl Store {
                     .as_object_mut()
                     .ok_or("Ajustes inválidos")?;
                 for (key, value) in s {
-                    if target.contains_key(key) {
+                    if target.contains_key(key) || SETTABLE.contains(&key.as_str()) {
                         target.insert(
                             key.clone(),
                             if key == "watchedFolders" {
@@ -1426,6 +1455,18 @@ fn prune(value: &mut Value, key: &str) {
         _ => {}
     }
 }
+const SETTABLE: [&str; 9] = [
+    "defaultRecipeId",
+    "projectPath",
+    "watchedFolders",
+    "language",
+    "whisperModel",
+    "autoProcess",
+    "launchAtLogin",
+    "theme",
+    "notifyEveryNote",
+];
+
 fn defaults() -> Value {
     json!({"schemaVersion":1,"recordings":[],"accounts":[],"destinations":[],"logs":[],"resolvers":[{"id":"local-stt","name":"Whisper · en este Mac","role":"stt","local":true,"enabled":true,"model":"openai_whisper-large-v3-v20240930"},{"id":"local-llm","name":"Apple Intelligence","role":"llm","local":true,"enabled":true}],"recipes":[{"id":"default","name":"Por defecto","kind":"form","values":{}}],"settings":{"defaultRecipeId":"default","projectPath":null,"watchedFolders":[],"language":"es","whisperModel":"openai_whisper-large-v3-v20240930","autoProcess":true,"launchAtLogin":false,"theme":"system"}})
 }
@@ -1433,6 +1474,51 @@ fn defaults() -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn avisar_de_cada_nota_se_guarda_aunque_la_biblioteca_no_lo_tuviera() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = Store::open(dir.path().join("library")).unwrap();
+        store
+            .mutate(
+                "settings_save",
+                &json!({"settings":{"notifyEveryNote":false,"legacyWatchAdopted":true}}),
+            )
+            .unwrap();
+        assert_eq!(store.data["settings"]["notifyEveryNote"], false);
+        assert!(store.data["settings"].get("legacyWatchAdopted").is_none());
+    }
+
+    #[test]
+    fn una_instalacion_nueva_vigila_notas_de_voz_una_sola_vez() {
+        let dir = tempfile::tempdir().unwrap();
+        let memos = dir.path().join("Recordings");
+        let mut store = Store::open(dir.path().join("library")).unwrap();
+        assert!(store.seed_voice_memos(&memos).unwrap());
+        let folders = store.data["settings"]["watchedFolders"].clone();
+        assert_eq!(folders.as_array().unwrap().len(), 1);
+        assert_eq!(folders[0]["style"], "voiceMemos");
+        assert_eq!(folders[0]["path"], json!(memos));
+        store
+            .mutate("settings_save", &json!({"settings":{"watchedFolders":[]}}))
+            .unwrap();
+        assert!(!store.seed_voice_memos(&memos).unwrap());
+        assert_eq!(store.data["settings"]["watchedFolders"], json!([]));
+    }
+
+    #[test]
+    fn las_carpetas_que_vienen_de_swift_no_reciben_notas_de_voz_de_regalo() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = Store::open(dir.path().join("library")).unwrap();
+        let mut next = store.data.clone();
+        next["settings"]["legacyWatchAdopted"] = json!(true);
+        store.replace(next).unwrap();
+        assert!(!store
+            .seed_voice_memos(&dir.path().join("Recordings"))
+            .unwrap());
+        assert_eq!(store.data["settings"]["watchedFolders"], json!([]));
+        assert_eq!(store.data["settings"]["voiceMemosSeeded"], true);
+    }
 
     #[test]
     fn carpeta_autorizada_persiste_y_el_bookmark_no_sale_en_respuestas() {
