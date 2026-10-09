@@ -304,6 +304,19 @@ function statusLabel(status: Recording["status"]) {
     discarded: "Descartada",
   }[status];
 }
+function watchedFolderName(
+  issue: NonNullable<Snapshot["watchIssues"]>[number],
+  settings: Settings,
+) {
+  const folder = settings.watchedFolders.find(
+    (item) => item.id === issue.folderId,
+  );
+  if (!folder) return issue.path.split("/").at(-1) || issue.path;
+  const relativePath = issue.path.startsWith(`${folder.path}/`)
+    ? issue.path.slice(folder.path.length + 1)
+    : "";
+  return relativePath ? `${folder.name} / ${relativePath}` : folder.name;
+}
 async function republishDestinations(recording: Recording) {
   const failures: string[] = [];
   for (const publication of recording.publications) {
@@ -397,6 +410,11 @@ export default function App() {
   const audio = useRef<HTMLAudioElement>(null);
   const migration = data?.settings.startupMigration;
   const importingLibrary = migration?.state === "importing";
+  const watchIssues = data?.watchIssues ?? [];
+  const affectedFolderCount = new Set(
+    watchIssues.map((issue) => issue.folderId),
+  ).size;
+  const permissionDenied = watchIssues.some((issue) => issue.permissionDenied);
 
   const refresh = useCallback(async (quiet = false) => {
     if (DEMO) return;
@@ -499,6 +517,12 @@ export default function App() {
       setBusy(null);
     }
   };
+  const retryWatchScan = () =>
+    run(
+      "Reintentar escaneo",
+      () => call("watch_scan"),
+      "Nuevo escaneo solicitado. El aviso desaparecerá cuando se recupere el acceso.",
+    );
   async function importAudio() {
     if (DEMO) {
       setNotice(
@@ -611,16 +635,18 @@ export default function App() {
           <div className="small-rule" />
           <div className="sidebar-state">
             <span
-              className={`state-dot ${jobs.length || importingLibrary ? "working" : data?.settings.autoProcess === false ? "paused" : ""}`}
+              className={`state-dot ${affectedFolderCount ? "issue" : jobs.length || importingLibrary ? "working" : data?.settings.autoProcess === false ? "paused" : ""}`}
             />
             <span>
-              {importingLibrary
+              {affectedFolderCount
+                ? `${affectedFolderCount} carpeta${affectedFolderCount > 1 ? "s" : ""} con errores`
+                : importingLibrary
                 ? "Incorporando biblioteca…"
                 : jobs.length
                   ? `${jobs.length} trabajo${jobs.length > 1 ? "s" : ""} en curso`
                   : data?.settings.autoProcess === false
                     ? "Procesamiento pausado"
-                    : "Todo al día"}
+                    : "Sin trabajos en curso"}
             </span>
           </div>
           {DEMO && <small className="sidebar-path">Vista de muestra</small>}
@@ -659,6 +685,46 @@ export default function App() {
             <IconButton title="Cerrar aviso" onClick={() => setNotice(null)}>
               <X size={16} />
             </IconButton>
+          </div>
+        )}
+        {watchIssues.length > 0 && data && (
+          <div className="banner watch-warning" role="alert">
+            <CircleAlert size={18} />
+            <div className="watch-copy">
+              <strong>Hay carpetas vigiladas que no se pueden revisar.</strong>
+              {watchIssues.map((issue, index) => (
+                <p key={`${issue.folderId}:${issue.path}:${index}`}>
+                  <strong>{watchedFolderName(issue, data.settings)}:</strong>{" "}
+                  {issue.permissionDenied
+                    ? "macOS ha denegado el acceso. Revisa el permiso de Escriba Tauri en Ajustes del Sistema → Privacidad y seguridad → Acceso total al disco. Tras concederlo, cierra y abre Escriba Tauri."
+                    : issue.message.split(/\r?\n/, 1)[0] ||
+                      "Comprueba que la carpeta siga disponible."}
+                </p>
+              ))}
+            </div>
+            <div className="watch-actions">
+              {permissionDenied && (
+                <Button
+                  disabled={Boolean(busy)}
+                  onClick={() =>
+                    void run(
+                      "Abrir Ajustes",
+                      () => call("open_privacy_settings"),
+                      "Ajustes del Sistema abiertos. Ve a Privacidad y seguridad → Acceso total al disco y revisa el permiso de Escriba Tauri. Después cierra y abre Escriba Tauri.",
+                    )
+                  }
+                >
+                  Abrir Ajustes
+                </Button>
+              )}
+              <Button
+                icon={RefreshCw}
+                disabled={Boolean(busy)}
+                onClick={() => void retryWatchScan()}
+              >
+                Reintentar
+              </Button>
+            </div>
           </div>
         )}
         {migration?.state === "error" && (
@@ -963,6 +1029,7 @@ export default function App() {
                 busy={Boolean(busy) && jobs.length === 0}
                 run={run}
                 chooseFolder={chooseFolder}
+                retryWatchScan={retryWatchScan}
               />
             )}
           </main>
@@ -3138,11 +3205,13 @@ function SettingsView({
   busy,
   run,
   chooseFolder,
+  retryWatchScan,
 }: {
   data: Snapshot;
   busy: boolean;
   run: RunAction;
   chooseFolder: () => Promise<string | null>;
+  retryWatchScan: () => Promise<void>;
 }) {
   const [settings, setSettings] = useState<Settings>(data.settings);
   const [watchName, setWatchName] = useState("");
@@ -3294,6 +3363,13 @@ function SettingsView({
                 <div>
                   <strong>{folder.name}</strong>
                   <small title={folder.path}>{folder.path}</small>
+                  {data.watchIssues?.some(
+                    (issue) => issue.folderId === folder.id,
+                  ) && (
+                    <small className="folder-issue" role="alert">
+                      <CircleAlert size={12} /> No se puede leer esta carpeta
+                    </small>
+                  )}
                 </div>
                 <select
                   aria-label={`Formato de ${folder.name}`}
@@ -3389,9 +3465,8 @@ function SettingsView({
           <div className="footer-actions">
             <Button
               icon={RefreshCw}
-              onClick={() =>
-                void run("Escanear carpetas", () => call("watch_scan"))
-              }
+              onClick={() => void retryWatchScan()}
+              disabled={busy}
             >
               Escanear ahora
             </Button>

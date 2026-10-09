@@ -4,7 +4,7 @@ use serde_json::{json, Value};
 use std::os::{macos::fs::MetadataExt, unix::fs::MetadataExt as UnixMetadataExt};
 use std::{
     collections::{HashMap, HashSet},
-    fs,
+    fs, io,
     path::{Path, PathBuf},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -52,11 +52,81 @@ pub struct Candidate {
     pub source_key: String,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FolderError {
     pub folder_id: String,
     pub path: PathBuf,
     pub message: String,
+    pub permission_denied: bool,
+}
+
+impl FolderError {
+    pub(crate) fn from_io(folder_id: String, path: PathBuf, error: io::Error) -> Self {
+        Self {
+            folder_id,
+            path,
+            message: error.to_string(),
+            permission_denied: permission_denied(&error),
+        }
+    }
+
+    fn from_notify(folder_id: String, path: PathBuf, error: notify::Error) -> Self {
+        let permission_denied = match &error.kind {
+            notify::ErrorKind::Io(source) => permission_denied(source),
+            _ => false,
+        };
+        Self {
+            folder_id,
+            path,
+            message: error.to_string(),
+            permission_denied,
+        }
+    }
+}
+
+fn permission_denied(error: &io::Error) -> bool {
+    error.kind() == io::ErrorKind::PermissionDenied
+        || matches!(error.raw_os_error(), Some(libc::EPERM | libc::EACCES))
+}
+
+#[derive(Default)]
+pub struct Health {
+    issues: Vec<FolderError>,
+}
+
+impl Health {
+    pub fn update(&mut self, mut issues: Vec<FolderError>) -> Option<Vec<FolderError>> {
+        issues.sort_by(|a, b| {
+            (&a.folder_id, &a.path, &a.message, a.permission_denied).cmp(&(
+                &b.folder_id,
+                &b.path,
+                &b.message,
+                b.permission_denied,
+            ))
+        });
+        issues.dedup();
+        if issues == self.issues {
+            return None;
+        }
+        self.issues = issues.clone();
+        Some(issues)
+    }
+
+    pub fn snapshot(&self) -> Value {
+        Value::Array(
+            self.issues
+                .iter()
+                .map(|issue| {
+                    json!({
+                        "folderId":issue.folder_id,
+                        "path":issue.path.to_string_lossy(),
+                        "message":issue.message,
+                        "permissionDenied":issue.permission_denied,
+                    })
+                })
+                .collect(),
+        )
+    }
 }
 
 #[derive(Default, Debug)]
@@ -78,18 +148,24 @@ pub struct WatchHandle {
     pub errors: Vec<FolderError>,
 }
 
-pub fn file_status(path: &Path) -> Result<Value, String> {
-    let metadata = fs::symlink_metadata(path)
-        .map_err(|error| format!("No se pudo consultar {}: {error}", path.display()))?;
+pub fn file_status(path: &Path) -> Result<Value, io::Error> {
+    let metadata = fs::symlink_metadata(path)?;
     if !metadata.is_file() {
-        return Err(format!("No es un archivo regular: {}", path.display()));
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("No es un archivo regular: {}", path.display()),
+        ));
     }
     let flags = metadata.st_flags();
     let modified = metadata
-        .modified()
-        .map_err(|error| format!("No se pudo consultar fecha de {}: {error}", path.display()))?
+        .modified()?
         .duration_since(UNIX_EPOCH)
-        .map_err(|_| format!("Fecha inválida: {}", path.display()))?
+        .map_err(|_| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("Fecha inválida: {}", path.display()),
+            )
+        })?
         .as_secs_f64();
     Ok(json!({
         "size": metadata.len(),
@@ -108,11 +184,11 @@ pub fn watch(folders: &[Folder], wake: mpsc::Sender<()>) -> Result<WatchHandle, 
     let mut errors = Vec::new();
     for folder in folders.iter().filter(|folder| folder.enabled) {
         if let Err(error) = watcher.watch(&folder.path, RecursiveMode::Recursive) {
-            errors.push(FolderError {
-                folder_id: folder.id.clone(),
-                path: folder.path.clone(),
-                message: error.to_string(),
-            });
+            errors.push(FolderError::from_notify(
+                folder.id.clone(),
+                folder.path.clone(),
+                error,
+            ));
         }
     }
     Ok(WatchHandle {
@@ -135,11 +211,11 @@ impl Scanner {
                 let entries = match fs::read_dir(&directory) {
                     Ok(entries) => entries,
                     Err(error) => {
-                        batch.errors.push(FolderError {
-                            folder_id: folder.id.clone(),
-                            path: directory,
-                            message: error.to_string(),
-                        });
+                        batch.errors.push(FolderError::from_io(
+                            folder.id.clone(),
+                            directory,
+                            error,
+                        ));
                         continue;
                     }
                 };
@@ -147,11 +223,11 @@ impl Scanner {
                     let entry = match entry {
                         Ok(entry) => entry,
                         Err(error) => {
-                            batch.errors.push(FolderError {
-                                folder_id: folder.id.clone(),
-                                path: directory.clone(),
-                                message: error.to_string(),
-                            });
+                            batch.errors.push(FolderError::from_io(
+                                folder.id.clone(),
+                                directory.clone(),
+                                error,
+                            ));
                             continue;
                         }
                     };
@@ -162,11 +238,9 @@ impl Scanner {
                     let kind = match entry.file_type() {
                         Ok(kind) => kind,
                         Err(error) => {
-                            batch.errors.push(FolderError {
-                                folder_id: folder.id.clone(),
-                                path,
-                                message: error.to_string(),
-                            });
+                            batch
+                                .errors
+                                .push(FolderError::from_io(folder.id.clone(), path, error));
                             continue;
                         }
                     };
@@ -192,22 +266,18 @@ impl Scanner {
                     let metadata = match entry.metadata() {
                         Ok(metadata) => metadata,
                         Err(error) => {
-                            batch.errors.push(FolderError {
-                                folder_id: folder.id.clone(),
-                                path,
-                                message: error.to_string(),
-                            });
+                            batch
+                                .errors
+                                .push(FolderError::from_io(folder.id.clone(), path, error));
                             continue;
                         }
                     };
                     let modified = match metadata.modified() {
                         Ok(modified) => modified,
                         Err(error) => {
-                            batch.errors.push(FolderError {
-                                folder_id: folder.id.clone(),
-                                path,
-                                message: error.to_string(),
-                            });
+                            batch
+                                .errors
+                                .push(FolderError::from_io(folder.id.clone(), path, error));
                             continue;
                         }
                     };
@@ -639,5 +709,97 @@ mod tests {
             .ready
             .is_empty());
         assert_eq!(scanner.scan(&[folder], now).ready[0].path, materialized);
+    }
+
+    #[test]
+    fn salud_de_vigilancia_avisa_solo_al_cambiar_y_limpia_al_recuperar() {
+        let tmp = Temp::new();
+        let folder = Folder {
+            id: "vm".into(),
+            path: tmp.0.join("ausente"),
+            enabled: true,
+            style: Style::VoiceMemos,
+        };
+        let mut scanner = Scanner::new();
+        let mut health = Health::default();
+        let first = scanner.scan(std::slice::from_ref(&folder), SystemTime::now());
+        assert_eq!(first.errors.len(), 1);
+        assert_eq!(health.update(first.errors.clone()).unwrap().len(), 1);
+        assert_eq!(health.snapshot()[0]["folderId"], "vm");
+        assert_eq!(health.snapshot()[0]["permissionDenied"], false);
+        assert!(health.update(first.errors).is_none());
+        fs::create_dir_all(&folder.path).unwrap();
+        let recovered = scanner.scan(std::slice::from_ref(&folder), SystemTime::now());
+        assert!(recovered.errors.is_empty());
+        assert!(health.update(recovered.errors).unwrap().is_empty());
+        assert_eq!(health.snapshot(), json!([]));
+        assert!(health.update(Vec::new()).is_none());
+    }
+
+    #[test]
+    fn permisos_denegados_io_y_notify_se_identifican_sin_depender_del_texto() {
+        let path = PathBuf::from("/synthetic/voice-memos");
+        let io = std::io::Error::from_raw_os_error(libc::EPERM);
+        let issue = FolderError::from_io("vm".into(), path.clone(), io);
+        assert!(issue.permission_denied);
+        let notify = notify::Error::io(std::io::Error::from_raw_os_error(libc::EACCES));
+        let issue = FolderError::from_notify("vm".into(), path, notify);
+        assert!(issue.permission_denied);
+    }
+
+    #[test]
+    fn salud_ordena_deduplica_y_acepta_rutas_no_utf8() {
+        use std::os::unix::ffi::OsStringExt;
+        let odd = PathBuf::from(std::ffi::OsString::from_vec(vec![b'/', b'v', 0xff]));
+        let first = FolderError::from_io(
+            "b".into(),
+            odd,
+            std::io::Error::from(std::io::ErrorKind::NotFound),
+        );
+        let second = FolderError::from_io(
+            "a".into(),
+            PathBuf::from("/synthetic"),
+            std::io::Error::from(std::io::ErrorKind::PermissionDenied),
+        );
+        let mut health = Health::default();
+        let updated = health
+            .update(vec![first.clone(), second.clone(), first.clone()])
+            .unwrap();
+        assert_eq!(updated.len(), 2);
+        assert_eq!(updated[0].folder_id, "a");
+        assert_eq!(health.snapshot()[1]["path"].as_str().unwrap(), "/v�");
+        assert!(health.update(vec![first, second]).is_none());
+    }
+
+    #[test]
+    fn archivo_desaparece_entre_escaneo_y_estado_y_la_salud_se_recupera() {
+        let tmp = Temp::new();
+        let path = tmp.0.join("nueva.m4a");
+        fs::write(&path, b"audio sintetico").unwrap();
+        let folder = Folder {
+            id: "vm".into(),
+            path: tmp.0.clone(),
+            enabled: true,
+            style: Style::VoiceMemos,
+        };
+        let now = SystemTime::now() + Duration::from_secs(16);
+        let mut scanner = Scanner::new();
+        assert!(scanner
+            .scan(std::slice::from_ref(&folder), now)
+            .ready
+            .is_empty());
+        let candidate = scanner.scan(&[folder], now).ready.remove(0);
+        fs::remove_file(&candidate.path).unwrap();
+        let error = file_status(&candidate.path).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::NotFound);
+        let issue = FolderError::from_io(candidate.folder_id, candidate.path.clone(), error);
+        let mut health = Health::default();
+        assert_eq!(health.update(vec![issue.clone()]).unwrap().len(), 1);
+        assert_eq!(health.snapshot()[0]["path"], json!(path));
+        assert!(health.update(vec![issue]).is_none());
+        fs::write(&path, b"audio recuperado").unwrap();
+        assert!(file_status(&path).is_ok());
+        assert!(health.update(Vec::new()).unwrap().is_empty());
+        assert_eq!(health.snapshot(), json!([]));
     }
 }
