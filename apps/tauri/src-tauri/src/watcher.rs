@@ -129,6 +129,60 @@ impl Health {
     }
 }
 
+#[derive(Default)]
+pub struct Materializations {
+    attempts: HashMap<PathBuf, MaterializationAttempt>,
+}
+
+struct MaterializationAttempt {
+    requested_at: SystemTime,
+    error: Option<String>,
+}
+
+impl Materializations {
+    pub fn request(&mut self, path: &Path, now: SystemTime) -> bool {
+        if let Some(attempt) = self.attempts.get_mut(path) {
+            if now.duration_since(attempt.requested_at).unwrap_or_default()
+                < Duration::from_secs(600)
+            {
+                return false;
+            }
+            attempt.requested_at = now;
+            return true;
+        }
+        self.attempts.insert(
+            path.to_path_buf(),
+            MaterializationAttempt {
+                requested_at: now,
+                error: None,
+            },
+        );
+        true
+    }
+
+    pub fn complete(&mut self, path: &Path, requested_at: SystemTime, result: Result<(), String>) {
+        if let Some(attempt) = self.attempts.get_mut(path) {
+            if attempt.requested_at == requested_at {
+                attempt.error = result.err();
+            }
+        }
+    }
+
+    pub fn issue(&self, candidate: &Candidate) -> Option<FolderError> {
+        let message = self.attempts.get(&candidate.path)?.error.as_ref()?;
+        Some(FolderError {
+            folder_id: candidate.folder_id.clone(),
+            path: candidate.path.clone(),
+            message: message.clone(),
+            permission_denied: false,
+        })
+    }
+
+    pub fn forget(&mut self, path: &Path) {
+        self.attempts.remove(path);
+    }
+}
+
 #[derive(Default, Debug)]
 pub struct ScanBatch {
     pub ready: Vec<Candidate>,
@@ -500,6 +554,47 @@ mod tests {
         assert_eq!(batch.ready[0].folder_id, "bien");
         assert_eq!(batch.errors.len(), 1);
         assert_eq!(batch.errors[0].folder_id, "caida");
+    }
+
+    #[test]
+    fn fallo_de_materializacion_permanece_visible_hasta_recuperacion() {
+        let path = PathBuf::from("/tmp/escriba-test-materialization/nota.m4a");
+        let candidate = Candidate {
+            path: path.clone(),
+            folder_id: "carpeta".into(),
+            stamp: Stamp {
+                size: 42,
+                modified: UNIX_EPOCH,
+            },
+            title: "nota".into(),
+            started_at: UNIX_EPOCH,
+            source_key: "nota".into(),
+        };
+        let initial = UNIX_EPOCH + Duration::from_secs(1_000);
+        let mut materializations = Materializations::default();
+        assert!(materializations.request(&path, initial));
+        assert!(materializations.issue(&candidate).is_none());
+        assert!(!materializations.request(&path, initial + Duration::from_secs(599)));
+        materializations.complete(&path, initial, Err("No se pudo descargar iCloud".into()));
+        let issue = materializations.issue(&candidate).unwrap();
+        assert_eq!(issue.folder_id, "carpeta");
+        assert_eq!(issue.path, path);
+        assert_eq!(issue.message, "No se pudo descargar iCloud");
+        assert!(!issue.permission_denied);
+        assert!(!materializations.request(&path, initial + Duration::from_secs(599)));
+        let retry = initial + Duration::from_secs(600);
+        assert!(materializations.request(&path, retry));
+        assert!(materializations.issue(&candidate).is_some());
+        materializations.complete(&path, initial, Ok(()));
+        assert!(materializations.issue(&candidate).is_some());
+        materializations.complete(&path, retry, Ok(()));
+        assert!(materializations.issue(&candidate).is_none());
+        materializations.forget(&path);
+        materializations.complete(&path, retry, Err("respuesta tardía".into()));
+        assert!(materializations.issue(&candidate).is_none());
+        assert!(materializations.request(&path, retry));
+        materializations.complete(&path, initial, Err("respuesta antigua".into()));
+        assert!(materializations.issue(&candidate).is_none());
     }
 
     #[test]

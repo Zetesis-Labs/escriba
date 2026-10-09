@@ -90,6 +90,11 @@ type RunAction = (
   message?: string,
   confirmation?: string,
 ) => Promise<void>;
+type WatchAuthorization = {
+  folderId?: string;
+  name?: string;
+  style?: NonNullable<WatchedFolder["style"]>;
+};
 const DEMO = new URLSearchParams(window.location.search).get("demo") === "1";
 const tabs: { id: Section; title: string; icon: typeof Library }[] = [
   { id: "library", title: "Biblioteca", icon: Library },
@@ -414,6 +419,10 @@ export default function App() {
   const affectedFolderCount = new Set(
     watchIssues.map((issue) => issue.folderId),
   ).size;
+  const affectedFolders =
+    data?.settings.watchedFolders.filter((folder) =>
+      watchIssues.some((issue) => issue.folderId === folder.id),
+    ) ?? [];
   const permissionDenied = watchIssues.some((issue) => issue.permissionDenied);
 
   const refresh = useCallback(async (quiet = false) => {
@@ -523,6 +532,43 @@ export default function App() {
       () => call("watch_scan"),
       "Nuevo escaneo solicitado. El aviso desaparecerá cuando se recupere el acceso.",
     );
+  const openPrivacySettings = () =>
+    run(
+      "Abrir Ajustes",
+      () => call("open_privacy_settings"),
+      "Ajustes del Sistema abiertos. Ve a Privacidad y seguridad → Acceso total al disco y revisa el permiso de Escriba Tauri. Después cierra y abre Escriba Tauri.",
+    );
+  async function authorizeWatchedFolder(
+    options: WatchAuthorization,
+  ): Promise<WatchedFolder | null> {
+    if (DEMO) {
+      setNotice(
+        "Vista de muestra. Abre la aplicación Tauri para autorizar carpetas.",
+      );
+      return null;
+    }
+    if (busy && !jobs.length) return null;
+    setBusy("Autorizar carpeta");
+    setError(null);
+    setNotice(null);
+    try {
+      const folder = await call<WatchedFolder | null>(
+        "watch_folder_authorize",
+        options,
+      );
+      if (!folder) return null;
+      await refresh(true);
+      setNotice(
+        "Selección de carpeta guardada. El próximo escaneo comprobará si puede leerse.",
+      );
+      return folder;
+    } catch (failure) {
+      setError(`Autorizar carpeta: ${errorText(failure)}`);
+      return null;
+    } finally {
+      setBusy(null);
+    }
+  }
   async function importAudio() {
     if (DEMO) {
       setNotice(
@@ -696,25 +742,35 @@ export default function App() {
                 <p key={`${issue.folderId}:${issue.path}:${index}`}>
                   <strong>{watchedFolderName(issue, data.settings)}:</strong>{" "}
                   {issue.permissionDenied
-                    ? "macOS ha denegado el acceso. Revisa el permiso de Escriba Tauri en Ajustes del Sistema → Privacidad y seguridad → Acceso total al disco. Tras concederlo, cierra y abre Escriba Tauri."
+                    ? "macOS ha denegado el acceso. Vuelve a seleccionar esta carpeta para autorizarla. Acceso total al disco es una alternativa si sigue fallando."
                     : issue.message.split(/\r?\n/, 1)[0] ||
                       "Comprueba que la carpeta siga disponible."}
                 </p>
               ))}
             </div>
             <div className="watch-actions">
+              {affectedFolders.map((folder) => (
+                <Button
+                  key={folder.id}
+                  primary
+                  disabled={Boolean(busy)}
+                  onClick={() =>
+                    void authorizeWatchedFolder({ folderId: folder.id })
+                  }
+                >
+                  {affectedFolders.length === 1
+                    ? folder.authorizationSaved
+                      ? "Volver a autorizar"
+                      : "Autorizar carpeta"
+                    : `Autorizar «${folder.name}»`}
+                </Button>
+              ))}
               {permissionDenied && (
                 <Button
                   disabled={Boolean(busy)}
-                  onClick={() =>
-                    void run(
-                      "Abrir Ajustes",
-                      () => call("open_privacy_settings"),
-                      "Ajustes del Sistema abiertos. Ve a Privacidad y seguridad → Acceso total al disco y revisa el permiso de Escriba Tauri. Después cierra y abre Escriba Tauri.",
-                    )
-                  }
+                  onClick={() => void openPrivacySettings()}
                 >
-                  Abrir Ajustes
+                  Acceso total al disco…
                 </Button>
               )}
               <Button
@@ -1030,6 +1086,8 @@ export default function App() {
                 run={run}
                 chooseFolder={chooseFolder}
                 retryWatchScan={retryWatchScan}
+                authorizeWatchedFolder={authorizeWatchedFolder}
+                openPrivacySettings={openPrivacySettings}
               />
             )}
           </main>
@@ -3206,12 +3264,18 @@ function SettingsView({
   run,
   chooseFolder,
   retryWatchScan,
+  authorizeWatchedFolder,
+  openPrivacySettings,
 }: {
   data: Snapshot;
   busy: boolean;
   run: RunAction;
   chooseFolder: () => Promise<string | null>;
   retryWatchScan: () => Promise<void>;
+  authorizeWatchedFolder: (
+    options: WatchAuthorization,
+  ) => Promise<WatchedFolder | null>;
+  openPrivacySettings: () => Promise<void>;
 }) {
   const [settings, setSettings] = useState<Settings>(data.settings);
   const [watchName, setWatchName] = useState("");
@@ -3235,19 +3299,11 @@ function SettingsView({
     );
   }
   async function addFolder() {
-    const path = await chooseFolder();
-    if (!path) return;
-    const item: WatchedFolder = {
-      id: uniqueID("carpeta"),
-      path,
-      name: watchName.trim() || path.split("/").at(-1) || path,
+    const folder = await authorizeWatchedFolder({
+      name: watchName.trim() || undefined,
       style: watchStyle,
-      enabled: true,
-    };
-    await call("settings_save", {
-      settings: { watchedFolders: [...settings.watchedFolders, item] },
     });
-    setWatchName("");
+    if (folder) setWatchName("");
   }
   return (
     <>
@@ -3351,8 +3407,9 @@ function SettingsView({
             <div>
               <h2>Carpetas vigiladas</h2>
               <p>
-                Se buscan grabaciones asentadas; las notas se guardan en la
-                biblioteca.
+                Selecciona cada carpeta en el panel de macOS para guardar su
+                autorización. Acceso total al disco es una alternativa opcional
+                si macOS sigue denegando la lectura.
               </p>
             </div>
           </div>
@@ -3428,6 +3485,18 @@ function SettingsView({
                 >
                   <Trash2 size={16} />
                 </IconButton>
+                <div className="folder-authorization">
+                  <Button
+                    disabled={busy}
+                    onClick={() =>
+                      void authorizeWatchedFolder({ folderId: folder.id })
+                    }
+                  >
+                    {folder.authorizationSaved
+                      ? "Volver a autorizar"
+                      : "Autorizar carpeta"}
+                  </Button>
+                </div>
               </div>
             ))}
             {!settings.watchedFolders.length && (
@@ -3456,10 +3525,10 @@ function SettingsView({
             </select>
             <Button
               icon={Plus}
-              onClick={() => void run("Añadir carpeta", addFolder)}
+              onClick={() => void addFolder()}
               disabled={busy}
             >
-              Añadir carpeta
+              Seleccionar carpeta…
             </Button>
           </div>
           <div className="footer-actions">
@@ -3469,6 +3538,12 @@ function SettingsView({
               disabled={busy}
             >
               Escanear ahora
+            </Button>
+            <Button
+              disabled={busy}
+              onClick={() => void openPrivacySettings()}
+            >
+              Acceso total al disco…
             </Button>
           </div>
         </section>

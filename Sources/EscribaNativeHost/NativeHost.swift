@@ -167,13 +167,23 @@ final class NativeHost {
     }
 
     private func materialize(_ params: DataValue) async throws -> DataValue {
-        _ = try fileStatus(params)
+        let folder = try materializationFolder(params)
+        let started = folder?.startAccessingSecurityScopedResource() ?? false
+        defer { if started { folder?.stopAccessingSecurityScopedResource() } }
         let path = try requiredString(params, "path")
+        let url = URL(fileURLWithPath: path)
+        if let folder {
+            let root = folder.resolvingSymlinksInPath().standardizedFileURL.path
+            let resolved = url.resolvingSymlinksInPath().standardizedFileURL.path
+            guard resolved.hasPrefix(root.hasSuffix("/") ? root : root + "/") else {
+                throw HostFailure("invalid_params", "El audio no pertenece a la carpeta autorizada")
+            }
+        }
+        _ = try fileStatus(params)
         let timeout = try optionalPositiveInt(params, "timeoutSeconds") ?? 300
         guard timeout <= 300 else {
             throw HostFailure("invalid_params", "timeoutSeconds no puede superar 300")
         }
-        let url = URL(fileURLWithPath: path)
         let completed = await Task.detached(priority: .utility) {
             requestMaterialization(url, timeout: timeout)
         }.value
@@ -185,6 +195,30 @@ final class NativeHost {
             field("dataless", state["dataless"] ?? .bool(false)),
             field("size", state["size"] ?? .number(0)),
         ])
+    }
+
+    private func materializationFolder(_ params: DataValue) throws -> URL? {
+        guard let value = params["folderBookmark"], value != .null else { return nil }
+        guard case .array(let values) = value, !values.isEmpty, values.count <= 65_536 else {
+            throw HostFailure("invalid_params", "La autorización de carpeta no es válida")
+        }
+        let bytes = try values.map { value -> UInt8 in
+            guard case .number(let number) = value, let byte = UInt8(exactly: number) else {
+                throw HostFailure("invalid_params", "La autorización de carpeta no es válida")
+            }
+            return byte
+        }
+        var stale = false
+        do {
+            return try URL(
+                resolvingBookmarkData: Data(bytes),
+                options: [.withoutUI, .withoutImplicitStartAccessing],
+                relativeTo: nil,
+                bookmarkDataIsStale: &stale
+            )
+        } catch {
+            throw HostFailure("invalid_params", "No se pudo recuperar la autorización de carpeta: \(error.localizedDescription)")
+        }
     }
 
     private func downloadModel(_ params: DataValue) async throws -> DataValue {

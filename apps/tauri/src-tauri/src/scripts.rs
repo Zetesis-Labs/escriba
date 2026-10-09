@@ -692,6 +692,7 @@ mod tests {
             "export_file",
             "open_url",
             "open_privacy_settings",
+            "watch_folder_authorize",
             "recording_start",
             "import_audio",
             "runtime_run",
