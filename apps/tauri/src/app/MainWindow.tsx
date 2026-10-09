@@ -1,4 +1,4 @@
-import { Share, Users } from "lucide-react";
+import { Users } from "lucide-react";
 import { useEffect, useState, type KeyboardEvent } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { ask } from "@tauri-apps/plugin-dialog";
@@ -8,6 +8,7 @@ import { ResolversPane } from "../resolvers/ResolversPane";
 import { RecipesPane } from "../recipes/RecipesPane";
 import { LogPane } from "../log/LogPane";
 import { SettingsPane } from "../settings/SettingsPane";
+import { ConnectorsPane } from "../connectors/ConnectorsPane";
 import { dismissRecorderProblem, openMicrophoneSettings, useRecorderStatus, type RecorderProblem } from "../recording/useRecording";
 import { ContentUnavailable } from "../mac/controls";
 import { alertMessage } from "../mac/native";
@@ -111,12 +112,7 @@ export function MainWindow() {
         />
       </Pane>
     );
-  else if (section === "connectors")
-    detail = (
-      <Pane title="Conectores">
-        <ContentUnavailable title="Conectores se está rehaciendo" icon={Share} description="Vuelve igual que en la app Swift." />
-      </Pane>
-    );
+  else if (section === "connectors") detail = null;
   else if (section === "stt") detail = <ResolversPane key="stt" data={data} role="stt" refresh={refresh} />;
   else if (section === "llms") detail = <ResolversPane key="llm" data={data} role="llm" refresh={refresh} />;
   else if (section === "recipes") detail = <RecipesPane data={data} refresh={refresh} />;
@@ -146,6 +142,11 @@ export function MainWindow() {
         {data && (
           <div className="section-host" hidden={section !== "library"}>
             <LibraryView data={data} jobs={jobs} refresh={refresh} active={section === "library"} isRecording={recorder.active} />
+          </div>
+        )}
+        {data && (
+          <div className="section-host" hidden={section !== "connectors"}>
+            <ConnectorsPane data={data} refresh={refresh} />
           </div>
         )}
         {detail}

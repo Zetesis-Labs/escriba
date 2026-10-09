@@ -1,4 +1,5 @@
 import type { Account, Destination, JSONObject, Publication, Recipe, Recording, Resolver, Snapshot, Transcript, Version, WatchedFolder } from "../types";
+import { connectorProblem, isAppConnector } from "../core/connectors";
 
 export const versionsInOrder = (recording: Recording) =>
   [...recording.versions].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
@@ -51,11 +52,11 @@ export function currentVersionLabel(recording: Recording) {
   return `v${versions.indexOf(current) + 1} de ${versions.length}`;
 }
 
-export const isPublished = (publication: Publication) => !publication.error && Object.keys(publication.receipt ?? {}).length > 0;
+export const isPublished = (publication: Publication) => Boolean(publication.receipt?.locator || publication.receipt?.url) && publication.receipt?.state !== "removed";
 
 export function liveDestinations(destinations: Destination[], accounts: Account[]) {
   return destinations.filter(
-    (destination) => destination.enabled && accounts.some((account) => account.id === destination.account && account.enabled),
+    (destination) => destination.enabled && accounts.some((account) => account.id === destination.account && account.enabled && (!isAppConnector(destination) || connectorProblem(account, destination) === null)),
   );
 }
 

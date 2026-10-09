@@ -132,6 +132,40 @@ function publicationFixture() {
   });
   return m;
 }
+test("una publicación importada se actualiza con el programa de serie y el mismo localizador", async () => {
+  const m = publicationFixture();
+  delete m.state.destinations[0].program;
+  m.state.recordings[0].publications.push({
+    destinationId: "d", accountId: "a", name: "Destino", provider: "okf",
+    configuration: { marker: "original" }, updatedAt: "now",
+    receipt: { version: 1, provider: "okf", locator: "notas/nota.md", state: "published" },
+  });
+  const service = createConnectorService(m.host, {
+    run: async (task) => {
+      assert.equal(task.program, "builtin");
+      assert.equal(task.payload.destination, undefined);
+      assert.equal((task.payload.previous as { locator: string }).locator, "notas/nota.md");
+      return { receipt: task.payload.previous };
+    },
+  }, "builtin");
+  await service.publish("r", "d");
+});
+test("guardar una plantilla de la app cambia la actualización sin crear otra publicación", async () => {
+  const m = publicationFixture();
+  delete m.state.destinations[0].program;
+  const seen: unknown[] = [];
+  const service = createConnectorService(m.host, {
+    run: async (task) => {
+      seen.push(task.payload.config);
+      return { receipt: { version: 1, provider: "okf", locator: "notas/nota.md", state: "published" } };
+    },
+  }, "builtin");
+  await service.publish("r", "d");
+  m.state.destinations[0].configuration = { marker: "guardado" };
+  await service.publish("r", "d");
+  assert.deepEqual(seen, [{ marker: "original" }, { marker: "guardado" }]);
+  assert.equal(m.state.recordings[0].publications[0].receipt.locator, "notas/nota.md");
+});
 test("checkpoint durable y configuración/programa originales sobreviven a eliminación del destino", async () => {
   const m = publicationFixture();
   let invocation = 0;

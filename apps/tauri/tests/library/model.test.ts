@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { criteriaLabel, currentVersion, currentVersionLabel, isPublished, liveDestinations, originName, publishedNames, versionTitle } from "../../src/library/model";
 import type { Recording, Version } from "../../src/types";
+import { makeConnector, chooseNotionSource } from "../../src/core/connectors";
 
 const version = (id: string, createdAt: string, extra: Partial<Version> = {}): Version => ({
   id,
@@ -55,11 +56,11 @@ describe("la biblioteca de Tauri contada como en Swift", () => {
     );
     expect(titulo.startsWith("v1 · Por defecto · ES · sin hablantes · Whisper · ")).toBe(true);
   });
-  test("una publicación cuenta si tiene recibo y no tiene error", () => {
+  test("una publicación cuenta si conserva su página como en Swift, aunque falle al actualizar", () => {
     const base = { destinationId: "d", name: "Notion", provider: "notion", configuration: {}, updatedAt: "" };
     expect(isPublished({ ...base, receipt: { url: "https://notion.so/x" } })).toBe(true);
     expect(isPublished({ ...base, receipt: {} })).toBe(false);
-    expect(isPublished({ ...base, receipt: { url: "x" }, error: "401" })).toBe(false);
+    expect(isPublished({ ...base, receipt: { url: "x" }, error: "401" })).toBe(true);
     expect(publishedNames(recording({ publications: [{ ...base, receipt: { url: "x" } }] }))).toEqual(["Notion"]);
     const importada = { ...base, name: "03823BB9-D0D1", destinationId: "03823BB9-D0D1", receipt: { url: "x" } };
     expect(publishedNames(recording({ publications: [importada] }), [{ id: "03823BB9-D0D1", name: "Voice Inbox", provider: "notion", account: "n", enabled: true, configuration: {} }])).toEqual(["Voice Inbox"]);
@@ -78,5 +79,20 @@ describe("la biblioteca de Tauri contada como en Swift", () => {
       { id: "o", name: "OKF", provider: "okf" as const, enabled: true },
     ];
     expect(liveDestinations(destinations, accounts).map((item) => item.id)).toEqual(["b"]);
+  });
+  test("una entrega importada fallida no figura publicada aunque conserve un recibo", () => {
+    const base = { destinationId: "n", name: "Notion", provider: "notion", configuration: {}, updatedAt: "" };
+    expect(isPublished({ ...base, receipt: { state: "failed", locator: null } })).toBe(false);
+    expect(isPublished({ ...base, receipt: { state: "legacy", error: "Sin conexión", locator: "page" } })).toBe(true);
+    expect(isPublished({ ...base, receipt: { state: "published", locator: "page" } })).toBe(true);
+  });
+  test("un conector de la app solo permite publicar cuando está configurado y conectado", () => {
+    const created = makeConnector("notion", "notion", "Notion");
+    const config = chooseNotionSource(created.destination.configuration, {
+      id: "base", title: "Pruebas", databaseTitle: "Pruebas", properties: [{ name: "Nombre", type: "title" }],
+    });
+    const destination = { ...created.destination, enabled: true, configuration: { ...config, source: { ...config.source } } };
+    expect(liveDestinations([destination], [created.account])).toEqual([]);
+    expect(liveDestinations([destination], [{ ...created.account, hasCredential: true }])).toEqual([destination]);
   });
 });

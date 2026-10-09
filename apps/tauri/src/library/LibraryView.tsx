@@ -5,9 +5,10 @@ import { call, desktop, native, recordingDetail } from "../api";
 import { Pane } from "../app/Pane";
 import { audioExtensions, fileName, importNotice, importPlan } from "../core/inbox";
 import { librarySummary, rowActionText, speakers } from "../core/presentation";
+import { okfPublicationFile } from "../core/publicationFiles";
 import { Button, ContentUnavailable, PopupButton, Sheet, Spinner, TextField, ToolbarButton, ToolbarMenu } from "../mac/controls";
 import { alertMessage, chooseFiles, confirmDestructive, errorText, header, item, popupMenu, separator, submenu, type MenuEntry } from "../mac/native";
-import type { Account, Destination, JobState, Recording, Snapshot } from "../types";
+import type { Destination, JobState, Recording, Snapshot } from "../types";
 import { currentVersion, currentVersionLabel, isPublished, libraryRecordings, liveDestinations, originName, providerLabel, versionsInOrder, versionTitle } from "./model";
 import * as operations from "./operations";
 import { displayTitle, RecordingRow } from "./RecordingRow";
@@ -149,10 +150,15 @@ export function LibraryView({
       const kind = providerLabel(destination.provider);
       if (!publication) return item(`Publicar en ${destination.name}`, () => void perform(() => operations.publish(recording, destination.id)));
       const url = typeof publication.receipt.url === "string" ? publication.receipt.url : null;
-      const file = okfFile(destination, data.accounts, publication.receipt);
+      const accountId = publication.accountId ?? destination.account;
+      const folder = data.accounts.find((account) => account.id === accountId)?.folder;
+      const file = destination.provider === "okf" ? okfPublicationFile(folder, publication.receipt) : null;
       return submenu(destination.name, [
-        ...(url ? [item(`Abrir en ${kind}`, () => void perform(() => operations.openURL(url)))] : []),
-        ...(file ? [item("Mostrar en Finder", () => void perform(() => operations.reveal(file)))] : []),
+        ...(destination.provider === "notion" && url ? [item(`Abrir en ${kind}`, () => void perform(() => operations.openURL(url)))] : []),
+        ...(file ? [
+          item("Abrir el .md", () => void perform(() => operations.okfFile(accountId, file, "open"))),
+          item("Mostrar en Finder", () => void perform(() => operations.okfFile(accountId, file, "reveal"))),
+        ] : []),
         item(`Actualizar en ${kind}`, () => void perform(() => operations.publish(recording, destination.id))),
         separator,
         item(`Borrar de ${kind}…`, () => void unpublish(recording, destination)),
@@ -385,15 +391,6 @@ export function LibraryView({
       )}
     </Pane>
   );
-}
-
-function okfFile(destination: Destination, accounts: Account[], receipt: Record<string, unknown>) {
-  if (destination.provider !== "okf") return null;
-  const root = accounts.find((account) => account.id === destination.account)?.folder;
-  const locator = typeof receipt.locator === "string" ? receipt.locator : "";
-  if (!root || !locator) return null;
-  const folder = typeof receipt.folder === "string" && receipt.folder ? `/${receipt.folder}` : "";
-  return `${root}${folder}/${locator}`.replace(/\/+/g, "/");
 }
 
 function ReprocessSheet({ recording, data, onCancel, onRun }: { recording: Recording; data: Snapshot; onCancel: () => void; onRun: (recipeId?: string) => void }) {

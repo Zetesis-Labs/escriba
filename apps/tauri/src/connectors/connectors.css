@@ -1,0 +1,35 @@
+.connectors-layout { display: flex; flex: 1; min-height: 0; }
+.connectors-list { width: 230px; flex: none; display: flex; flex-direction: column; min-height: 0; }
+.connectors-list-items { flex: 1; min-height: 0; overflow-y: auto; padding: 4px 8px; }
+.connectors-divider { width: 0.5px; flex: none; background: var(--separator); }
+.connectors-detail { flex: 1; min-width: 0; min-height: 0; }
+.connector-editor-host { height: 100%; min-height: 0; }
+.connector-editor-host[hidden] { display: none; }
+.connector-row { display: flex; align-items: center; gap: 8px; min-height: 38px; }
+.connector-row > svg { flex: none; }
+.connector-row-text { min-width: 0; }
+.connector-row-text > div { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.connector-editor { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.connector-form { gap: 18px; padding: 18px 24px; }
+.connector-form .form-row { padding: 4px 0; }
+.connector-form .form-row-free { padding: 8px 0; }
+.connector-form .form-group { min-width: 0; }
+.connector-form .form-value { min-width: 0; }
+.connector-form .form-row > .token-editor { flex: 1; min-width: 0; }
+.connector-toggle-fieldset { border: 0; padding: 0; margin: 0; }
+.connector-toggle-fieldset:disabled { opacity: 0.45; }
+.connector-problem { color: var(--orange); }
+.connector-error { color: var(--red); }
+.connector-danger { color: var(--red); background: transparent; border: 0; font: inherit; padding: 3px 0; }
+.connector-select { min-width: 160px; max-width: 100%; border-radius: 6px; border: 0.5px solid var(--separator); background: var(--control); color: var(--label); font: inherit; padding: 3px 7px; }
+.connector-column-label { display: flex; flex-direction: column; flex: 0 0 150px; align-self: flex-start; }
+.connector-folder { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.connector-property-key { width: 130px; flex: none; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.connector-property-remove { border: 0; background: transparent; color: var(--secondary); font-size: 17px; }
+.connector-property-remove:disabled { visibility: hidden; }
+.connector-preview { display: flex; flex-direction: column; gap: 10px; padding: 12px; background: var(--fill); border-radius: 8px; min-width: 0; width: 100%; font-size: 13px; white-space: pre-wrap; }
+.connector-preview-grid { display: grid; gap: 5px; }
+.connector-preview-row { display: grid; grid-template-columns: minmax(100px, 150px) minmax(0, 1fr); gap: 10px; }
+.connector-preview-row span:last-child { overflow: hidden; text-overflow: ellipsis; }
+.connector-preview-body { border-top: 0.5px solid var(--separator); padding-top: 10px; }
+.connector-preview pre { margin: 0; overflow-wrap: anywhere; white-space: pre-wrap; font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
