@@ -441,6 +441,11 @@ Release instalada el 2026-10-10, firma verificada y 983 archivos idénticos al
 bundle construido. Pendiente de la comprobación de Rubén; no empezar §7 hasta
 que la confirme.
 
+La hoja limita el desplazamiento a los parámetros y conserva el título, la
+explicación y los botones fuera de esa zona. Verificado en WebKit con un
+formulario sintético a 1260×820 y 960×640: sin solapamientos y con el último
+campo accesible al desplazar hasta el final.
+
 ## 7. Arreglos del motor
 
 Por orden de daño. Cada uno con su test antes del arreglo.

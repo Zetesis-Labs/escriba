@@ -3,6 +3,17 @@
   min-height: 0;
   display: flex;
 }
+.reprocess-form {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 380px;
+  min-height: 0;
+  overflow-y: auto;
+  gap: 16px;
+}
+.reprocess-form > * {
+  flex-shrink: 0;
+}
 .recording-list {
   width: 290px;
   flex: none;

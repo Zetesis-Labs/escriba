@@ -438,7 +438,7 @@ function ReprocessSheet({ data, onCancel, onRun }: { data: Snapshot; onCancel: (
   return (
     <Sheet onCancel={onCancel}>
       <div className="font-headline">Reprocesar con una receta</div>
-      <div style={{ minHeight: 380, display: "flex", flexDirection: "column", gap: 16 }} onKeyDown={(event) => {
+      <div className="reprocess-form" onKeyDown={(event) => {
         if (event.key === "Enter" && event.target instanceof HTMLInputElement) {
           event.preventDefault();
           run();
