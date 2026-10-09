@@ -92,9 +92,14 @@ struct ProtocolTests {
         let host = NativeHost()
         let reply = try parseData(await host.handle(#"{"id":"r1","method":"recordingStatus","params":{}}"#))
         #expect(reply["result"]?["active"] == .bool(false))
-        #expect(reply["result"]?["paused"] == .bool(false))
         #expect(reply["result"]?["audioPath"] == .null)
         #expect(reply["result"]?["duration"] == .number(0))
+        #expect(reply["result"]?["level"] == .number(0))
+    }
+
+    @Test func descartarSinGrabacionEnCursoFallaConSuCodigo() async throws {
+        let reply = try parseData(await NativeHost().handle(#"{"id":"r2","method":"recordingCancel","params":{}}"#))
+        #expect(reply["error"]?["code"] == .string("recording_inactive"))
     }
 
     @Test func estadoDeArchivoConsultaAudioSinteticoSinAbrirlo() async throws {

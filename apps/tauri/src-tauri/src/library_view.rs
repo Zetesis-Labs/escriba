@@ -36,7 +36,10 @@ fn light_transcript(transcript: &Value) -> Value {
     json!({"text": preview(transcript), "segments": [], "duration": duration, "language": transcript["language"]})
 }
 
-fn without<'a>(object: &'a Map<String, Value>, skipped: &'a str) -> impl Iterator<Item = (String, Value)> + 'a {
+fn without<'a>(
+    object: &'a Map<String, Value>,
+    skipped: &'a str,
+) -> impl Iterator<Item = (String, Value)> + 'a {
     object
         .iter()
         .filter(move |(key, _)| key.as_str() != skipped)
@@ -48,7 +51,10 @@ pub fn light_version(version: &Value) -> Value {
         return version.clone();
     };
     let mut light: Map<String, Value> = without(object, "transcript").collect();
-    light.insert("transcript".into(), light_transcript(&version["transcript"]));
+    light.insert(
+        "transcript".into(),
+        light_transcript(&version["transcript"]),
+    );
     Value::Object(light)
 }
 
@@ -99,8 +105,14 @@ pub fn light_library(data: &Value) -> Value {
         return data.clone();
     };
     let mut light: Map<String, Value> = without(object, "recordings").collect();
-    light.insert("recipes".into(), without_program(&data["recipes"], "bundle", "bundleFingerprint"));
-    light.insert("destinations".into(), without_program(&data["destinations"], "program", "programFingerprint"));
+    light.insert(
+        "recipes".into(),
+        without_program(&data["recipes"], "bundle", "bundleFingerprint"),
+    );
+    light.insert(
+        "destinations".into(),
+        without_program(&data["destinations"], "program", "programFingerprint"),
+    );
     let recordings = data["recordings"]
         .as_array()
         .map(|recordings| recordings.iter().map(light_recording).collect())
@@ -132,10 +144,20 @@ mod tests {
         let light = light_library(&data);
         let version = &light["recordings"][0]["versions"][0];
         assert_eq!(version["transcript"]["segments"], json!([]));
-        assert_eq!(version["transcript"]["text"].as_str().unwrap().chars().count(), PREVIEW_CHARACTERS);
+        assert_eq!(
+            version["transcript"]["text"]
+                .as_str()
+                .unwrap()
+                .chars()
+                .count(),
+            PREVIEW_CHARACTERS
+        );
         assert_eq!(version["transcript"]["duration"], json!(4.0));
         assert_eq!(version["digest"]["summary"], "S");
-        assert_eq!(light["recordings"][0]["publications"], data["recordings"][0]["publications"]);
+        assert_eq!(
+            light["recordings"][0]["publications"],
+            data["recordings"][0]["publications"]
+        );
         assert_eq!(light["settings"], data["settings"]);
     }
 
@@ -148,15 +170,29 @@ mod tests {
         });
         let light = light_library(&data);
         assert!(light["recipes"][0].get("bundle").is_none());
-        assert_eq!(light["recipes"][0]["bundleFingerprint"].as_str().unwrap().len(), 12);
+        assert_eq!(
+            light["recipes"][0]["bundleFingerprint"]
+                .as_str()
+                .unwrap()
+                .len(),
+            12
+        );
         assert!(light["recipes"][1].get("bundleFingerprint").is_none());
         assert!(light["destinations"][0].get("program").is_none());
-        assert_eq!(light["destinations"][0]["programFingerprint"].as_str().unwrap().len(), 12);
+        assert_eq!(
+            light["destinations"][0]["programFingerprint"]
+                .as_str()
+                .unwrap()
+                .len(),
+            12
+        );
     }
 
     #[test]
     fn sin_texto_guardado_el_avance_sale_de_los_segmentos() {
-        let version = light_version(&json!({"transcript": {"text": "", "segments": [segment(0.0, "hola"), segment(2.0, "adiós")], "duration": 9.5}}));
+        let version = light_version(
+            &json!({"transcript": {"text": "", "segments": [segment(0.0, "hola"), segment(2.0, "adiós")], "duration": 9.5}}),
+        );
         assert_eq!(version["transcript"]["text"], "hola\nadiós");
         assert_eq!(version["transcript"]["duration"], json!(9.5));
     }

@@ -21,7 +21,7 @@ final class NativeHost {
     private var transcriptionEngines: [String: WhisperKitEngine] = [:]
     private var recorder: AVAudioRecorder?
     private var recordingURL: URL?
-    private var recordingPaused = false
+    private var recordingActivity: NSObjectProtocol?
 
     func handle(_ line: String) async -> String {
         let id: DataValue
@@ -66,9 +66,8 @@ final class NativeHost {
         case "downloadModel": return try await downloadModel(params)
         case "recordingStatus": return recordingStatus()
         case "recordingStart": return try await recordingStart(params)
-        case "recordingPause": return try recordingPause()
-        case "recordingResume": return try recordingResume()
         case "recordingStop": return try recordingStop()
+        case "recordingCancel": return try recordingCancel()
         default: throw HostFailure("unknown_method", "método desconocido: \(method)")
         }
     }
@@ -249,36 +248,23 @@ final class NativeHost {
             AVNumberOfChannelsKey: 1,
             AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue,
         ])
+        created.isMeteringEnabled = true
         guard created.record() else { throw HostFailure("recording_failed", "el micrófono no empezó a grabar") }
         recorder = created
         recordingURL = url
-        recordingPaused = false
+        recordingActivity = ProcessInfo.processInfo.beginActivity(
+            options: [.userInitiated, .idleSystemSleepDisabled], reason: "Grabando una nota de voz")
         return .object([field("audioPath", .string(path))])
     }
 
     private func recordingStatus() -> DataValue {
-        .object([
+        recorder?.updateMeters()
+        return .object([
             field("active", .bool(recorder != nil)),
-            field("paused", .bool(recorder != nil && recordingPaused)),
             field("audioPath", recordingURL.map { .string($0.path(percentEncoded: false)) } ?? .null),
             field("duration", .number(recorder?.currentTime ?? 0)),
+            field("level", .number(recorder.map { meterLevel(decibels: $0.averagePower(forChannel: 0)) } ?? 0)),
         ])
-    }
-
-    private func recordingPause() throws -> DataValue {
-        guard let recorder else { throw HostFailure("recording_inactive", "no hay grabación en curso") }
-        recorder.pause()
-        recordingPaused = true
-        return .object([field("audioPath", .string(recordingURL?.path(percentEncoded: false) ?? "")),
-                        field("duration", .number(recorder.currentTime))])
-    }
-
-    private func recordingResume() throws -> DataValue {
-        guard let recorder else { throw HostFailure("recording_inactive", "no hay grabación en curso") }
-        guard recorder.record() else { throw HostFailure("recording_failed", "no se pudo reanudar la grabación") }
-        recordingPaused = false
-        return .object([field("audioPath", .string(recordingURL?.path(percentEncoded: false) ?? "")),
-                        field("duration", .number(recorder.currentTime))])
     }
 
     private func recordingStop() throws -> DataValue {
@@ -287,11 +273,24 @@ final class NativeHost {
         }
         let duration = recorder.currentTime
         recorder.stop()
-        self.recorder = nil
-        recordingURL = nil
-        recordingPaused = false
+        finishRecording()
         return .object([field("audioPath", .string(url.path(percentEncoded: false))),
                         field("duration", .number(duration))])
+    }
+
+    private func recordingCancel() throws -> DataValue {
+        guard let recorder else { throw HostFailure("recording_inactive", "no hay grabación en curso") }
+        recorder.stop()
+        recorder.deleteRecording()
+        finishRecording()
+        return .object([])
+    }
+
+    private func finishRecording() {
+        recordingActivity.map(ProcessInfo.processInfo.endActivity)
+        recordingActivity = nil
+        recorder = nil
+        recordingURL = nil
     }
 
     private func audioURL(_ params: DataValue) throws -> URL {

@@ -12,6 +12,7 @@ import { currentVersion, currentVersionLabel, isPublished, libraryRecordings, li
 import * as operations from "./operations";
 import { displayTitle, RecordingRow } from "./RecordingRow";
 import { TranscriptDetail } from "./TranscriptDetail";
+import { startRecording, stopRecording } from "../recording/useRecording";
 import "./library.css";
 
 type Rename = { recording: Recording; speaker: string; name: string };
@@ -45,15 +46,25 @@ function useRecordingDetail(recording: Recording | null) {
   return detail && detail.id === id ? detail : null;
 }
 
-export function LibraryView({ data, jobs, refresh, active }: { data: Snapshot; jobs: JobState[]; refresh: () => Promise<void>; active: boolean }) {
+export function LibraryView({
+  data,
+  jobs,
+  refresh,
+  active,
+  isRecording,
+}: {
+  data: Snapshot;
+  jobs: JobState[];
+  refresh: () => Promise<void>;
+  active: boolean;
+  isRecording: boolean;
+}) {
   const recordings = useMemo(() => libraryRecordings(data), [data]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [dropTargeted, setDropTargeted] = useState(false);
   const [reprocessing, setReprocessing] = useState<Recording | null>(null);
   const [rename, setRename] = useState<Rename | null>(null);
-  const [isRecording, setRecording] = useState(false);
-  const recordingRecipe = useRef<string | undefined>(undefined);
   const selected = recordings.find((recording) => recording.id === selectedId) ?? null;
   const detail = useRecordingDetail(selected);
   const live = liveDestinations(data.destinations, data.accounts);
@@ -74,21 +85,6 @@ export function LibraryView({ data, jobs, refresh, active }: { data: Snapshot; j
     },
     [refresh],
   );
-
-  useEffect(() => {
-    if (!desktop) return;
-    let active = true;
-    const check = () =>
-      void call<{ active: boolean }>("recording_status")
-        .then((status) => active && setRecording(status.active))
-        .catch(() => undefined);
-    check();
-    const timer = window.setInterval(check, 2000);
-    return () => {
-      active = false;
-      window.clearInterval(timer);
-    };
-  }, []);
 
   useEffect(() => {
     if (!notice) return;
@@ -143,18 +139,8 @@ export function LibraryView({ data, jobs, refresh, active }: { data: Snapshot; j
     const paths = await chooseFiles(audioExtensions);
     if (paths.length) await add(paths, recipeId);
   };
-  const startRecording = (recipeId?: string) =>
-    perform(async () => {
-      await call("recording_start", {});
-      recordingRecipe.current = recipeId;
-      setRecording(true);
-    });
-  const stopRecording = () =>
-    perform(async () => {
-      await call("recording_stop", { recipeId: recordingRecipe.current });
-      recordingRecipe.current = undefined;
-      setRecording(false);
-    });
+  const record = (recipeId?: string) => perform(() => startRecording(recipeId));
+  const stop = () => perform(stopRecording);
 
   const publishEntries = (recording: Recording): MenuEntry[] => {
     if (!live.length) return [];
@@ -291,14 +277,14 @@ export function LibraryView({ data, jobs, refresh, active }: { data: Snapshot; j
         menu={() => recipeChoices((recipeId) => void chooseAudio(recipeId))}
       />
       {isRecording ? (
-        <ToolbarButton icon={CircleStop} label="Detener" help="Detener y transcribir" onClick={() => void stopRecording()} tint="var(--red)" />
+        <ToolbarButton icon={CircleStop} label="Detener" help="Detener y transcribir" onClick={() => void stop()} tint="var(--red)" />
       ) : (
         <ToolbarMenu
           icon={Mic}
           label="Grabar"
           help="Grabar una nota de voz con la receta por defecto; en la flecha, con otra"
-          primary={() => void startRecording()}
-          menu={() => recipeChoices((recipeId) => void startRecording(recipeId))}
+          primary={() => void record()}
+          menu={() => recipeChoices((recipeId) => void record(recipeId))}
         />
       )}
     </>
