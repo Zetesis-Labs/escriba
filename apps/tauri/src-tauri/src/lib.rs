@@ -33,12 +33,48 @@ struct Runtime {
     recorder: native::Native,
     vendor: PathBuf,
     compiler: PathBuf,
+    startup: Mutex<Startup>,
 }
+
+#[derive(Default)]
+struct Startup {
+    snapshot: Option<Value>,
+    error: Option<String>,
+}
+
 impl Runtime {
     fn store(&self) -> Result<std::sync::MutexGuard<'_, Store>, String> {
         self.store
             .lock()
             .map_err(|_| "No se pudo acceder a la biblioteca".into())
+    }
+
+    fn startup_reply(&self, method: &str) -> Result<Option<Value>, String> {
+        let startup = self
+            .startup
+            .lock()
+            .map_err(|_| "No se pudo consultar el arranque")?;
+        let Some(snapshot) = &startup.snapshot else {
+            return Ok(None);
+        };
+        match method {
+            "snapshot" => Ok(Some(snapshot.clone())),
+            "runtime_jobs" => Ok(Some(json!([]))),
+            "recording_status" => Ok(Some(json!({"active":false,"paused":false}))),
+            _ => Err("Espera a que termine de incorporarse la biblioteca anterior".into()),
+        }
+    }
+
+    fn snapshot(&self) -> Result<Value, String> {
+        let mut snapshot = self.store()?.snapshot();
+        let startup = self
+            .startup
+            .lock()
+            .map_err(|_| "No se pudo consultar el arranque")?;
+        if let Some(error) = &startup.error {
+            snapshot["settings"]["startupMigration"] = json!({"state":"error","message":error});
+        }
+        Ok(snapshot)
     }
 }
 
@@ -50,14 +86,52 @@ async fn app_command(
     params: Value,
 ) -> Result<Value, String> {
     let runtime = state.inner().clone();
+    let refresh = refreshes_library(&method, &params);
     let result = dispatch(&app, &runtime, &method, params).await;
-    if result.is_ok()
-        && !["snapshot", "native", "project_read", "connector_audio"].contains(&method.as_str())
-    {
+    if result.is_ok() && refresh {
         let _ = app.emit("escriba://changed", ());
     }
-    state.jobs.wake.notify_one();
+    if refresh {
+        state.jobs.wake.notify_one();
+    }
     result
+}
+
+fn refreshes_library(method: &str, params: &Value) -> bool {
+    match method {
+        "runtime_run" => params["operation"]
+            .as_str()
+            .is_some_and(|operation| jobs::durable(operation) || operation == "rebuildProject"),
+        "import_audio"
+        | "library_import"
+        | "recording_update"
+        | "recording_discard"
+        | "recording_delete"
+        | "recording_restore"
+        | "recording_remove_audio"
+        | "recording_start"
+        | "recording_stop"
+        | "recording_pause"
+        | "recording_resume"
+        | "version_save"
+        | "version_select"
+        | "version_update"
+        | "settings_save"
+        | "config_save"
+        | "config_remove"
+        | "credential_save"
+        | "publication_save"
+        | "publication_remove"
+        | "project_init"
+        | "project_install"
+        | "project_write"
+        | "log"
+        | "log_clear"
+        | "trace_save"
+        | "runtime_cancel"
+        | "watch_scan" => true,
+        _ => false,
+    }
 }
 
 fn dispatch<'a>(
@@ -67,8 +141,11 @@ fn dispatch<'a>(
     p: Value,
 ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Value, String>> + Send + 'a>> {
     Box::pin(async move {
+        if let Some(reply) = state.startup_reply(method)? {
+            return Ok(reply);
+        }
         match method {
-            "snapshot" => Ok(state.store()?.snapshot()),
+            "snapshot" => state.snapshot(),
             "runtime_run" => {
                 let operation = text(&p, "operation")?;
                 let args = p.get("args").cloned().unwrap_or(json!({}));
@@ -788,10 +865,28 @@ pub fn run() {
                 .build(),
         )
         .setup(|app| {
-            let root = std::env::var_os("ESCRIBA_TAURI_DATA")
-                .map(PathBuf::from)
-                .unwrap_or(app.path().app_data_dir()?);
+            let isolated_root = std::env::var_os("ESCRIBA_TAURI_DATA").map(PathBuf::from);
+            let root = isolated_root.clone().unwrap_or(app.path().app_data_dir()?);
             let store = Store::open(root.clone()).map_err(std::io::Error::other)?;
+            let legacy = if isolated_root.is_none()
+                && store.data["settings"]["legacyImported"] != true
+                && store.data["recordings"]
+                    .as_array()
+                    .is_some_and(Vec::is_empty)
+            {
+                Some(
+                    app.path()
+                        .home_dir()?
+                        .join("Library/Application Support/escriba/library"),
+                )
+            } else {
+                None
+            };
+            let opening = legacy.as_ref().map(|_| {
+                let mut snapshot = store.snapshot();
+                snapshot["settings"]["startupMigration"] = json!({"state":"importing"});
+                snapshot
+            });
             app.asset_protocol_scope()
                 .allow_directory(root.join("audio"), true)?;
             let resource_vendor = app.path().resource_dir()?.join("vendor");
@@ -818,6 +913,10 @@ pub fn run() {
                 recorder: native::Native::new(engine),
                 vendor,
                 compiler: native::binary("escriba-esbuild").map_err(std::io::Error::other)?,
+                startup: Mutex::new(Startup {
+                    snapshot: opening,
+                    error: None,
+                }),
             });
             app.manage(state.clone());
             let menu = tauri::menu::Menu::with_items(
@@ -848,8 +947,30 @@ pub fn run() {
                     _ => {}
                 })
                 .build(app)?;
-            start_jobs(app.handle().clone(), state.clone());
-            start_watcher(app.handle().clone(), state, wake);
+            let handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                if let Some(source) = legacy {
+                    let importing = state.clone();
+                    let result = tokio::task::spawn_blocking(move || {
+                        importing.store()?.import_startup_legacy(&source)
+                    })
+                    .await
+                    .map_err(|error| error.to_string())
+                    .and_then(|result| result);
+                    match state.startup.lock() {
+                        Ok(mut startup) => {
+                            startup.snapshot = None;
+                            startup.error = result.err();
+                        }
+                        Err(error) => {
+                            eprintln!("No se pudo finalizar la apertura de la biblioteca: {error}")
+                        }
+                    }
+                    let _ = handle.emit("escriba://changed", ());
+                }
+                start_jobs(handle.clone(), state.clone());
+                start_watcher(handle, state, wake);
+            });
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -861,4 +982,35 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![app_command])
         .run(tauri::generate_context!())
         .expect("No se pudo iniciar Escriba Tauri");
+}
+
+#[cfg(test)]
+mod command_events_tests {
+    use super::*;
+
+    #[test]
+    fn polling_the_library_and_recorder_does_not_request_another_refresh() {
+        let refresh_cycle = ["snapshot", "recording_status", "runtime_jobs"];
+        assert!(!refresh_cycle
+            .iter()
+            .any(|method| refreshes_library(method, &json!({}))));
+    }
+
+    #[test]
+    fn loading_a_recipe_form_does_not_invalidate_its_input_snapshot() {
+        assert!(!refreshes_library(
+            "runtime_run",
+            &json!({"operation":"getRecipeSchema"})
+        ));
+    }
+
+    #[test]
+    fn changes_to_recordings_and_recipe_catalogues_still_refresh_the_window() {
+        assert!(refreshes_library("recording_stop", &json!({})));
+        assert!(refreshes_library("library_import", &json!({})));
+        assert!(refreshes_library(
+            "runtime_run",
+            &json!({"operation":"rebuildProject"})
+        ));
+    }
 }

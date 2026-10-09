@@ -119,6 +119,15 @@ export interface Settings {
   notifyEveryNote?: boolean;
   launchAtLogin: boolean;
   theme: "system" | "light" | "dark";
+  startupMigration?:
+    | { state: "importing" }
+    | { state: "error"; message: string }
+    | {
+        state: "imported";
+        report: { recordings: number; audioMissing: number };
+        completedAt: string;
+        dismissed?: boolean;
+      };
 }
 export interface LogEntry {
   id: string;

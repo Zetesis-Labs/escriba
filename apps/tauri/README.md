@@ -28,9 +28,17 @@ La biblioteca vive en Application Support bajo el identificador de la app.
 SurrealDB/SurrealKV guarda entidades, versiones, publicaciones, ajustes, memoria,
 trazas y trabajos. No se escribe una biblioteca JSON ni SQLite.
 
-En **Ajustes → Importar biblioteca SwiftUI**, elige la carpeta anterior y,
-opcionalmente, su plist de preferencias. La importación abre SQLite en modo de
-lectura, copia los audios y conserva el origen. Incluye versiones, datos,
+Al abrir una biblioteca Tauri vacía se incorpora automáticamente la biblioteca
+de Escriba situada en `~/Library/Application Support/escriba/library`. Se muestra
+el progreso de apertura, se conserva el origen y el procesamiento automático
+queda pausado para revisar el resultado. La importación se realiza una sola vez;
+borrar después las notas no hace que reaparezcan. Los errores se muestran en la
+ventana y permiten reintentar. `ESCRIBA_TAURI_DATA` desactiva esta detección para
+que las pruebas aisladas no accedan a datos de la instalación normal.
+
+Si Tauri ya tiene grabaciones o se quiere elegir otra biblioteca, está
+**Ajustes → Importar biblioteca SwiftUI**, con un plist de preferencias opcional.
+La importación abre SQLite en modo de lectura y copia los audios. Incluye versiones, datos,
 publicaciones, memoria de respuestas y trazas. Las cuentas importadas requieren
 revisar su configuración y volver a introducir credenciales; el importador nunca
 lee tokens ni el Llavero. La biblioteca JSON del primer experimento se migra
@@ -108,7 +116,8 @@ La inferencia local se ha comprobado con el proceso incluido en el bundle:
 Whisper transcribió audio sintético con tiempos y Apple Intelligence produjo
 un resumen. Las cifras y resultados de entrega se registran en el PR.
 
-La inspección visual automatizada quedó bloqueada por el permiso de acceso a la
-app local. Micrófono y notificaciones requieren comprobación interactiva de macOS.
+La inspección visual automatizada sigue bloqueada por la herramienta de acceso a
+las apps locales, incluso tras la autorización del usuario. Micrófono y
+notificaciones requieren comprobación interactiva de macOS.
 No se han usado Notion real, tokens reales ni servicios STT/LLM externos. Estos
 límites de validación no se sustituyen por los datos de muestra (`?demo=1`).

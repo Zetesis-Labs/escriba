@@ -71,6 +71,54 @@ pub struct Store {
 }
 
 impl Store {
+    pub fn import_startup_legacy(&mut self, source: &Path) -> Result<Option<Value>, String> {
+        if self.data["settings"]["legacyImported"] == true
+            || self.data["recordings"]
+                .as_array()
+                .is_some_and(|records| !records.is_empty())
+        {
+            return Ok(None);
+        }
+        let database = source.join("library.sqlite");
+        match fs::metadata(&database) {
+            Ok(metadata) if metadata.is_file() => {}
+            Ok(_) => {
+                let status = self.record_startup_import_error(
+                    "La biblioteca anterior no contiene un archivo library.sqlite válido",
+                )?;
+                return Ok(Some(status));
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                return Ok(None);
+            }
+            Err(error) => {
+                let status = self.record_startup_import_error(&format!(
+                    "No se puede comprobar la biblioteca anterior: {error}"
+                ))?;
+                return Ok(Some(status));
+            }
+        }
+        match self.import_legacy_with_settings(source, None) {
+            Ok(report) => {
+                let status = json!({"state":"imported","report":report});
+                Ok(Some(status))
+            }
+            Err(error) => {
+                let status = self.record_startup_import_error(&error)?;
+                Ok(Some(status))
+            }
+        }
+    }
+
+    fn record_startup_import_error(&mut self, error: &str) -> Result<Value, String> {
+        let status = json!({"state":"error","message":error});
+        let mut next = self.data.clone();
+        next["settings"]["startupMigration"] = status.clone();
+        next["settings"]["autoProcess"] = json!(false);
+        self.replace(next)?;
+        Ok(status)
+    }
+
     pub fn open(root: PathBuf) -> Result<Self, String> {
         fs::create_dir_all(&root).map_err(|e| e.to_string())?;
         fs::set_permissions(&root, fs::Permissions::from_mode(0o700))
@@ -215,7 +263,11 @@ impl Store {
         {
             return Err("Elige la biblioteca SwiftUI, no la biblioteca Tauri actual".into());
         }
-        let plan = migration::plan(source, &self.root, &self.data, settings_plist)?;
+        let mut plan = migration::plan(source, &self.root, &self.data, settings_plist)?;
+        plan.data["settings"]["autoProcess"] = json!(false);
+        plan.data["settings"]["legacyImported"] = json!(true);
+        plan.data["settings"]["startupMigration"] =
+            json!({"state":"imported","report":plan.report.clone(),"completedAt":now()});
         let mut copied = ImportCopies::default();
         for (source, target) in &plan.copies {
             if target.exists() {
@@ -954,6 +1006,106 @@ fn defaults() -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn startup_imports_discovered_swift_notes_once_without_processing_them() {
+        let dir = tempfile::tempdir().unwrap();
+        let legacy = dir.path().join("escriba/library");
+        let root = dir.path().join("tauri");
+        fs::create_dir_all(legacy.join("audio")).unwrap();
+        fs::write(legacy.join("audio/first.m4a"), b"synthetic first audio").unwrap();
+        fs::write(legacy.join("audio/second.m4a"), b"synthetic second audio").unwrap();
+        let sql = rusqlite::Connection::open(legacy.join("library.sqlite")).unwrap();
+        sql.execute_batch("CREATE TABLE recording(id INTEGER PRIMARY KEY,key TEXT,sourcePath TEXT,audioPath TEXT,startedAt TEXT,importedAt TEXT,status TEXT,lastError TEXT,currentTranscriptId INTEGER); CREATE TABLE transcript(id INTEGER PRIMARY KEY,recordingId INTEGER,backend TEXT,createdAt TEXT,text TEXT,language TEXT,diarize INTEGER,speakerCount INTEGER,optionsKnown INTEGER,digestTitle TEXT,digestSummary TEXT,digestTags TEXT,data TEXT,dataSchema TEXT,recipe TEXT); CREATE TABLE publication(id INTEGER PRIMARY KEY,recordingId INTEGER,connector TEXT,pageId TEXT,url TEXT,syncedAt TEXT,error TEXT);").unwrap();
+        sql.execute("INSERT INTO recording VALUES (1,'2026-10-09/09-30-00','/synthetic/first.m4a','audio/first.m4a','2026-10-09 09:30:00','2026-10-09 09:31:00','done',NULL,NULL)",[]).unwrap();
+        sql.execute("INSERT INTO recording VALUES (2,'voice-2','/synthetic/second.m4a','audio/second.m4a','2026-10-09 10:30:00','2026-10-09 10:31:00','pending',NULL,NULL)",[]).unwrap();
+        drop(sql);
+        let original = fs::read(legacy.join("library.sqlite")).unwrap();
+
+        let mut store = Store::open(root.clone()).unwrap();
+        let report = store.import_startup_legacy(&legacy).unwrap();
+        assert_eq!(report.unwrap()["report"]["recordings"], 2);
+        assert_eq!(store.snapshot()["recordings"].as_array().unwrap().len(), 2);
+        assert_eq!(store.jobs().unwrap().len(), 0);
+        assert_eq!(store.recording("voice-2").unwrap()["status"], "pending");
+        assert_eq!(store.data["settings"]["autoProcess"], false);
+        assert_eq!(store.data["settings"]["legacyImported"], true);
+        assert_eq!(fs::read(legacy.join("library.sqlite")).unwrap(), original);
+        assert!(!legacy.join("library.sqlite-shm").exists());
+        let ids = store.snapshot()["recordings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|record| record["id"].as_str().unwrap().to_owned())
+            .collect::<Vec<_>>();
+        for id in ids {
+            store.mutate("recording_delete", &json!({"id":id})).unwrap();
+        }
+        drop(store);
+        let mut reopened = Store::open(root).unwrap();
+        let report = reopened.import_startup_legacy(&legacy).unwrap();
+        assert!(report.is_none());
+        assert!(reopened.snapshot()["recordings"]
+            .as_array()
+            .unwrap()
+            .is_empty());
+        assert_eq!(fs::read(legacy.join("library.sqlite")).unwrap(), original);
+    }
+
+    #[test]
+    fn startup_import_error_is_visible_and_retries_after_source_is_repaired() {
+        let dir = tempfile::tempdir().unwrap();
+        let legacy = dir.path().join("escriba/library");
+        fs::create_dir_all(&legacy).unwrap();
+        fs::write(legacy.join("library.sqlite"), b"invalid sqlite fixture").unwrap();
+        let root = dir.path().join("tauri");
+        let mut store = Store::open(root.clone()).unwrap();
+        let status = store.import_startup_legacy(&legacy).unwrap();
+        assert_eq!(status.unwrap()["state"], "error");
+        assert_eq!(
+            store.snapshot()["settings"]["startupMigration"]["state"],
+            "error"
+        );
+        assert_eq!(store.data["settings"]["autoProcess"], false);
+        assert!(store.data["settings"]["legacyImported"].is_null());
+        assert!(store.data["recordings"].as_array().unwrap().is_empty());
+        drop(store);
+
+        fs::remove_file(legacy.join("library.sqlite")).unwrap();
+        let sql = rusqlite::Connection::open(legacy.join("library.sqlite")).unwrap();
+        sql.execute_batch("CREATE TABLE recording(id INTEGER PRIMARY KEY,key TEXT,sourcePath TEXT,audioPath TEXT,startedAt TEXT,importedAt TEXT,status TEXT,lastError TEXT,currentTranscriptId INTEGER); CREATE TABLE transcript(id INTEGER PRIMARY KEY,recordingId INTEGER,backend TEXT,createdAt TEXT,text TEXT,language TEXT,diarize INTEGER,speakerCount INTEGER,optionsKnown INTEGER,digestTitle TEXT,digestSummary TEXT,digestTags TEXT,data TEXT,dataSchema TEXT,recipe TEXT); CREATE TABLE publication(id INTEGER PRIMARY KEY,recordingId INTEGER,connector TEXT,pageId TEXT,url TEXT,syncedAt TEXT,error TEXT);").unwrap();
+        sql.execute("INSERT INTO recording VALUES (1,'recovered','/synthetic/source.m4a','','2026-10-09 09:30:00','2026-10-09 09:31:00','done',NULL,NULL)",[]).unwrap();
+        drop(sql);
+        let mut store = Store::open(root).unwrap();
+        let status = store.import_startup_legacy(&legacy).unwrap();
+        assert_eq!(status.unwrap()["report"]["recordings"], 1);
+        assert_eq!(
+            store.snapshot()["settings"]["startupMigration"]["state"],
+            "imported"
+        );
+        assert_eq!(store.recording("recovered").unwrap()["status"], "done");
+    }
+
+    #[test]
+    fn startup_discovery_preserves_an_existing_tauri_library_and_queue() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("tauri-note.wav");
+        fs::write(&source, b"synthetic audio").unwrap();
+        let legacy = dir.path().join("escriba/library");
+        fs::create_dir_all(&legacy).unwrap();
+        fs::write(legacy.join("library.sqlite"), b"invalid sqlite fixture").unwrap();
+        let mut store = Store::open(dir.path().join("tauri")).unwrap();
+        let recording = store.import(&source, None).unwrap();
+        store
+            .job_save(&json!({"id":"existing-job","recordingId":recording["id"],"state":"queued"}))
+            .unwrap();
+        assert!(store.import_startup_legacy(&legacy).unwrap().is_none());
+        assert_eq!(store.data["settings"]["autoProcess"], true);
+        assert_eq!(store.jobs().unwrap()[0]["id"], "existing-job");
+        assert_eq!(store.data["recordings"].as_array().unwrap().len(), 1);
+        assert!(store.data["settings"]["startupMigration"].is_null());
+    }
+
     #[test]
     fn preserves_versions_and_selection_across_restart() {
         let dir = tempfile::tempdir().unwrap();
