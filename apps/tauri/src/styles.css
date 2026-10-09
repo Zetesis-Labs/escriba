@@ -184,6 +184,9 @@ h2 {
 .state-dot.paused {
   background: var(--muted);
 }
+.state-dot.issue {
+  background: #d46b5d;
+}
 .migration-notice > span {
   flex: 1;
 }
@@ -915,6 +918,36 @@ select {
   background: var(--wash);
   color: var(--accent);
 }
+.watch-warning {
+  align-items: flex-start;
+  flex-wrap: wrap;
+  background: var(--danger-wash);
+  color: var(--ink);
+  font-size: 12px;
+}
+.watch-warning > svg {
+  flex: none;
+  color: #c8625e;
+  margin-top: 2px;
+}
+.watch-copy {
+  flex: 1;
+  min-width: 340px;
+  line-height: 1.4;
+}
+.watch-copy > strong {
+  display: block;
+  font-size: 12px;
+}
+.watch-copy p {
+  margin: 3px 0 0;
+  overflow-wrap: anywhere;
+}
+.watch-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
 .inline-error {
   display: flex;
   align-items: center;
@@ -1357,6 +1390,13 @@ select {
   color: var(--muted);
   margin-top: 3px;
   font-size: 11px;
+}
+.folder-row .folder-issue {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: #c8625e;
+  white-space: normal;
 }
 .folder-row input {
   width: 15px;

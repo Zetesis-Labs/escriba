@@ -691,6 +691,7 @@ mod tests {
             "settings_save",
             "export_file",
             "open_url",
+            "open_privacy_settings",
             "recording_start",
             "import_audio",
             "runtime_run",
