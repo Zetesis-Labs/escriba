@@ -16,8 +16,30 @@ export interface Segment {
 export interface Transcript {
   text: string;
   segments: Segment[];
+  recognitions?: Recognition[];
   language?: string;
   duration?: number;
+}
+export interface Recognition {
+  speaker: string;
+  person: string;
+  distance: number;
+}
+export interface PersonVoice {
+  id: string;
+  source: string;
+  addedAt: string;
+  model: string;
+}
+export interface Person {
+  name: string;
+  voices: PersonVoice[];
+}
+export interface VoiceRegistration {
+  state: "idle" | "requesting" | "recording" | "analyzing" | "failed";
+  person?: string;
+  message?: string;
+  startedAt?: string;
 }
 export interface Digest {
   title: string;
@@ -34,6 +56,8 @@ export interface Version {
   data?: JSONValue;
   dataSchema?: JSONValue;
   inputs?: JSONObject;
+  hasVoices?: boolean;
+  learnedVoice?: boolean;
 }
 export interface Publication {
   destinationId: string;

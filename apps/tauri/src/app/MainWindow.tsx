@@ -9,6 +9,7 @@ import { RecipesPane } from "../recipes/RecipesPane";
 import { LogPane } from "../log/LogPane";
 import { SettingsPane } from "../settings/SettingsPane";
 import { ConnectorsPane } from "../connectors/ConnectorsPane";
+import { PeoplePane } from "../people/PeoplePane";
 import { dismissRecorderProblem, openMicrophoneSettings, useRecorderStatus, type RecorderProblem } from "../recording/useRecording";
 import { ContentUnavailable } from "../mac/controls";
 import { alertMessage } from "../mac/native";
@@ -102,16 +103,7 @@ export function MainWindow() {
       </Pane>
     );
   else if (section === "library") detail = null;
-  else if (section === "people")
-    detail = (
-      <Pane title="Personas">
-        <ContentUnavailable
-          title="Personas todavía no está en Tauri"
-          icon={Users}
-          description={"Llega en la estabilización, igual que en la app Swift:\nhuellas de voz, reconocimiento al transcribir y «Registrar voz»."}
-        />
-      </Pane>
-    );
+  else if (section === "people") detail = null;
   else if (section === "connectors") detail = null;
   else if (section === "stt") detail = <ResolversPane key="stt" data={data} role="stt" refresh={refresh} />;
   else if (section === "llms") detail = <ResolversPane key="llm" data={data} role="llm" refresh={refresh} />;
@@ -147,6 +139,11 @@ export function MainWindow() {
         {data && (
           <div className="section-host" hidden={section !== "connectors"}>
             <ConnectorsPane data={data} refresh={refresh} />
+          </div>
+        )}
+        {data && (
+          <div className="section-host" hidden={section !== "people"}>
+            <PeoplePane active={section === "people"} />
           </div>
         )}
         {detail}
