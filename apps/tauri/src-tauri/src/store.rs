@@ -110,6 +110,66 @@ impl Store {
         }
     }
 
+    pub fn adopt_legacy_watched_folders(
+        &mut self,
+        settings_plist: &Path,
+    ) -> Result<Option<Value>, String> {
+        if self.data["settings"]["legacyImported"] != true
+            || self.data["settings"]["legacyWatchAdopted"] == true
+        {
+            return Ok(None);
+        }
+        let existing = self.data["settings"]["watchedFolders"]
+            .as_array()
+            .ok_or("Carpetas inválidas")?;
+        if !existing.is_empty() {
+            let status = json!({"state":"preserved","count":existing.len()});
+            let mut next = self.data.clone();
+            next["settings"]["legacyWatchAdopted"] = json!(true);
+            next["settings"]["watchMigration"] = status.clone();
+            self.replace(next)?;
+            return Ok(Some(status));
+        }
+        match fs::metadata(settings_plist) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => {
+                return self.record_watch_import_error(&format!(
+                    "No se pueden leer las preferencias anteriores: {error}"
+                ));
+            }
+            Ok(metadata) if !metadata.is_file() => {
+                return self
+                    .record_watch_import_error("Las preferencias anteriores no son un archivo");
+            }
+            Ok(_) => {}
+        }
+        let folders = match migration::watched_folders_from_plist(settings_plist) {
+            Ok(Some(folders)) => folders,
+            Ok(None) => json!([]),
+            Err(error) => return self.record_watch_import_error(&error),
+        };
+        let count = folders
+            .as_array()
+            .ok_or("Carpetas SwiftUI inválidas")?
+            .len();
+        let status = json!({"state":"adopted","count":count,"paused":true});
+        let mut next = self.data.clone();
+        next["settings"]["watchedFolders"] = folders;
+        next["settings"]["autoProcess"] = json!(false);
+        next["settings"]["legacyWatchAdopted"] = json!(true);
+        next["settings"]["watchMigration"] = status.clone();
+        self.replace(next)?;
+        Ok(Some(status))
+    }
+
+    fn record_watch_import_error(&mut self, error: &str) -> Result<Option<Value>, String> {
+        let status = json!({"state":"error","message":error});
+        let mut next = self.data.clone();
+        next["settings"]["watchMigration"] = status.clone();
+        self.replace(next)?;
+        Ok(Some(status))
+    }
+
     fn record_startup_import_error(&mut self, error: &str) -> Result<Value, String> {
         let status = json!({"state":"error","message":error});
         let mut next = self.data.clone();
@@ -266,6 +326,14 @@ impl Store {
         let mut plan = migration::plan(source, &self.root, &self.data, settings_plist)?;
         plan.data["settings"]["autoProcess"] = json!(false);
         plan.data["settings"]["legacyImported"] = json!(true);
+        if settings_plist.is_some() {
+            plan.data["settings"]["legacyWatchAdopted"] = json!(true);
+            let count = plan.data["settings"]["watchedFolders"]
+                .as_array()
+                .map_or(0, Vec::len);
+            plan.data["settings"]["watchMigration"] =
+                json!({"state":"adopted","count":count,"paused":true});
+        }
         plan.data["settings"]["startupMigration"] =
             json!({"state":"imported","report":plan.report.clone(),"completedAt":now()});
         let mut copied = ImportCopies::default();
@@ -479,6 +547,32 @@ impl Store {
                 records
                     .iter()
                     .find(|record| record["sourceKey"] == source_key)
+                    .or_else(|| {
+                        let inode = source_key.strip_prefix("voiceMemos:")?.rsplit('/').next()?;
+                        records.iter().find(|record| {
+                            let same_folder = record["source"]
+                                .as_str()
+                                .and_then(|path| Path::new(path).parent())
+                                == source.parent();
+                            let legacy_inode = record["legacyKey"].as_str().is_some_and(|key| {
+                                key == inode || key == format!("Notas de Voz/{inode}")
+                            });
+                            record["sourceKey"]
+                                .as_str()
+                                .is_some_and(|key| key.starts_with("swift:"))
+                                && same_folder
+                                && legacy_inode
+                        })
+                    })
+                    .or_else(|| {
+                        records.iter().find(|record| {
+                            record["sourceKey"]
+                                .as_str()
+                                .is_some_and(|key| key.starts_with("swift:"))
+                                && record["legacyKey"].is_string()
+                                && record["source"] == source_text.as_ref()
+                        })
+                    })
                     .cloned()
             })
         } else {
@@ -513,6 +607,26 @@ impl Store {
                     Err(_) => true,
                 }
             };
+            if let Some((title, started_at, source_key)) =
+                metadata_from_watcher.filter(|_| !changed || prior["status"] == "discarded")
+            {
+                fs::remove_file(&temp).map_err(|e| e.to_string())?;
+                let mut next = self.data.clone();
+                let existing = record_mut(&mut next, &key)?;
+                existing["source"] = json!(source_text);
+                existing["sourceKey"] = json!(source_key);
+                if !changed {
+                    existing["audioHash"] = json!(content_hash);
+                }
+                if prior["legacyKey"].is_null() {
+                    existing["title"] = json!(title);
+                    existing["createdAt"] =
+                        json!(chrono::DateTime::<Utc>::from(started_at).to_rfc3339());
+                }
+                let record = existing.clone();
+                self.replace(next)?;
+                return Ok(record);
+            }
             if changed
                 && self.jobs()?.iter().any(|job| {
                     job["recordingId"] == key
@@ -1104,6 +1218,264 @@ mod tests {
         assert_eq!(store.jobs().unwrap()[0]["id"], "existing-job");
         assert_eq!(store.data["recordings"].as_array().unwrap().len(), 1);
         assert!(store.data["settings"]["startupMigration"].is_null());
+    }
+
+    #[test]
+    fn startup_import_restores_voice_memos_watch_configuration_without_running_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path();
+        let legacy = home.join("Library/Application Support/escriba/library");
+        let preferences = home.join("Library/Preferences/dev.ruben.escriba.plist");
+        let voice = home.join("VoiceMemos");
+        fs::create_dir_all(&legacy).unwrap();
+        fs::create_dir_all(preferences.parent().unwrap()).unwrap();
+        fs::create_dir_all(&voice).unwrap();
+        let new_audio = voice.join("new.m4a");
+        fs::write(&new_audio, b"synthetic audio").unwrap();
+        let sql = rusqlite::Connection::open(legacy.join("library.sqlite")).unwrap();
+        sql.execute_batch("CREATE TABLE recording(id INTEGER PRIMARY KEY,key TEXT,sourcePath TEXT,audioPath TEXT,startedAt TEXT,importedAt TEXT,status TEXT,lastError TEXT,currentTranscriptId INTEGER); CREATE TABLE transcript(id INTEGER PRIMARY KEY,recordingId INTEGER,backend TEXT,createdAt TEXT,text TEXT,language TEXT,diarize INTEGER,speakerCount INTEGER,optionsKnown INTEGER,digestTitle TEXT,digestSummary TEXT,digestTags TEXT,data TEXT,dataSchema TEXT,recipe TEXT); CREATE TABLE publication(id INTEGER PRIMARY KEY,recordingId INTEGER,connector TEXT,pageId TEXT,url TEXT,syncedAt TEXT,error TEXT);").unwrap();
+        sql.execute("INSERT INTO recording VALUES (1,'old','/synthetic/old.m4a','','2026-10-09 09:30:00','2026-10-09 09:31:00','done',NULL,NULL)",[]).unwrap();
+        drop(sql);
+        let mut settings = plist::Dictionary::new();
+        let watched = json!([{"path":voice,"style":"voiceMemos"}]).to_string();
+        settings.insert(
+            "watchedFolders".into(),
+            plist::Value::Data(watched.into_bytes()),
+        );
+        plist::to_file_binary(&preferences, &plist::Value::Dictionary(settings)).unwrap();
+        let mut store = Store::open(home.join("tauri")).unwrap();
+        store.import_startup_legacy(&legacy).unwrap();
+        let adoption = store
+            .adopt_legacy_watched_folders(&preferences)
+            .unwrap()
+            .unwrap();
+        assert_eq!(adoption["state"], "adopted");
+        assert_eq!(adoption["paused"], true);
+        let watched = store.data["settings"]["watchedFolders"].as_array().unwrap();
+        assert_eq!(watched.len(), 1);
+        assert_eq!(watched[0]["style"], "voiceMemos");
+        assert_eq!(watched[0]["path"], json!(voice));
+        assert_eq!(store.data["settings"]["autoProcess"], false);
+        let folder = crate::watcher::Folder {
+            id: watched[0]["id"].as_str().unwrap().to_owned(),
+            path: voice,
+            enabled: watched[0]["enabled"] == true,
+            style: crate::watcher::Style::parse(watched[0]["style"].as_str()).unwrap(),
+        };
+        let mut scanner = crate::watcher::Scanner::new();
+        let now = SystemTime::now() + std::time::Duration::from_secs(16);
+        assert!(scanner
+            .scan(std::slice::from_ref(&folder), now)
+            .ready
+            .is_empty());
+        assert_eq!(scanner.scan(&[folder], now).ready.len(), 1);
+        assert!(store
+            .adopt_legacy_watched_folders(&preferences)
+            .unwrap()
+            .is_none());
+        drop(store);
+        let store = Store::open(home.join("tauri")).unwrap();
+        assert_eq!(store.data["settings"]["legacyWatchAdopted"], true);
+        assert_eq!(
+            store.data["settings"]["watchedFolders"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
+        assert_eq!(store.data["settings"]["autoProcess"], false);
+    }
+
+    #[test]
+    fn watch_adoption_retries_invalid_preferences_and_preserves_tauri_choices() {
+        let dir = tempfile::tempdir().unwrap();
+        let preferences = dir.path().join("settings.plist");
+        fs::write(&preferences, b"invalid plist").unwrap();
+        let mut store = Store::open(dir.path().join("tauri")).unwrap();
+        let mut next = store.data.clone();
+        next["settings"]["legacyImported"] = json!(true);
+        store.replace(next).unwrap();
+        let error = store
+            .adopt_legacy_watched_folders(&preferences)
+            .unwrap()
+            .unwrap();
+        assert_eq!(error["state"], "error");
+        assert_ne!(store.data["settings"]["legacyWatchAdopted"], true);
+        let mut plist = plist::Dictionary::new();
+        plist.insert(
+            "watchedFolders".into(),
+            plist::Value::Data(
+                json!([{"path":dir.path().join("VoiceMemos"),"style":"voiceMemos"}])
+                    .to_string()
+                    .into_bytes(),
+            ),
+        );
+        plist::to_file_binary(&preferences, &plist::Value::Dictionary(plist)).unwrap();
+        assert_eq!(
+            store
+                .adopt_legacy_watched_folders(&preferences)
+                .unwrap()
+                .unwrap()["state"],
+            "adopted"
+        );
+        assert_eq!(
+            store.data["settings"]["watchedFolders"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
+        let mut next = store.data.clone();
+        next["settings"]["legacyWatchAdopted"] = json!(false);
+        next["settings"]["watchedFolders"] =
+            json!([{"id":"custom","path":"/my/chosen/folder","enabled":false,"style":"any"}]);
+        store.replace(next).unwrap();
+        fs::write(&preferences, b"invalid plist again").unwrap();
+        assert_eq!(
+            store
+                .adopt_legacy_watched_folders(&preferences)
+                .unwrap()
+                .unwrap()["state"],
+            "preserved"
+        );
+        assert_eq!(store.data["settings"]["watchedFolders"][0]["id"], "custom");
+        assert_eq!(
+            store.data["settings"]["watchedFolders"][0]["enabled"],
+            false
+        );
+    }
+
+    #[test]
+    fn imported_voice_memo_is_not_duplicated_when_its_folder_is_watched() {
+        use std::os::unix::fs::MetadataExt;
+        let dir = tempfile::tempdir().unwrap();
+        let legacy = dir.path().join("swift-library");
+        let voice = dir.path().join("VoiceMemos");
+        fs::create_dir_all(legacy.join("audio")).unwrap();
+        fs::create_dir_all(&voice).unwrap();
+        let source = voice.join("old.m4a");
+        fs::write(&source, b"same audio").unwrap();
+        let discarded_source = voice.join("discarded.m4a");
+        fs::write(&discarded_source, b"discarded audio").unwrap();
+        let new_source = voice.join("new.m4a");
+        fs::write(&new_source, b"new audio").unwrap();
+        fs::write(legacy.join("audio/old.m4a"), b"same audio").unwrap();
+        let key = fs::metadata(&source).unwrap().ino().to_string();
+        let discarded_key = fs::metadata(&discarded_source).unwrap().ino().to_string();
+        let sql = rusqlite::Connection::open(legacy.join("library.sqlite")).unwrap();
+        sql.execute_batch("CREATE TABLE recording(id INTEGER PRIMARY KEY,key TEXT,sourcePath TEXT,audioPath TEXT,startedAt TEXT,importedAt TEXT,status TEXT,lastError TEXT,currentTranscriptId INTEGER); CREATE TABLE transcript(id INTEGER PRIMARY KEY,recordingId INTEGER,backend TEXT,createdAt TEXT,text TEXT,language TEXT,diarize INTEGER,speakerCount INTEGER,optionsKnown INTEGER,digestTitle TEXT,digestSummary TEXT,digestTags TEXT,data TEXT,dataSchema TEXT,recipe TEXT); CREATE TABLE publication(id INTEGER PRIMARY KEY,recordingId INTEGER,connector TEXT,pageId TEXT,url TEXT,syncedAt TEXT,error TEXT);").unwrap();
+        sql.execute("INSERT INTO recording VALUES (1,?1,?2,'audio/old.m4a','2026-10-09 09:30:00','2026-10-09 09:31:00','done',NULL,NULL)",[format!("Notas de Voz/{key}"),source.to_string_lossy().into_owned()]).unwrap();
+        sql.execute("INSERT INTO recording VALUES (2,?1,?2,'','2026-10-09 09:30:00','2026-10-09 09:31:00','discarded',NULL,NULL)",[format!("Notas de Voz/{discarded_key}"),discarded_source.to_string_lossy().into_owned()]).unwrap();
+        sql.execute_batch("CREATE TABLE segment(transcriptId INTEGER,position INTEGER,startTime REAL,endTime REAL,speaker TEXT,text TEXT,words TEXT); INSERT INTO transcript (id,recordingId,backend,createdAt,text,diarize,optionsKnown) VALUES (1,1,'synthetic','2026-10-09 09:31:00','Transcripción sintética',0,0); UPDATE recording SET currentTranscriptId=1 WHERE id=1; INSERT INTO publication VALUES (1,1,'synthetic','page','https://example.invalid/note','2026-10-09 09:32:00',NULL);").unwrap();
+        drop(sql);
+        let mut preferences = plist::Dictionary::new();
+        preferences.insert(
+            "watchedFolders".into(),
+            plist::Value::Data(
+                json!([{"path":voice,"style":"voiceMemos"}])
+                    .to_string()
+                    .into_bytes(),
+            ),
+        );
+        let plist_path = dir.path().join("settings.plist");
+        plist::to_file_binary(&plist_path, &plist::Value::Dictionary(preferences)).unwrap();
+        let mut store = Store::open(dir.path().join("tauri")).unwrap();
+        store
+            .record_watch_import_error("Preferencias inválidas")
+            .unwrap();
+        store
+            .import_legacy_with_settings(&legacy, Some(&plist_path))
+            .unwrap();
+        assert_eq!(store.data["settings"]["watchMigration"]["state"], "adopted");
+        let imported = store.data["recordings"].as_array().unwrap();
+        let done = imported
+            .iter()
+            .find(|record| record["status"] == "done")
+            .unwrap()
+            .clone();
+        let discarded = imported
+            .iter()
+            .find(|record| record["status"] == "discarded")
+            .unwrap()
+            .clone();
+        let old_audio = store.audio(done["id"].as_str().unwrap()).unwrap();
+        let folder_id = store.data["settings"]["watchedFolders"][0]["id"]
+            .as_str()
+            .unwrap();
+        let renamed = voice.join("renamed.m4a");
+        fs::rename(&source, &renamed).unwrap();
+        let folder = crate::watcher::Folder {
+            id: folder_id.to_owned(),
+            path: voice,
+            enabled: true,
+            style: crate::watcher::Style::VoiceMemos,
+        };
+        let mut scanner = crate::watcher::Scanner::new();
+        let now = SystemTime::now() + std::time::Duration::from_secs(16);
+        assert!(scanner
+            .scan(std::slice::from_ref(&folder), now)
+            .ready
+            .is_empty());
+        let candidates = scanner.scan(&[folder], now).ready;
+        assert_eq!(candidates.len(), 3);
+        for candidate in candidates {
+            store
+                .import_with_metadata(
+                    &candidate.path,
+                    None,
+                    &candidate.title,
+                    candidate.started_at,
+                    &candidate.source_key,
+                )
+                .unwrap();
+        }
+        let recordings = store.data["recordings"].as_array().unwrap();
+        assert_eq!(recordings.len(), 3);
+        let same_done = recordings
+            .iter()
+            .find(|record| record["id"] == done["id"])
+            .unwrap();
+        assert_eq!(same_done["status"], "done");
+        assert_eq!(same_done["createdAt"], done["createdAt"]);
+        assert_eq!(same_done["audioPath"], done["audioPath"]);
+        assert_eq!(same_done["versions"], done["versions"]);
+        assert_eq!(same_done["publications"], done["publications"]);
+        assert_eq!(same_done["versions"].as_array().unwrap().len(), 1);
+        assert_eq!(same_done["publications"].as_array().unwrap().len(), 1);
+        assert_eq!(same_done["source"], json!(renamed));
+        assert!(old_audio.exists());
+        let same_discarded = recordings
+            .iter()
+            .find(|record| record["id"] == discarded["id"])
+            .unwrap();
+        assert_eq!(same_discarded["status"], "discarded");
+        assert!(same_discarded["audioPath"].is_null());
+        assert_eq!(
+            recordings
+                .iter()
+                .filter(|record| record["status"] == "pending")
+                .count(),
+            1
+        );
+        assert_eq!(store.data["settings"]["autoProcess"], false);
+        assert!(store.jobs().unwrap().is_empty());
+        let new_id = recordings
+            .iter()
+            .find(|record| record["status"] == "pending")
+            .unwrap()["id"]
+            .clone();
+        let shared = std::sync::Arc::new(std::sync::Mutex::new(store));
+        let queue = crate::jobs::Queue::new(shared.clone()).unwrap();
+        queue.automatic().unwrap();
+        assert!(queue.jobs().unwrap().is_empty());
+        shared
+            .lock()
+            .unwrap()
+            .mutate("settings_save", &json!({"settings":{"autoProcess":true}}))
+            .unwrap();
+        queue.automatic().unwrap();
+        assert_eq!(queue.jobs().unwrap().len(), 1);
+        assert_eq!(queue.claim().unwrap().unwrap()["recordingId"], new_id);
     }
 
     #[test]
