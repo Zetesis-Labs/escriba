@@ -1,4 +1,5 @@
 use serde_json::{json, Map, Value};
+use sha2::{Digest, Sha256};
 
 pub const PREVIEW_CHARACTERS: usize = 400;
 
@@ -64,11 +65,42 @@ pub fn light_recording(recording: &Value) -> Value {
     Value::Object(light)
 }
 
+fn fingerprint(program: &str) -> String {
+    Sha256::digest(program.as_bytes())
+        .iter()
+        .take(6)
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
+fn without_program(items: &Value, field: &str, renamed: &str) -> Value {
+    let Some(items) = items.as_array() else {
+        return items.clone();
+    };
+    Value::Array(
+        items
+            .iter()
+            .map(|item| {
+                let Some(object) = item.as_object() else {
+                    return item.clone();
+                };
+                let mut light: Map<String, Value> = without(object, field).collect();
+                if let Some(program) = item[field].as_str() {
+                    light.insert(renamed.into(), json!(fingerprint(program)));
+                }
+                Value::Object(light)
+            })
+            .collect(),
+    )
+}
+
 pub fn light_library(data: &Value) -> Value {
     let Some(object) = data.as_object() else {
         return data.clone();
     };
     let mut light: Map<String, Value> = without(object, "recordings").collect();
+    light.insert("recipes".into(), without_program(&data["recipes"], "bundle", "bundleFingerprint"));
+    light.insert("destinations".into(), without_program(&data["destinations"], "program", "programFingerprint"));
     let recordings = data["recordings"]
         .as_array()
         .map(|recordings| recordings.iter().map(light_recording).collect())
@@ -105,6 +137,21 @@ mod tests {
         assert_eq!(version["digest"]["summary"], "S");
         assert_eq!(light["recordings"][0]["publications"], data["recordings"][0]["publications"]);
         assert_eq!(light["settings"], data["settings"]);
+    }
+
+    #[test]
+    fn los_programas_compilados_viajan_solo_con_su_huella() {
+        let data = json!({
+            "recipes": [{"id": "resumen", "kind": "code", "bundle": "var __recipe = 1;"}, {"id": "default", "kind": "form"}],
+            "destinations": [{"id": "d", "program": "var __conectores = 1;"}],
+            "recordings": []
+        });
+        let light = light_library(&data);
+        assert!(light["recipes"][0].get("bundle").is_none());
+        assert_eq!(light["recipes"][0]["bundleFingerprint"].as_str().unwrap().len(), 12);
+        assert!(light["recipes"][1].get("bundleFingerprint").is_none());
+        assert!(light["destinations"][0].get("program").is_none());
+        assert_eq!(light["destinations"][0]["programFingerprint"].as_str().unwrap().len(), 12);
     }
 
     #[test]
