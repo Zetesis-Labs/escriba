@@ -104,7 +104,7 @@ export function MainWindow() {
         <ContentUnavailable title={problem ? "La biblioteca no está disponible" : "Abriendo la biblioteca…"} icon={Users} description={problem ?? undefined} />
       </Pane>
     );
-  else if (section === "library") detail = <LibraryView data={data} jobs={jobs} refresh={refresh} />;
+  else if (section === "library") detail = null;
   else if (section === "people")
     detail = (
       <Pane title="Personas">
@@ -152,7 +152,14 @@ export function MainWindow() {
           ))}
         </nav>
       </aside>
-      <section className="detail">{detail}</section>
+      <section className="detail">
+        {data && (
+          <div className="section-host" hidden={section !== "library"}>
+            <LibraryView data={data} jobs={jobs} refresh={refresh} active={section === "library"} />
+          </div>
+        )}
+        {detail}
+      </section>
     </div>
   );
 }

@@ -1,4 +1,5 @@
 import { AlertTriangle } from "lucide-react";
+import { memo } from "react";
 import { clockStamp, recordingExcerpt, recordingTitle, recordingWhen, visibleTags } from "../core/presentation";
 import type { Account, Destination, Recording } from "../types";
 import { currentVersion, publishedNames, transcriptDuration } from "./model";
@@ -34,7 +35,20 @@ export function StatusChip({ status }: { status: Recording["status"] }) {
   return <span className={`status-chip ${descriptor[1]}`}>{descriptor[0]}</span>;
 }
 
-export function RecordingRow({ recording, origin, now, destinations, accounts }: { recording: Recording; origin: string; now: Date; destinations: Destination[]; accounts: Account[] }) {
+export const RecordingRow = memo(function RecordingRow({
+  recording,
+  origin,
+  minute,
+  destinations,
+  accounts,
+}: {
+  recording: Recording;
+  origin: string;
+  minute: number;
+  destinations: Destination[];
+  accounts: Account[];
+}) {
+  const now = new Date(minute * 60_000);
   const version = currentVersion(recording);
   const duration = transcriptDuration(version?.transcript);
   const excerpt = recordingExcerpt(version?.digest, version?.transcript.text);
@@ -63,4 +77,4 @@ export function RecordingRow({ recording, origin, now, destinations, accounts }:
       </div>
     </div>
   );
-}
+});

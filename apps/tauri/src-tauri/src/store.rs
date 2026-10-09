@@ -381,6 +381,14 @@ impl Store {
         copied.committed = true;
         Ok(plan.report)
     }
+    pub fn library(&self) -> Value {
+        let mut value = crate::library_view::light_library(&self.data);
+        value["settings"] = redacted_settings(&value["settings"]);
+        value["dataPath"] = json!(self.root);
+        self.mark_credentials(&mut value);
+        value
+    }
+
     pub fn snapshot(&self) -> Value {
         let mut value = self.data.clone();
         value["settings"] = redacted_settings(&value["settings"]);
