@@ -92,6 +92,17 @@ impl Native {
             pid: AtomicU32::new(0),
         }
     }
+    pub async fn transcribe(
+        &self,
+        audio: &Path,
+        model: Value,
+        mut params: Value,
+    ) -> Result<Value, String> {
+        params["audioPath"] = json!(audio);
+        params["model"] = model;
+        self.call("transcribe", params).await
+    }
+
     pub async fn call(&self, method: &str, params: Value) -> Result<Value, String> {
         let mut slot = self.session.lock().await;
         if let Some(session) = slot.as_mut() {
