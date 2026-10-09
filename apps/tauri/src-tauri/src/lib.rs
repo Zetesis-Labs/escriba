@@ -312,8 +312,19 @@ fn dispatch<'a>(
                 Ok(Value::Null)
             }
             "library_import" => {
-                let path = PathBuf::from(text(&p, "path")?);
-                let settings = p["settingsPath"].as_str().map(PathBuf::from);
+                let home = app.path().home_dir().map_err(|e| e.to_string())?;
+                let path = match p["path"].as_str() {
+                    Some(path) => PathBuf::from(path),
+                    None => home.join("Library/Application Support/escriba/library"),
+                };
+                let settings = match p["settingsPath"].as_str() {
+                    Some(path) => Some(PathBuf::from(path)),
+                    None if p["path"].is_null() => {
+                        Some(home.join("Library/Preferences/dev.ruben.escriba.plist"))
+                            .filter(|path| path.is_file())
+                    }
+                    None => None,
+                };
                 let state = state.clone();
                 tokio::task::spawn_blocking(move || match settings {
                     Some(settings) => state
@@ -635,9 +646,11 @@ async fn authorize_watched_folder(
     params: &Value,
 ) -> Result<Value, String> {
     let folder_id = params["folderId"].as_str();
+    let voice_memos = folder_id.is_none() && params["style"] == "voiceMemos";
     let initial_path = {
         let store = state.store()?;
         match folder_id {
+            None if voice_memos => Some(voice_memos_root(app)?),
             Some(id) => Some(PathBuf::from(text(
                 store.data["settings"]["watchedFolders"]
                     .as_array()
@@ -671,7 +684,9 @@ async fn authorize_watched_folder(
     let saved = state.store()?.authorize_watched_folder(
         folder_id,
         &resolved.path,
-        params["name"].as_str(),
+        params["name"]
+            .as_str()
+            .or(voice_memos.then_some("Notas de Voz")),
         params["style"].as_str().unwrap_or("any"),
         &bookmark,
     )?;
@@ -685,6 +700,14 @@ async fn authorize_watched_folder(
         );
     let _ = state.watch_wake.try_send(());
     Ok(saved)
+}
+
+fn voice_memos_root(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    Ok(app
+        .path()
+        .home_dir()
+        .map_err(|e| e.to_string())?
+        .join("Library/Group Containers/group.com.apple.VoiceMemos.shared/Recordings"))
 }
 
 fn restore_watched_folders(state: &Runtime) -> Result<Vec<watcher::FolderError>, String> {
@@ -1284,6 +1307,18 @@ pub fn run() {
                         }
                     }
                     let _ = handle.emit("escriba://changed", ());
+                }
+                if let Ok(root) = voice_memos_root(&handle) {
+                    let seeded = state
+                        .store()
+                        .and_then(|mut store| store.seed_voice_memos(&root));
+                    match seeded {
+                        Ok(true) => {
+                            let _ = handle.emit("escriba://changed", ());
+                        }
+                        Ok(false) => {}
+                        Err(error) => log_error(&state, &error),
+                    }
                 }
                 start_jobs(handle.clone(), state.clone());
                 start_project_watcher(handle.clone(), state.clone());
