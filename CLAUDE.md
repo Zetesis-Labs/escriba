@@ -15,7 +15,7 @@ venta.
 **El núcleo viaja**: el mismo motor debe poder correr en un Mac, en un pod
 de Linux o en un runtime WebAssembly (WASI), cambiando solo el host que lo
 conecta. `EscribaCore` y `EscribaEngine` compilan a
-`wasm32-unknown-wasi` y a Linux, y el CI lo comprueba en cada PR. El escritorio nuevo es **Tauri**, decisión definitiva de Rubén el 2026-10-09.
+`wasm32-unknown-wasi` y a Linux, y el CI lo comprueba en cada PR. El escritorio nuevo es **Tauri** (Rubén, 2026-10-09), pero **no sustituye a la app SwiftUI hasta pasar las puertas de `docs/adr/0004-estabilizacion-tauri.md`**: paridad con Swift, transcripción de punta a punta y cada decisión de este fichero comprobada en el código. Hasta entonces no entra ninguna función nueva en Tauri. La estabilización la lleva Claude (Rubén, 2026-10-09): ningún otro agente trabaja en estas ramas.
 La base de datos es **SurrealDB embebida con SurrealKV**, también por decisión
 expresa de Rubén. TypeScript lleva interfaz, recetas, conectores y reglas de
 procesamiento; Rust, persistencia, cola duradera y capacidades; Swift solo
