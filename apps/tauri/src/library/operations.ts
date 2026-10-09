@@ -67,6 +67,7 @@ export async function forget(recording: Recording) {
 export const cancel = (recording: Recording) => cancelProcessing(recording.id);
 export const openURL = (url: string) => call("open_url", { url });
 export const reveal = (path: string) => call("reveal", { path });
+export const okfFile = (accountId: string, path: string, action: "open" | "reveal") => call("okf_file", { accountId, path, action });
 
 export function copyTranscript(transcript: Transcript) {
   return navigator.clipboard.writeText(renderedTranscript(transcript));
