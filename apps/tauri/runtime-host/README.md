@@ -58,6 +58,13 @@ El origen de la nota y la carpeta de una cuenta se representan con identificador
 opacos. La huella de la carpeta permite invalidar una operación si cambia su
 destino mientras se ejecuta, sin entregar la ruta al controlador.
 
+`processRecording` admite `options.values` para los parámetros de una sola
+ejecución. Si se omite usa los guardados en la receta; si se envía, sustituye
+esos valores, incluido `{}` para usar los de serie. No guarda el cambio y solo
+lo aplica a la receta elegida: las recetas llamadas con `procesar` usan sus
+propios valores. `getRecipeSchema` devuelve `null` cuando una receta de código
+no exporta `buildRecipeForm`.
+
 ## Investigación y decisión
 
 Los permisos de Deno se incorporan al binario durante `compile`; no se conceden

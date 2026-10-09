@@ -194,6 +194,7 @@ export interface Snapshot {
 }
 export interface ProcessOptions {
   recipeId?: string;
+  values?: JSONObject;
   stt?: string;
   llm?: string;
   language?: string;

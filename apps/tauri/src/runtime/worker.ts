@@ -130,7 +130,10 @@ async function recipe(task: WorkerTask) {
       : task.program
         ? z.object({}).passthrough()
         : defaultRecipeForm(lists, p.defaultLanguage);
-  if (task.kind === "recipe-schema") return schemaJSON(form);
+  if (task.kind === "recipe-schema")
+    return task.program && typeof module.buildRecipeForm !== "function"
+      ? null
+      : schemaJSON(form);
   if (task.kind === "recipe-inspect") {
     const meta = module.receta ? object(module.receta) : {};
     if (task.program && typeof module.flujo !== "function")
