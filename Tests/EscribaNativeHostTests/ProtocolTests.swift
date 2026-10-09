@@ -34,8 +34,11 @@ struct ProtocolTests {
         let host = NativeHost()
         let language = try parseData(await host.handle(#"{"id":"l1","method":"transcribe","params":{"audioPath":"\#(file.path)","language":42}}"#))
         #expect(language["error"]?["code"] == .string("invalid_params"))
-        let speakers = try parseData(await host.handle(#"{"id":"l2","method":"transcribe","params":{"audioPath":"\#(file.path)","speakers":2.5}}"#))
-        #expect(speakers["error"]?["code"] == .string("invalid_params"))
+        for count in ["0", "-1", "2.5", "\"2\"", "true"] {
+            let speakers = try parseData(await host.handle(#"{"id":"l2","method":"transcribe","params":{"audioPath":"\#(file.path)","speakers":\#(count)}}"#))
+            #expect(speakers["error"]?["code"] == .string("invalid_params"))
+            #expect(speakers["error"]?["message"] == .string("speakers debe ser entero positivo"))
+        }
     }
 
     @Test func modeloNoInstaladoComunicaServicioNoDisponibleSinDescargar() async throws {
@@ -45,6 +48,18 @@ struct ProtocolTests {
         let model = "test_model_\(UUID().uuidString)"
         let reply = try parseData(await NativeHost().handle(#"{"id":"missing","method":"transcribe","params":{"audioPath":"\#(file.path)","model":"\#(model)"}}"#))
         #expect(reply["error"]?["code"] == .string("backend_unavailable"))
+    }
+
+    @Test func hablantesNulosEquivalenAOmitirElLimite() async throws {
+        let file = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString + ".wav")
+        defer { try? FileManager.default.removeItem(at: file) }
+        try syntheticWAV(duration: 0.25).write(to: file)
+        let model = "test_model_\(UUID().uuidString)"
+        let host = NativeHost()
+        for speakers in ["", ",\"speakers\":null", ",\"speakers\":2"] {
+            let reply = try parseData(await host.handle(#"{"id":"speakers","method":"transcribe","params":{"audioPath":"\#(file.path)","model":"\#(model)"\#(speakers)}}"#))
+            #expect(reply["error"]?["code"] == .string("backend_unavailable"))
+        }
     }
 
     @Test func invalidRequestDoesNotEndSession() async throws {
