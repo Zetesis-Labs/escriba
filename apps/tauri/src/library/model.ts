@@ -11,12 +11,18 @@ export function currentVersion(recording: Recording): Version | undefined {
 export const transcriptDuration = (transcript: Transcript | undefined) =>
   transcript?.duration ?? transcript?.segments.at(-1)?.end ?? undefined;
 
+export function folderDisplayName(folder: WatchedFolder) {
+  if (folder.style === "voiceMemos") return "Notas de Voz";
+  if (folder.style === "justPressRecord") return "Just Press Record";
+  return folder.path.split("/").filter(Boolean).at(-1) ?? folder.name;
+}
+
 export function originName(recording: Recording, folders: WatchedFolder[]) {
   const source = recording.source;
   const folder = folders
     .filter((candidate) => source === candidate.path || source.startsWith(candidate.path.endsWith("/") ? candidate.path : `${candidate.path}/`))
     .sort((a, b) => b.path.length - a.path.length)[0];
-  return folder?.name ?? "Bandeja";
+  return folder ? folderDisplayName(folder) : "Bandeja";
 }
 
 export function criteriaLabel(inputs: JSONObject | undefined) {
@@ -53,8 +59,16 @@ export function liveDestinations(destinations: Destination[], accounts: Account[
   );
 }
 
-export function publishedNames(recording: Recording) {
-  return recording.publications.filter(isPublished).map((publication) => publication.name);
+export function publicationName(publication: Publication, destinations: Destination[], accounts: Account[]) {
+  return (
+    destinations.find((destination) => destination.id === publication.destinationId)?.name ??
+    accounts.find((account) => account.id === publication.accountId)?.name ??
+    providerLabel(publication.provider)
+  );
+}
+
+export function publishedNames(recording: Recording, destinations: Destination[] = [], accounts: Account[] = []) {
+  return [...new Set(recording.publications.filter(isPublished).map((publication) => publicationName(publication, destinations, accounts)))];
 }
 
 export function libraryRecordings(data: Snapshot) {
