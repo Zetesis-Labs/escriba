@@ -166,10 +166,14 @@ fn tick(app: AppHandle, state: Arc<Runtime>) {
             };
             let _ = app.emit("escriba://recording", view(&state));
             if clock != shown {
-                if let Some(tray) = app.tray_by_id(CLOCK_TRAY) {
-                    let _ = tray.set_title(Some(format!(" {clock}")));
-                }
-                menubar::recording_clock(&app, &state, &clock);
+                let handle = app.clone();
+                let title = format!(" {clock}");
+                let _ = app.run_on_main_thread(move || {
+                    if let Some(tray) = handle.tray_by_id(CLOCK_TRAY) {
+                        let _ = tray.set_title(Some(title));
+                    }
+                });
+                menubar::recording_clock(&app, clock.clone());
                 shown = clock;
             }
         }
@@ -187,7 +191,7 @@ fn lost(app: &AppHandle, state: &Runtime) {
 
 fn changed(app: &AppHandle, state: &Runtime) {
     let _ = app.emit("escriba://recording", view(state));
-    menubar::refresh(app, state);
+    menubar::refresh(app);
 }
 
 fn opened(app: &AppHandle, state: &Runtime) {
