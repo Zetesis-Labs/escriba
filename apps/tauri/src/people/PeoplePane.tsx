@@ -1,5 +1,5 @@
 import { listen } from "@tauri-apps/api/event";
-import { AudioLines, Mic, Minus, Plus, Trash2, Users, CircleDot } from "lucide-react";
+import { AudioLines, Mic, Minus, Plus, Trash2, Users, CircleDot, TriangleAlert } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { call, desktop } from "../api";
 import { Pane } from "../app/Pane";
@@ -205,7 +205,7 @@ function SampleSheet({ initialName, sample, onStart, onStop, onCancel }: { initi
       {sample.state === "requesting" && <div className="people-sample-status"><Spinner />Pidiendo permiso para el micrófono…</div>}
       {sample.state === "recording" && <div className="people-sample-status"><CircleDot size={16} color="var(--red)" /> <span className="people-clock">{clock}</span></div>}
       {sample.state === "analyzing" && <div className="people-sample-status"><Spinner />Sacando la huella…</div>}
-      {sample.state === "failed" && <div className="people-sample-error">{sample.message}</div>}
+      {sample.state === "failed" && <div className="people-sample-error"><TriangleAlert size={16} /><span>{sample.message}</span></div>}
       <div className="sheet-actions"><Button disabled={sample.state === "analyzing"} onClick={onCancel}>Cancelar</Button>
         {sample.state === "recording" ? <Button prominent onClick={() => onStop(name)}>Terminar</Button> : <Button prominent disabled={!name.trim() || busy} onClick={() => onStart(name)}>Grabar</Button>}
       </div>
