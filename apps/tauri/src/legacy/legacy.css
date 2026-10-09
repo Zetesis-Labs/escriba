@@ -1,4 +1,5 @@
-:root {
+.legacy {
+& {
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -9,11 +10,8 @@
 * {
   box-sizing: border-box;
 }
-body {
-  margin: 0;
-  min-width: 960px;
-  min-height: 640px;
-  overflow: hidden;
+& {
+  height: 100%;
 }
 button,
 input,
@@ -1563,4 +1561,10 @@ select {
     animation-duration: 0.001ms !important;
     transition-duration: 0.001ms !important;
   }
+}
+
+.legacy-host {
+  display: block;
+  height: 100%;
+}
 }

@@ -1,11 +1,12 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
-import App from "./App";
+import { MainWindow } from "./app/MainWindow";
+import "./mac/mac.css";
 
 const root = document.getElementById("root");
 if (!root) throw new Error("Falta el contenedor principal de Escriba.");
 createRoot(root).render(
   <React.StrictMode>
-    <App />
+    <MainWindow />
   </React.StrictMode>,
 );
