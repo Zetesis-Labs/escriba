@@ -1,7 +1,7 @@
 import { listen } from "@tauri-apps/api/event";
 import { useCallback, useEffect, useState } from "react";
 import { desktop, library } from "../api";
-import { demoSnapshot } from "../legacy/LegacyApp";
+import { demoSnapshot } from "./demo";
 import { errorText } from "../mac/native";
 import { getJobs, subscribeJobs } from "../runtime";
 import type { JobState, Snapshot } from "../types";

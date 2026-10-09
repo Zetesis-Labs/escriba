@@ -89,11 +89,6 @@
   display: flex;
   flex-direction: column;
 }
-.legacy {
-  flex: 1;
-  min-height: 0;
-  overflow: hidden;
-}
 .section-host {
   height: 100%;
 }
