@@ -1,4 +1,24 @@
 import type { Snapshot } from "../../src/types";
+import type { RuntimeContext } from "../../src/runtime/contracts";
+
+export function runtimeContext(
+  state: Snapshot,
+  recordingId?: unknown,
+): RuntimeContext {
+  return structuredClone({
+    recordings: state.recordings.filter((r) => r.id === recordingId),
+    resolvers: state.resolvers,
+    recipes: state.recipes,
+    accounts: state.accounts,
+    destinations: state.destinations,
+    settings: {
+      defaultRecipeId: state.settings.defaultRecipeId,
+      language: state.settings.language,
+      whisperModel: state.settings.whisperModel,
+    },
+  });
+}
+
 export const snapshot: Snapshot = {
   recordings: [
     {

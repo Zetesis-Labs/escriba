@@ -161,6 +161,11 @@ fn dispatch<'a>(
         }
         match method {
             "snapshot" => state.snapshot(),
+            "runtime_context" => state.store()?.runtime_context(
+                p.get("recordingId")
+                    .map(|_| text(&p, "recordingId"))
+                    .transpose()?,
+            ),
             "runtime_run" => {
                 let operation = text(&p, "operation")?;
                 let args = p.get("args").cloned().unwrap_or(json!({}));
@@ -905,7 +910,8 @@ async fn script_call(
             let state = weak.upgrade().ok_or("La aplicación se cerró")?;
             lease.ensure_active()?;
             let result = dispatch(&handle, &state, &method, params).await;
-            if result.is_ok() && !["snapshot", "connector_audio"].contains(&method.as_str()) {
+            if result.is_ok() && !["runtime_context", "connector_audio"].contains(&method.as_str())
+            {
                 let _ = handle.emit("escriba://changed", ());
             }
             result

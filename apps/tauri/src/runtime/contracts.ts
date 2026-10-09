@@ -54,5 +54,18 @@ export async function request<T>(
 ): Promise<T> {
   return (await host.call(method, params)) as T;
 }
-export const readSnapshot = (host: RuntimeHost) =>
-  request<Snapshot>(host, "snapshot");
+export type RuntimeContext = Pick<
+  Snapshot,
+  "recordings" | "resolvers" | "recipes" | "accounts" | "destinations"
+> & {
+  settings: Pick<
+    Snapshot["settings"],
+    "defaultRecipeId" | "language" | "whisperModel"
+  >;
+};
+export const readContext = (host: RuntimeHost, recordingId?: string) =>
+  request<RuntimeContext>(
+    host,
+    "runtime_context",
+    recordingId ? { recordingId } : {},
+  );

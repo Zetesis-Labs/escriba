@@ -385,6 +385,66 @@ impl Store {
         let mut value = self.data.clone();
         value["settings"] = redacted_settings(&value["settings"]);
         value["dataPath"] = json!(self.root);
+        self.mark_credentials(&mut value);
+        value
+    }
+
+    pub fn runtime_context(&self, recording_id: Option<&str>) -> Result<Value, String> {
+        let recordings = match recording_id {
+            Some(id) => {
+                let original = self.recording(id)?;
+                let audio_path = original["audioPath"]
+                    .as_str()
+                    .filter(|path| !path.is_empty())
+                    .map(|_| "available");
+                let recording = json!({
+                    "id": original["id"],
+                    "title": original["title"],
+                    "createdAt": original["createdAt"],
+                    "source": format!("urn:escriba:recording:{id}"),
+                    "audioPath": audio_path,
+                    "audioHash": original["audioHash"],
+                    "duration": original["duration"],
+                    "status": original["status"],
+                    "error": original["error"],
+                    "recipeId": original["recipeId"],
+                    "currentVersionId": original["currentVersionId"],
+                    "versions": original["versions"],
+                    "publications": original["publications"],
+                });
+                vec![recording]
+            }
+            None => Vec::new(),
+        };
+        let mut accounts = self.data["accounts"].clone();
+        if let Some(items) = accounts.as_array_mut() {
+            for account in items {
+                if let Some(folder) = account["folder"].as_str() {
+                    account["folder"] = json!(format!(
+                        "urn:escriba:folder:{:x}",
+                        Sha256::digest(folder.as_bytes())
+                    ));
+                }
+            }
+        }
+        let settings = &self.data["settings"];
+        let mut value = json!({
+            "recordings": recordings,
+            "settings": {
+                "defaultRecipeId": settings["defaultRecipeId"],
+                "language": settings["language"],
+                "whisperModel": settings["whisperModel"],
+            },
+            "resolvers": self.data["resolvers"],
+            "recipes": self.data["recipes"],
+            "accounts": accounts,
+            "destinations": self.data["destinations"],
+        });
+        self.mark_credentials(&mut value);
+        Ok(value)
+    }
+
+    fn mark_credentials(&self, value: &mut Value) {
         for key in ["accounts", "resolvers"] {
             if let Some(items) = value[key].as_array_mut() {
                 for item in items {
@@ -394,7 +454,6 @@ impl Store {
                 }
             }
         }
-        value
     }
 
     pub fn authorize_watched_folder(
@@ -2060,6 +2119,85 @@ mod tests {
         assert_eq!(
             store.credential("notion").unwrap().as_deref(),
             Some("fake-local-secret")
+        );
+    }
+    #[test]
+    fn runtime_context_limits_a_large_library_to_the_requested_recording() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = Store::open(dir.path().join("library")).unwrap();
+        let selected_path = "/private/audio/selected.wav";
+        let other_marker = "foreign-recording-marker";
+        let selected = json!({
+            "id":"selected", "title":"Selected", "audioPath":selected_path,
+            "source":"/private/source/selected.wav", "sourceKey":"/private/source-key",
+            "legacyKey":"/private/legacy-key",
+            "versions":[{"id":"version-1","transcript":{"text":"reusable transcript","segments":[]},"inputs":{"backend":"local-stt"}}],
+            "publications":[{"destinationId":"destination-1","receipt":{"locator":"receipt-1"}}]
+        });
+        let mut data = store.data.clone();
+        data["recordings"] = json!([
+            selected.clone(),
+            {"id":"other","title":other_marker,"audioPath":"/private/audio/other.wav",
+             "versions":[{"id":"other-version","transcript":{"text":"X".repeat(33 * 1024 * 1024),"segments":[]}}],"publications":[]}
+        ]);
+        data["settings"]["watchedFolders"] = json!([{
+            "id":"folder-1","path":"/private/watched","accessBookmark":[1,2,3]
+        }]);
+        data["logs"] = json!([{"id":"log-1","message":"private log marker"}]);
+        data["accounts"] = json!([{"id":"account-1","name":"Account","provider":"okf","enabled":true,"folder":"/private/account-folder"}]);
+        store.replace(data).unwrap();
+        store
+            .save_credential("account-1", "synthetic-secret")
+            .unwrap();
+
+        assert!(store.snapshot().to_string().len() > 32 * 1024 * 1024);
+        let context = store.runtime_context(Some("selected")).unwrap();
+        let serialized = context.to_string();
+        assert!(serialized.len() < 1024 * 1024);
+        assert_eq!(context["recordings"].as_array().unwrap().len(), 1);
+        assert_eq!(context["recordings"][0]["id"], "selected");
+        assert_eq!(context["recordings"][0]["audioPath"], "available");
+        assert_eq!(
+            context["recordings"][0]["source"],
+            "urn:escriba:recording:selected"
+        );
+        assert!(context["recordings"][0].get("sourceKey").is_none());
+        assert!(context["recordings"][0].get("legacyKey").is_none());
+        assert_eq!(context["recordings"][0]["versions"], selected["versions"]);
+        assert_eq!(
+            context["recordings"][0]["publications"],
+            selected["publications"]
+        );
+        assert_eq!(context["accounts"][0]["hasCredential"], true);
+        assert_eq!(context["settings"].as_object().unwrap().len(), 3);
+        assert!(context.get("logs").is_none());
+        assert!(context.get("dataPath").is_none());
+        assert!(!serialized.contains(other_marker));
+        assert!(!serialized.contains("other-version"));
+        assert!(!serialized.contains(selected_path));
+        assert!(!serialized.contains("/private/"));
+        assert!(!serialized.contains("private log marker"));
+        assert!(!serialized.contains("synthetic-secret"));
+        assert!(!serialized.contains("accessBookmark"));
+
+        let folder_fingerprint = context["accounts"][0]["folder"].as_str().unwrap();
+        assert!(folder_fingerprint.starts_with("urn:escriba:folder:"));
+        assert_eq!(
+            store.runtime_context(None).unwrap()["accounts"][0]["folder"],
+            folder_fingerprint
+        );
+        store.data["accounts"][0]["folder"] = json!("/private/changed-folder");
+        assert_ne!(
+            store.runtime_context(None).unwrap()["accounts"][0]["folder"],
+            folder_fingerprint
+        );
+
+        let catalog = store.runtime_context(None).unwrap();
+        assert!(catalog["recordings"].as_array().unwrap().is_empty());
+        assert_eq!(catalog["recipes"], store.snapshot()["recipes"]);
+        assert_eq!(
+            store.runtime_context(Some("missing")).unwrap_err(),
+            "Grabación no encontrada"
         );
     }
     #[test]

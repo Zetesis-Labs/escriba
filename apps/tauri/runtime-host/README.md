@@ -25,6 +25,11 @@ Node, npm ni descargas de código.
 JSONL UTF-8 por stdin/stdout. El host anuncia
 `{type:"ready",protocolVersion:1}`. IDs de petición: cadena o entero seguro.
 
+Cada trama tiene un máximo de 32 MiB en bytes UTF-8, tanto en Rust como en
+TypeScript. Si una respuesta de capacidad supera ese tamaño, Rust envía un
+rechazo legible y conserva la sesión para el siguiente trabajo. Los errores al
+leer el protocolo conservan su causa en el error del trabajo.
+
 - Rust → host: `run {id,operation,args}`, `cancel {id}`.
 - Host → Rust: `result {id,value}`, `error {id,message}`.
 - Host → Rust: `call {id,method,params,taskId}`; respuestas `resolve {id,value}`
@@ -42,6 +47,16 @@ sus mensajes al controlador, que valida cada operación en el contexto de la
 nota y cuenta autorizadas. Máximo ocho workers simultáneos. Rust debe terminar
 sus procesos al cerrar/reiniciar el host y aplicar el límite total del trabajo.
 El tiempo de espera de capacidades no consume el presupuesto CPU del adaptador.
+
+El controlador consulta `runtime_context({recordingId?})`: catálogos, ajustes de
+procesamiento y únicamente la grabación solicitada con sus versiones y recibos.
+Sin `recordingId` obtiene solo configuración. No recibe registros, otras notas,
+carpetas vigiladas ni rutas de audio. La consulta `snapshot` completa pertenece
+a la interfaz y no es una capacidad del controlador. El tamaño total de la
+biblioteca no determina el tamaño de cada trabajo.
+El origen de la nota y la carpeta de una cuenta se representan con identificadores
+opacos. La huella de la carpeta permite invalidar una operación si cambia su
+destino mientras se ejecuta, sin entregar la ruta al controlador.
 
 ## Investigación y decisión
 
@@ -69,6 +84,11 @@ falso por tuberías: guarda antes de resumir, reinicia sin repetir transcripció
 cancela una receta CPU, comprueba denegación de archivos/red y rechaza una
 capacidad falsificada mediante stdout del proceso de receta. Usa solo fixtures,
 archivos temporales y ningún servicio real.
+
+Las pruebas Rust de `scripts` ejercitan el ejecutable compilado con una
+biblioteca sintética mayor de 32 MiB y comprueban que puede procesar una nota.
+`Store::runtime_context` se valida con SurrealKV, conservando versiones y recibos
+de la nota elegida y excluyendo datos ajenos.
 
 ## Paridad con la biblioteca anterior
 
