@@ -1,10 +1,11 @@
 import { Users } from "lucide-react";
 import { useCallback, useEffect, useState, type KeyboardEvent } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
-import { Connectors, LogView, Recipes, Resolvers, SettingsView, type RunAction, type WatchAuthorization } from "../legacy/LegacyApp";
+import { Connectors, LogView, Recipes, SettingsView, type RunAction, type WatchAuthorization } from "../legacy/LegacyApp";
 import { call, desktop } from "../api";
 import type { WatchedFolder } from "../types";
 import { LibraryView } from "../library/LibraryView";
+import { ResolversPane } from "../resolvers/ResolversPane";
 import { ContentUnavailable } from "../mac/controls";
 import { alertMessage, confirmDestructive, errorText } from "../mac/native";
 import { Pane } from "./Pane";
@@ -116,8 +117,8 @@ export function MainWindow() {
       </Pane>
     );
   else if (section === "connectors") detail = legacy(<Connectors data={data} busy={false} run={run} chooseFolder={chooseFolder} />);
-  else if (section === "stt") detail = legacy(<Resolvers data={data} role="stt" busy={false} run={run} />);
-  else if (section === "llms") detail = legacy(<Resolvers data={data} role="llm" busy={false} run={run} />);
+  else if (section === "stt") detail = <ResolversPane key="stt" data={data} role="stt" refresh={refresh} />;
+  else if (section === "llms") detail = <ResolversPane key="llm" data={data} role="llm" refresh={refresh} />;
   else if (section === "recipes") detail = legacy(<Recipes data={data} busy={false} run={run} chooseFolder={chooseFolder} />);
   else if (section === "log") detail = legacy(<LogView logs={data.logs} recordings={data.recordings} run={run} />);
   else
