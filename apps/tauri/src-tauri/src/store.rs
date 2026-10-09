@@ -1,10 +1,12 @@
 use crate::migration;
-use crate::persistence::Persistence;
+use crate::persistence::{Persistence, Teaching};
+use crate::voices::{recognize, KnownVoice, SpeakerVoice};
 use chrono::Utc;
 use fs2::FileExt;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::{
+    collections::HashMap,
     fs::{self, File, OpenOptions},
     io::{Read, Write},
     os::unix::fs::{OpenOptionsExt, PermissionsExt},
@@ -38,6 +40,58 @@ pub fn safe_id(s: &str) -> Result<&str, String> {
         Err("Identificador no válido".into())
     }
 }
+fn strip_embeddings(value: &mut Value) {
+    match value {
+        Value::Object(fields) => {
+            fields.retain(|key, _| {
+                let lower = key.to_ascii_lowercase();
+                lower != "voices" && !lower.contains("embedding")
+            });
+            for nested in fields.values_mut() {
+                strip_embeddings(nested);
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                strip_embeddings(item);
+            }
+        }
+        _ => {}
+    }
+}
+fn relabel_voices(
+    source: &Value,
+    corrected: &Value,
+    voices: &mut [SpeakerVoice],
+) -> Result<(), String> {
+    let old = source["segments"]
+        .as_array()
+        .ok_or("Segmentos de origen inválidos")?;
+    let new = corrected["segments"]
+        .as_array()
+        .ok_or("Segmentos corregidos inválidos")?;
+    if old.len() != new.len() {
+        return Err("La corrección cambió los segmentos".into());
+    }
+    let mut labels = HashMap::new();
+    for (before, after) in old.iter().zip(new) {
+        if let (Some(before), Some(after)) = (before["speaker"].as_str(), after["speaker"].as_str())
+        {
+            if labels
+                .insert(before, after)
+                .is_some_and(|previous| previous != after)
+            {
+                return Err("Un hablante tiene nombres distintos en la corrección".into());
+            }
+        }
+    }
+    for voice in voices {
+        if let Some(label) = labels.get(voice.speaker.as_str()) {
+            voice.speaker = (*label).to_owned();
+        }
+    }
+    Ok(())
+}
 pub fn atomic_write(path: &Path, data: &[u8]) -> Result<(), String> {
     let parent = path.parent().ok_or("Ruta sin carpeta")?;
     fs::create_dir_all(parent).map_err(|e| e.to_string())?;
@@ -67,6 +121,7 @@ pub struct Store {
     pub root: PathBuf,
     pub data: Value,
     database: Persistence,
+    pending_voices: HashMap<String, Vec<SpeakerVoice>>,
     _lock: File,
 }
 
@@ -233,6 +288,7 @@ impl Store {
             root,
             data,
             database,
+            pending_voices: HashMap::new(),
             _lock: lock,
         };
         Ok(store)
@@ -309,6 +365,96 @@ impl Store {
     pub fn trace_list(&self, recording_id: Option<&str>) -> Result<Vec<Value>, String> {
         self.database.trace_list(recording_id)
     }
+    pub fn people(&self) -> Result<Value, String> {
+        self.database.people()
+    }
+    pub fn known_voices(&self) -> Result<Vec<KnownVoice>, String> {
+        self.database.known_voices()
+    }
+    pub fn add_person_voice(
+        &self,
+        name: &str,
+        voice: &SpeakerVoice,
+        source: &str,
+    ) -> Result<(), String> {
+        self.database.add_person_voice(name, voice, source)
+    }
+    pub fn rename_person(&self, name: &str, new_name: &str) -> Result<(), String> {
+        self.database.rename_person(name, new_name)
+    }
+    pub fn remove_person_voice(&self, id: &str) -> Result<(), String> {
+        self.database.remove_person_voice(id)
+    }
+    pub fn remove_person(&self, name: &str) -> Result<(), String> {
+        self.database.remove_person(name)
+    }
+    #[cfg(test)]
+    pub fn version_voices(&self, id: &str) -> Result<Vec<SpeakerVoice>, String> {
+        self.database.version_voices(id)
+    }
+    pub fn recognize_transcription(
+        &mut self,
+        recording_id: &str,
+        mut transcript: Value,
+    ) -> Result<Value, String> {
+        self.recording(recording_id)?;
+        self.pending_voices.remove(recording_id);
+        let raw_voices = transcript
+            .as_object_mut()
+            .ok_or("Transcripción inválida")?
+            .remove("voices")
+            .unwrap_or(json!([]));
+        let mut voices: Vec<SpeakerVoice> =
+            serde_json::from_value(raw_voices).map_err(|_| "Huellas de voz inválidas")?;
+        if voices.iter().any(|voice| {
+            voice.speaker.is_empty()
+                || voice.model.is_empty()
+                || voice.embedding.is_empty()
+                || voice.embedding.iter().any(|value| !value.is_finite())
+        }) {
+            return Err("Huellas de voz inválidas".into());
+        }
+        strip_embeddings(&mut transcript);
+        let mut recognized = Vec::new();
+        if !voices.is_empty()
+            && transcript["segments"]
+                .as_array()
+                .is_some_and(|segments| !segments.is_empty())
+        {
+            let known = self.known_voices()?;
+            for recognition in recognize(&voices, &known) {
+                let occupied = transcript["segments"].as_array().is_some_and(|segments| {
+                    segments
+                        .iter()
+                        .any(|segment| segment["speaker"] == recognition.person)
+                });
+                if occupied {
+                    continue;
+                }
+                for segment in transcript["segments"]
+                    .as_array_mut()
+                    .ok_or("Segmentos inválidos")?
+                {
+                    if segment["speaker"] == recognition.speaker {
+                        segment["speaker"] = json!(recognition.person);
+                    }
+                }
+                for voice in &mut voices {
+                    if voice.speaker == recognition.speaker {
+                        voice.speaker = recognition.person.clone();
+                    }
+                }
+                recognized.push(json!({"speaker":recognition.speaker,"person":recognition.person,"distance":recognition.distance}));
+            }
+        }
+        transcript["recognitions"] = Value::Array(recognized);
+        if voices.is_empty() {
+            self.pending_voices.remove(recording_id);
+        } else {
+            self.pending_voices.insert(recording_id.to_owned(), voices);
+        }
+        Ok(transcript)
+    }
     pub fn import_legacy(&mut self, source: &Path) -> Result<Value, String> {
         self.import_legacy_with_settings(source, None)
     }
@@ -365,10 +511,13 @@ impl Store {
             }
             result?;
         }
-        if let Err(error) =
-            self.database
-                .import(&self.data, &plan.data, &plan.memories, &plan.traces)
-        {
+        if let Err(error) = self.database.import(
+            &self.data,
+            &plan.data,
+            &plan.memories,
+            &plan.traces,
+            &plan.voices,
+        ) {
             return match copied.rollback() {
                 Ok(()) => Err(error),
                 Err(cleanup) => Err(format!(
@@ -1073,7 +1222,8 @@ impl Store {
     pub fn mutate(&mut self, method: &str, p: &Value) -> Result<Value, String> {
         let mut next = self.data.clone();
         let mut delete_after_commit: Option<PathBuf> = None;
-        let result = match method {
+        let mut voice_save: Option<(String, String, Vec<SpeakerVoice>, Option<Teaching>)> = None;
+        let mut result = match method {
             "recording_update" => {
                 let r = record_mut(&mut next, text(p, "id")?)?;
                 for key in [
@@ -1152,14 +1302,51 @@ impl Store {
                 Value::Null
             }
             "version_save" => {
-                let r = record_mut(&mut next, text(p, "recordingId")?)?;
+                let recording_id = text(p, "recordingId")?;
+                let r = record_mut(&mut next, recording_id)?;
                 if !p["transcript"].is_object()
                     || !p["transcript"]["text"].is_string()
                     || !p["transcript"]["segments"].is_array()
                 {
                     return Err("Transcripción inválida".into());
                 }
-                let mut v = json!({"id":id(),"createdAt":now(),"backend":p["backend"].as_str().unwrap_or("local"),"transcript":p["transcript"]});
+                let mut teaching = None;
+                let voices = if let Some(source) = p["sourceVersionId"].as_str() {
+                    let source_version = r["versions"]
+                        .as_array()
+                        .and_then(|versions| {
+                            versions.iter().find(|version| version["id"] == source)
+                        })
+                        .ok_or("La versión de origen no pertenece a la grabación")?;
+                    let mut voices = self.database.version_voices(source)?;
+                    if p["teaching"].is_object() {
+                        let speaker = text(&p["teaching"], "speaker")?;
+                        let person = text(&p["teaching"], "person")?;
+                        teaching = Some(Teaching {
+                            person: person.to_owned(),
+                            voices: voices
+                                .iter()
+                                .filter(|voice| voice.speaker == speaker)
+                                .cloned()
+                                .collect(),
+                            source: recording_id.to_owned(),
+                            existing_only: p["teaching"]["existingOnly"] == true,
+                        });
+                    }
+                    relabel_voices(&source_version["transcript"], &p["transcript"], &mut voices)?;
+                    voices
+                } else {
+                    if !p["teaching"].is_null() {
+                        return Err("La corrección no indica su versión de origen".into());
+                    }
+                    self.pending_voices
+                        .get(recording_id)
+                        .cloned()
+                        .unwrap_or_default()
+                };
+                let mut transcript = p["transcript"].clone();
+                strip_embeddings(&mut transcript);
+                let mut v = json!({"id":id(),"createdAt":now(),"backend":p["backend"].as_str().unwrap_or("local"),"transcript":transcript,"hasVoices":!voices.is_empty()});
                 for key in ["recipeId", "digest", "data", "inputs"] {
                     if let Some(value) = p.get(key) {
                         v[key] = value.clone();
@@ -1173,6 +1360,12 @@ impl Store {
                     .as_array_mut()
                     .ok_or("Versiones inválidas")?
                     .push(v.clone());
+                voice_save = Some((
+                    recording_id.to_owned(),
+                    v["id"].as_str().ok_or("Versión sin ID")?.to_owned(),
+                    voices,
+                    teaching,
+                ));
                 v
             }
             "version_select" => {
@@ -1380,7 +1573,19 @@ impl Store {
             }
             _ => return Err(format!("Operación desconocida: {method}")),
         };
-        self.replace(next)?;
+        if let Some((recording_id, version_id, voices, teaching)) = voice_save {
+            let report_learning = teaching.is_some();
+            let learned =
+                self.database
+                    .save_version(&self.data, &next, &version_id, &voices, teaching)?;
+            self.data = next;
+            self.pending_voices.remove(&recording_id);
+            if report_learning {
+                result["learnedVoice"] = json!(learned);
+            }
+        } else {
+            self.replace(next)?;
+        }
         if let Some(path) = delete_after_commit {
             match fs::remove_file(path) {
                 Ok(()) => {}
@@ -1567,6 +1772,331 @@ fn defaults() -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::voices::SpeakerVoice;
+
+    #[test]
+    fn las_personas_guardan_varias_huellas_privadas_y_solo_exponen_metadatos() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("library");
+        let store = Store::open(root.clone()).unwrap();
+        let first = SpeakerVoice {
+            speaker: "Speaker 1".into(),
+            model: "m".into(),
+            embedding: vec![0.123456, -0.654321],
+        };
+        let second = SpeakerVoice {
+            speaker: "Speaker 2".into(),
+            model: "m".into(),
+            embedding: vec![0.5, 0.5],
+        };
+        store.add_person_voice("Rubén", &first, "a").unwrap();
+        store.add_person_voice("Rubén", &second, "b").unwrap();
+        let people = store.people().unwrap();
+        assert_eq!(people.as_array().unwrap().len(), 1);
+        assert_eq!(people[0]["name"], "Rubén");
+        assert_eq!(people[0]["voices"].as_array().unwrap().len(), 2);
+        assert_eq!(people[0]["voices"][0]["source"], "a");
+        assert!(people.to_string().find("embedding").is_none());
+        assert_eq!(store.known_voices().unwrap().len(), 2);
+        assert!(!store.snapshot().to_string().contains("0.123456"));
+        drop(store);
+        let reopened = Store::open(root).unwrap();
+        assert_eq!(reopened.known_voices().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn renombrar_juntar_y_quitar_huellas_conserva_solo_personas_con_voz() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path().join("library")).unwrap();
+        for (name, source, embedding) in [
+            ("Ruben", "a", vec![1.0, 0.0]),
+            ("Ruben", "b", vec![0.9, 0.1]),
+            ("Rubén G.", "c", vec![0.0, 1.0]),
+            ("Ana", "d", vec![1.0, 1.0]),
+        ] {
+            store
+                .add_person_voice(
+                    name,
+                    &SpeakerVoice {
+                        speaker: "S".into(),
+                        model: "m".into(),
+                        embedding,
+                    },
+                    source,
+                )
+                .unwrap();
+        }
+        let redundant = store
+            .people()
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|person| person["name"] == "Ruben")
+            .unwrap()["voices"][1]["id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        store.remove_person_voice(&redundant).unwrap();
+        store.rename_person("Ruben", "Rubén").unwrap();
+        store.rename_person("Rubén G.", "Rubén").unwrap();
+        store.remove_person("Ana").unwrap();
+        let people = store.people().unwrap();
+        assert_eq!(people.as_array().unwrap().len(), 1);
+        assert_eq!(people[0]["name"], "Rubén");
+        assert_eq!(
+            people[0]["voices"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|voice| voice["source"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            vec!["a", "c"]
+        );
+        let first = people[0]["voices"][0]["id"].as_str().unwrap().to_owned();
+        let last = people[0]["voices"][1]["id"].as_str().unwrap().to_owned();
+        store.remove_person_voice(&first).unwrap();
+        store.remove_person_voice(&last).unwrap();
+        assert!(store.people().unwrap().as_array().unwrap().is_empty());
+    }
+
+    #[test]
+    fn transcribir_reconoce_sin_exponer_huellas_y_la_version_las_conserva() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("library");
+        let audio = dir.path().join("sample.wav");
+        fs::write(&audio, b"synthetic audio").unwrap();
+        let mut store = Store::open(root.clone()).unwrap();
+        let recording = store.import(&audio, None).unwrap();
+        let key = recording["id"].as_str().unwrap();
+        store
+            .add_person_voice(
+                "Rubén",
+                &SpeakerVoice {
+                    speaker: "S".into(),
+                    model: "m".into(),
+                    embedding: vec![1.0, 0.0],
+                },
+                "muestra de voz",
+            )
+            .unwrap();
+        let transcript = store.recognize_transcription(key, json!({"text":"hola","segments":[{"speaker":"Speaker 1","start":0.0,"end":1.0,"text":"hola","words":[]}],"voices":[{"speaker":"Speaker 1","model":"m","embedding":[1.0,0.01]}]})).unwrap();
+        assert_eq!(transcript["segments"][0]["speaker"], "Rubén");
+        assert_eq!(transcript["recognitions"][0]["speaker"], "Speaker 1");
+        assert!(!transcript.to_string().contains("embedding"));
+        let version = store
+            .mutate(
+                "version_save",
+                &json!({"recordingId":key,"backend":"local-stt","transcript":transcript}),
+            )
+            .unwrap();
+        assert_eq!(version["hasVoices"], true);
+        assert_eq!(
+            store
+                .version_voices(version["id"].as_str().unwrap())
+                .unwrap()[0]
+                .speaker,
+            "Rubén"
+        );
+        assert!(!store.snapshot().to_string().contains("embedding"));
+        assert!(!store.library().to_string().contains("embedding"));
+        assert!(!store
+            .recording(key)
+            .unwrap()
+            .to_string()
+            .contains("embedding"));
+        assert!(!store
+            .runtime_context(Some(key))
+            .unwrap()
+            .to_string()
+            .contains("embedding"));
+        drop(store);
+        let reopened = Store::open(root).unwrap();
+        assert_eq!(
+            reopened
+                .version_voices(version["id"].as_str().unwrap())
+                .unwrap()
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn copiar_version_reetiqueta_huellas_y_rechaza_origen_de_otra_nota() {
+        let dir = tempfile::tempdir().unwrap();
+        let audio = dir.path().join("sample.wav");
+        fs::write(&audio, b"synthetic audio").unwrap();
+        let other = dir.path().join("other.wav");
+        fs::write(&other, b"other synthetic audio").unwrap();
+        let mut store = Store::open(dir.path().join("library")).unwrap();
+        let key = store.import(&audio, None).unwrap()["id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let other_key = store.import(&other, None).unwrap()["id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        store
+            .add_person_voice(
+                "Rubén",
+                &SpeakerVoice {
+                    speaker: "S".into(),
+                    model: "m".into(),
+                    embedding: vec![1.0, 0.0],
+                },
+                "muestra",
+            )
+            .unwrap();
+        let recognized = store.recognize_transcription(&key, json!({"text":"hola","segments":[{"speaker":"Speaker 1","start":0,"end":1,"text":"hola","words":[]}],"voices":[{"speaker":"Speaker 1","model":"m","embedding":[1.0,0.01]}]})).unwrap();
+        let source = store
+            .mutate(
+                "version_save",
+                &json!({"recordingId":key,"transcript":recognized}),
+            )
+            .unwrap();
+        let source_id = source["id"].as_str().unwrap();
+        assert!(store.mutate("version_save", &json!({"recordingId":other_key,"sourceVersionId":source_id,"transcript":{"text":"otra","segments":[]}})).is_err());
+        let corrected = json!({"text":"hola","segments":[{"speaker":"Speaker 1","start":0,"end":1,"text":"hola","words":[]}],"recognitions":[]});
+        let copy = store.mutate("version_save", &json!({"recordingId":key,"sourceVersionId":source_id,"backend":"correccion","transcript":corrected})).unwrap();
+        assert_eq!(copy["hasVoices"], true);
+        assert_eq!(
+            store.version_voices(copy["id"].as_str().unwrap()).unwrap()[0].speaker,
+            "Speaker 1"
+        );
+        assert_eq!(store.version_voices(source_id).unwrap()[0].speaker, "Rubén");
+    }
+
+    #[test]
+    fn corregir_ensena_huellas_atomicamente_y_fusion_sin_persona_solo_reetiqueta() {
+        let dir = tempfile::tempdir().unwrap();
+        let audio = dir.path().join("sample.wav");
+        fs::write(&audio, b"synthetic audio").unwrap();
+        let mut store = Store::open(dir.path().join("library")).unwrap();
+        let key = store.import(&audio, None).unwrap()["id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let transcript = store.recognize_transcription(&key, json!({"text":"hola","segments":[{"speaker":"Speaker 1","start":0,"end":1,"text":"hola","words":[]}],"voices":[{"speaker":"Speaker 1","model":"m","embedding":[1.0,0.0]}]})).unwrap();
+        let source = store
+            .mutate(
+                "version_save",
+                &json!({"recordingId":key,"transcript":transcript}),
+            )
+            .unwrap();
+        let corrected = json!({"text":"hola","segments":[{"speaker":"Ana","start":0,"end":1,"text":"hola","words":[]}],"recognitions":[]});
+        let taught = store.mutate("version_save", &json!({"recordingId":key,"sourceVersionId":source["id"],"backend":"correccion","transcript":corrected,"teaching":{"speaker":"Speaker 1","person":"Ana"}})).unwrap();
+        assert_eq!(taught["learnedVoice"], true);
+        assert_eq!(store.people().unwrap()[0]["name"], "Ana");
+        assert_eq!(store.people().unwrap()[0]["voices"][0]["source"], key);
+        assert_eq!(
+            store
+                .version_voices(taught["id"].as_str().unwrap())
+                .unwrap()[0]
+                .speaker,
+            "Ana"
+        );
+        let merged = store.mutate("version_save", &json!({"recordingId":key,"sourceVersionId":taught["id"],"backend":"correccion","transcript":{"text":"hola","segments":[{"speaker":"Nadie","start":0,"end":1,"text":"hola","words":[]}],"recognitions":[]},"teaching":{"speaker":"Ana","person":"Nadie","existingOnly":true}})).unwrap();
+        assert_eq!(merged["learnedVoice"], false);
+        assert_eq!(
+            store
+                .version_voices(merged["id"].as_str().unwrap())
+                .unwrap()[0]
+                .speaker,
+            "Nadie"
+        );
+        assert_eq!(store.people().unwrap().as_array().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn reimportar_swift_incorpora_personas_y_huellas_sin_duplicarlas_ni_exponerlas() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("swift-library");
+        fs::create_dir(&source).unwrap();
+        let sql = rusqlite::Connection::open(source.join("library.sqlite")).unwrap();
+        sql.execute_batch("CREATE TABLE recording(id INTEGER PRIMARY KEY,key TEXT,sourcePath TEXT,audioPath TEXT,startedAt TEXT,importedAt TEXT,status TEXT,lastError TEXT,currentTranscriptId INTEGER); CREATE TABLE transcript(id INTEGER PRIMARY KEY,recordingId INTEGER,backend TEXT,createdAt TEXT,text TEXT,language TEXT,diarize INTEGER,speakerCount INTEGER,optionsKnown INTEGER,digestTitle TEXT,digestSummary TEXT,digestTags TEXT,data TEXT,dataSchema TEXT,recipe TEXT); CREATE TABLE segment(transcriptId INTEGER,position INTEGER,startTime REAL,endTime REAL,speaker TEXT,text TEXT,words TEXT); CREATE TABLE publication(id INTEGER PRIMARY KEY,recordingId INTEGER,connector TEXT,pageId TEXT,url TEXT,syncedAt TEXT,error TEXT);").unwrap();
+        sql.execute("INSERT INTO recording VALUES (1,'legacy','/synthetic/original.wav','','2026-10-01 12:00:00','2026-10-01 12:01:00','done',NULL,7)",[]).unwrap();
+        sql.execute("INSERT INTO transcript VALUES (7,1,'wk','2026-10-01 12:02:00','hola','es',1,1,1,NULL,NULL,NULL,NULL,NULL,NULL)",[]).unwrap();
+        sql.execute(
+            "INSERT INTO segment VALUES (7,0,0,1,'Rubén','hola','[]')",
+            [],
+        )
+        .unwrap();
+        let mut store = Store::open(dir.path().join("tauri-library")).unwrap();
+        store.import_legacy(&source).unwrap();
+        assert_eq!(
+            store.recording("legacy").unwrap()["versions"][0]["hasVoices"],
+            Value::Null
+        );
+        sql.execute_batch("CREATE TABLE voice(transcriptId INTEGER,position INTEGER,speaker TEXT,model TEXT,embedding BLOB); CREATE TABLE recognition(transcriptId INTEGER,position INTEGER,speaker TEXT,person TEXT,distance REAL); CREATE TABLE person(id INTEGER PRIMARY KEY,name TEXT,createdAt TEXT); CREATE TABLE personVoice(id INTEGER PRIMARY KEY,personId INTEGER,model TEXT,embedding BLOB,source TEXT,addedAt TEXT);").unwrap();
+        let embedding: Vec<u8> = [1.0_f32, 0.25]
+            .into_iter()
+            .flat_map(f32::to_le_bytes)
+            .collect();
+        sql.execute(
+            "INSERT INTO voice VALUES (7,0,'Rubén','pyannote-v3',?)",
+            rusqlite::params![embedding],
+        )
+        .unwrap();
+        sql.execute(
+            "INSERT INTO voice VALUES (7,1,'Rubén','pyannote-v3',?)",
+            rusqlite::params![vec![1_u8, 2, 3]],
+        )
+        .unwrap();
+        sql.execute(
+            "INSERT INTO recognition VALUES (7,0,'Speaker 1','Rubén',0.1)",
+            [],
+        )
+        .unwrap();
+        sql.execute(
+            "INSERT INTO person VALUES (3,'Rubén','2026-10-01 12:03:00')",
+            [],
+        )
+        .unwrap();
+        sql.execute(
+            "INSERT INTO personVoice VALUES (4,3,'pyannote-v3',?,'legacy','2026-10-01 12:04:00')",
+            rusqlite::params![embedding],
+        )
+        .unwrap();
+        sql.execute(
+            "INSERT INTO personVoice VALUES (5,3,'pyannote-v3',?,'legacy','2026-10-01 12:05:00')",
+            rusqlite::params![vec![1_u8, 2, 3]],
+        )
+        .unwrap();
+        drop(sql);
+        store.import_legacy(&source).unwrap();
+        assert_eq!(
+            store.version_voices("swift:1:7").unwrap()[0].embedding,
+            vec![1.0, 0.25]
+        );
+        assert_eq!(
+            store.recording("legacy").unwrap()["versions"][0]["transcript"]["recognitions"][0]
+                ["speaker"],
+            "Speaker 1"
+        );
+        assert_eq!(
+            store.people().unwrap()[0]["voices"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
+        assert_eq!(store.known_voices().unwrap()[0].person, "Rubén");
+        assert_eq!(
+            store.recording("legacy").unwrap()["versions"][0]["hasVoices"],
+            true
+        );
+        assert!(!store.snapshot().to_string().contains("embedding"));
+        store.import_legacy(&source).unwrap();
+        assert_eq!(
+            store.people().unwrap()[0]["voices"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
+        assert_eq!(store.version_voices("swift:1:7").unwrap().len(), 1);
+    }
 
     #[test]
     fn avisar_de_cada_nota_se_guarda_aunque_la_biblioteca_no_lo_tuviera() {
