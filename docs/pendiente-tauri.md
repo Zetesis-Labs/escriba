@@ -33,9 +33,9 @@ Está **prohibido**, por decisión de Rubén:
 ## 1. Cómo se trabaja
 
 - Rama `feat/tauri-dual-app`, worktree `~/Developer/_worktrees/escriba-tauri`.
-  Pila de PRs: #23 (`feat/personas` → `main`) ← #21 (`spike/conectores-js-npm`)
-  ← #22 (esta rama). Todos en borrador. **Nunca hagas push, merge ni cambies un
-  PR sin que Rubén lo pida.** El push pendiente de #21 lo lanza él.
+  La pila #21, #22, #23 y #24 se integró en `main` (`2d5e0e5`) por petición
+  de Rubén el 2026-10-09. La estabilización continúa en este worktree.
+  **Nunca hagas push, merge ni cambies un PR sin que Rubén lo pida.**
 - Antes de empezar lee `CLAUDE.md`, `docs/adr/0004-estabilizacion-tauri.md`,
   `docs/paridad-swift-tauri.md` y `docs/auditoria-decisiones-tauri.md`.
 - Tests primero. Toda decisión va en una función pura con test: en TypeScript
@@ -403,6 +403,17 @@ Los textos de `Sources/EscribaMenuBar/Notifier.swift` y de las llamadas a
 
 Los problemas siempre y con sonido. El cuerpo, como mucho 240 caracteres.
 Sustituye los textos que puso Codex en `lib.rs` (`notify` y sus llamadas).
+
+Implementación de este apartado: `notifications.rs` forma los textos y
+`notification_delivery.rs` usa `UNUserNotificationCenter`, con permiso de
+alertas y sonido al arrancar. La cola conserva si el trabajo nació del pipeline
+automático; reprocesar, resumir o publicar a mano no envía estos avisos, como
+Swift. El éxito se avisa tras confirmar el trabajo y usa la versión que produjo,
+aunque la selección de la biblioteca cambie. Las pruebas cubren los textos,
+grafemas Unicode, preferencias, fallos, cancelación, reinicio y reintentos.
+Validación: 136 pruebas TypeScript y 150 Rust correctas (una de inferencia real
+omitida), tipos, Clippy y formato. Versión release instalada y abierta, con firma
+verificada. La aceptación de los avisos y el sonido sigue pendiente de Rubén.
 
 ## 6. Pequeños pendientes de la interfaz
 

@@ -11,6 +11,7 @@ import type {
   JSONValue,
   ProcessOptions,
   JobState,
+  NativeStatus,
 } from "../types";
 import {
   aborted,
@@ -30,6 +31,7 @@ import { summarizeText } from "./summary";
 import { remember, summaryMemory } from "./memory";
 import type { Lists } from "./defaultRecipe";
 import { reusableTranscription, transcriptionCriteriaKey } from "../core/transcriptionMemory";
+import { notificationProblems } from "../core/notificationProblems";
 function lookup<T extends { id: string; name: string }>(
   values: T[],
   id: string,
@@ -172,10 +174,10 @@ export function createRuntime(
       notify();
     }
   };
-  async function runJob(
+  async function runJob<T>(
     id: string,
-    operation: (signal: AbortSignal) => Promise<void>,
-  ) {
+    operation: (signal: AbortSignal) => Promise<T>,
+  ): Promise<T> {
     if (jobs.has(id)) throw Error("La grabación ya se está procesando");
     const abort = new AbortController();
     jobs.set(id, {
@@ -190,11 +192,11 @@ export function createRuntime(
         nativeCancellation = Promise.resolve();
         await cancellation;
         aborted(abort.signal);
-        await operation(abort.signal);
+        return await operation(abort.signal);
       });
     queue = work;
     try {
-      await work;
+      return await work;
     } finally {
       jobs.delete(id);
       notify();
@@ -657,6 +659,7 @@ export function createRuntime(
             status: "done",
             error: warnings.length ? warnings.join("\n") : null,
           });
+        return { versionId: current.id };
       } catch (error) {
         traceError = message(error);
         if (!processOptions.dryRun)
@@ -772,6 +775,9 @@ export function createRuntime(
     );
   }
   return {
+    async notificationProblems(status: NativeStatus) {
+      return notificationProblems(await readContext(host), status);
+    },
     processRecording,
     summarizeRecording,
     publishRecording: (id: string, destinationId: string) =>

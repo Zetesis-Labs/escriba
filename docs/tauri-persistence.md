@@ -10,6 +10,12 @@ La caché en memoria de `Store` conserva el contrato del frontend, pero cada sus
 
 `Store::open` convierte automáticamente el `library.json` de la primera versión Tauri cuando aún no hay datos en SurrealDB. Ese fichero solo se lee y queda intacto. Si encuentra filas SurrealDB del esquema `1`, convierte sus cadenas JSON a objetos nativos en una transacción y actualiza la marca a `2`. Un error de esquema o una fila corrupta detienen la apertura con un error visible; no se arranca con una biblioteca vacía.
 
+Los trabajos conservan `automatic`, que distingue lo incorporado por el pipeline
+de las acciones manuales incluso tras reintentos o reinicios. Un proceso
+completado devuelve y conserva `versionId`; el aviso de transcripción usa esa
+versión y solo se envía después de confirmar el trabajo. Un trabajo cancelado
+no confirma el resultado ni emite el aviso.
+
 ## Personas y huellas privadas
 
 `person` conserva los nombres; `person_voice`, las huellas aprendidas con su modelo, origen y fecha; `voice`, las huellas de cada versión de transcripción. Estas tablas se consultan en Rust y no forman parte del documento que recibe la WebView o el runtime. La interfaz obtiene nombres y metadatos de las huellas, `hasVoices` en las versiones y reconocimientos `{speaker, person, distance}`. Las respuestas a JavaScript rechazan cualquier campo de embedding.
