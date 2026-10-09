@@ -128,6 +128,13 @@ export const demoSnapshot: Snapshot = {
       enabled: true,
       hasCredential: true,
     },
+    {
+      id: "okf-demo",
+      name: "OKF",
+      provider: "okf",
+      enabled: true,
+      folder: "/Users/ana/Notas OKF",
+    },
   ],
   destinations: [
     {
@@ -136,7 +143,36 @@ export const demoSnapshot: Snapshot = {
       provider: "notion",
       account: "notion-demo",
       enabled: true,
-      configuration: {},
+      configuration: {
+        source: {
+          id: "base-demo",
+          title: "Notas",
+          databaseTitle: "Diario",
+          properties: [
+            { name: "Nombre", type: "title" },
+            { name: "Fecha", type: "date" },
+            { name: "Etiquetas", type: "multi_select" },
+            { name: "Resumen", type: "rich_text" },
+            { name: "Archivado", type: "checkbox" },
+          ],
+        },
+        columns: { Nombre: "{{titulo}}", Fecha: "{{fecha-iso}}", Etiquetas: "{{etiquetas}}", Resumen: "{{resumen}}" },
+        body: "# {{titulo}}\n\n{{resumen}}\n\n{{audio}}\n\n# Transcripción\n{{transcripcion}}",
+      },
+    },
+    {
+      id: "okf-demo",
+      name: "OKF",
+      provider: "okf",
+      account: "okf-demo",
+      enabled: true,
+      configuration: {
+        folder: "/Users/ana/Notas OKF",
+        documents: [
+          { id: "nota", name: "Nota", path: "notas/{{dia}}-{{titulo}}.md", properties: [{ key: "type", value: "Nota de voz" }, { key: "title", value: "{{titulo}}" }, { key: "tags", value: "{{etiquetas}}" }], body: "# Resumen\n\n{{resumen}}\n\n# Transcripción\n\n{{enlace:transcripcion}}" },
+          { id: "transcripcion", name: "Transcripción", path: "transcripciones/{{dia}}-{{titulo}}.md", properties: [{ key: "type", value: "Transcripción" }, { key: "title", value: "Transcripción: {{titulo}}" }], body: "De la nota {{enlace:nota}}.\n\n{{transcripcion}}" },
+        ],
+      },
     },
   ],
   settings: {
