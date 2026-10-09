@@ -73,6 +73,37 @@ test("reprocesado manual crea versión, automático reutiliza, cambio de idioma 
   assert.equal(m.state.recordings[0].versions.length, 3);
   assert.equal(m.calls.filter((c) => c.method === "transcribe").length, 2);
 });
+test("reprocesar una versión diarizada sin huellas vuelve a transcribir", async () => {
+  const m = memory();
+  const runtime = createRuntime(m.host, {
+    run: async (_, context) => {
+      await context.call("transcribe", { hablantes: { detectar: true } });
+      await context.call("save", {});
+      return null;
+    },
+  });
+  await runtime.processRecording("r", { force: false });
+  await runtime.processRecording("r", { force: false });
+  assert.equal(m.calls.filter((call) => call.method === "transcribe").length, 2);
+});
+test("reutilizar una transcripción pasa su versión de origen para copiar huellas sin reconocer de nuevo", async () => {
+  const m = memory();
+  const runtime = createRuntime(m.host, {
+    run: async (_, context) => {
+      await context.call("transcribe", { hablantes: { detectar: true } });
+      await context.call("save", {});
+      return null;
+    },
+  });
+  await runtime.processRecording("r");
+  const original = m.state.recordings[0].versions[0];
+  original.hasVoices = true;
+  original.transcript.recognitions = [{ speaker: "Speaker 1", person: "Ana", distance: 0.1 }];
+  await runtime.processRecording("r");
+  assert.equal(m.calls.filter((call) => call.method === "transcribe").length, 1);
+  assert.equal(m.calls.filter((call) => call.method === "version_save").at(-1)?.params.sourceVersionId, original.id);
+  assert.deepEqual(m.state.recordings[0].versions[1].transcript.recognitions, original.transcript.recognitions);
+});
 test("trocea y reduce con el mismo backend, cancelación detiene siguientes peticiones", async () => {
   const calls: Record<string, unknown>[] = [];
   const host: RuntimeHost = {

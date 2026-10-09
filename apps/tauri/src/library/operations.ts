@@ -1,7 +1,7 @@
 import { save } from "@tauri-apps/plugin-dialog";
 import { call } from "../api";
 import { transcriptExportJSON } from "../core/export";
-import { relabelled } from "../core/inbox";
+import { correctedSpeaker, forgottenRecognition } from "../core/people";
 import { clockStamp, renderedTranscript } from "../core/presentation";
 import { cancelProcessing, processRecording, publishRecording, summarizeRecording, unpublishRecording } from "../runtime";
 import type { Recording, Transcript, Version } from "../types";
@@ -27,23 +27,33 @@ export async function chooseVersion(recording: Recording, version: Version) {
   await republish(recording);
 }
 
-async function saveCorrection(recording: Recording, transcript: Transcript) {
+async function saveCorrection(recording: Recording, transcript: Transcript, teaching?: { speaker: string; person: string; existingOnly?: boolean }) {
   const version = currentVersion(recording);
-  await call("version_save", { recordingId: recording.id, transcript, digest: version?.digest ?? null, backend: "correccion" });
+  if (!version) return;
+  const saved = await call<Version>("version_save", { recordingId: recording.id, sourceVersionId: version.id, transcript, digest: version.digest ?? null, backend: "correccion", ...(teaching ? { teaching } : {}) });
   await republish(recording);
+  return saved;
 }
 
 export function renameSpeaker(recording: Recording, speaker: string, name: string) {
   const transcript = currentVersion(recording)?.transcript;
-  const person = name.trim();
-  if (!transcript || !person || person === speaker) return Promise.resolve();
-  return saveCorrection(recording, relabelled(transcript, [speaker], person));
+  const correction = transcript && correctedSpeaker(transcript, speaker, name);
+  if (!correction) return Promise.resolve(undefined);
+  return saveCorrection(recording, correction.transcript, correction.teaching);
 }
 
 export function mergeSpeaker(recording: Recording, speaker: string, target: string) {
   const transcript = currentVersion(recording)?.transcript;
-  if (!transcript) return Promise.resolve();
-  return saveCorrection(recording, relabelled(transcript, [speaker], target));
+  const correction = transcript && correctedSpeaker(transcript, speaker, target, true);
+  if (!correction) return Promise.resolve(undefined);
+  return saveCorrection(recording, correction.transcript, correction.teaching);
+}
+
+export function forgetSpeakerRecognition(recording: Recording, speaker: string) {
+  const transcript = currentVersion(recording)?.transcript;
+  const corrected = transcript && forgottenRecognition(transcript, speaker);
+  if (!corrected) return Promise.resolve(undefined);
+  return saveCorrection(recording, corrected);
 }
 
 export const summarize = (recording: Recording) => summarizeRecording(recording.id);
