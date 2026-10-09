@@ -16,6 +16,8 @@ mod remote;
 mod scripts;
 mod store;
 mod symbols;
+mod voice_registration;
+mod voices;
 mod watcher;
 
 use serde_json::{json, Value};
@@ -45,6 +47,7 @@ struct Runtime {
     recording: Mutex<Option<recording::Session>>,
     recording_problem: Mutex<Option<recording::Problem>>,
     recording_lock: tokio::sync::Mutex<()>,
+    voice_registration: voice_registration::Registration,
     menubar: Mutex<menubar::Bar>,
     quitting: AtomicBool,
     vendor: PathBuf,
@@ -124,7 +127,9 @@ async fn app_command(
 ) -> Result<Value, String> {
     let runtime = state.inner().clone();
     let refresh = refreshes_library(&method, &params);
-    let result = dispatch(&app, &runtime, &method, params).await;
+    let result = dispatch(&app, &runtime, &method, params)
+        .await
+        .and_then(voices::public_reply);
     if result.is_ok() && refresh {
         let _ = app.emit("escriba://changed", ());
     }
@@ -224,6 +229,9 @@ fn refreshes_library(method: &str, params: &Value) -> bool {
         | "config_remove"
         | "connector_save"
         | "connector_remove"
+        | "people_rename"
+        | "people_remove"
+        | "people_remove_voice"
         | "credential_save"
         | "publication_save"
         | "publication_remove"
@@ -381,6 +389,49 @@ fn dispatch<'a>(
                 Ok(recorder::view(state))
             }
             "recording_cancel" => recorder::cancel(app, state).await,
+            "people_list" => state.store()?.people(),
+            "people_rename" => {
+                state
+                    .store()?
+                    .rename_person(text(&p, "name")?, text(&p, "newName")?)?;
+                Ok(Value::Null)
+            }
+            "people_remove" => {
+                state.store()?.remove_person(text(&p, "name")?)?;
+                Ok(Value::Null)
+            }
+            "people_remove_voice" => {
+                state.store()?.remove_person_voice(text(&p, "id")?)?;
+                Ok(Value::Null)
+            }
+            "voice_registration_status" => state.voice_registration.view(),
+            "voice_registration_cancel" | "voice_registration_dismiss" => {
+                let view = if method == "voice_registration_cancel" {
+                    state.voice_registration.cancel()?
+                } else {
+                    state.voice_registration.dismiss()?
+                };
+                let _ = app.emit("escriba://voice-registration", &view);
+                Ok(view)
+            }
+            "voice_registration_start" => {
+                state
+                    .voice_registration
+                    .start(text(&p, "name")?, |view| {
+                        let _ = app.emit("escriba://voice-registration", view);
+                    })
+                    .await
+            }
+            "voice_registration_stop" => {
+                let view = state
+                    .voice_registration
+                    .stop(&state.inference, &state.store, |view| {
+                        let _ = app.emit("escriba://voice-registration", view);
+                    })
+                    .await?;
+                let _ = app.emit("escriba://changed", ());
+                Ok(view)
+            }
             "import_audio" => {
                 let paths = p["paths"]
                     .as_array()
@@ -450,11 +501,15 @@ fn dispatch<'a>(
                 if resolver["enabled"] == false {
                     return Err("El resolutor está apagado".into());
                 }
-                if resolver["local"] == true {
+                let recording_id = text(&p, "recordingId")?.to_owned();
+                let transcript = if resolver["local"] == true {
                     state.inference.transcribe(&audio, model, p).await
                 } else {
                     remote::transcribe(&resolver, secret, &audio, &p).await
-                }
+                }?;
+                state
+                    .store()?
+                    .recognize_transcription(&recording_id, transcript)
             }
             "summarize" | "ask" => {
                 let (resolver, secret) = {
@@ -1072,7 +1127,9 @@ async fn script_call(
         Box::pin(async move {
             let state = weak.upgrade().ok_or("La aplicación se cerró")?;
             lease.ensure_active()?;
-            let result = dispatch(&handle, &state, &method, params).await;
+            let result = dispatch(&handle, &state, &method, params)
+                .await
+                .and_then(voices::public_reply);
             if result.is_ok() && !["runtime_context", "connector_audio"].contains(&method.as_str())
             {
                 let _ = handle.emit("escriba://changed", ());
@@ -1311,6 +1368,11 @@ pub fn run() {
                 folder_accesses: Mutex::new(HashMap::new()),
                 watch_wake,
                 inference: native::Native::new(engine.clone()),
+                voice_registration: voice_registration::Registration::new(
+                    root.join("voice-samples"),
+                    engine.clone(),
+                )
+                .map_err(std::io::Error::other)?,
                 recorder: native::Native::new(engine),
                 recording: Mutex::new(None),
                 recording_problem: Mutex::new(None),
