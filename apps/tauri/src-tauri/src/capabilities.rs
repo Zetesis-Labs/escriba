@@ -306,6 +306,37 @@ pub fn files(account: &Value, request: &Value) -> Result<Value, String> {
     }
 }
 
+pub fn authorized_okf_file(account: &Value, path: &Path) -> Result<PathBuf, String> {
+    if account["provider"] != "okf" {
+        return Err("La cuenta no es OKF".into());
+    }
+    let folder = Path::new(required_str(account, "folder")?);
+    if !folder.is_absolute() {
+        return Err("La carpeta autorizada debe ser absoluta".into());
+    }
+    let root = folder
+        .canonicalize()
+        .map_err(|_| "Carpeta autorizada no disponible")?;
+    if !root.is_dir() {
+        return Err("Carpeta autorizada no disponible".into());
+    }
+    let requested = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        root.join(path)
+    };
+    let real = requested
+        .canonicalize()
+        .map_err(|_| "Archivo OKF no disponible")?;
+    if !real.starts_with(&root)
+        || !real.is_file()
+        || real.extension().and_then(|value| value.to_str()) != Some("md")
+    {
+        return Err("El archivo no es un documento OKF de la carpeta autorizada".into());
+    }
+    Ok(real)
+}
+
 fn snapshot(root: &Path, root_fd: &OwnedFd) -> Result<Value, String> {
     let mut output = Map::new();
     let mut stack = vec![(root.to_path_buf(), String::new())];
@@ -582,6 +613,25 @@ fn write_change(root_fd: &OwnedFd, change: &FileChange) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn archivo_okf_autorizado_acepta_md_real_y_rechaza_escape_por_enlace() {
+        let temp = tempfile::tempdir().unwrap();
+        let folder = temp.path().join("bundle");
+        fs::create_dir(&folder).unwrap();
+        let inside = folder.join("nota.md");
+        fs::write(&inside, b"synthetic").unwrap();
+        let outside = temp.path().join("outside.md");
+        fs::write(&outside, b"synthetic").unwrap();
+        std::os::unix::fs::symlink(&outside, folder.join("escape.md")).unwrap();
+        let account = json!({"provider":"okf","folder":folder});
+        assert_eq!(
+            authorized_okf_file(&account, &inside).unwrap(),
+            inside.canonicalize().unwrap()
+        );
+        assert!(authorized_okf_file(&account, &folder.join("escape.md")).is_err());
+        assert!(authorized_okf_file(&account, &outside).is_err());
+    }
     use std::os::unix::fs::symlink;
     use tokio::{io::AsyncWriteExt, net::TcpListener};
 

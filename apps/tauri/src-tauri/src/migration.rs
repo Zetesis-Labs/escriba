@@ -323,7 +323,7 @@ pub fn plan(
             }
             converted.push(converted_version);
         }
-        let publications = publications(&db, record_id, settings.as_ref())?;
+        let publications = publications(&db, record_id)?;
         let mut audio_path = Value::Null;
         if !relative_audio.is_empty() {
             let relative = Path::new(&relative_audio);
@@ -385,6 +385,7 @@ pub fn plan(
     }
     if let Some(settings) = &settings {
         merge_settings(&mut next, settings)?;
+        upgrade_publications(&mut next, settings)?;
     }
     let memories = import_answers(&db, &next)?;
     let traces = import_runs(&db, &next)?;
@@ -514,18 +515,13 @@ fn segments(db: &Connection, transcript_id: i64) -> Result<Vec<Value>, String> {
     result
 }
 
-fn publications(
-    db: &Connection,
-    recording_id: i64,
-    settings: Option<&Plist>,
-) -> Result<Vec<Value>, String> {
+fn publications(db: &Connection, recording_id: i64) -> Result<Vec<Value>, String> {
     let mut stmt = db.prepare("SELECT connector, pageId, url, syncedAt, error FROM publication WHERE recordingId = ? ORDER BY id")
         .map_err(|e| e.to_string())?;
     let result = stmt.query_map([recording_id], |row| Ok((row.get::<_, String>(0)?,row.get::<_, Option<String>>(1)?,row.get::<_, Option<String>>(2)?,row.get::<_, Option<String>>(3)?,row.get::<_, Option<String>>(4)?)))
         .map_err(|e| e.to_string())?.map(|row| {
             let (connector,page_id,url,synced,error) = row.map_err(|e| e.to_string())?;
-            let provider = connector_provider(settings, &connector).unwrap_or("legacy");
-            Ok(json!({"destinationId":connector,"name":connector,"provider":provider,"accountId":null,
+            Ok(json!({"destinationId":connector,"name":connector,"provider":"legacy","accountId":null,
                 "receipt":{"state":"legacy","locator":page_id,"url":url,"error":error},"configuration":{},"updatedAt":synced.map(|v| date(&v))}))
         }).collect();
     result
@@ -582,19 +578,6 @@ fn setting_json(settings: &Plist, key: &str) -> Result<Option<Value>, String> {
             .map_err(|e| format!("Ajuste SwiftUI {key} inválido: {e}")),
         None => Ok(None),
         _ => Err(format!("Ajuste SwiftUI {key} no es JSON codificado")),
-    }
-}
-
-fn connector_provider<'a>(settings: Option<&'a Plist>, connector: &str) -> Option<&'a str> {
-    let raw = settings?.as_dictionary()?.get("connectors")?.as_data()?;
-    let value: Value = serde_json::from_slice(raw).ok()?;
-    let provider = value.as_array()?.iter().find(|v| v["id"] == connector)?["provider"].as_str()?;
-    if provider == "notion" {
-        Some("notion")
-    } else if provider == "okf" {
-        Some("okf")
-    } else {
-        None
     }
 }
 
@@ -708,7 +691,8 @@ fn merge_settings(next: &mut Value, plist: &Plist) -> Result<(), String> {
             }
         }
     }
-    if let Some(accounts) = setting_json(plist, "connectorAccounts")? {
+    let connector_accounts = setting_json(plist, "connectorAccounts")?;
+    if let Some(accounts) = &connector_accounts {
         for account in accounts.as_array().ok_or("Cuentas SwiftUI inválidas")? {
             let id = account["id"].as_str().ok_or("Cuenta SwiftUI sin ID")?;
             if next["accounts"]
@@ -721,7 +705,7 @@ fn merge_settings(next: &mut Value, plist: &Plist) -> Result<(), String> {
             if provider != "notion" && provider != "okf" {
                 continue;
             }
-            next["accounts"].as_array_mut().ok_or("Cuentas inválidas")?.push(json!({"id":id,"name":account["name"],"provider":provider,"enabled":false,"origin":if provider == "notion" {Some("https://api.notion.com")} else {None},"folder":account["folder"]}));
+            next["accounts"].as_array_mut().ok_or("Cuentas inválidas")?.push(json!({"id":id,"name":account["name"],"provider":provider,"enabled":true,"origin":if provider == "notion" {Some("https://api.notion.com")} else {None},"folder":account["folder"]}));
         }
     }
     if let Some(connectors) = setting_json(plist, "connectors")? {
@@ -733,21 +717,151 @@ fn merge_settings(next: &mut Value, plist: &Plist) -> Result<(), String> {
                 .as_str()
                 .or_else(|| connector["id"].as_str())
                 .ok_or("Destino SwiftUI sin ID")?;
-            if next["destinations"]
+            let existing = next["destinations"]
                 .as_array()
-                .is_some_and(|items| items.iter().any(|r| r["id"] == id))
-            {
-                continue;
-            }
-            let provider = connector["provider"].as_str().unwrap_or("");
+                .and_then(|items| items.iter().find(|r| r["id"] == id))
+                .cloned();
+            let provider = connector["provider"]
+                .as_str()
+                .or_else(|| connector["kind"].as_str())
+                .unwrap_or("");
             if provider != "notion" && provider != "okf" {
                 continue;
             }
-            let config = connector["configurationJSON"].as_str().unwrap_or("{}");
-            let mut config: Value = serde_json::from_str(config)
-                .map_err(|e| format!("Configuración SwiftUI inválida: {e}"))?;
-            remove_credentials(&mut config);
-            next["destinations"].as_array_mut().ok_or("Destinos inválidos")?.push(json!({"id":id,"name":connector["name"],"provider":provider,"account":connector["accountID"],"enabled":false,"configuration":config}));
+            if let Some(existing) = &existing {
+                if !existing["program"].is_null() || existing["provider"] != provider {
+                    continue;
+                }
+            }
+            let swift_connector = connector["kind"].is_string();
+            let source_account = if swift_connector {
+                None
+            } else {
+                let account_id = connector["accountID"]
+                    .as_str()
+                    .ok_or("Conector SwiftUI sin cuenta")?;
+                Some(
+                    connector_accounts
+                        .as_ref()
+                        .and_then(Value::as_array)
+                        .and_then(|accounts| {
+                            accounts.iter().find(|account| account["id"] == account_id)
+                        })
+                        .ok_or("Cuenta SwiftUI del conector no encontrada")?,
+                )
+            };
+            let config = if let Some(existing) = &existing {
+                existing["configuration"].clone()
+            } else {
+                let mut config: Value = if swift_connector {
+                    connector[provider].clone()
+                } else {
+                    serde_json::from_str(connector["configurationJSON"].as_str().unwrap_or("{}"))
+                        .map_err(|e| format!("Configuración SwiftUI inválida: {e}"))?
+                };
+                if config.is_null() {
+                    config = if provider == "notion" {
+                        json!({"source":null,"columns":{},"body":"{{transcripcion}}"})
+                    } else {
+                        json!({"folder":"","documents":[]})
+                    };
+                }
+                remove_credentials(&mut config);
+                config
+            };
+            let existing_account = next["accounts"]
+                .as_array()
+                .ok_or("Cuentas inválidas")?
+                .iter()
+                .find(|account| account["id"] == id);
+            if let Some(account) = existing_account {
+                if account["provider"] != provider {
+                    return Err(format!("La cuenta {id} pertenece a otro proveedor"));
+                }
+            } else {
+                let name = existing
+                    .as_ref()
+                    .map_or(&connector["name"], |item| &item["name"]);
+                let folder = if provider == "okf" {
+                    config["folder"].as_str().map(str::to_owned).or_else(|| {
+                        source_account
+                            .and_then(|account| account["folder"].as_str())
+                            .map(str::to_owned)
+                    })
+                } else {
+                    None
+                };
+                next["accounts"].as_array_mut().ok_or("Cuentas inválidas")?.push(json!({"id":id,"name":name,"provider":provider,"enabled":true,"origin":if provider == "notion" {Some("https://api.notion.com")} else {None},"folder":folder}));
+            }
+            if existing.is_some() {
+                let destination = next["destinations"]
+                    .as_array_mut()
+                    .ok_or("Destinos inválidos")?
+                    .iter_mut()
+                    .find(|item| item["id"] == id)
+                    .ok_or("Destino no encontrado")?;
+                destination["account"] = json!(id);
+            } else {
+                next["destinations"].as_array_mut().ok_or("Destinos inválidos")?.push(json!({"id":id,"name":connector["name"],"provider":provider,"account":id,"enabled":connector["enabled"] == true,"configuration":config}));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn upgrade_publications(next: &mut Value, settings: &Plist) -> Result<(), String> {
+    let imported = setting_json(settings, "connectors")?
+        .and_then(|value| value.as_array().cloned())
+        .unwrap_or_default();
+    let destinations = next["destinations"]
+        .as_array()
+        .ok_or("Destinos inválidos")?
+        .clone();
+    for record in next["recordings"]
+        .as_array_mut()
+        .ok_or("Biblioteca inválida")?
+    {
+        for publication in record["publications"]
+            .as_array_mut()
+            .ok_or("Publicaciones inválidas")?
+        {
+            if publication["receipt"]["state"] != "legacy" {
+                continue;
+            }
+            if !imported.iter().any(|connector| {
+                connector["destinationID"] == publication["destinationId"]
+                    || connector["id"] == publication["destinationId"]
+            }) {
+                continue;
+            }
+            let Some(destination) = destinations
+                .iter()
+                .find(|item| item["id"] == publication["destinationId"])
+            else {
+                continue;
+            };
+            let provider = destination["provider"].clone();
+            let locator = publication["receipt"]["locator"].clone();
+            let url = publication["receipt"]["url"].clone();
+            let error = publication["receipt"]["error"].clone();
+            let state = if locator.as_str().is_some_and(|value| !value.is_empty()) {
+                "published"
+            } else {
+                "failed"
+            };
+            publication["provider"] = provider.clone();
+            publication["accountId"] = destination["account"].clone();
+            publication["configuration"] = destination["configuration"].clone();
+            if !error.is_null() {
+                publication["error"] = error.clone();
+            }
+            publication["receipt"] = json!({"version":1,"provider":provider,"locator":locator,"url":url,"state":state,"error":error});
+            if error.is_null() {
+                publication["receipt"]
+                    .as_object_mut()
+                    .ok_or("Recibo inválido")?
+                    .remove("error");
+            }
         }
     }
     Ok(())
