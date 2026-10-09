@@ -489,11 +489,11 @@ function RecipeRunsSection({ recipe, recordings }: { recipe: Recipe; recordings:
   );
 }
 
-function RunRow({ trace, title, recipeName }: { trace: RecipeTrace; title: string; recipeName: string }) {
+export function RunRow({ trace, title, recipeName, showsRecipe }: { trace: RecipeTrace; title: string; recipeName: string; showsRecipe?: boolean }) {
   const [expanded, setExpanded] = useState(false);
   const outcome = traceOutcome(trace);
   const Icon = outcome === "ok" ? CheckCircle2 : outcome === "waiting" ? Clock : AlertTriangle;
-  const subtitle = [trace.dryRun ? "probada" : null, recordingWhen(new Date(trace.startedAt), new Date())].filter(Boolean).join(" · ");
+  const subtitle = [showsRecipe ? recipeName : null, trace.dryRun ? "probada" : null, recordingWhen(new Date(trace.startedAt), new Date())].filter(Boolean).join(" · ");
   const total = traceSeconds(trace);
   return (
     <FormRow>
