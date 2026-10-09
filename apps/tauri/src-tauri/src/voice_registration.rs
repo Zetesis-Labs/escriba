@@ -6,8 +6,9 @@ use crate::{
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::{
-    fs,
-    os::unix::fs::PermissionsExt,
+    fs::{self, OpenOptions},
+    io,
+    os::unix::fs::{OpenOptionsExt, PermissionsExt},
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
 };
@@ -197,6 +198,60 @@ impl Registration {
         changed(self.view()?);
         let result = self.analyze(&sample, inference, store).await;
         self.recorder.cancel();
+        self.finish(sample, result, changed)
+    }
+
+    pub async fn import_audio(
+        &self,
+        name: &str,
+        source: &Path,
+        inference: &Native,
+        store: &Arc<Mutex<Store>>,
+        changed: impl Fn(Value),
+    ) -> Result<Value, String> {
+        let sample = {
+            let mut state = self
+                .state
+                .lock()
+                .map_err(|_| "No se pudo empezar la muestra de voz")?;
+            let person = name.trim();
+            if person.is_empty() || !matches!(state.phase, Phase::Idle | Phase::Failed) {
+                return Ok(state.view());
+            }
+            let mut path = self.directory.join(crate::store::id());
+            if let Some(extension) = source.extension() {
+                path.set_extension(extension);
+            }
+            let sample = Sample {
+                person: person.into(),
+                path,
+                started_at: chrono::Utc::now().to_rfc3339(),
+                cancelled: Arc::new(tokio::sync::Notify::new()),
+            };
+            *state = State {
+                phase: Phase::Analyzing,
+                sample: Some(sample.clone()),
+                message: None,
+            };
+            sample
+        };
+        changed(self.view()?);
+        let from = source.to_path_buf();
+        let to = sample.path.clone();
+        let result = match tokio::task::spawn_blocking(move || copy_sample(&from, &to)).await {
+            Ok(Ok(())) => self.analyze_audio(&sample, inference, store).await,
+            Ok(Err(error)) => Err(error),
+            Err(_) => Err("No se pudo copiar el audio elegido".into()),
+        };
+        self.finish(sample, result, changed)
+    }
+
+    fn finish(
+        &self,
+        sample: Sample,
+        result: Result<(), String>,
+        changed: impl Fn(Value),
+    ) -> Result<Value, String> {
         discard(&sample.path);
         {
             let mut state = self
@@ -227,6 +282,15 @@ impl Registration {
             .call("recordingStop", json!({}))
             .await
             .map_err(analysis_problem)?;
+        self.analyze_audio(sample, inference, store).await
+    }
+
+    async fn analyze_audio(
+        &self,
+        sample: &Sample,
+        inference: &Native,
+        store: &Arc<Mutex<Store>>,
+    ) -> Result<(), String> {
         let reply = inference
             .call("diarizedVoices", json!({"audioPath":sample.path}))
             .await
@@ -238,6 +302,36 @@ impl Registration {
             .add_person_voice(&sample.person, &voice, "muestra de voz")
             .map_err(analysis_problem)
     }
+}
+
+fn copy_sample(source: &Path, destination: &Path) -> Result<(), String> {
+    let mut input = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(source)
+        .map_err(|_| "No se pudo leer el audio elegido")?;
+    let metadata = input
+        .metadata()
+        .map_err(|_| "No se pudo leer el audio elegido")?;
+    if !metadata.file_type().is_file() {
+        return Err("El audio elegido no es un archivo normal".into());
+    }
+    if metadata.len() == 0 {
+        return Err("El audio elegido está vacío".into());
+    }
+    let mut output = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(destination)
+        .map_err(|_| "No se pudo preparar la muestra de voz")?;
+    if io::copy(&mut input, &mut output).map_err(|_| "No se pudo copiar el audio elegido")? == 0 {
+        return Err("El audio elegido está vacío".into());
+    }
+    output
+        .sync_all()
+        .map_err(|_| "No se pudo guardar la muestra de voz")?;
+    Ok(())
 }
 
 #[derive(Deserialize)]
@@ -307,15 +401,212 @@ for line in sys.stdin:
         path = pathlib.Path(request['params']['outputPath'])
         path.write_bytes(b'synthetic audio')
     elif method == 'diarizedVoices':
+        pathlib.Path({analysis_path:?}).write_text(request['params']['audioPath'])
         result = json.loads({result:?})
     print(json.dumps({{'id': request['id'], 'result': result}}), flush=True)
 "#,
             result = result.to_string(),
-            marker = directory.join("capture-started").to_string_lossy()
+            marker = directory.join("capture-started").to_string_lossy(),
+            analysis_path = directory.join("analysis-path").to_string_lossy()
         );
         fs::write(&executable, code).unwrap();
         fs::set_permissions(&executable, fs::Permissions::from_mode(0o700)).unwrap();
         executable
+    }
+
+    #[tokio::test]
+    async fn importar_audio_registra_huella_sin_tocar_el_original_ni_abrir_microfono() {
+        let directory = tempfile::tempdir().unwrap();
+        let executable = host(directory.path(), 45.0, true);
+        let original = directory.path().join("elegido.wav");
+        fs::write(&original, b"audio sintetico original").unwrap();
+        let samples = directory.path().join("samples");
+        let registration = Registration::new(samples.clone(), executable.clone()).unwrap();
+        let store = Arc::new(Mutex::new(
+            Store::open(directory.path().join("library")).unwrap(),
+        ));
+
+        let view = registration
+            .import_audio(" Ana ", &original, &Native::new(executable), &store, |_| {})
+            .await
+            .unwrap();
+
+        assert_eq!(view["state"], "idle");
+        assert_eq!(fs::read(&original).unwrap(), b"audio sintetico original");
+        assert!(!directory.path().join("capture-started").exists());
+        let analyzed = fs::read_to_string(directory.path().join("analysis-path")).unwrap();
+        assert_ne!(Path::new(&analyzed), original);
+        assert!(Path::new(&analyzed).starts_with(&samples));
+        assert_eq!(Path::new(&analyzed).extension().unwrap(), "wav");
+        assert_eq!(fs::read_dir(&samples).unwrap().count(), 0);
+        let store = store.lock().unwrap();
+        assert_eq!(store.people().unwrap()[0]["name"], "Ana");
+        assert_eq!(
+            store.people().unwrap()[0]["voices"][0]["source"],
+            "muestra de voz"
+        );
+        assert!(store.snapshot()["recordings"]
+            .as_array()
+            .unwrap()
+            .is_empty());
+    }
+
+    #[tokio::test]
+    async fn importar_audio_insuficiente_o_ilegible_conserva_original_y_limpia_copia() {
+        for invalid_reply in [false, true] {
+            let directory = tempfile::tempdir().unwrap();
+            let executable = host(directory.path(), 12.0, true);
+            if invalid_reply {
+                let code = fs::read_to_string(&executable).unwrap().replace(
+                    "elif method == 'diarizedVoices':",
+                    "elif method == 'diarizedVoices':\n        print(json.dumps({'id': request['id'], 'error': {'code': 'invalid_audio', 'message': 'Audio sintético ilegible'}}), flush=True)\n        continue",
+                );
+                fs::write(&executable, code).unwrap();
+            }
+            let original = directory.path().join("elegido.wav");
+            fs::write(&original, b"audio sintetico original").unwrap();
+            let samples = directory.path().join("samples");
+            let registration = Registration::new(samples.clone(), executable.clone()).unwrap();
+            let store = Arc::new(Mutex::new(
+                Store::open(directory.path().join("library")).unwrap(),
+            ));
+
+            let view = registration
+                .import_audio("Ana", &original, &Native::new(executable), &store, |_| {})
+                .await
+                .unwrap();
+
+            assert_eq!(view["state"], "failed");
+            assert_eq!(
+                view["message"],
+                if invalid_reply {
+                    "No se pudo sacar la huella de la muestra: Audio sintético ilegible"
+                } else {
+                    "Solo se oyen 12 s de voz y hacen falta 30 s. Habla un rato más."
+                }
+            );
+            assert_eq!(fs::read(&original).unwrap(), b"audio sintetico original");
+            assert_eq!(fs::read_dir(&samples).unwrap().count(), 0);
+            assert!(store
+                .lock()
+                .unwrap()
+                .people()
+                .unwrap()
+                .as_array()
+                .unwrap()
+                .is_empty());
+        }
+    }
+
+    #[tokio::test]
+    async fn importar_ruta_inexistente_o_estando_ocupado_no_altera_registro_activo() {
+        let directory = tempfile::tempdir().unwrap();
+        let executable = host(directory.path(), 45.0, true);
+        let samples = directory.path().join("samples");
+        let registration = Registration::new(samples.clone(), executable.clone()).unwrap();
+        let store = Arc::new(Mutex::new(
+            Store::open(directory.path().join("library")).unwrap(),
+        ));
+        let active = registration.start("Ana", |_| {}).await.unwrap();
+        let missing = directory.path().join("inexistente.wav");
+        assert_eq!(
+            registration
+                .import_audio("Nuria", &missing, &Native::new(executable), &store, |_| {})
+                .await
+                .unwrap(),
+            active
+        );
+        assert_eq!(registration.view().unwrap(), active);
+        assert_eq!(fs::read_dir(&samples).unwrap().count(), 1);
+        registration.cancel().unwrap();
+        assert!(!missing.exists());
+    }
+
+    #[tokio::test]
+    async fn importar_audio_inexistente_o_vacio_no_guarda_persona_ni_deja_copia() {
+        for exists in [false, true] {
+            let directory = tempfile::tempdir().unwrap();
+            let executable = host(directory.path(), 45.0, true);
+            let original = directory.path().join("elegido.wav");
+            if exists {
+                fs::write(&original, b"").unwrap();
+            }
+            let samples = directory.path().join("samples");
+            let registration = Registration::new(samples.clone(), executable.clone()).unwrap();
+            let store = Arc::new(Mutex::new(
+                Store::open(directory.path().join("library")).unwrap(),
+            ));
+
+            let view = registration
+                .import_audio("Ana", &original, &Native::new(executable), &store, |_| {})
+                .await
+                .unwrap();
+
+            assert_eq!(view["state"], "failed");
+            assert_eq!(original.exists(), exists);
+            assert_eq!(fs::read_dir(&samples).unwrap().count(), 0);
+            assert!(!directory.path().join("analysis-path").exists());
+            assert!(store
+                .lock()
+                .unwrap()
+                .people()
+                .unwrap()
+                .as_array()
+                .unwrap()
+                .is_empty());
+        }
+    }
+
+    #[tokio::test]
+    async fn importar_fifo_o_enlace_no_abre_tuberia_ni_crea_persona() {
+        let directory = tempfile::tempdir().unwrap();
+        let executable = host(directory.path(), 45.0, true);
+        let samples = directory.path().join("samples");
+        let registration = Registration::new(samples.clone(), executable.clone()).unwrap();
+        let store = Arc::new(Mutex::new(
+            Store::open(directory.path().join("library")).unwrap(),
+        ));
+        let fifo = directory.path().join("tuberia");
+        let path = std::ffi::CString::new(fifo.as_os_str().as_encoded_bytes()).unwrap();
+        assert_eq!(unsafe { libc::mkfifo(path.as_ptr(), 0o600) }, 0);
+        let result = registration
+            .import_audio(
+                "Ana",
+                &fifo,
+                &Native::new(executable.clone()),
+                &store,
+                |_| {},
+            )
+            .await
+            .unwrap();
+        assert_eq!(result["state"], "failed");
+        assert_eq!(
+            result["message"],
+            "El audio elegido no es un archivo normal"
+        );
+        assert_eq!(fs::read_dir(&samples).unwrap().count(), 0);
+        assert!(!directory.path().join("analysis-path").exists());
+
+        registration.dismiss().unwrap();
+        let original = directory.path().join("original.wav");
+        fs::write(&original, b"audio sintetico original").unwrap();
+        let link = directory.path().join("enlace.wav");
+        std::os::unix::fs::symlink(&original, &link).unwrap();
+        let result = registration
+            .import_audio("Ana", &link, &Native::new(executable), &store, |_| {})
+            .await
+            .unwrap();
+        assert_eq!(result["state"], "failed");
+        assert_eq!(fs::read(&original).unwrap(), b"audio sintetico original");
+        assert_eq!(fs::read_dir(&samples).unwrap().count(), 0);
+        assert!(store
+            .lock()
+            .unwrap()
+            .people()
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .is_empty());
     }
 
     #[tokio::test]

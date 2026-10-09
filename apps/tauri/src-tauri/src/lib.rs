@@ -422,6 +422,24 @@ fn dispatch<'a>(
                     })
                     .await
             }
+            "voice_registration_import" => {
+                let view = state
+                    .voice_registration
+                    .import_audio(
+                        text(&p, "name")?,
+                        Path::new(text(&p, "path")?),
+                        &state.inference,
+                        &state.store,
+                        |view| {
+                            let _ = app.emit("escriba://voice-registration", view);
+                        },
+                    )
+                    .await?;
+                if view["state"] == "idle" {
+                    let _ = app.emit("escriba://changed", ());
+                }
+                Ok(view)
+            }
             "voice_registration_stop" => {
                 let view = state
                     .voice_registration

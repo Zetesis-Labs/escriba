@@ -26,6 +26,10 @@ Se queda mientras Rubén no la vete:
 - [x] Exportar a TXT, Markdown, SRT y JSON.
 - [x] Cancelar una nota que se está procesando.
 
+Ampliación pedida por Rubén el 2026-10-09:
+
+- [ ] Registrar una voz eligiendo un archivo de audio, además de grabarla con el micrófono. Exige los mismos 30 s de habla y conserva el archivo original.
+
 Fuera:
 
 - [ ] Buscar y filtrar en la biblioteca. **Rubén la diseñará más adelante; no se implementa de paso.**

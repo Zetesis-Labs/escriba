@@ -18,6 +18,8 @@ Al transcribir, Rust extrae las huellas del resultado nativo, reconoce por la hu
 
 «Registrar voz» usa `voice-samples` dentro de la carpeta privada de la app y no incorpora una nota. Exige al menos 30 segundos de habla del hablante dominante, guarda su huella y elimina la muestra al terminar o cancelar. Al arrancar se retiran las muestras de cierres interrumpidos. Quitar una persona no modifica los nombres de las notas; borrar una versión elimina sus huellas propias y conserva las ya aprendidas por personas.
 
+Además del micrófono, se puede elegir un archivo de audio. Rust copia el archivo a `voice-samples`, extrae la huella con la misma validación y elimina esa copia al terminar o fallar. El archivo elegido permanece intacto y el audio no se publica ni se incorpora a la biblioteca.
+
 ## Importar la biblioteca SwiftUI
 
 En **Ajustes → Importar biblioteca SwiftUI**, elegir una copia o carpeta de la biblioteca anterior; opcionalmente elegir el plist de preferencias. La importación es explícita. El lector copia `library.sqlite` y su WAL, si existe, a una carpeta temporal privada dentro de la biblioteca Tauri y abre esa copia en modo de solo lectura. Comprueba identidad, tamaño, tiempos y hash de ambos ficheros antes y después de copiarlos; si cambian, pide cerrar SwiftUI y repetir. Comprueba la integridad de SQLite, verifica que los audios proceden de la carpeta `audio` elegida, copia y comprueba sus hashes, y retira la copia temporal. Para obtener una instantánea coherente, cerrar Escriba SwiftUI antes de copiar o importar su biblioteca.
