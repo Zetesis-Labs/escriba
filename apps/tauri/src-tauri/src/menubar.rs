@@ -141,7 +141,15 @@ fn current(state: &Runtime, previous: Option<&View>) -> Option<View> {
     })
 }
 
-pub fn refresh(app: &AppHandle, state: &Runtime) {
+pub fn refresh(app: &AppHandle) {
+    let handle = app.clone();
+    let _ = app.run_on_main_thread(move || {
+        let state = handle.state::<Arc<Runtime>>().inner().clone();
+        apply(&handle, &state);
+    });
+}
+
+fn apply(app: &AppHandle, state: &Runtime) {
     let Ok(mut bar) = state.menubar.lock() else {
         return;
     };
@@ -176,12 +184,15 @@ pub fn refresh(app: &AppHandle, state: &Runtime) {
     }
 }
 
-pub fn recording_clock(_app: &AppHandle, state: &Runtime, clock: &str) {
-    if let Ok(bar) = state.menubar.lock() {
-        if let Some(stop) = &bar.stop {
+pub fn recording_clock(app: &AppHandle, clock: String) {
+    let handle = app.clone();
+    let _ = app.run_on_main_thread(move || {
+        let state = handle.state::<Arc<Runtime>>().inner().clone();
+        let stop = state.menubar.lock().ok().and_then(|bar| bar.stop.clone());
+        if let Some(stop) = stop {
             let _ = stop.set_text(format!("Detener y transcribir ({clock})"));
         }
-    }
+    });
 }
 
 fn clock(state: &Runtime) -> String {
@@ -325,14 +336,14 @@ pub fn install(app: &AppHandle, state: &Runtime) -> tauri::Result<()> {
         tray = tray.icon(icon).icon_as_template(true);
     }
     tray.build(app)?;
-    refresh(app, state);
+    apply(app, state);
     Ok(())
 }
 
-pub fn watch(app: AppHandle, state: Arc<Runtime>) {
+pub fn watch(app: AppHandle) {
     tauri::async_runtime::spawn(async move {
         loop {
-            refresh(&app, &state);
+            refresh(&app);
             tokio::time::sleep(std::time::Duration::from_secs(1)).await;
         }
     });

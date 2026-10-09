@@ -1279,7 +1279,7 @@ pub fn run() {
             app.manage(state.clone());
             menubar::install(app.handle(), &state)?;
             app.on_menu_event(|app, event| menubar::handle(app, event.id().as_ref()));
-            menubar::watch(app.handle().clone(), state.clone());
+            menubar::watch(app.handle().clone());
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 if legacy.is_some() || legacy_preferences.is_some() {
