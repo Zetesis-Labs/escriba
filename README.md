@@ -18,8 +18,9 @@ nativas de Apple. La implementación SwiftUI se conserva durante la transición.
 ./scripts/install-tauri.sh --release
 ```
 
-Se instala como **Escriba Tauri.app**. En Ajustes se puede importar la biblioteca
-anterior sin modificarla ni leer sus credenciales. La app mantiene los trabajos
+Se instala como **Escriba Tauri.app**. Al abrirla con la biblioteca vacía incorpora
+las grabaciones de Escriba sin modificar el origen ni leer sus credenciales.
+En Ajustes también se puede importar otra biblioteca. La app mantiene los trabajos
 al cerrar la ventana y recupera el procesamiento interrumpido tras reiniciar.
 
 - [Aplicación, requisitos, funciones y validación](apps/tauri/README.md)
