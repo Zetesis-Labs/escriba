@@ -684,6 +684,100 @@ impl Store {
             atomic_write(&path, value.trim().as_bytes())
         }
     }
+    pub fn save_connector(&mut self, account: &Value, destination: &Value) -> Result<(), String> {
+        let key = text(account, "id")?;
+        safe_id(key)?;
+        let provider = text(account, "provider")?;
+        if !["notion", "okf"].contains(&provider)
+            || destination["id"] != key
+            || destination["account"] != key
+            || destination["provider"] != provider
+            || destination.get("program").is_some()
+            || destination["enabled"].as_bool().is_none()
+        {
+            return Err("Cuenta y destino del conector no coinciden".into());
+        }
+        if !account.is_object() || !destination["configuration"].is_object() {
+            return Err("Configuración del conector inválida".into());
+        }
+        if self
+            .item("accounts", key)
+            .is_ok_and(|old| old["provider"] != provider)
+            || self
+                .item("destinations", key)
+                .is_ok_and(|old| !old["program"].is_null())
+        {
+            return Err("El identificador pertenece a otro conector".into());
+        }
+        let mut account = account.clone();
+        let mut destination = destination.clone();
+        account["enabled"] = json!(true);
+        if provider == "notion" {
+            account["origin"] = json!("https://api.notion.com");
+        } else {
+            let folder = destination["configuration"]["folder"]
+                .as_str()
+                .ok_or("Carpeta OKF inválida")?;
+            let folder = if folder.is_empty() {
+                String::new()
+            } else {
+                canonical_folder(Path::new(folder))?
+                    .to_string_lossy()
+                    .into_owned()
+            };
+            account["folder"] = json!(folder);
+            destination["configuration"]["folder"] = json!(folder);
+        }
+        for field in ["token", "secret", "credential", "hasCredential"] {
+            account
+                .as_object_mut()
+                .ok_or("Cuenta inválida")?
+                .remove(field);
+        }
+        let mut next = self.data.clone();
+        for (collection, item) in [("accounts", account), ("destinations", destination)] {
+            let items = next[collection]
+                .as_array_mut()
+                .ok_or("Colección inválida")?;
+            if let Some(old) = items.iter_mut().find(|old| old["id"] == key) {
+                *old = item;
+            } else {
+                items.push(item);
+            }
+        }
+        self.replace(next)
+    }
+    pub fn remove_connector(&mut self, key: &str) -> Result<(), String> {
+        let account = self.item("accounts", key)?;
+        let destination = self.item("destinations", key)?;
+        if !["notion", "okf"].contains(&account["provider"].as_str().unwrap_or(""))
+            || destination["account"] != key
+            || !destination["program"].is_null()
+        {
+            return Err("El conector de la app no coincide con su cuenta y destino".into());
+        }
+        let mut next = self.data.clone();
+        for collection in ["accounts", "destinations"] {
+            next[collection]
+                .as_array_mut()
+                .ok_or("Colección inválida")?
+                .retain(|item| item["id"] != key);
+        }
+        for recipe in next["recipes"].as_array_mut().ok_or("Recetas inválidas")? {
+            if recipe["kind"] == "form" {
+                prune(&mut recipe["values"], key);
+            }
+        }
+        let credential = self.credential_path(key)?;
+        self.replace(next)?;
+        match fs::remove_file(credential) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(format!(
+                "El conector se quitó, pero no se pudo borrar su token: {error}"
+            )),
+        }
+    }
     pub fn import(&mut self, source: &Path, recipe_id: Option<&str>) -> Result<Value, String> {
         self.import_internal(source, recipe_id, None)
     }
@@ -2442,7 +2536,7 @@ mod tests {
         sql.execute("INSERT INTO transcript VALUES (7,1,'whisper','2026-10-01 12:02:00','hola','es',0,NULL,1,'Título','Resumen','[\"tag\"]','{\"x\":1}','{\"type\":\"object\"}','formulario')",[]).unwrap();
         sql.execute("INSERT INTO segment VALUES (7,0,0,2,'A','hola','[]')", [])
             .unwrap();
-        sql.execute("INSERT INTO publication VALUES (1,1,'destino','page-1','https://example.invalid/page','2026-10-01 12:03:00',NULL)",[]).unwrap();
+        sql.execute("INSERT INTO publication VALUES (1,1,'destination-1','page-1','https://example.invalid/page','2026-10-01 12:03:00',NULL)",[]).unwrap();
         sql.execute("INSERT INTO answer VALUES (7,'fingerprint-1','{\"answer\":\"cached\"}','2026-10-01 12:04:00')",[]).unwrap();
         sql.execute("INSERT INTO recipeRun VALUES (4,1,'formulario','pipeline','2026-10-01 12:05:00','{\"steps\":[],\"error\":null,\"outcome\":\"ok\"}')",[]).unwrap();
         drop(sql);
@@ -2530,10 +2624,26 @@ mod tests {
             1
         );
         assert_eq!(store.data["settings"]["watchedFolders"][0]["style"], "any");
-        assert_eq!(store.data["accounts"][0]["enabled"], false);
+        assert_eq!(store.data["accounts"][0]["enabled"], true);
+        assert_eq!(
+            store.item("accounts", "destination-1").unwrap()["provider"],
+            "notion"
+        );
         assert_eq!(
             store.data["destinations"][0]["configuration"]["databaseId"],
             "db-1"
+        );
+        assert_eq!(
+            store.item("destinations", "destination-1").unwrap()["account"],
+            "destination-1"
+        );
+        assert_eq!(
+            store.recording("legacy").unwrap()["publications"][0]["accountId"],
+            "destination-1"
+        );
+        assert_eq!(
+            store.recording("legacy").unwrap()["publications"][0]["receipt"]["state"],
+            "published"
         );
         assert!(!store.snapshot().to_string().contains("fake-import-secret"));
         assert_eq!(store.trace_list(Some("legacy")).unwrap().len(), 1);
@@ -2562,6 +2672,132 @@ mod tests {
             restored.recording("legacy").unwrap()["versions"][0]["transcript"]["text"],
             "hola"
         );
+    }
+
+    #[test]
+    fn reimportar_conectores_swift_convierte_publicaciones_ya_importadas() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("swift-library");
+        fs::create_dir_all(&source).unwrap();
+        let sql = rusqlite::Connection::open(source.join("library.sqlite")).unwrap();
+        sql.execute_batch("CREATE TABLE recording(id INTEGER PRIMARY KEY,key TEXT,sourcePath TEXT,audioPath TEXT,startedAt TEXT,importedAt TEXT,status TEXT,lastError TEXT,currentTranscriptId INTEGER); CREATE TABLE transcript(id INTEGER PRIMARY KEY,recordingId INTEGER,backend TEXT,createdAt TEXT,text TEXT,language TEXT,diarize INTEGER,speakerCount INTEGER,optionsKnown INTEGER,digestTitle TEXT,digestSummary TEXT,digestTags TEXT,data TEXT,dataSchema TEXT,recipe TEXT); CREATE TABLE publication(id INTEGER PRIMARY KEY,recordingId INTEGER,connector TEXT,pageId TEXT,url TEXT,syncedAt TEXT,error TEXT);").unwrap();
+        sql.execute("INSERT INTO recording VALUES (1,'legacy','/synthetic/original.wav','','2026-10-01 12:00:00','2026-10-01 12:01:00','done',NULL,NULL)",[]).unwrap();
+        sql.execute("INSERT INTO publication VALUES (1,1,'notion-id','page-1','https://example.invalid/page','2026-10-01 12:03:00','synthetic update failure')",[]).unwrap();
+        sql.execute("INSERT INTO publication VALUES (2,1,'okf-id',NULL,NULL,'2026-10-01 12:04:00','synthetic failure')",[]).unwrap();
+        drop(sql);
+        let mut store = Store::open(dir.path().join("tauri-library")).unwrap();
+        assert_eq!(store.import_legacy(&source).unwrap()["recordings"], 1);
+        assert_eq!(
+            store.recording("legacy").unwrap()["publications"][0]["provider"],
+            "legacy"
+        );
+
+        let mut preferences = plist::Dictionary::new();
+        preferences.insert("connectors".into(), plist::Value::Data(br#"[{"id":"notion-id","name":"Notion","kind":"notion","enabled":true,"notion":{"source":{"id":"database-1","title":"Base","databaseTitle":"Base","properties":[{"name":"Name","type":"title"}]},"columns":{"Name":"{{titulo}}"},"body":"{{resumen}}"}},{"id":"okf-id","name":"OKF","kind":"okf","enabled":false,"okf":{"folder":"/synthetic/bundle","documents":[{"id":"doc","name":"Nota","path":"notas/{{titulo}}.md","properties":[{"id":"type","key":"type","value":"Nota"}],"body":"{{resumen}}"}]}}]"#.to_vec()));
+        let plist_path = dir.path().join("preferences.plist");
+        plist::to_file_binary(&plist_path, &plist::Value::Dictionary(preferences)).unwrap();
+        assert_eq!(
+            store
+                .import_legacy_with_settings(&source, Some(&plist_path))
+                .unwrap()["recordings"],
+            0
+        );
+        assert_eq!(
+            store.item("accounts", "notion-id").unwrap()["enabled"],
+            true
+        );
+        assert_eq!(
+            store.item("destinations", "notion-id").unwrap()["enabled"],
+            true
+        );
+        assert_eq!(
+            store.item("destinations", "notion-id").unwrap()["configuration"]["source"]["id"],
+            "database-1"
+        );
+        assert_eq!(
+            store.item("accounts", "okf-id").unwrap()["folder"],
+            "/synthetic/bundle"
+        );
+        assert_eq!(
+            store.item("destinations", "okf-id").unwrap()["configuration"]["documents"][0]["id"],
+            "doc"
+        );
+        let publication = &store.recording("legacy").unwrap()["publications"][0];
+        assert_eq!(publication["provider"], "notion");
+        assert_eq!(publication["accountId"], "notion-id");
+        assert_eq!(publication["configuration"]["source"]["id"], "database-1");
+        assert_eq!(
+            publication["receipt"],
+            json!({"version":1,"provider":"notion","locator":"page-1","url":"https://example.invalid/page","state":"published","error":"synthetic update failure"})
+        );
+        assert_eq!(publication["error"], "synthetic update failure");
+        let failed = &store.recording("legacy").unwrap()["publications"][1];
+        assert_eq!(failed["receipt"]["state"], "failed");
+        assert_eq!(failed["receipt"]["error"], "synthetic failure");
+        assert_eq!(failed["error"], "synthetic failure");
+        assert_eq!(store.credential("notion-id").unwrap(), None);
+        assert_eq!(
+            store
+                .import_legacy_with_settings(&source, Some(&plist_path))
+                .unwrap()["recordings"],
+            0
+        );
+        assert_eq!(
+            store.recording("legacy").unwrap()["publications"][0],
+            *publication
+        );
+    }
+
+    #[test]
+    fn reimportar_formato_21_unifica_ids_sin_pisar_ediciones_ni_destinos_de_codigo() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("swift-library");
+        fs::create_dir(&source).unwrap();
+        let sql = rusqlite::Connection::open(source.join("library.sqlite")).unwrap();
+        sql.execute_batch("CREATE TABLE recording(id INTEGER PRIMARY KEY,key TEXT,sourcePath TEXT,audioPath TEXT,startedAt TEXT,importedAt TEXT,status TEXT,lastError TEXT,currentTranscriptId INTEGER); CREATE TABLE transcript(id INTEGER PRIMARY KEY,recordingId INTEGER,backend TEXT,createdAt TEXT,text TEXT,language TEXT,diarize INTEGER,speakerCount INTEGER,optionsKnown INTEGER,digestTitle TEXT,digestSummary TEXT,digestTags TEXT,data TEXT,dataSchema TEXT,recipe TEXT); CREATE TABLE publication(id INTEGER PRIMARY KEY,recordingId INTEGER,connector TEXT,pageId TEXT,url TEXT,syncedAt TEXT,error TEXT);").unwrap();
+        sql.execute("INSERT INTO recording VALUES (1,'legacy','/synthetic/original.wav','','2026-10-01 12:00:00','2026-10-01 12:01:00','done',NULL,NULL)",[]).unwrap();
+        sql.execute("INSERT INTO publication VALUES (1,1,'destination-1','page-1','https://example.invalid/page','2026-10-01 12:03:00',NULL)",[]).unwrap();
+        drop(sql);
+        let mut preferences = plist::Dictionary::new();
+        preferences.insert(
+            "connectorAccounts".into(),
+            plist::Value::Data(
+                br#"[{"id":"account-1","name":"Cuenta","provider":"notion","enabled":true}]"#
+                    .to_vec(),
+            ),
+        );
+        preferences.insert("connectors".into(), plist::Value::Data(br#"[{"id":"destination-1","name":"Destino","provider":"notion","accountID":"account-1","enabled":false,"configurationJSON":"{\"databaseId\":\"swift\"}"}]"#.to_vec()));
+        let plist_path = dir.path().join("preferences.plist");
+        plist::to_file_binary(&plist_path, &plist::Value::Dictionary(preferences)).unwrap();
+        let mut store = Store::open(dir.path().join("tauri-library")).unwrap();
+        store.mutate("config_save", &json!({"collection":"accounts","item":{"id":"account-1","name":"Cuenta local","provider":"notion","enabled":true}})).unwrap();
+        store.mutate("config_save", &json!({"collection":"destinations","item":{"id":"destination-1","name":"Editado","provider":"notion","account":"account-1","enabled":true,"configuration":{"databaseId":"local"}}})).unwrap();
+        store.mutate("config_save", &json!({"collection":"destinations","item":{"id":"coded","name":"Código","provider":"notion","account":"account-1","enabled":true,"configuration":{},"program":"compiled"}})).unwrap();
+
+        store
+            .import_legacy_with_settings(&source, Some(&plist_path))
+            .unwrap();
+
+        assert_eq!(
+            store.item("accounts", "destination-1").unwrap()["provider"],
+            "notion"
+        );
+        let destination = store.item("destinations", "destination-1").unwrap();
+        assert_eq!(destination["account"], "destination-1");
+        assert_eq!(destination["configuration"]["databaseId"], "local");
+        assert_eq!(destination["enabled"], true);
+        assert_eq!(destination["name"], "Editado");
+        assert_eq!(
+            store.item("accounts", "account-1").unwrap()["name"],
+            "Cuenta local"
+        );
+        assert_eq!(
+            store.item("destinations", "coded").unwrap()["account"],
+            "account-1"
+        );
+        let publication = &store.recording("legacy").unwrap()["publications"][0];
+        assert_eq!(publication["accountId"], "destination-1");
+        assert_eq!(publication["configuration"]["databaseId"], "local");
     }
     #[test]
     fn imports_swift_jpr_and_voice_memo_keys_with_related_history() {
@@ -2873,6 +3109,80 @@ mod tests {
         assert_eq!(saved["bundle"], "var __recipe = 1;");
         assert_eq!(saved["values"]["idioma"], "en");
         assert!(saved.get("bundleFingerprint").is_none());
+    }
+
+    #[test]
+    fn quitar_conector_borra_cuenta_destino_token_y_valores_sin_borrar_publicaciones() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = Store::open(dir.path().join("library")).unwrap();
+        store.mutate("config_save", &json!({"collection":"accounts","item":{"id":"conector","name":"Notion","provider":"notion","enabled":true}})).unwrap();
+        store.mutate("config_save", &json!({"collection":"destinations","item":{"id":"conector","name":"Notion","provider":"notion","account":"conector","enabled":true,"configuration":{}}})).unwrap();
+        store
+            .save_credential("conector", "synthetic-token")
+            .unwrap();
+        store.mutate("config_save", &json!({"collection":"recipes","item":{"id":"form","name":"Form","kind":"form","values":{"conectores":["conector","otro"]}}})).unwrap();
+        let audio = dir.path().join("sample.wav");
+        fs::write(&audio, b"synthetic audio").unwrap();
+        let record = store.import(&audio, None).unwrap();
+        store.mutate("publication_save", &json!({"recordingId":record["id"],"destinationId":"conector","accountId":"conector","receipt":{"locator":"page-1","state":"published"}})).unwrap();
+
+        store.remove_connector("conector").unwrap();
+
+        assert!(store.item("accounts", "conector").is_err());
+        assert!(store.item("destinations", "conector").is_err());
+        assert_eq!(store.credential("conector").unwrap(), None);
+        assert_eq!(
+            store.item("recipes", "form").unwrap()["values"]["conectores"],
+            json!(["otro"])
+        );
+        assert_eq!(
+            store.recording(record["id"].as_str().unwrap()).unwrap()["publications"][0]["receipt"]
+                ["locator"],
+            "page-1"
+        );
+    }
+
+    #[test]
+    fn guardar_conector_persiste_cuenta_y_destino_juntos_y_rechaza_pareja_incoherente() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("library");
+        let folder = dir.path().join("bundle");
+        fs::create_dir(&folder).unwrap();
+        let mut store = Store::open(root.clone()).unwrap();
+        let account = json!({"id":"connector","name":"OKF","provider":"okf","enabled":true,"folder":folder,"hasCredential":true});
+        let destination = json!({"id":"connector","name":"OKF","provider":"okf","account":"connector","enabled":false,"configuration":{"folder":folder,"documents":[]}});
+        store.save_connector(&account, &destination).unwrap();
+        assert_eq!(
+            store.item("accounts", "connector").unwrap()["folder"],
+            json!(folder.canonicalize().unwrap())
+        );
+        assert_eq!(
+            store.item("destinations", "connector").unwrap()["configuration"]["folder"],
+            json!(folder.canonicalize().unwrap())
+        );
+        assert!(store
+            .item("accounts", "connector")
+            .unwrap()
+            .get("hasCredential")
+            .is_none());
+        assert_eq!(
+            store.item("destinations", "connector").unwrap()["account"],
+            "connector"
+        );
+        let before = store.data.clone();
+        assert!(store.save_connector(&account, &json!({"id":"wrong","name":"OKF","provider":"okf","account":"connector","configuration":{}})).is_err());
+        assert!(store.save_connector(&account, &json!({"id":"connector","name":"OKF","provider":"notion","account":"connector","configuration":{}})).is_err());
+        assert_eq!(store.data, before);
+        drop(store);
+        let reopened = Store::open(root).unwrap();
+        assert_eq!(
+            reopened.item("accounts", "connector").unwrap()["name"],
+            "OKF"
+        );
+        assert_eq!(
+            reopened.item("destinations", "connector").unwrap()["provider"],
+            "okf"
+        );
     }
 
     #[test]
