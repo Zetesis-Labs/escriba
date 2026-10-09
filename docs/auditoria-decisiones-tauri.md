@@ -23,7 +23,7 @@ Leído en el hilo de Codex del 2026-10-08 y 09:
 | Todos los conectores son responsabilidad de TypeScript | Rubén, 21:47 |
 | Recetas con librerías npm instalables | Rubén, 20:43 |
 | Autorizar carpetas sueltas antes que el acceso total al disco | Rubén, 12:45 |
-| Orquestar en un ejecutable Deno | Codex |
+| Orquestar en un ejecutable Deno | Codex, sin comentarlo con Rubén. Rubén, 2026-10-09: **Bun**, con el sandbox de macOS por proceso de receta en lugar de los permisos de Deno |
 | esbuild nativo empaquetado y compilar a mano con «Compilar» | Codex |
 | Retirar el editor de pastillas también de la app Swift | Codex, contra «sin borrar lo que ya tenemos» |
 | Notion real «fuera del alcance» de las pruebas | Codex |
