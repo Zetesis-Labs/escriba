@@ -1,6 +1,6 @@
 # Escriba Tauri — contrato de integración
 
-Migración definitiva con dos instalaciones durante la transición. Tauri usa identificador
+Migración en estabilización (ADR-0004), con dos instalaciones durante la transición. Tauri usa identificador
 dev.zetesis.escriba.tauri y biblioteca propia. Al arrancar con la biblioteca vacía
 incorpora una vez la biblioteca SwiftUI local sin modificarla ni leer credenciales.
 El procesamiento queda pausado. Las bibliotecas de prueba con ESCRIBA_TAURI_DATA
