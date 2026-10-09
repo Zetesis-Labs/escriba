@@ -1,6 +1,7 @@
 import { Users } from "lucide-react";
 import { useCallback, useEffect, useState, type KeyboardEvent } from "react";
-import { open } from "@tauri-apps/plugin-dialog";
+import { listen } from "@tauri-apps/api/event";
+import { ask, open } from "@tauri-apps/plugin-dialog";
 import { Connectors, SettingsView, type RunAction, type WatchAuthorization } from "../legacy/LegacyApp";
 import { call, desktop } from "../api";
 import type { WatchedFolder } from "../types";
@@ -8,6 +9,7 @@ import { LibraryView } from "../library/LibraryView";
 import { ResolversPane } from "../resolvers/ResolversPane";
 import { RecipesPane } from "../recipes/RecipesPane";
 import { LogPane } from "../log/LogPane";
+import { dismissRecorderProblem, openMicrophoneSettings, useRecorderStatus, type RecorderProblem } from "../recording/useRecording";
 import { ContentUnavailable } from "../mac/controls";
 import { alertMessage, confirmDestructive, errorText } from "../mac/native";
 import { Pane } from "./Pane";
@@ -43,11 +45,45 @@ function useSystemAccent() {
   }, []);
 }
 
+function useNavigation(go: (section: MainSection) => void) {
+  useEffect(() => {
+    if (!desktop) return;
+    let alive = true;
+    let stop: (() => void) | undefined;
+    void listen<string>("escriba://navigate", (event) => {
+      if (sections.some((item) => item.id === event.payload)) go(event.payload as MainSection);
+    }).then((unlisten) => {
+      if (alive) stop = unlisten;
+      else unlisten();
+    });
+    return () => {
+      alive = false;
+      stop?.();
+    };
+  }, [go]);
+}
+
+function useRecorderAlert(problem: RecorderProblem | null) {
+  useEffect(() => {
+    if (!problem) return;
+    void (async () => {
+      if (problem.denied) {
+        const open = await ask(problem.message, { title: "Grabadora", kind: "warning", okLabel: "Abrir Ajustes del Sistema", cancelLabel: "Vale" });
+        if (open) await openMicrophoneSettings().catch(() => undefined);
+      } else await alertMessage("Grabadora", problem.message);
+      await dismissRecorderProblem().catch(() => undefined);
+    })();
+  }, [problem]);
+}
+
 export function MainWindow() {
   const { data, jobs, problem, refresh } = useAppData();
   const [section, setSection] = useState<MainSection>(() => initialSection(window.location.search));
   const active = useWindowActive();
+  const recorder = useRecorderStatus();
   useSystemAccent();
+  useNavigation(setSection);
+  useRecorderAlert(recorder.problem);
 
   const run: RunAction = useCallback(
     async (label, action, _message, confirmation) => {
@@ -69,7 +105,7 @@ export function MainWindow() {
   }, []);
 
   const retryWatchScan = () => run("Reintentar escaneo", () => call("watch_scan"));
-  const openPrivacySettings = () => run("Abrir Ajustes", () => call("open_privacy_settings"));
+  const openPrivacySettings = () => run("Abrir Ajustes", () => call("open_privacy_settings", { pane: "disk" }));
   const authorizeWatchedFolder = async (options: WatchAuthorization) => {
     try {
       const folder = await call<WatchedFolder | null>("watch_folder_authorize", options);
@@ -158,7 +194,7 @@ export function MainWindow() {
       <section className="detail">
         {data && (
           <div className="section-host" hidden={section !== "library"}>
-            <LibraryView data={data} jobs={jobs} refresh={refresh} active={section === "library"} />
+            <LibraryView data={data} jobs={jobs} refresh={refresh} active={section === "library"} isRecording={recorder.active} />
           </div>
         )}
         {detail}

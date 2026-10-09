@@ -29,7 +29,10 @@ pub fn private_host(raw: &str) -> bool {
     if host.starts_with("fc") || host.starts_with("fd") {
         return host.contains(':');
     }
-    let octets: Vec<u8> = host.split('.').filter_map(|part| part.parse().ok()).collect();
+    let octets: Vec<u8> = host
+        .split('.')
+        .filter_map(|part| part.parse().ok())
+        .collect();
     if octets.len() != 4 || host.split('.').count() != 4 {
         return false;
     }
@@ -83,7 +86,10 @@ pub async fn models(resolver: &Value, secret: Option<String>) -> Result<Vec<Stri
     Ok(ids)
 }
 
-pub async fn probe_transcription(resolver: &Value, secret: Option<String>) -> Result<String, String> {
+pub async fn probe_transcription(
+    resolver: &Value,
+    secret: Option<String>,
+) -> Result<String, String> {
     let part = multipart::Part::bytes(silent_wav())
         .file_name("prueba.wav")
         .mime_str("audio/wav")
@@ -281,16 +287,35 @@ mod network_tests {
 
     #[test]
     fn http_solo_vale_dentro_de_tu_red_como_en_swift() {
-        for host in ["localhost", "mac.local", "127.0.0.1", "10.0.0.4", "192.168.1.20", "172.20.0.1", "100.101.102.103", "::1", "fd7a:115c::1"] {
+        for host in [
+            "localhost",
+            "mac.local",
+            "127.0.0.1",
+            "10.0.0.4",
+            "192.168.1.20",
+            "172.20.0.1",
+            "100.101.102.103",
+            "::1",
+            "fd7a:115c::1",
+        ] {
             assert!(private_host(host), "{host}");
         }
-        for host in ["example.com", "8.8.8.8", "172.32.0.1", "100.128.0.1", "192.169.0.1", "fdroid.org"] {
+        for host in [
+            "example.com",
+            "8.8.8.8",
+            "172.32.0.1",
+            "100.128.0.1",
+            "192.169.0.1",
+            "fdroid.org",
+        ] {
             assert!(!private_host(host), "{host}");
         }
         assert!(endpoint(&json!({"url": "http://192.168.1.20:1234/v1"}), "models").is_ok());
         assert!(endpoint(&json!({"url": "http://api.example.com/v1"}), "models").is_err());
         assert_eq!(
-            endpoint(&json!({"url": "https://api.openai.com/v1/"}), "models").unwrap().as_str(),
+            endpoint(&json!({"url": "https://api.openai.com/v1/"}), "models")
+                .unwrap()
+                .as_str(),
             "https://api.openai.com/v1/models"
         );
     }

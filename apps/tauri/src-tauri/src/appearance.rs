@@ -1,6 +1,11 @@
 pub fn hex(red: f64, green: f64, blue: f64) -> String {
     let channel = |value: f64| (value.clamp(0.0, 1.0) * 255.0).round() as u8;
-    format!("#{:02x}{:02x}{:02x}", channel(red), channel(green), channel(blue))
+    format!(
+        "#{:02x}{:02x}{:02x}",
+        channel(red),
+        channel(green),
+        channel(blue)
+    )
 }
 
 #[cfg(target_os = "macos")]
