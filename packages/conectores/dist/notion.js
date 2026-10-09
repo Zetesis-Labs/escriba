@@ -76,7 +76,7 @@ export function notionConfig(raw) {
         "{{transcripcion}}";
     return { source: parsed.source, columns, body };
 }
-function suggestedColumns(source, existing = {}) {
+export function suggestedColumns(source, existing = {}) {
     const specs = {
         title: { types: ["title"], hints: ["titulo", "nombre", "asunto"] },
         date: {
@@ -459,7 +459,7 @@ export async function runNotion(request, host) {
     if (!note)
         throw Error("Falta la nota");
     if (request.operation === "preview")
-        return notionPayload(note, config);
+        return notionPayload(note, config, "ejemplo");
     const audio = config.body.includes("{{audio}}")
         ? await upload(client, host)
         : undefined;

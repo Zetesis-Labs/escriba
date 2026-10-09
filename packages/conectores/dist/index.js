@@ -2,6 +2,8 @@ import { z } from "zod";
 import { runOKF, okfConfig, okfSchema, standardDocuments } from "./okf.js";
 import { runNotion, notionConfig, notionSchema, notionProblem, } from "./notion.js";
 export * from "./types.js";
+export { notionConfig, notionSchema, notionProblem, suggestedColumns } from "./notion.js";
+export { okfConfig, okfSchema, standardDocuments } from "./okf.js";
 const inputSchema = z.object({
     key: z.string(),
     text: z.string(),
