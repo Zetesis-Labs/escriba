@@ -1115,10 +1115,22 @@ impl Store {
                         .ok_or("Configuración inválida")?
                         .remove(secret);
                 }
+                for derived in ["bundleFingerprint", "programFingerprint"] {
+                    item.as_object_mut()
+                        .ok_or("Configuración inválida")?
+                        .remove(derived);
+                }
                 let items = next[collection]
                     .as_array_mut()
                     .ok_or("Colección inválida")?;
                 if let Some(old) = items.iter_mut().find(|i| i["id"] == key) {
+                    for program in ["bundle", "program"] {
+                        if item.get(program).is_none() {
+                            if let Some(kept) = old.get(program).cloned() {
+                                item[program] = kept;
+                            }
+                        }
+                    }
                     *old = item.clone();
                 } else {
                     if collection == "accounts" || collection == "resolvers" {
@@ -2754,6 +2766,24 @@ mod tests {
         store.mutate("config_save", &account).unwrap();
         assert_eq!(store.credential("notion").unwrap(), None);
     }
+    #[test]
+    fn guardar_una_receta_o_un_destino_sin_su_programa_conserva_el_compilado() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = Store::open(dir.path().join("library")).unwrap();
+        let recipe = json!({"id":"resumen","name":"Resumen","kind":"code","values":{},"bundle":"var __recipe = 1;"});
+        store.mutate("config_save", &json!({"collection":"recipes","item":recipe})).unwrap();
+        store
+            .mutate(
+                "config_save",
+                &json!({"collection":"recipes","item":{"id":"resumen","name":"Resumen","kind":"code","values":{"idioma":"en"},"bundleFingerprint":"abc"}}),
+            )
+            .unwrap();
+        let saved = store.item("recipes", "resumen").unwrap();
+        assert_eq!(saved["bundle"], "var __recipe = 1;");
+        assert_eq!(saved["values"]["idioma"], "en");
+        assert!(saved.get("bundleFingerprint").is_none());
+    }
+
     #[test]
     fn failed_library_write_preserves_the_audio_copy() {
         let dir = tempfile::tempdir().unwrap();

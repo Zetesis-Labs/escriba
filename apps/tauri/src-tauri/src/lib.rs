@@ -8,6 +8,7 @@ mod migration;
 mod native;
 mod persistence;
 mod project;
+mod project_watch;
 mod remote;
 mod scripts;
 mod store;
@@ -1085,6 +1086,46 @@ fn start_jobs(app: tauri::AppHandle, state: Arc<Runtime>) {
         }
     });
 }
+fn start_project_watcher(app: tauri::AppHandle, state: Arc<Runtime>) {
+    tauri::async_runtime::spawn(async move {
+        let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel::<()>();
+        let mut watching: Option<(String, notify::RecommendedWatcher)> = None;
+        loop {
+            let path = state
+                .store()
+                .ok()
+                .and_then(|store| store.data["settings"]["projectPath"].as_str().map(str::to_owned));
+            if watching.as_ref().map(|(current, _)| current) != path.as_ref() {
+                watching = match path {
+                    Some(path) => match project_watch::watch(&path, sender.clone()) {
+                        Ok(watcher) => Some((path, watcher)),
+                        Err(error) => {
+                            log_error(&state, &format!("No se puede vigilar el proyecto de recetas: {error}"));
+                            None
+                        }
+                    },
+                    None => None,
+                };
+            }
+            tokio::select! {
+                Some(()) = receiver.recv() => {
+                    tokio::time::sleep(Duration::from_millis(800)).await;
+                    while receiver.try_recv().is_ok() {}
+                    let _ = app.emit("escriba://project", json!({"phase": "building"}));
+                    let result = script_call(&app, &state, &store::id(), "rebuildProject", json!({})).await;
+                    let phase = match &result {
+                        Ok(_) => json!({"phase": "ready"}),
+                        Err(error) => json!({"phase": "failed", "message": error}),
+                    };
+                    let _ = app.emit("escriba://project", phase);
+                    let _ = app.emit("escriba://changed", ());
+                }
+                _ = tokio::time::sleep(Duration::from_secs(5)) => {}
+            }
+        }
+    });
+}
+
 fn start_watcher(
     app: tauri::AppHandle,
     state: Arc<Runtime>,
@@ -1261,6 +1302,7 @@ pub fn run() {
                     let _ = handle.emit("escriba://changed", ());
                 }
                 start_jobs(handle.clone(), state.clone());
+                start_project_watcher(handle.clone(), state.clone());
                 start_watcher(handle, state, wake);
             });
             Ok(())

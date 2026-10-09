@@ -81,6 +81,7 @@ export interface Recipe {
   description?: string;
   schema?: JSONObject;
   bundle?: string;
+  bundleFingerprint?: string;
   error?: string;
 }
 export interface Account {
@@ -102,6 +103,7 @@ export interface Destination {
   inputSchema?: JSONObject;
   description?: string;
   program?: string;
+  programFingerprint?: string;
 }
 export interface WatchedFolder {
   style?: "justPressRecord" | "voiceMemos" | "any";
