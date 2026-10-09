@@ -64,6 +64,8 @@ describe("la biblioteca de Tauri contada como en Swift", () => {
     const importada = { ...base, name: "03823BB9-D0D1", destinationId: "03823BB9-D0D1", receipt: { url: "x" } };
     expect(publishedNames(recording({ publications: [importada] }), [{ id: "03823BB9-D0D1", name: "Voice Inbox", provider: "notion", account: "n", enabled: true, configuration: {} }])).toEqual(["Voice Inbox"]);
     expect(publishedNames(recording({ publications: [importada] }))).toEqual(["Notion"]);
+    const deSwift = (url: string) => ({ ...base, provider: "legacy", destinationId: "x", name: "x", receipt: { url, locator: "a" } });
+    expect(publishedNames(recording({ publications: [deSwift("https://app.notion.com/p/abc"), deSwift("")] }))).toEqual(["Notion", "OKF"]);
   });
   test("solo publican los destinos activos de una cuenta activa", () => {
     const destinations = [
