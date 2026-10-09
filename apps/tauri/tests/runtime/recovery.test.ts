@@ -5,7 +5,7 @@ import { createConnectorService } from "../../src/runtime/connectors";
 import { summarizeText } from "../../src/runtime/summary";
 import type { RuntimeHost, RuntimeRunner } from "../../src/runtime/contracts";
 import type { Publication, Version } from "../../src/types";
-import { snapshot } from "./fixture";
+import { snapshot, runtimeContext } from "./fixture";
 function memory() {
   const state = structuredClone(snapshot);
   const calls: { method: string; params: Record<string, unknown> }[] = [];
@@ -13,7 +13,7 @@ function memory() {
     call: async (method, params = {}) => {
       calls.push({ method, params });
       const record = state.recordings[0];
-      if (method === "snapshot") return structuredClone(state);
+      if (method === "runtime_context") return runtimeContext(state, params.recordingId);
       if (method === "transcribe")
         return { text: "Conversación", segments: [] };
       if (method === "version_save") {

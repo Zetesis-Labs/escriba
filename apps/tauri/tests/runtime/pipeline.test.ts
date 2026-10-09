@@ -2,7 +2,7 @@ import { test } from "vitest";
 import assert from "node:assert/strict";
 import { createRuntime } from "../../src/runtime/controller.js";
 import type { Snapshot, Version } from "../../src/types.js";
-import { snapshot } from "./fixture";
+import { snapshot, runtimeContext } from "./fixture";
 
 test("persiste transcripción antes del resumen fallido y conserva el aviso", async () => {
   const state = structuredClone(snapshot);
@@ -11,7 +11,7 @@ test("persiste transcripción antes del resumen fallido y conserva el aviso", as
     {
       call: async (method, params = {}) => {
         calls.push(method);
-        if (method === "snapshot") return state;
+        if (method === "runtime_context") return runtimeContext(state, params.recordingId);
         if (method === "transcribe") return { text: "Hola", segments: [] };
         if (method === "version_save") {
           const v = {

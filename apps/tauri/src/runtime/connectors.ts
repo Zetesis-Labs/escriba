@@ -3,14 +3,13 @@ import type {
   Publication,
   Recording,
   Version,
-  Snapshot,
   JSONObject,
 } from "../types";
 import {
   aborted,
   jsonObject,
   object,
-  readSnapshot,
+  readContext,
   request,
   text,
   type RuntimeHost,
@@ -58,7 +57,7 @@ export function createConnectorService(
     signal?: AbortSignal,
     alreadyLocked = false,
   ): Promise<JSONObject> {
-    const snapshot = await readSnapshot(host);
+    const snapshot = await readContext(host, recordingId);
     const recording = recordingId
       ? snapshot.recordings.find((r) => r.id === recordingId)
       : undefined;
@@ -119,7 +118,7 @@ export function createConnectorService(
       };
       const refreshAuthority = async () => {
         aborted(signal);
-        const current = await readSnapshot(host);
+        const current = await readContext(host);
         const active = current.accounts.find((a) => a.id === accountId);
         if (
           !active?.enabled ||

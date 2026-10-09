@@ -268,7 +268,7 @@ test("SDK y host de capacidades se integran sin cabeceras fuera del permiso", as
   const { createConnectorService } = await import(
     "../../src/runtime/connectors"
   );
-  const { snapshot } = await import("./fixture");
+  const { snapshot, runtimeContext } = await import("./fixture");
   const state = structuredClone(snapshot);
   state.accounts.push({
     id: "a",
@@ -288,8 +288,8 @@ test("SDK y host de capacidades se integran sin cabeceras fuera del permiso", as
   let requests = 0;
   const service = createConnectorService(
     {
-      call: async (method) => {
-        if (method === "snapshot") return state;
+      call: async (method, params = {}) => {
+        if (method === "runtime_context") return runtimeContext(state, params.recordingId);
         if (method === "connector_http") {
           requests++;
           return {
@@ -312,7 +312,7 @@ test("SDK y host de capacidades se integran sin cabeceras fuera del permiso", as
 });
 test("idioma de ajustes rige formulario builtin sin pisar explícito ni formulario de usuario", async () => {
   const { createRuntime } = await import("../../src/runtime/controller");
-  const { snapshot } = await import("./fixture");
+  const { snapshot, runtimeContext } = await import("./fixture");
   const state = structuredClone(snapshot);
   state.settings.language = "en";
   state.recipes[0].values = { resumir: false };
@@ -320,7 +320,7 @@ test("idioma de ajustes rige formulario builtin sin pisar explícito ni formular
   const runtime = createRuntime(
     {
       call: async (method, params = {}) => {
-        if (method === "snapshot") return structuredClone(state);
+        if (method === "runtime_context") return runtimeContext(state, params.recordingId);
         if (method === "transcribe") {
           languages.push(params.language);
           return { text: "Texto", segments: [] };
