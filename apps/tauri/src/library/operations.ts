@@ -4,7 +4,7 @@ import { transcriptExportJSON } from "../core/export";
 import { correctedSpeaker, forgottenRecognition } from "../core/people";
 import { clockStamp, renderedTranscript } from "../core/presentation";
 import { cancelProcessing, processRecording, publishRecording, summarizeRecording, unpublishRecording } from "../runtime";
-import type { Recording, Transcript, Version } from "../types";
+import type { JSONObject, Recording, Transcript, Version } from "../types";
 import { currentVersion, isPublished } from "./model";
 import { displayTitle } from "./RecordingRow";
 
@@ -20,7 +20,7 @@ export async function republish(recording: Recording) {
   if (failures.length) throw Error(`El cambio se guardó, pero faltó actualizar ${failures.join("; ")}`);
 }
 
-export const reprocess = (recording: Recording, recipeId?: string) => processRecording(recording.id, { recipeId, force: true });
+export const reprocess = (recording: Recording, recipeId?: string, values?: JSONObject) => processRecording(recording.id, { recipeId, force: true, values });
 
 export async function chooseVersion(recording: Recording, version: Version) {
   await call("version_select", { recordingId: recording.id, versionId: version.id });

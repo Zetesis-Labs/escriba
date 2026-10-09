@@ -73,6 +73,29 @@ test("reprocesado manual crea versión, automático reutiliza, cambio de idioma 
   assert.equal(m.state.recordings[0].versions.length, 3);
   assert.equal(m.calls.filter((c) => c.method === "transcribe").length, 2);
 });
+
+test.each(["form", "code"] as const)("los valores puntuales de una receta %s no pasan a la que llama con procesar", async (kind) => {
+  const m = memory();
+  m.state.recipes = [
+    { id: "default", name: "Reparto", kind, values: { de: "libro" }, ...(kind === "form" ? { base: "base" } : { bundle: "reparto" }) },
+    { id: "base", name: "Base", kind: "code", values: { de: "base" }, bundle: "reparto" },
+    { id: "reuniones", name: "Reuniones", kind: "code", values: { suyos: true }, bundle: "reuniones" },
+  ];
+  const seen: unknown[] = [];
+  const runtime = createRuntime(m.host, {
+    run: async (task, context) => {
+      seen.push(task.payload.values);
+      if (task.program === "reparto") await context.call("process", { recipeId: "reuniones" });
+      await context.call("transcribe", {});
+      await context.call("save", {});
+      return null;
+    },
+  });
+  await runtime.processRecording("r", { values: { de: "una vez" } });
+  assert.deepEqual(seen, [{ de: "una vez" }, { suyos: true }]);
+  assert.deepEqual(m.state.recipes.map((recipe) => recipe.values), [{ de: "libro" }, { de: "base" }, { suyos: true }]);
+});
+
 test("reprocesar una versión diarizada sin huellas vuelve a transcribir", async () => {
   const m = memory();
   const runtime = createRuntime(m.host, {

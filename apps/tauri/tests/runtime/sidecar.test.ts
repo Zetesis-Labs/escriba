@@ -264,6 +264,25 @@ test("sidecar compilado preserva transcripción entre reinicios y emite jobs/cap
     host.close();
   }
 });
+
+test("el sidecar aplica los valores puntuales sin cambiar la receta guardada", async () => {
+  const state = structuredClone(snapshot);
+  state.recipes[0].values = { idioma: "en", resumir: false };
+  const host = supervisor(state);
+  try {
+    await host.ready;
+    await host.run("processRecording", {
+      recordingId: "r",
+      options: { recipeId: "default", force: true, values: { idioma: "es", resumir: false } },
+    }).result;
+    await host.run("processRecording", { recordingId: "r", options: { force: true } }).result;
+    assert.deepEqual(state.recordings[0].versions.map((version) => version.inputs?.language), ["es", "en"]);
+    assert.deepEqual(state.recipes[0].values, { idioma: "en", resumir: false });
+  } finally {
+    host.close();
+  }
+});
+
 test("cancelación mata receta CPU y sidecar sigue disponible", async () => {
   const state = structuredClone(snapshot);
   state.recipes[0] = {

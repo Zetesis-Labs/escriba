@@ -56,7 +56,7 @@ export const discoverDestination = (destinationId: string) =>
 export const validateDestination = (destinationId: string) =>
   run<JSONObject>("validateDestination", { destinationId });
 export const getRecipeSchema = (recipeId: string) =>
-  run<JSONObject>("getRecipeSchema", { recipeId });
+  run<JSONObject | null>("getRecipeSchema", { recipeId });
 export const rebuildProject = () => run("rebuildProject", {});
 export function cancelProcessing(recordingId: string) {
   return call<void>("runtime_cancel", { recordingId });

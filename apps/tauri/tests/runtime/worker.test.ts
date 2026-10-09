@@ -110,6 +110,14 @@ test("Worker real valida Zod, pregunta y guarda datos sin acceso a red", async (
   );
   assert.deepEqual(calls, ["transcribe", "ask", "save"]);
 });
+test("una receta de código sin formulario comunica que no tiene parámetros", async () => {
+  const schema = await runner().run(
+    { kind: "recipe-schema", program: "var __recipe={flujo(){}}", payload: { lists } },
+    { call: async () => { throw Error("Leer el formulario no usa capacidades"); } },
+  );
+  assert.equal(schema, null);
+});
+
 test("Worker real se termina por timeout y cancelación incluso con bucle CPU", async () => {
   const program = "var __recipe={flujo(){while(true){}}}";
   await assert.rejects(
@@ -355,6 +363,32 @@ test("idioma de ajustes rige formulario builtin sin pisar explícito ni formular
   await runtime.processRecording("r");
   assert.deepEqual(languages, ["en", null, "es", null, "en"]);
 });
+test("reprocesar usa los parámetros puntuales y la siguiente ejecución conserva los guardados", async () => {
+  const { createRuntime } = await import("../../src/runtime/controller");
+  const { snapshot, runtimeContext } = await import("./fixture");
+  const state = structuredClone(snapshot);
+  state.recipes[0].values = { idioma: "en", resumir: false };
+  const languages: unknown[] = [];
+  const runtime = createRuntime({
+    call: async (method, params = {}) => {
+      if (method === "runtime_context") return runtimeContext(state, params.recordingId);
+      if (method === "transcribe") {
+        languages.push(params.language);
+        return { text: "Texto sintético", segments: [] };
+      }
+      if (method === "version_save")
+        return { ...params, id: crypto.randomUUID(), createdAt: "now" };
+      if (["recording_update", "version_update", "version_select", "log", "trace_save", "memory_recall", "memory_keep"].includes(method)) return null;
+      throw Error(`Capacidad inesperada: ${method}`);
+    },
+  }, runner());
+
+  await runtime.processRecording("r", { values: { idioma: "es", resumir: false } });
+  await runtime.processRecording("r");
+  assert.deepEqual(languages, ["es", "en"]);
+  assert.deepEqual(state.recipes[0].values, { idioma: "en", resumir: false });
+});
+
 test("tiempo de inferencia en host no consume presupuesto CPU de la receta", async () => {
   const program =
     "var __recipe={async flujo(audio,api){await(await api.transcribir(audio)).guardar()}}";

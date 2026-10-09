@@ -32,6 +32,7 @@ import { remember, summaryMemory } from "./memory";
 import type { Lists } from "./defaultRecipe";
 import { reusableTranscription, transcriptionCriteriaKey } from "../core/transcriptionMemory";
 import { notificationProblems } from "../core/notificationProblems";
+import { recipeWithValues } from "../core/recipeValues";
 function lookup<T extends { id: string; name: string }>(
   values: T[],
   id: string,
@@ -650,7 +651,7 @@ export function createRuntime(
             error: null,
             recipeId: chosen.id,
           });
-        await execute(chosen, []);
+        await execute(recipeWithValues(chosen, processOptions.values), []);
         aborted(signal);
         if (!current) throw Error("La receta no produjo una transcripción");
         if (!processOptions.dryRun)
@@ -752,27 +753,26 @@ export function createRuntime(
       }
     });
   }
-  async function getRecipeSchema(recipeId: string): Promise<JSONObject> {
+  async function getRecipeSchema(recipeId: string): Promise<JSONObject | null> {
     const snapshot = await readContext(host);
     const recipe = lookup(snapshot.recipes, recipeId, "Receta");
-    return jsonObject(
-      await runner.run(
-        {
-          kind: "recipe-schema",
-          program: recipeProgram(recipe, snapshot),
-          payload: {
-            lists: lists(snapshot),
-            defaultLanguage: snapshot.settings.language,
-          },
+    const schema = await runner.run(
+      {
+        kind: "recipe-schema",
+        program: recipeProgram(recipe, snapshot),
+        payload: {
+          lists: lists(snapshot),
+          defaultLanguage: snapshot.settings.language,
         },
-        {
-          timeoutMs: 10000,
-          call: async () => {
-            throw Error("La inspección no tiene capacidades");
-          },
+      },
+      {
+        timeoutMs: 10000,
+        call: async () => {
+          throw Error("La inspección no tiene capacidades");
         },
-      ),
+      },
     );
+    return schema === null ? null : jsonObject(schema);
   }
   return {
     async notificationProblems(status: NativeStatus) {

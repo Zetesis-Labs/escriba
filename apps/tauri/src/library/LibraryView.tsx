@@ -6,15 +6,19 @@ import { Pane } from "../app/Pane";
 import { audioExtensions, fileName, importNotice, importPlan } from "../core/inbox";
 import { librarySummary, rowActionText, speakers } from "../core/presentation";
 import { speakerTitle } from "../core/people";
+import { reprocessChoice, reprocessDraft, reprocessTransition } from "../core/reprocessSheet";
+import { recipeFormLoad } from "../core/recipeForm";
 import { okfPublicationFile } from "../core/publicationFiles";
-import { Button, ContentUnavailable, PopupButton, Sheet, Spinner, TextField, ToolbarButton, ToolbarMenu } from "../mac/controls";
+import { Button, ContentUnavailable, FormRow, FormSection, LabeledRow, PopupButton, Sheet, Spinner, TextField, ToolbarButton, ToolbarMenu } from "../mac/controls";
 import { alertMessage, chooseFiles, confirmDestructive, errorText, header, item, popupMenu, separator, submenu, type MenuEntry } from "../mac/native";
-import type { Destination, JobState, Recording, Snapshot } from "../types";
+import type { Destination, JobState, JSONObject, Recording, Snapshot } from "../types";
 import { currentVersion, currentVersionLabel, isPublished, libraryRecordings, liveDestinations, originName, providerLabel, versionsInOrder, versionTitle } from "./model";
 import * as operations from "./operations";
 import { displayTitle, RecordingRow } from "./RecordingRow";
 import { TranscriptDetail } from "./TranscriptDetail";
 import { startRecording, stopRecording } from "../recording/useRecording";
+import { getRecipeSchema } from "../runtime";
+import { RecipeFormSections } from "../recipes/RecipeFormSections";
 import "./library.css";
 
 type Rename = { recording: Recording; speaker: string; name: string };
@@ -368,12 +372,11 @@ export function LibraryView({
       )}
       {reprocessing && (
         <ReprocessSheet
-          recording={reprocessing}
           data={data}
           onCancel={() => setReprocessing(null)}
-          onRun={(recipeId) => {
+          onRun={(recipeId, values) => {
             setReprocessing(null);
-            void perform(() => operations.reprocess(reprocessing, recipeId));
+            void perform(() => operations.reprocess(reprocessing, recipeId, values));
           }}
         />
       )}
@@ -403,23 +406,55 @@ export function LibraryView({
   );
 }
 
-function ReprocessSheet({ recording, data, onCancel, onRun }: { recording: Recording; data: Snapshot; onCancel: () => void; onRun: (recipeId?: string) => void }) {
-  const [recipeId, setRecipeId] = useState(data.settings.defaultRecipeId);
+function ReprocessSheet({ data, onCancel, onRun }: { data: Snapshot; onCancel: () => void; onRun: (recipeId: string, values?: JSONObject) => void }) {
+  const [draft, setDraft] = useState(() => reprocessDraft(data.settings.defaultRecipeId));
+  useEffect(() => {
+    let current = true;
+    const recipe = data.recipes.find((candidate) => candidate.id === draft.recipeId);
+    const loaded = (load: ReturnType<typeof recipeFormLoad>) => {
+      if (current) setDraft((previous) => reprocessTransition(previous, { type: "loaded", recipeId: draft.recipeId, load, saved: recipe?.values ?? {} }));
+    };
+    if (!desktop) loaded(recipeFormLoad(recipe?.schema ?? null));
+    else void getRecipeSchema(draft.recipeId)
+      .then((schema) => loaded(recipeFormLoad(schema)))
+      .catch((failure) => loaded({ kind: "problem", problem: errorText(failure) }));
+    return () => { current = false; };
+  }, [draft.recipeId]);
   const options = data.recipes.map((recipe) => ({
     value: recipe.id,
     label: recipe.id === data.settings.defaultRecipeId ? `${recipe.name} (por defecto)` : recipe.name,
   }));
+  const footer = draft.load === null
+    ? "Leyendo sus parámetros…"
+    : draft.load.kind === "noForm"
+      ? "No tiene parámetros: hace lo que diga su código."
+      : draft.load.kind === "form"
+        ? "Los cambios de abajo valen solo para esta vez; la receta no cambia."
+        : "Sus parámetros no se pueden pintar: se usan los guardados.";
+  const run = () => {
+    const choice = reprocessChoice(draft);
+    onRun(choice.recipeId, choice.values);
+  };
   return (
     <Sheet onCancel={onCancel}>
       <div className="font-headline">Reprocesar con una receta</div>
-      <div>
-        <div className="form-group">
-          <div className="form-row">
-            <span>Receta</span>
-            <PopupButton label="Receta" value={recipeId} options={options} onChange={setRecipeId} />
-          </div>
-        </div>
-        <div className="form-footer font-caption secondary">{`«${displayTitle(recording)}» se procesa con esta receta solo esta vez.`}</div>
+      <div style={{ minHeight: 380, display: "flex", flexDirection: "column", gap: 16 }} onKeyDown={(event) => {
+        if (event.key === "Enter" && event.target instanceof HTMLInputElement) {
+          event.preventDefault();
+          run();
+        }
+      }}>
+        <FormSection footer={footer}>
+          <LabeledRow label="Receta">
+            <PopupButton label="Receta" value={draft.recipeId} options={options} onChange={(recipeId) => setDraft((previous) => reprocessTransition(previous, { type: "select", recipeId }))} />
+          </LabeledRow>
+        </FormSection>
+        {draft.load?.kind === "form" && <RecipeFormSections form={draft.load.form} values={draft.values} onChange={(values) => setDraft((previous) => reprocessTransition(previous, { type: "change", values }))} />}
+        {draft.load?.kind === "problem" && (
+          <FormSection header="Parámetros">
+            <FormRow><span className="warning selectable">{draft.load.problem}</span></FormRow>
+          </FormSection>
+        )}
       </div>
       <p className="font-caption secondary">
         La receta hace su recorrido entero. Si no cambian los criterios de transcripción, aprovecha la transcripción que ya hay; si cambian, sale una versión
@@ -427,7 +462,7 @@ function ReprocessSheet({ recording, data, onCancel, onRun }: { recording: Recor
       </p>
       <div className="sheet-actions">
         <Button onClick={onCancel}>Cancelar</Button>
-        <Button prominent onClick={() => onRun(recipeId === data.settings.defaultRecipeId ? undefined : recipeId)}>
+        <Button prominent onClick={run}>
           Reprocesar
         </Button>
       </div>
