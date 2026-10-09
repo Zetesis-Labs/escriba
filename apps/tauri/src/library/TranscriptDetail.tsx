@@ -1,5 +1,5 @@
 import { AlertTriangle, Clock, Sparkles, VolumeX } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { audioURL, call, desktop } from "../api";
 import { clockStamp, longDate, playbackPosition, speakers } from "../core/presentation";
 import { Button, Spinner } from "../mac/controls";
@@ -36,10 +36,12 @@ export function TranscriptDetail({
   job,
   recipes,
   canSummarize,
+  loading,
   onReprocess,
   onSummarize,
 }: {
   recording: Recording;
+  loading: boolean;
   origin: string;
   job?: JobState;
   recipes: Recipe[];
@@ -65,6 +67,7 @@ export function TranscriptDetail({
     .filter(Boolean)
     .join(" · ");
   const summarizing = job?.stage === "Resumiendo";
+  const seek = useCallback((time: number) => player.seek(time, true), [player.seek]);
 
   return (
     <div className="transcript-detail">
@@ -83,7 +86,7 @@ export function TranscriptDetail({
             <div className="font-callout secondary">{details}</div>
             {version?.digest?.tags?.length ? <TagChips tags={version.digest.tags} /> : null}
           </header>
-          {transcript ? (
+          {loading ? null : transcript ? (
             <>
               {summarizing ? (
                 <div className="inline-progress">
@@ -104,7 +107,7 @@ export function TranscriptDetail({
               <NoteDataSection data={version?.data} schema={version?.dataSchema} />
               <section className="detail-section">
                 <h2 className="font-headline">Transcripción</h2>
-                <Karaoke transcript={transcript} position={playbackPosition(transcript, player.currentTime)} onSeek={(time) => player.seek(time, true)} />
+                <Karaoke transcript={transcript} position={playbackPosition(transcript, player.currentTime)} onSeek={seek} />
               </section>
               {trace && <TraceCard trace={trace} recipeName={recipeName} />}
             </>

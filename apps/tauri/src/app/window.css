@@ -94,3 +94,9 @@
   min-height: 0;
   overflow: hidden;
 }
+.section-host {
+  height: 100%;
+}
+.section-host[hidden] {
+  display: none;
+}

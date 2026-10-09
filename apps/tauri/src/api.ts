@@ -1,5 +1,5 @@
 import { invoke, isTauri, convertFileSrc } from "@tauri-apps/api/core";
-import type { Snapshot, JSONValue } from "./types";
+import type { JSONValue, Recording, Snapshot } from "./types";
 
 export const desktop = isTauri();
 export async function call<T = unknown>(
@@ -13,6 +13,8 @@ export async function call<T = unknown>(
   return invoke<T>("app_command", { method, params });
 }
 export const snapshot = () => call<Snapshot>("snapshot");
+export const library = () => call<Snapshot>("library");
+export const recordingDetail = (id: string) => call<Recording>("recording_detail", { id });
 export const audioURL = (path: string) => convertFileSrc(path);
 export async function log(
   message: string,

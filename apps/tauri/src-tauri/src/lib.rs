@@ -3,6 +3,7 @@ mod capabilities;
 mod catalog;
 mod folder_access;
 mod jobs;
+mod library_view;
 mod migration;
 mod native;
 mod persistence;
@@ -69,6 +70,7 @@ impl Runtime {
         };
         match method {
             "snapshot" => Ok(Some(snapshot.clone())),
+            "library" => Ok(Some(library_view::light_library(snapshot))),
             "runtime_jobs" => Ok(Some(json!([]))),
             "recording_status" => Ok(Some(json!({"active":false,"paused":false}))),
             "system_appearance" => Ok(Some(json!({"accent": appearance::accent()}))),
@@ -76,8 +78,17 @@ impl Runtime {
         }
     }
 
+    fn library(&self) -> Result<Value, String> {
+        let library = self.store()?.library();
+        self.decorate(library)
+    }
+
     fn snapshot(&self) -> Result<Value, String> {
-        let mut snapshot = self.store()?.snapshot();
+        let snapshot = self.store()?.snapshot();
+        self.decorate(snapshot)
+    }
+
+    fn decorate(&self, mut snapshot: Value) -> Result<Value, String> {
         let startup = self
             .startup
             .lock()
@@ -163,6 +174,8 @@ fn dispatch<'a>(
         }
         match method {
             "snapshot" => state.snapshot(),
+            "library" => state.library(),
+            "recording_detail" => state.store()?.recording(text(&p, "id")?),
             "runtime_context" => state.store()?.runtime_context(
                 p.get("recordingId")
                     .map(|_| text(&p, "recordingId"))
