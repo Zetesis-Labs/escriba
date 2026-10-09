@@ -508,28 +508,32 @@ mod tests {
         })
     }
 
-    #[tokio::test]
-    async fn procesa_nota_con_biblioteca_mayor_que_el_canal() {
-        let scripts = Scripts::new(crate::native::binary("escriba-runtime").unwrap());
-        let mut data = fixture();
-        let mut historical = data["recordings"][0].clone();
-        historical["id"] = json!("other-recording");
-        historical["versions"] =
-            json!([{"id":"historical-version","transcript":{"text":"x".repeat(33 * 1024 * 1024)}}]);
-        data["recordings"].as_array_mut().unwrap().push(historical);
-        let directory = tempfile::tempdir().unwrap();
-        let mut store = crate::store::Store::open(directory.path().join("library")).unwrap();
-        data["schemaVersion"] = json!(1);
-        store.replace(data.clone()).unwrap();
-        assert!(store.snapshot().to_string().len() > MAX_FRAME as usize);
-        let library = store.root.clone();
-        let store = Arc::new(StdMutex::new(store));
-        let capability: Capability = Arc::new({
+    fn store_host(
+        store: Arc<StdMutex<crate::store::Store>>,
+        native: Option<Arc<crate::native::Native>>,
+    ) -> Capability {
+        Arc::new({
             let store = store.clone();
             move |method, params, _task, lease| {
                 let store = store.clone();
+                let native = native.clone();
                 Box::pin(async move {
                     lease.ensure_active()?;
+                    if let Some(native) = native {
+                        if method == "transcribe" {
+                            let (audio, model) = {
+                                let store = store.lock().unwrap();
+                                (
+                                    store.audio(crate::store::text(&params, "recordingId")?)?,
+                                    store.data["settings"]["whisperModel"].clone(),
+                                )
+                            };
+                            return native.transcribe(&audio, model, params).await;
+                        }
+                        if method == "summarize" || method == "ask" {
+                            return native.call(&method, params).await;
+                        }
+                    }
                     let mut store = store.lock().unwrap();
                     match method.as_str() {
                         "runtime_context" => store.runtime_context(params["recordingId"].as_str()),
@@ -560,7 +564,130 @@ mod tests {
                     }
                 })
             }
+        })
+    }
+
+    #[tokio::test]
+    #[ignore = "Requiere Whisper y Apple Intelligence ya instalados; solo audio sintético"]
+    async fn receta_predeterminada_transcribe_y_resume_con_motores_locales() {
+        let directory = tempfile::tempdir().unwrap();
+        let audio = directory.path().join("synthetic.aiff");
+        let status = Command::new("/usr/bin/say")
+            .args(["-v", "Mónica", "-o"])
+            .arg(&audio)
+            .arg("Esta es una prueba de transcripción de Escriba. El equipo ha decidido revisar el diseño mañana. Después guardaremos un resumen y comprobaremos que no se pierde la grabación.")
+            .status().await.unwrap();
+        assert!(status.success());
+        let native = Arc::new(crate::native::Native::new(
+            crate::native::binary("EscribaNativeHost").unwrap(),
+        ));
+        let available = native.call("status", json!({})).await.unwrap();
+        assert_eq!(
+            available["whisper"]["available"], true,
+            "Whisper no está instalado"
+        );
+        assert_eq!(
+            available["llm"]["available"], true,
+            "Apple Intelligence no está disponible"
+        );
+        let library = directory.path().join("library");
+        let mut store = crate::store::Store::open(library.clone()).unwrap();
+        let recording = store.import(&audio, None).unwrap();
+        let recording_id = recording["id"].as_str().unwrap().to_owned();
+        let store = Arc::new(StdMutex::new(store));
+        let capability = store_host(store.clone(), Some(native));
+        let scripts = Scripts::new(crate::native::binary("escriba-runtime").unwrap());
+        tokio::time::timeout(
+            Duration::from_secs(180),
+            scripts.call(
+                "real-local",
+                "processRecording",
+                json!({"recordingId":recording_id}),
+                capability.clone(),
+                Arc::new(|_| {}),
+            ),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        drop(scripts);
+        drop(capability);
+        drop(store);
+        tokio::task::yield_now().await;
+        let reopened = crate::store::Store::open(library).unwrap();
+        let saved = reopened.recording(&recording_id).unwrap();
+        assert_eq!(saved["status"], "done");
+        let version = &saved["versions"][0];
+        assert!(version["transcript"]["text"].as_str().unwrap().len() > 20);
+        assert!(version["transcript"]["duration"].as_f64().unwrap() > 1.0);
+        assert!(!version["transcript"]["segments"]
+            .as_array()
+            .unwrap()
+            .is_empty());
+        assert!(!version["digest"]["summary"].as_str().unwrap().is_empty());
+        assert!(!version["digest"]["title"].as_str().unwrap().is_empty());
+        assert!(version["inputs"]["speakers"].is_null());
+        assert!(saved["publications"].as_array().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn receta_predeterminada_llega_al_motor_nativo_sin_fijar_hablantes() {
+        let directory = tempfile::tempdir().unwrap();
+        let audio = directory.path().join("synthetic.wav");
+        std::fs::write(&audio, []).unwrap();
+        let native = Arc::new(crate::native::Native::new(
+            crate::native::binary("EscribaNativeHost").unwrap(),
+        ));
+        let scripts = Scripts::new(crate::native::binary("escriba-runtime").unwrap());
+        let fake = fake_host(Arc::new(StdMutex::new(fixture())));
+        let capability: Capability = Arc::new(move |method, params, task, lease| {
+            if method == "transcribe" {
+                let native = native.clone();
+                let audio = audio.clone();
+                Box::pin(async move {
+                    lease.ensure_active()?;
+                    native
+                        .transcribe(&audio, json!("escriba_test_model_not_installed"), params)
+                        .await
+                })
+            } else {
+                fake(method, params, task, lease)
+            }
         });
+        let error = tokio::time::timeout(
+            Duration::from_secs(20),
+            scripts.call(
+                "native-contract",
+                "processRecording",
+                json!({"recordingId":"r"}),
+                capability,
+                Arc::new(|_| {}),
+            ),
+        )
+        .await
+        .unwrap()
+        .unwrap_err();
+        assert!(error.contains("BACKEND_UNAVAILABLE"), "{error}");
+        assert!(!error.contains("speakers"), "{error}");
+    }
+
+    #[tokio::test]
+    async fn procesa_nota_con_biblioteca_mayor_que_el_canal() {
+        let scripts = Scripts::new(crate::native::binary("escriba-runtime").unwrap());
+        let mut data = fixture();
+        let mut historical = data["recordings"][0].clone();
+        historical["id"] = json!("other-recording");
+        historical["versions"] =
+            json!([{"id":"historical-version","transcript":{"text":"x".repeat(33 * 1024 * 1024)}}]);
+        data["recordings"].as_array_mut().unwrap().push(historical);
+        let directory = tempfile::tempdir().unwrap();
+        let mut store = crate::store::Store::open(directory.path().join("library")).unwrap();
+        data["schemaVersion"] = json!(1);
+        store.replace(data.clone()).unwrap();
+        assert!(store.snapshot().to_string().len() > MAX_FRAME as usize);
+        let library = store.root.clone();
+        let store = Arc::new(StdMutex::new(store));
+        let capability = store_host(store.clone(), None);
         tokio::time::timeout(
             Duration::from_secs(20),
             scripts.call(
