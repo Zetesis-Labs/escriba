@@ -5,6 +5,7 @@ import { call, desktop, native, recordingDetail } from "../api";
 import { Pane } from "../app/Pane";
 import { audioExtensions, fileName, importNotice, importPlan } from "../core/inbox";
 import { librarySummary, rowActionText, speakers } from "../core/presentation";
+import { speakerTitle } from "../core/people";
 import { okfPublicationFile } from "../core/publicationFiles";
 import { Button, ContentUnavailable, PopupButton, Sheet, Spinner, TextField, ToolbarButton, ToolbarMenu } from "../mac/controls";
 import { alertMessage, chooseFiles, confirmDestructive, errorText, header, item, popupMenu, separator, submenu, type MenuEntry } from "../mac/native";
@@ -240,7 +241,10 @@ export function LibraryView({
     return [
       header("Hablantes"),
       ...names.map((speaker) =>
-        submenu(speaker, [
+        submenu(transcript ? speakerTitle(speaker, transcript) : speaker, [
+          ...(transcript?.recognitions?.some((recognition) => recognition.person === speaker)
+            ? [item(`No es ${speaker}`, () => void perform(() => operations.forgetSpeakerRecognition(recording, speaker))), separator]
+            : []),
           item("Renombrar…", () => setRename({ recording, speaker, name: speaker })),
           ...names
             .filter((other) => other !== speaker)
@@ -248,6 +252,19 @@ export function LibraryView({
         ]),
       ),
     ];
+  };
+
+  const renameCurrent = () => {
+    if (!rename) return;
+    const target = rename;
+    setRename(null);
+    void perform(async () => {
+      const saved = await operations.renameSpeaker(target.recording, target.speaker, target.name);
+      if (saved?.learnedVoice === false) {
+        const name = target.name.trim();
+        await alertMessage("Renombrado, pero sin aprender su voz", `Esta versión no tiene huellas de voz: se transcribió antes de Personas o sin detectar hablantes. Para que Escriba reconozca a ${name} en otras grabaciones, reprocesa esta con «Detectar hablantes» y vuelve a renombrar, o registra su voz en Personas.`);
+      }
+    });
   };
 
   const move = (event: KeyboardEvent) => {
@@ -367,22 +384,15 @@ export function LibraryView({
             value={rename.name}
             autoFocus
             onChange={(name) => setRename({ ...rename, name })}
-            onSubmit={() => {
-              const target = rename;
-              setRename(null);
-              void perform(() => operations.renameSpeaker(target.recording, target.speaker, target.name));
-            }}
+            onSubmit={renameCurrent}
             placeholder="Nombre"
           />
+          <p className="font-callout secondary">Si la grabación tiene huellas de voz, Escriba recordará a esta persona y la reconocerá en las siguientes.</p>
           <div className="sheet-actions">
             <Button onClick={() => setRename(null)}>Cancelar</Button>
             <Button
               prominent
-              onClick={() => {
-                const target = rename;
-                setRename(null);
-                void perform(() => operations.renameSpeaker(target.recording, target.speaker, target.name));
-              }}
+              onClick={renameCurrent}
             >
               Renombrar
             </Button>

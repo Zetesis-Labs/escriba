@@ -29,6 +29,7 @@ import { createConnectorService, currentVersion } from "./connectors";
 import { summarizeText } from "./summary";
 import { remember, summaryMemory } from "./memory";
 import type { Lists } from "./defaultRecipe";
+import { reusableTranscription, transcriptionCriteriaKey } from "../core/transcriptionMemory";
 function lookup<T extends { id: string; name: string }>(
   values: T[],
   id: string,
@@ -81,9 +82,6 @@ function selected(
     : enabled.find((r) => r.local);
   if (!value) throw Error(`No hay resolutor ${role} disponible`);
   return value;
-}
-function criteriaKey(value: JSONObject | undefined) {
-  return JSON.stringify(value || {}, Object.keys(value || {}).sort());
 }
 function recipeProgram(
   recipe: Recipe,
@@ -276,6 +274,7 @@ export function createRuntime(
         backend: string,
         inputs: JSONObject,
         recipeId: string,
+        sourceVersionId?: string,
       ) => {
         if (processOptions.dryRun) {
           const version: Version = {
@@ -296,6 +295,7 @@ export function createRuntime(
           backend,
           recipeId,
           inputs,
+          ...(sourceVersionId ? { sourceVersionId } : {}),
         });
         await keep(version);
         return version;
@@ -406,10 +406,10 @@ export function createRuntime(
                           ? speakers.cuantos
                           : null,
                     };
-                    const key = criteriaKey(inputs);
+                    const key = transcriptionCriteriaKey(inputs);
                     const remembered = [...recording.versions]
                       .reverse()
-                      .find((v) => criteriaKey(v.inputs) === key);
+                      .find((v) => reusableTranscription(v, inputs));
                     const newVersion = fresh && !renewed.has(key);
                     if (remembered && !newVersion) {
                       await keep({
@@ -458,6 +458,7 @@ export function createRuntime(
                       backend.id,
                       inputs,
                       recipe.id,
+                      remembered?.id,
                     );
                     if (savedData !== undefined) version.data = savedData;
                     return recipeNote(version, recording);

@@ -1,4 +1,12 @@
-import type { Snapshot } from "../types";
+import type { Person, Snapshot } from "../types";
+
+export const demoPeople: Person[] = [
+  { name: "Ana", voices: [
+    { id: "demo-voice-1", source: "Reunión del lanzamiento", addedAt: "2026-10-09T09:47:00Z", model: "pyannote" },
+    { id: "demo-voice-2", source: "muestra de voz", addedAt: "2026-10-08T11:10:00Z", model: "pyannote" },
+  ] },
+  { name: "Luis", voices: [{ id: "demo-voice-3", source: "Reunión del lanzamiento", addedAt: "2026-10-09T09:47:00Z", model: "pyannote" }] },
+];
 
 export const demoSnapshot: Snapshot = {
   recordings: [
@@ -31,6 +39,7 @@ export const demoSnapshot: Snapshot = {
           transcript: {
             text: "¿Cómo vamos con el lanzamiento?\nLa migración no llega; propongo moverla una semana.\nVale, y avisamos hoy a soporte.",
             duration: 187,
+            recognitions: [{ speaker: "Speaker 1", person: "Ana", distance: 0.2 }],
             segments: [
               {
                 start: 0,
@@ -52,6 +61,7 @@ export const demoSnapshot: Snapshot = {
               },
             ],
           },
+          hasVoices: true,
           digest: {
             title: "Reunión del lanzamiento",
             summary:
