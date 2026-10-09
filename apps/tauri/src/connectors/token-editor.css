@@ -1,0 +1,103 @@
+.token-editor {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+  min-width: 0;
+  width: 100%;
+}
+
+.token-editor-field {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 27px;
+  padding: 4px 8px;
+  border: 0.5px solid var(--separator);
+  border-radius: 6px;
+  background: var(--content);
+  color: var(--label);
+  font: 13px/1.4 -apple-system, BlinkMacSystemFont, sans-serif;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  outline: none;
+}
+
+.token-editor-field:focus {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+.token-editor.multiline .token-editor-field {
+  min-height: 160px;
+  padding: 8px;
+}
+
+.token-editor-line { min-height: 1.4em; }
+.token-editor-line[data-heading="1"] { font-size: 20px; font-weight: 700; }
+.token-editor-line[data-heading="2"] { font-size: 16px; font-weight: 600; }
+.token-editor-line[data-heading="3"] { font-size: 14px; font-weight: 600; }
+
+.token-editor-field[data-placeholder]:has(> .token-editor-line:only-child > br:only-child)::before {
+  content: attr(data-placeholder);
+  position: absolute;
+  color: var(--tertiary);
+  pointer-events: none;
+}
+
+.token-editor-pill {
+  display: inline-block;
+  vertical-align: baseline;
+  padding: 0 6px;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--label);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.35;
+  white-space: nowrap;
+  user-select: all;
+}
+
+.token-editor-add {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  margin-top: 3px;
+  border: 0;
+  background: transparent;
+  color: var(--secondary);
+  border-radius: 5px;
+}
+.token-editor-add:hover { background: var(--fill-strong); }
+
+.token-editor-suggestions {
+  position: fixed;
+  z-index: 100;
+  width: 300px;
+  max-height: 320px;
+  overflow: auto;
+  padding: 6px;
+  border: 0.5px solid var(--separator);
+  border-radius: 8px;
+  background: var(--window);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.2);
+}
+.token-editor-suggestions button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  width: 100%;
+  padding: 5px 10px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--label);
+  text-align: left;
+  font: inherit;
+}
+.token-editor-suggestions button.selected,
+.token-editor-suggestions button:hover { background: color-mix(in srgb, var(--accent) 25%, transparent); }
+.token-editor-suggestions small { color: var(--secondary); font-size: 11px; }
