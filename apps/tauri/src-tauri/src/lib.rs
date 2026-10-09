@@ -1116,7 +1116,7 @@ async fn recover_captures(state: &Arc<Runtime>) -> Result<(), String> {
         if metadata.len() == 0 {
             continue;
         }
-        let result = state.store()?.import(&path, None);
+        let result = state.store()?.import_recovered_capture(&path);
         match result {
             Ok(record) => {
                 state.store()?.mutate("log", &json!({"level":"warn","recordingId":record["id"],"message":"Recuperada una captura pendiente de guardar"}))?;

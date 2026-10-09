@@ -16,6 +16,10 @@ completado devuelve y conserva `versionId`; el aviso de transcripción usa esa
 versión y solo se envía después de confirmar el trabajo. Un trabajo cancelado
 no confirma el resultado ni emite el aviso.
 
+Las capturas que quedaron pendientes de incorporar se recuperan con la fecha
+de modificación de su archivo como `createdAt`, conservada al reabrir la
+biblioteca. La recuperación no les asigna la fecha del reinicio.
+
 ## Personas y huellas privadas
 
 `person` conserva los nombres; `person_voice`, las huellas aprendidas con su modelo, origen y fecha; `voice`, las huellas de cada versión de transcripción. Estas tablas se consultan en Rust y no forman parte del documento que recibe la WebView o el runtime. La interfaz obtiene nombres y metadatos de las huellas, `hasVoices` en las versiones y reconocimientos `{speaker, person, distance}`. Las respuestas a JavaScript rechazan cualquier campo de embedding.
