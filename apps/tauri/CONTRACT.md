@@ -70,3 +70,9 @@ un refresco no se realimente. Durante la importación inicial la UI recibe un
 snapshot de apertura; los trabajos y vigilantes empiezan después de terminarla.
 `settings.startupMigration` expone `importing`, `imported` con informe o `error`
 con mensaje. La copia se hace en segundo plano, fuera del ciclo de la ventana.
+
+`settings.watchMigration` informa de la recuperación de carpetas vigiladas de
+SwiftUI (`adopted`, `preserved` o `error`). Se aplica una sola vez tras importar
+la biblioteca, también en instalaciones que ya la habían importado. Las
+configuraciones Tauri existentes se conservan; adoptar carpetas pausa la creación
+automática de trabajos hasta que el usuario reanude el procesamiento.
