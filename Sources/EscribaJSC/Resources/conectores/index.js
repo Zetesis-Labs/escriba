@@ -23546,7 +23546,7 @@ async function runNotion(request, host) {
   if (problem) throw Error(problem);
   const note = request.note;
   if (!note) throw Error("Falta la nota");
-  if (request.operation === "preview") return notionPayload(note, config2);
+  if (request.operation === "preview") return notionPayload(note, config2, "ejemplo");
   const audio = config2.body.includes("{{audio}}") ? await upload(client, host) : void 0;
   const payload = notionPayload(note, config2, audio);
   if (!ref) {
@@ -23857,7 +23857,14 @@ export {
   createProgram,
   defineNotionDestination,
   defineOKFDestination,
-  run
+  notionConfig,
+  notionProblem,
+  notionSchema,
+  okfConfig,
+  okfSchema,
+  run,
+  standardDocuments,
+  suggestedColumns
 };
 /*! Bundled license information:
 

@@ -8,6 +8,8 @@ import {
   notionProblem,
 } from "./notion.js";
 export * from "./types.js";
+export { notionConfig, notionSchema, notionProblem, suggestedColumns } from "./notion.js";
+export { okfConfig, okfSchema, standardDocuments } from "./okf.js";
 const inputSchema = z.object({
   key: z.string(),
   text: z.string(),

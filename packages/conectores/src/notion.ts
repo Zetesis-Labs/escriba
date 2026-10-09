@@ -78,7 +78,7 @@ export function notionConfig(raw: unknown) {
     "{{transcripcion}}";
   return { source: parsed.source, columns, body };
 }
-function suggestedColumns(
+export function suggestedColumns(
   source: ReturnType<typeof notionConfig>["source"],
   existing: Record<string, string> = {},
 ) {
@@ -505,7 +505,7 @@ export async function runNotion(request: Request, host: Host): Promise<Result> {
   if (problem) throw Error(problem);
   const note = request.note;
   if (!note) throw Error("Falta la nota");
-  if (request.operation === "preview") return notionPayload(note, config);
+  if (request.operation === "preview") return notionPayload(note, config, "ejemplo");
   const audio = config.body.includes("{{audio}}")
     ? await upload(client, host)
     : undefined;
