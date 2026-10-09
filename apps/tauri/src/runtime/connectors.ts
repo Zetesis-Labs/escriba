@@ -5,6 +5,7 @@ import type {
   Version,
   JSONObject,
 } from "../types";
+import { publicationConfiguration } from "../core/publicationConfiguration";
 import {
   aborted,
   jsonObject,
@@ -86,11 +87,9 @@ export function createConnectorService(
     if (!account?.enabled) throw Error("La cuenta está desactivada o revocada");
     if (operation === "publish" && !retained && !live?.enabled)
       throw Error("El destino está desactivado");
-    const configuration = retained
-      ? publication.configuration
-      : live!.configuration;
+    const configuration = publicationConfiguration(operation, live, retained ? publication : undefined);
     const program = retained
-      ? publication.program
+      ? publication.program || builtinProgram
       : live?.program || builtinProgram;
     const provider = retained ? publication.provider : live!.provider;
     const name = retained ? publication.name : live!.name;
