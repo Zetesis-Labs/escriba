@@ -27,10 +27,24 @@ function useWindowActive() {
   return active;
 }
 
+function useSystemAccent() {
+  useEffect(() => {
+    if (!desktop) return;
+    const apply = () =>
+      void call<{ accent: string | null }>("system_appearance")
+        .then(({ accent }) => accent && document.documentElement.style.setProperty("--accent", accent))
+        .catch(() => undefined);
+    apply();
+    window.addEventListener("focus", apply);
+    return () => window.removeEventListener("focus", apply);
+  }, []);
+}
+
 export function MainWindow() {
   const { data, jobs, problem, refresh } = useAppData();
   const [section, setSection] = useState<MainSection>(() => initialSection(window.location.search));
   const active = useWindowActive();
+  useSystemAccent();
 
   const run: RunAction = useCallback(
     async (label, action, _message, confirmation) => {
