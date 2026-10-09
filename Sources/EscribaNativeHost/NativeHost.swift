@@ -25,18 +25,26 @@ struct NativeInference {
 @MainActor
 final class NativeHost {
     private let inference: NativeInference?
+    private let modelDownload: @Sendable (String, (@Sendable (Double) -> Void)?) async throws -> URL
     private var transcriptionEngines: [String: WhisperKitEngine] = [:]
     private var voiceEngine: WhisperKitEngine?
     private var recorder: AVAudioRecorder?
     private var recordingURL: URL?
     private var recordingActivity: NSObjectProtocol?
 
-    init(inference: NativeInference? = nil) {
+    init(
+        inference: NativeInference? = nil,
+        modelDownload: @escaping @Sendable (String, (@Sendable (Double) -> Void)?) async throws -> URL = {
+            variant, progress in try await WhisperKitBackend.downloadModel(variant: variant, onProgress: progress)
+        }
+    ) {
         self.inference = inference
+        self.modelDownload = modelDownload
     }
 
-    func handle(_ line: String) async -> String {
+    func handle(_ line: String, onProgress: (@Sendable (String, Double) -> Void)? = nil) async -> String {
         let id: DataValue
+        let requestID: String
         let method: String
         let params: DataValue
         do {
@@ -46,6 +54,7 @@ final class NativeHost {
             guard let value = request["id"]?.text, !value.isEmpty else {
                 throw HostFailure("invalid_request", "id debe ser un texto no vacío")
             }
+            requestID = value
             guard let name = request["method"]?.text else {
                 throw HostFailure("invalid_request", "method debe ser un texto")
             }
@@ -60,13 +69,19 @@ final class NativeHost {
         }
 
         do {
-            return reply(id: id, result: try await perform(method, params: params))
+            return reply(id: id, result: try await perform(method, params: params, onProgress: { fraction in
+                onProgress?(requestID, fraction)
+            }))
         } catch {
             return reply(id: id, error: failure(error))
         }
     }
 
-    private func perform(_ method: String, params: DataValue) async throws -> DataValue {
+    private func perform(
+        _ method: String,
+        params: DataValue,
+        onProgress: @escaping @Sendable (Double) -> Void
+    ) async throws -> DataValue {
         switch method {
         case "status": return try status(params)
         case "transcribe": return try await transcribe(params)
@@ -76,7 +91,7 @@ final class NativeHost {
         case "audioInfo": return try audioInfo(params)
         case "fileStatus": return try fileStatus(params)
         case "materialize": return try await materialize(params)
-        case "downloadModel": return try await downloadModel(params)
+        case "downloadModel": return try await downloadModel(params, onProgress: onProgress)
         case "recordingStatus": return recordingStatus()
         case "recordingStart": return try await recordingStart(params)
         case "recordingStop": return try recordingStop()
@@ -260,10 +275,20 @@ final class NativeHost {
         }
     }
 
-    private func downloadModel(_ params: DataValue) async throws -> DataValue {
+    private func downloadModel(
+        _ params: DataValue,
+        onProgress: @escaping @Sendable (Double) -> Void
+    ) async throws -> DataValue {
         let variant = try modelName(params)
-        let folder = try await WhisperKitBackend.downloadModel(variant: variant)
+        let folder = try await modelDownload(variant, onProgress)
         return .object([field("model", .string(variant)), field("path", .string(folder.path(percentEncoded: false)))])
+    }
+
+    nonisolated static func progressFrame(id: String, fraction: Double) -> String {
+        dataText(.object([
+            field("id", .string(id)),
+            field("progress", .object([field("fraction", .number(fraction))])),
+        ]))
     }
 
     private func recordingStart(_ params: DataValue) async throws -> DataValue {
@@ -434,7 +459,7 @@ private func spanValue(_ span: SpeakerSpan) -> DataValue {
     ])
 }
 
-private func field(_ name: String, _ value: DataValue) -> DataField {
+nonisolated private func field(_ name: String, _ value: DataValue) -> DataField {
     DataField(name: name, value: value)
 }
 

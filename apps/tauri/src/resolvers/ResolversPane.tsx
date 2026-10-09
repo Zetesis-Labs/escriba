@@ -1,7 +1,9 @@
 import { AlertTriangle, CheckCircle2, Globe, Laptop, Minus, Plus, Sparkles, AudioWaveform } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
 import { call, desktop, native } from "../api";
 import { Pane } from "../app/Pane";
+import { progressForModel } from "../core/downloadProgress";
 import {
   bytesLabel,
   localId,
@@ -336,8 +338,18 @@ function ResolverEditor({
 
 function WhisperModelSection({ model, onChange }: { model: string; onChange: () => void }) {
   const [info, setInfo] = useState<{ model: string; available: boolean; bytes: number } | null>(null);
-  const [downloading, setDownloading] = useState(false);
+  const [downloadProgress, setDownloadProgress] = useState<number | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
+  const lifecycle = useRef(0);
+  const listeners = useRef(new Set<() => void>());
+  useEffect(() => {
+    lifecycle.current += 1;
+    return () => {
+      lifecycle.current += 1;
+      for (const unlisten of listeners.current) unlisten();
+      listeners.current.clear();
+    };
+  }, []);
   const load = useCallback(() => {
     if (!desktop) return;
     void call<{ model: string; available: boolean; bytes: number }>("whisper_model", { action: "info" })
@@ -346,16 +358,32 @@ function WhisperModelSection({ model, onChange }: { model: string; onChange: () 
   }, []);
   useEffect(load, [load, model]);
   const download = async () => {
-    setDownloading(true);
+    const currentLifecycle = lifecycle.current;
+    setDownloadProgress(0);
     setFailure(null);
+    let unlisten: (() => void) | undefined;
     try {
+      const subscribed = await listen<{ model: string; fraction: number }>("escriba://whisper-download", (event) => {
+        if (lifecycle.current !== currentLifecycle) return;
+        const fraction = progressForModel(event.payload, model);
+        if (fraction !== null) setDownloadProgress(fraction);
+      });
+      if (lifecycle.current === currentLifecycle) {
+        unlisten = subscribed;
+        listeners.current.add(subscribed);
+      } else {
+        subscribed();
+      }
       await native("downloadModel", { model });
     } catch (error) {
-      setFailure(errorText(error));
+      if (lifecycle.current === currentLifecycle) setFailure(errorText(error));
     } finally {
-      setDownloading(false);
-      load();
-      onChange();
+      if (unlisten && listeners.current.delete(unlisten)) unlisten();
+      if (lifecycle.current === currentLifecycle) {
+        setDownloadProgress(null);
+        load();
+        onChange();
+      }
     }
   };
   const remove = async () => {
@@ -383,9 +411,10 @@ function WhisperModelSection({ model, onChange }: { model: string; onChange: () 
             <span className="font-caption secondary">Sin el modelo no se transcribe nada en este Mac hasta volver a descargarlo.</span>
           </FormRow>
         </>
-      ) : downloading ? (
+      ) : downloadProgress !== null ? (
         <FormRow>
-          <Spinner /> <span className="secondary">Descargando…</span>
+          <span className="secondary">Descargando…</span>
+          <progress aria-label="Progreso de descarga" value={downloadProgress} max={1} style={{ flex: 1 }} />
         </FormRow>
       ) : (
         <>

@@ -16,6 +16,7 @@ async fn exchange(
     session: &mut Session,
     method: &str,
     params: Value,
+    on_progress: &mut impl FnMut(f64),
 ) -> Result<Result<Value, String>, String> {
     let request_id = crate::store::id();
     let mut request = serde_json::to_vec(&json!({"id":request_id,"method":method,"params":params}))
@@ -30,39 +31,49 @@ async fn exchange(
         .await
         .map_err(|e| format!("El motor perdió la conexión: {e}"))?;
     session.input.flush().await.map_err(|e| e.to_string())?;
-    let mut bytes = Vec::new();
-    let count = (&mut session.output)
-        .take(MAX_FRAME + 1)
-        .read_until(b'\n', &mut bytes)
-        .await
-        .map_err(|e| format!("No se pudo leer el motor nativo: {e}"))?;
-    if count == 0 {
-        return Err("El motor nativo se detuvo o fue cancelado".into());
+    loop {
+        let mut bytes = Vec::new();
+        let count = (&mut session.output)
+            .take(MAX_FRAME + 1)
+            .read_until(b'\n', &mut bytes)
+            .await
+            .map_err(|e| format!("No se pudo leer el motor nativo: {e}"))?;
+        if count == 0 {
+            return Err("El motor nativo se detuvo o fue cancelado".into());
+        }
+        if count as u64 > MAX_FRAME || bytes.last() != Some(&b'\n') {
+            return Err("Respuesta nativa demasiado grande o incompleta".into());
+        }
+        let response: Value = serde_json::from_slice(&bytes)
+            .map_err(|_| "El motor devolvió una respuesta inválida".to_owned())?;
+        if response["id"] != request_id {
+            return Err("El motor respondió a otra petición".into());
+        }
+        if let Some(progress) = response.get("progress") {
+            let fraction = progress["fraction"]
+                .as_f64()
+                .filter(|fraction| fraction.is_finite() && (0.0..=1.0).contains(fraction))
+                .ok_or("El motor devolvió un progreso inválido")?;
+            on_progress(fraction);
+            continue;
+        }
+        if let Some(error) = response.get("error") {
+            let message = error["message"]
+                .as_str()
+                .unwrap_or("Error del motor nativo");
+            return Ok(Err(if error["code"] == "backend_unavailable" {
+                format!("BACKEND_UNAVAILABLE: {message}")
+            } else if error["code"] == "microphone_denied" {
+                format!("MICROPHONE_DENIED: {message}")
+            } else {
+                message.to_owned()
+            }));
+        }
+        return Ok(Ok(response
+            .get("result")
+            .cloned()
+            .ok_or("Respuesta incompleta del motor")?));
     }
-    if count as u64 > MAX_FRAME || bytes.last() != Some(&b'\n') {
-        return Err("Respuesta nativa demasiado grande o incompleta".into());
-    }
-    let response: Value = serde_json::from_slice(&bytes)
-        .map_err(|_| "El motor devolvió una respuesta inválida".to_owned())?;
-    if response["id"] != request_id {
-        return Err("El motor respondió a otra petición".into());
-    }
-    if let Some(error) = response.get("error") {
-        let message = error["message"]
-            .as_str()
-            .unwrap_or("Error del motor nativo");
-        return Ok(Err(if error["code"] == "backend_unavailable" {
-            format!("BACKEND_UNAVAILABLE: {message}")
-        } else if error["code"] == "microphone_denied" {
-            format!("MICROPHONE_DENIED: {message}")
-        } else {
-            message.to_owned()
-        }));
-    }
-    Ok(Ok(response
-        .get("result")
-        .cloned()
-        .ok_or("Respuesta incompleta del motor")?))
 }
 
 fn timeout_for(method: &str) -> Duration {
@@ -106,6 +117,15 @@ impl Native {
     }
 
     pub async fn call(&self, method: &str, params: Value) -> Result<Value, String> {
+        self.call_with_progress(method, params, |_| {}).await
+    }
+
+    pub async fn call_with_progress(
+        &self,
+        method: &str,
+        params: Value,
+        mut on_progress: impl FnMut(f64) + Send,
+    ) -> Result<Value, String> {
         let mut slot = self.session.lock().await;
         if let Some(session) = slot.as_mut() {
             if session
@@ -142,7 +162,7 @@ impl Native {
             };
             let hello = tokio::time::timeout(
                 Duration::from_secs(10),
-                exchange(&mut session, "status", json!({})),
+                exchange(&mut session, "status", json!({}), &mut |_| {}),
             )
             .await;
             let compatible = match hello {
@@ -160,8 +180,11 @@ impl Native {
         }
         let result = {
             let session = slot.as_mut().ok_or("Motor no disponible")?;
-            let result =
-                tokio::time::timeout(timeout_for(method), exchange(session, method, params)).await;
+            let result = tokio::time::timeout(
+                timeout_for(method),
+                exchange(session, method, params, &mut on_progress),
+            )
+            .await;
             session.last_activity = Instant::now();
             result
         };
@@ -242,6 +265,43 @@ pub fn binary(name: &str) -> Result<PathBuf, String> {
 mod tests {
     use super::*;
     use std::{fs, os::unix::fs::PermissionsExt};
+
+    #[tokio::test]
+    async fn descarga_recibe_progreso_jsonl_y_conserva_la_respuesta_final() {
+        let directory = tempfile::tempdir().unwrap();
+        let executable = directory.path().join("fake-native");
+        fs::write(
+            &executable,
+            r#"#!/bin/sh
+while IFS= read -r line; do
+  id=$(printf '%s' "$line" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p')
+  case "$line" in
+    *'"method":"downloadModel"'*)
+      printf '{"id":"%s","progress":{"fraction":0.25}}\n' "$id"
+      printf '{"id":"%s","progress":{"fraction":0.75}}\n' "$id"
+      printf '{"id":"%s","result":{"model":"prueba"}}\n' "$id" ;;
+    *) printf '{"id":"%s","result":{"protocolVersion":1}}\n' "$id" ;;
+  esac
+done
+"#,
+        )
+        .unwrap();
+        fs::set_permissions(&executable, fs::Permissions::from_mode(0o700)).unwrap();
+        let native = Native::new(executable);
+        let mut fractions = Vec::new();
+        let result = native
+            .call_with_progress("downloadModel", json!({"model":"prueba"}), |fraction| {
+                fractions.push(fraction);
+            })
+            .await
+            .unwrap();
+        assert_eq!(fractions, vec![0.25, 0.75]);
+        assert_eq!(result["model"], "prueba");
+        assert_eq!(
+            native.call("status", json!({})).await.unwrap()["protocolVersion"],
+            1
+        );
+    }
 
     #[tokio::test]
     async fn rechaza_version_nativa_incompatible_antes_de_la_primera_operacion() {

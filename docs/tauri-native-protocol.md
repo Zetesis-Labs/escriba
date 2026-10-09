@@ -1,6 +1,6 @@
 # EscribaNativeHost: protocolo nativo v1
 
-`EscribaNativeHost` es un proceso auxiliar persistente de macOS. Recibe una petición JSON UTF-8 por línea de `stdin` y escribe exactamente una respuesta JSON por línea de `stdout`. Atiende las peticiones en orden; el cliente debe correlacionar por `id`. Mensajes de diagnóstico y salidas de bibliotecas nativas van a `stderr`. El proceso termina al cerrar `stdin`.
+`EscribaNativeHost` es un proceso auxiliar persistente de macOS. Recibe una petición JSON UTF-8 por línea de `stdin` y escribe una respuesta final JSON por petición en `stdout`. Durante una descarga puede emitir líneas de progreso antes de esa respuesta. Atiende las peticiones en orden; el cliente debe correlacionar por `id`. Mensajes de diagnóstico y salidas de bibliotecas nativas van a `stderr`. El proceso termina al cerrar `stdin`.
 
 Petición: `{"id":"r1","method":"status","params":{}}`. `id` es un texto no vacío y `params` es siempre un objeto. Respuesta correcta: `{"id":"r1","result":{...}}`. Error: `{"id":"r1","error":{"code":"invalid_params","message":"..."}}`. Si el JSON no permite recuperar `id`, se devuelve `null`. Un error de petición no detiene el proceso. El cliente debe tratar `code` como estable y `message` como texto para mostrar o registrar. `backend_unavailable` identifica un modelo Whisper ausente o Apple Intelligence no disponible; el host Rust lo convierte en un trabajo reintentable.
 
@@ -14,7 +14,7 @@ Petición: `{"id":"r1","method":"status","params":{}}`. `id` es un texto no vac�
 | `diarizedVoices` | `audioPath:string` | `{voices:[{speaker:string,embedding:number[],model:string}],spans:[{speaker:string,start:number,end:number}]}`. Diariza el audio para registrar una voz sin crear una transcripción. |
 | `summarize` | `instructions:string`, `prompt:string` | `{title:string,summary:string,tags:string[]}` |
 | `ask` | `instructions:string`, `prompt:string`, `schema?:object` | Valor JSON generado; `schema` es JSON Schema de objeto aceptado por `answerSchema(from:)`. Sin esquema, el valor es un texto. |
-| `downloadModel` | `model?:string` | `{model:string,path:string}` al terminar la descarga. El modelo por defecto es el de `WhisperKitBackend`. |
+| `downloadModel` | `model?:string` | `{model:string,path:string}` al terminar la descarga. Antes puede emitir `{"id":"r1","progress":{"fraction":0.25}}`, con fracciones entre 0 y 1. El modelo por defecto es el de `WhisperKitBackend`. |
 | `recordingStart` | `outputPath:string` | `{audioPath:string}`. Pide permiso de micrófono y graba AAC mono a 48 kHz; rechaza sobrescribir un fichero. |
 | `recordingStatus` | ninguno | `{active:boolean,paused:boolean,audioPath:string\|null,duration:number}`. Permite restaurar la UI tras recargarla mientras vive el proceso auxiliar de captura. |
 | `recordingPause` / `recordingResume` | ninguno | `{audioPath:string,duration:number}` |

@@ -501,10 +501,25 @@ fn dispatch<'a>(
                 if !["status", "downloadModel"].contains(&method) {
                     return Err("Esta capacidad se ejecuta a través de la biblioteca".into());
                 }
-                state
-                    .inference
-                    .call(method, p.get("params").cloned().unwrap_or(json!({})))
-                    .await
+                let params = p.get("params").cloned().unwrap_or(json!({}));
+                if method == "downloadModel" {
+                    let model = params["model"].clone();
+                    return state
+                        .inference
+                        .call_with_progress(method, params, |fraction| {
+                            if let Err(error) = app.emit(
+                                "escriba://whisper-download",
+                                json!({"model":model,"fraction":fraction}),
+                            ) {
+                                log_error(
+                                    state,
+                                    &format!("No se pudo mostrar el progreso de descarga: {error}"),
+                                );
+                            }
+                        })
+                        .await;
+                }
+                state.inference.call(method, params).await
             }
             "native_cancel" => {
                 state.inference.cancel();

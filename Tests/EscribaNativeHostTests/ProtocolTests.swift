@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 import Testing
 import EscribaCore
 @testable import EscribaNativeHost
@@ -25,6 +26,34 @@ struct ProtocolTests {
         #expect(reply["result"]?["whisper"]?["modelsPath"]?.text != nil)
         let invalid = try parseData(await host.handle(#"{"id":"m2","method":"status","params":{"model":"../other"}}"#))
         #expect(invalid["error"]?["code"] == .string("invalid_params"))
+    }
+
+    @Test func descargarModeloEmiteProgresoConElIdAntesDeLaRespuestaFinal() async throws {
+        let updates = Mutex<[(String, Double)]>([])
+        let host = NativeHost(modelDownload: { variant, progress in
+            #expect(variant == "modelo-de-prueba")
+            progress?(0.25)
+            progress?(0.75)
+            return URL(fileURLWithPath: "/tmp/modelo-sintetico")
+        })
+
+        let reply = try parseData(await host.handle(
+            #"{"id":"descarga-1","method":"downloadModel","params":{"model":"modelo-de-prueba"}}"#,
+            onProgress: { id, fraction in updates.withLock { $0.append((id, fraction)) } }
+        ))
+
+        let sent = updates.withLock { $0 }
+        #expect(sent.count == 2)
+        #expect(sent[0].0 == "descarga-1")
+        #expect(sent[0].1 == 0.25)
+        #expect(sent[1].0 == "descarga-1")
+        #expect(sent[1].1 == 0.75)
+        let frame = try parseData(NativeHost.progressFrame(id: sent[0].0, fraction: sent[0].1))
+        #expect(frame["id"] == .string("descarga-1"))
+        #expect(frame["progress"]?["fraction"] == .number(0.25))
+        #expect(reply["id"] == .string("descarga-1"))
+        #expect(reply["result"]?["model"] == .string("modelo-de-prueba"))
+        #expect(reply["error"] == nil)
     }
 
     @Test func transcripcionRechazaIdiomaYNumeroDeHablantesInvalidos() async throws {
