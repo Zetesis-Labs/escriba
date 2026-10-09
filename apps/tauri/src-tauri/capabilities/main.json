@@ -2,7 +2,8 @@
   "identifier": "main",
   "description": "Interfaz local de Escriba Tauri",
   "windows": [
-    "main"
+    "main",
+    "recording"
   ],
   "permissions": [
     "core:default",

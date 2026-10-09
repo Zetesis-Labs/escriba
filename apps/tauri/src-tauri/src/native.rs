@@ -53,6 +53,8 @@ async fn exchange(
             .unwrap_or("Error del motor nativo");
         return Ok(Err(if error["code"] == "backend_unavailable" {
             format!("BACKEND_UNAVAILABLE: {message}")
+        } else if error["code"] == "microphone_denied" {
+            format!("MICROPHONE_DENIED: {message}")
         } else {
             message.to_owned()
         }));

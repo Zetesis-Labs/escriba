@@ -954,7 +954,14 @@ impl Store {
         let result = match method {
             "recording_update" => {
                 let r = record_mut(&mut next, text(p, "id")?)?;
-                for key in ["title", "status", "error", "duration", "recipeId"] {
+                for key in [
+                    "title",
+                    "status",
+                    "error",
+                    "duration",
+                    "recipeId",
+                    "createdAt",
+                ] {
                     if let Some(v) = p.get(key) {
                         r[key] = v.clone();
                     }
@@ -2771,7 +2778,12 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let mut store = Store::open(dir.path().join("library")).unwrap();
         let recipe = json!({"id":"resumen","name":"Resumen","kind":"code","values":{},"bundle":"var __recipe = 1;"});
-        store.mutate("config_save", &json!({"collection":"recipes","item":recipe})).unwrap();
+        store
+            .mutate(
+                "config_save",
+                &json!({"collection":"recipes","item":recipe}),
+            )
+            .unwrap();
         store
             .mutate(
                 "config_save",

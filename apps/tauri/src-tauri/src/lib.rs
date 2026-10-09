@@ -4,14 +4,18 @@ mod catalog;
 mod folder_access;
 mod jobs;
 mod library_view;
+mod menubar;
 mod migration;
 mod native;
 mod persistence;
 mod project;
 mod project_watch;
+mod recorder;
+mod recording;
 mod remote;
 mod scripts;
 mod store;
+mod symbols;
 mod watcher;
 
 use serde_json::{json, Value};
@@ -19,7 +23,7 @@ use std::{
     collections::HashMap,
     fs,
     path::{Path, PathBuf},
-    sync::{Arc, Mutex},
+    sync::{atomic::AtomicBool, Arc, Mutex},
     time::{Duration, SystemTime},
 };
 use store::{text, Store};
@@ -38,6 +42,11 @@ struct Runtime {
     watch_wake: tokio::sync::mpsc::Sender<()>,
     inference: native::Native,
     recorder: native::Native,
+    recording: Mutex<Option<recording::Session>>,
+    recording_problem: Mutex<Option<recording::Problem>>,
+    recording_lock: tokio::sync::Mutex<()>,
+    menubar: Mutex<menubar::Bar>,
+    quitting: AtomicBool,
     vendor: PathBuf,
     compiler: PathBuf,
     startup: Mutex<Startup>,
@@ -73,7 +82,7 @@ impl Runtime {
             "snapshot" => Ok(Some(snapshot.clone())),
             "library" => Ok(Some(library_view::light_library(snapshot))),
             "runtime_jobs" => Ok(Some(json!([]))),
-            "recording_status" => Ok(Some(json!({"active":false,"paused":false}))),
+            "recording_status" => Ok(Some(recording::view(None, None))),
             "system_appearance" => Ok(Some(json!({"accent": appearance::accent()}))),
             _ => Err("Espera a que termine de incorporarse la biblioteca anterior".into()),
         }
@@ -133,7 +142,10 @@ fn resolver_draft(state: &Runtime, p: &Value) -> Result<(Value, Option<String>),
         .map(str::to_owned);
     let secret = match (typed, p["resolverId"].as_str()) {
         (Some(key), _) => Some(key),
-        (None, Some(id)) => state.store()?.credential(id)?.map(|key| key.trim().to_owned()),
+        (None, Some(id)) => state
+            .store()?
+            .credential(id)?
+            .map(|key| key.trim().to_owned()),
         (None, None) => None,
     };
     Ok((p["resolver"].clone(), secret))
@@ -159,7 +171,10 @@ fn models_root(status: &Value) -> Result<PathBuf, String> {
 
 async fn whisper_model(state: &Arc<Runtime>, p: &Value) -> Result<Value, String> {
     let model = state.store()?.data["settings"]["whisperModel"].clone();
-    let status = state.inference.call("status", json!({"model": model})).await?;
+    let status = state
+        .inference
+        .call("status", json!({"model": model}))
+        .await?;
     let root = models_root(&status)?;
     match text(p, "action")? {
         "info" => {
@@ -171,7 +186,9 @@ async fn whisper_model(state: &Arc<Runtime>, p: &Value) -> Result<Value, String>
             } else {
                 0
             };
-            Ok(json!({"model": status["whisper"]["model"], "available": status["whisper"]["available"], "bytes": size}))
+            Ok(
+                json!({"model": status["whisper"]["model"], "available": status["whisper"]["available"], "bytes": size}),
+            )
         }
         "delete" => {
             state.inference.unload_if_idle(Duration::ZERO);
@@ -198,10 +215,7 @@ fn refreshes_library(method: &str, params: &Value) -> bool {
         | "recording_delete"
         | "recording_restore"
         | "recording_remove_audio"
-        | "recording_start"
         | "recording_stop"
-        | "recording_pause"
-        | "recording_resume"
         | "version_save"
         | "version_select"
         | "version_update"
@@ -348,7 +362,12 @@ fn dispatch<'a>(
                 }
                 Ok(record)
             }
-            "recording_status" => state.recorder.call("recordingStatus", json!({})).await,
+            "recording_status" => Ok(recorder::view(state)),
+            "recording_dismiss" => {
+                recorder::dismiss(app, state);
+                Ok(recorder::view(state))
+            }
+            "recording_cancel" => recorder::cancel(app, state).await,
             "import_audio" => {
                 let paths = p["paths"]
                     .as_array()
@@ -434,42 +453,9 @@ fn dispatch<'a>(
                 }
             }
             "recording_start" => {
-                let path = state.store()?.root.join("captures").join(format!(
-                    "Grabación-{}.m4a",
-                    chrono::Local::now().format("%Y-%m-%d-%H%M%S")
-                ));
-                state
-                    .recorder
-                    .call("recordingStart", json!({"outputPath":path}))
-                    .await
+                recorder::start(app, state, p["recipeId"].as_str().map(str::to_owned)).await
             }
-            "recording_pause" | "recording_resume" => {
-                state
-                    .recorder
-                    .call(
-                        if method == "recording_pause" {
-                            "recordingPause"
-                        } else {
-                            "recordingResume"
-                        },
-                        json!({}),
-                    )
-                    .await
-            }
-            "recording_stop" => {
-                let result = state.recorder.call("recordingStop", json!({})).await?;
-                let path = PathBuf::from(text(&result, "audioPath")?);
-                let mut store = state.store()?;
-                let record = store.import(&path, p["recipeId"].as_str())?;
-                let updated = store.mutate(
-                    "recording_update",
-                    &json!({"id":record["id"],"duration":result["duration"]}),
-                )?;
-                fs::remove_file(path).map_err(|e| {
-                    format!("Audio guardado; no se pudo retirar la captura temporal: {e}")
-                })?;
-                Ok(updated)
-            }
+            "recording_stop" => recorder::stop(app, state).await,
             "connector_http" => {
                 let (account, secret, audio) = {
                     let store = state.store()?;
@@ -590,13 +576,24 @@ fn dispatch<'a>(
                         request["schema"] = remote::digest_schema();
                         remote::ask(&draft, secret, &request).await
                     }
-                    (false, false) => Ok(json!({"text": remote::probe_transcription(&draft, secret).await?})),
+                    (false, false) => {
+                        Ok(json!({"text": remote::probe_transcription(&draft, secret).await?}))
+                    }
                 }
             }
             "whisper_model" => whisper_model(state, &p).await,
             "open_privacy_settings" => {
+                let pane = match p["pane"].as_str() {
+                    Some("microphone") => {
+                        "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone"
+                    }
+                    Some("disk") => {
+                        "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles"
+                    }
+                    _ => "x-apple.systempreferences:com.apple.preference.security",
+                };
                 let status = std::process::Command::new("/usr/bin/open")
-                    .args(["-b", "com.apple.systempreferences"])
+                    .arg(pane)
                     .status()
                     .map_err(|e| format!("No se pudieron abrir los ajustes: {e}"))?;
                 if !status.success() {
@@ -1091,16 +1088,20 @@ fn start_project_watcher(app: tauri::AppHandle, state: Arc<Runtime>) {
         let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel::<()>();
         let mut watching: Option<(String, notify::RecommendedWatcher)> = None;
         loop {
-            let path = state
-                .store()
-                .ok()
-                .and_then(|store| store.data["settings"]["projectPath"].as_str().map(str::to_owned));
+            let path = state.store().ok().and_then(|store| {
+                store.data["settings"]["projectPath"]
+                    .as_str()
+                    .map(str::to_owned)
+            });
             if watching.as_ref().map(|(current, _)| current) != path.as_ref() {
                 watching = match path {
                     Some(path) => match project_watch::watch(&path, sender.clone()) {
                         Ok(watcher) => Some((path, watcher)),
                         Err(error) => {
-                            log_error(&state, &format!("No se puede vigilar el proyecto de recetas: {error}"));
+                            log_error(
+                                &state,
+                                &format!("No se puede vigilar el proyecto de recetas: {error}"),
+                            );
                             None
                         }
                     },
@@ -1171,6 +1172,9 @@ fn start_watcher(
 
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _, _| {
+            let _ = menubar::show(app, "library");
+        }))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(
@@ -1237,6 +1241,11 @@ pub fn run() {
                 watch_wake,
                 inference: native::Native::new(engine.clone()),
                 recorder: native::Native::new(engine),
+                recording: Mutex::new(None),
+                recording_problem: Mutex::new(None),
+                recording_lock: tokio::sync::Mutex::new(()),
+                menubar: Mutex::new(menubar::Bar::default()),
+                quitting: AtomicBool::new(false),
                 vendor,
                 compiler: native::binary("escriba-esbuild").map_err(std::io::Error::other)?,
                 startup: Mutex::new(Startup {
@@ -1245,34 +1254,9 @@ pub fn run() {
                 }),
             });
             app.manage(state.clone());
-            let menu = tauri::menu::Menu::with_items(
-                app,
-                &[
-                    &tauri::menu::MenuItem::with_id(
-                        app,
-                        "show",
-                        "Abrir Escriba Tauri",
-                        true,
-                        None::<&str>,
-                    )?,
-                    &tauri::menu::MenuItem::with_id(app, "quit", "Salir", true, None::<&str>)?,
-                ],
-            )?;
-            tauri::tray::TrayIconBuilder::new()
-                .icon(app.default_window_icon().cloned().ok_or("Falta el icono")?)
-                .tooltip("Escriba Tauri")
-                .menu(&menu)
-                .on_menu_event(|app, event| match event.id.as_ref() {
-                    "show" => {
-                        if let Some(window) = app.get_webview_window("main") {
-                            let _ = window.show();
-                            let _ = window.set_focus();
-                        }
-                    }
-                    "quit" => app.exit(0),
-                    _ => {}
-                })
-                .build(app)?;
+            menubar::install(app.handle(), &state)?;
+            app.on_menu_event(|app, event| menubar::handle(app, event.id().as_ref()));
+            menubar::watch(app.handle().clone(), state.clone());
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 if legacy.is_some() || legacy_preferences.is_some() {
@@ -1314,8 +1298,25 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![app_command])
-        .run(tauri::generate_context!())
-        .expect("No se pudo iniciar Escriba Tauri");
+        .build(tauri::generate_context!())
+        .expect("No se pudo iniciar Escriba Tauri")
+        .run(|app, event| match event {
+            tauri::RunEvent::ExitRequested { api, .. } => {
+                let state = app.state::<Arc<Runtime>>().inner().clone();
+                if !state.quitting.load(std::sync::atomic::Ordering::SeqCst)
+                    && recorder::is_recording(&state)
+                {
+                    api.prevent_exit();
+                    let app = app.clone();
+                    tauri::async_runtime::spawn(async move { menubar::quit(&app, &state).await });
+                }
+            }
+            #[cfg(target_os = "macos")]
+            tauri::RunEvent::Reopen { .. } => {
+                let _ = menubar::show(app, "library");
+            }
+            _ => {}
+        });
 }
 
 #[cfg(test)]
