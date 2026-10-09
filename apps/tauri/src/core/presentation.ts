@@ -30,16 +30,28 @@ interface Parts {
   minute: number;
 }
 
+const formatters = new Map<string, Intl.DateTimeFormat>();
+
+function formatter(timeZone?: string) {
+  const key = timeZone ?? "";
+  let cached = formatters.get(key);
+  if (!cached) {
+    cached = new Intl.DateTimeFormat("en-GB", {
+      timeZone,
+      year: "numeric",
+      month: "numeric",
+      day: "numeric",
+      hour: "numeric",
+      minute: "numeric",
+      hourCycle: "h23",
+    });
+    formatters.set(key, cached);
+  }
+  return cached;
+}
+
 export function dateParts(date: Date, timeZone?: string): Parts {
-  const formatted = new Intl.DateTimeFormat("en-GB", {
-    timeZone,
-    year: "numeric",
-    month: "numeric",
-    day: "numeric",
-    hour: "numeric",
-    minute: "numeric",
-    hourCycle: "h23",
-  }).formatToParts(date);
+  const formatted = formatter(timeZone).formatToParts(date);
   const value = (type: string) => Number(formatted.find((part) => part.type === type)?.value ?? 0);
   return { year: value("year"), month: value("month"), day: value("day"), hour: value("hour"), minute: value("minute") };
 }

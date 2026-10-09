@@ -1,7 +1,7 @@
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { AudioLines, CircleStop, Ellipsis, FolderPlus, History, Mic, Users, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent } from "react";
-import { call, desktop, native } from "../api";
+import { call, desktop, native, recordingDetail } from "../api";
 import { Pane } from "../app/Pane";
 import { audioExtensions, fileName, importNotice, importPlan } from "../core/inbox";
 import { librarySummary, rowActionText, speakers } from "../core/presentation";
@@ -16,7 +16,36 @@ import "./library.css";
 
 type Rename = { recording: Recording; speaker: string; name: string };
 
-export function LibraryView({ data, jobs, refresh }: { data: Snapshot; jobs: JobState[]; refresh: () => Promise<void> }) {
+function revisionOf(recording: Recording) {
+  return JSON.stringify([
+    recording.status,
+    recording.error ?? null,
+    recording.audioPath,
+    recording.currentVersionId ?? null,
+    recording.versions.map((version) => [version.id, version.digest?.title ?? null, version.digest?.summary?.length ?? 0, Boolean(version.data)]),
+    recording.publications.map((publication) => [publication.destinationId, publication.updatedAt, publication.error ?? null]),
+  ]);
+}
+
+function useRecordingDetail(recording: Recording | null) {
+  const [detail, setDetail] = useState<Recording | null>(null);
+  const id = recording?.id;
+  const revision = recording ? revisionOf(recording) : "";
+  useEffect(() => {
+    if (!recording) return setDetail(null);
+    if (!desktop) return setDetail(recording);
+    let current = true;
+    void recordingDetail(recording.id)
+      .then((full) => current && setDetail(full))
+      .catch(() => current && setDetail(null));
+    return () => {
+      current = false;
+    };
+  }, [id, revision]);
+  return detail && detail.id === id ? detail : null;
+}
+
+export function LibraryView({ data, jobs, refresh, active }: { data: Snapshot; jobs: JobState[]; refresh: () => Promise<void>; active: boolean }) {
   const recordings = useMemo(() => libraryRecordings(data), [data]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -26,10 +55,11 @@ export function LibraryView({ data, jobs, refresh }: { data: Snapshot; jobs: Job
   const [isRecording, setRecording] = useState(false);
   const recordingRecipe = useRef<string | undefined>(undefined);
   const selected = recordings.find((recording) => recording.id === selectedId) ?? null;
+  const detail = useRecordingDetail(selected);
   const live = liveDestinations(data.destinations, data.accounts);
   const folders = data.settings.watchedFolders;
   const canSummarize = data.native?.llm?.available !== false;
-  const now = new Date();
+  const minute = useMemo(() => Math.floor(Date.now() / 60_000), [data]);
   const jobFor = (recording: Recording) => jobs.find((job) => job.recordingId === recording.id);
 
   const perform = useCallback(
@@ -86,7 +116,7 @@ export function LibraryView({ data, jobs, refresh }: { data: Snapshot; jobs: Job
   );
 
   useEffect(() => {
-    if (!desktop) return;
+    if (!desktop || !active) return;
     let stop: (() => void) | undefined;
     void getCurrentWebview()
       .onDragDropEvent((event) => {
@@ -101,7 +131,7 @@ export function LibraryView({ data, jobs, refresh }: { data: Snapshot; jobs: Job
         stop = unlisten;
       });
     return () => stop?.();
-  }, [add]);
+  }, [add, active]);
 
   const recipeChoices = (choose: (recipeId?: string) => void): MenuEntry[] => [
     header("Con la receta"),
@@ -242,15 +272,15 @@ export function LibraryView({ data, jobs, refresh }: { data: Snapshot; jobs: Job
   };
 
   const selectedJob = selected ? jobFor(selected) : undefined;
-  const selectedSpeakers = selected ? speakers(currentVersion(selected)?.transcript ?? { text: "", segments: [] }) : [];
+  const selectedSpeakers = detail ? speakers(currentVersion(detail)?.transcript ?? { text: "", segments: [] }) : [];
   const toolbar = (
     <>
       {selected && (
         <>
           {selectedJob && <Spinner />}
           <ToolbarMenu icon={History} label={currentVersionLabel(selected)} showsTitle menu={() => versionsMenu(selected)} disabled={Boolean(selectedJob)} />
-          <ToolbarMenu icon={Users} label="Hablantes" menu={() => speakersMenu(selected)} disabled={!selectedSpeakers.length || Boolean(selectedJob)} />
-          <ToolbarMenu icon={Ellipsis} label="Acciones" menu={() => actionsMenu(selected)} />
+          <ToolbarMenu icon={Users} label="Hablantes" menu={() => (detail ? speakersMenu(detail) : [])} disabled={!selectedSpeakers.length || Boolean(selectedJob)} />
+          <ToolbarMenu icon={Ellipsis} label="Acciones" menu={() => actionsMenu(detail ?? selected)} />
         </>
       )}
       <ToolbarMenu
@@ -287,7 +317,7 @@ export function LibraryView({ data, jobs, refresh }: { data: Snapshot; jobs: Job
               onMouseDown={() => setSelectedId(recording.id)}
               onContextMenu={(event) => contextMenu(event, recording)}
             >
-              <RecordingRow recording={recording} origin={originName(recording, folders)} now={now} destinations={data.destinations} accounts={data.accounts} />
+              <RecordingRow recording={recording} origin={originName(recording, folders)} minute={minute} destinations={data.destinations} accounts={data.accounts} />
             </div>
           ))}
         </div>
@@ -296,7 +326,8 @@ export function LibraryView({ data, jobs, refresh }: { data: Snapshot; jobs: Job
           {selected ? (
             <TranscriptDetail
               key={selected.id}
-              recording={selected}
+              recording={detail ?? selected}
+              loading={!detail}
               origin={originName(selected, folders)}
               job={selectedJob}
               recipes={data.recipes}
