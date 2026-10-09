@@ -15,7 +15,7 @@ venta.
 **El núcleo viaja**: el mismo motor debe poder correr en un Mac, en un pod
 de Linux o en un runtime WebAssembly (WASI), cambiando solo el host que lo
 conecta. `EscribaCore` y `EscribaEngine` compilan a
-`wasm32-unknown-wasi` y a Linux, y el CI lo comprueba en cada PR. El escritorio nuevo es **Tauri** (Rubén, 2026-10-09), pero **no sustituye a la app SwiftUI hasta pasar las puertas de `docs/adr/0004-estabilizacion-tauri.md`**: paridad con Swift, transcripción de punta a punta y cada decisión de este fichero comprobada en el código. Hasta entonces no entra ninguna función nueva en Tauri. La estabilización la lleva Claude (Rubén, 2026-10-09): ningún otro agente trabaja en estas ramas.
+`wasm32-unknown-wasi` y a Linux, y el CI lo comprueba en cada PR. El escritorio nuevo es **Tauri** (Rubén, 2026-10-09), pero **no sustituye a la app SwiftUI hasta pasar las puertas de `docs/adr/0004-estabilizacion-tauri.md`**: paridad con Swift, transcripción de punta a punta y cada decisión de este fichero comprobada en el código. Hasta entonces no entra ninguna función nueva en Tauri. La estabilización la llevó Claude hasta el 2026-10-09; lo que queda lo hace Codex siguiendo `docs/pendiente-tauri.md`, con las mismas puertas y reglas.
 La base de datos es **SurrealDB embebida con SurrealKV**, también por decisión
 expresa de Rubén. TypeScript lleva interfaz, recetas, conectores y reglas de
 procesamiento; Rust, persistencia, cola duradera y capacidades; Swift solo
@@ -69,14 +69,16 @@ conectores como plugins wasm se exploraron y se archivaron el 2026-10-06
 - SurrealDB guarda entidades, versiones, recibos y trabajos transaccionalmente.
   `library.json` y SQLite solo son entradas de migración, nunca almacenamiento
   de la aplicación nueva. La importación no altera el origen ni lee secretos.
-- Los programas TypeScript se ejecutan en procesos aislados con permisos Deno
-  denegados. El controlador y cada receta tienen tuberías distintas; tokens,
-  rutas y bytes de audio permanecen en Rust.
+- Los programas TypeScript se ejecutan en procesos aislados. Hoy con Deno y
+  sus permisos denegados; Rubén decidió el 2026-10-09 pasarlos a **Bun** con un
+  perfil de sandbox de macOS por proceso (`docs/pendiente-tauri.md`, apartado
+  8). El controlador y cada receta tienen tuberías distintas; tokens, rutas y
+  bytes de audio permanecen en Rust.
 - El proceso nativo Swift expone inferencia y capacidades Apple concretas;
   las reglas de procesamiento y persistencia pertenecen a TypeScript/Rust.
 - Pruebas de integridad con SurrealKV real y procesos reales, servidores locales
-  falsos y audios sintéticos. Notion real, tokens reales y publicación externa
-  siguen fuera del alcance autorizado de esta migración.
+  falsos y audios sintéticos. Contra Notion real solo con audio sintético, en una
+  base de pruebas que indique Rubén y cuando él lo pida; nunca notas reales.
 - Compilar en macOS con `scripts/build-tauri.sh --release`; el devcontainer de
   ZetesisPortal no aplica a este repositorio con SDK de Apple.
 
