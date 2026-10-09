@@ -222,6 +222,8 @@ fn refreshes_library(method: &str, params: &Value) -> bool {
         | "settings_save"
         | "config_save"
         | "config_remove"
+        | "connector_save"
+        | "connector_remove"
         | "credential_save"
         | "publication_save"
         | "publication_remove"
@@ -410,6 +412,16 @@ fn dispatch<'a>(
                 )?;
                 Ok(Value::Null)
             }
+            "connector_remove" => {
+                state.store()?.remove_connector(text(&p, "id")?)?;
+                Ok(Value::Null)
+            }
+            "connector_save" => {
+                state
+                    .store()?
+                    .save_connector(&p["account"], &p["destination"])?;
+                Ok(Value::Null)
+            }
             "native" => {
                 let method = text(&p, "method")?;
                 if !["status", "downloadModel"].contains(&method) {
@@ -507,7 +519,10 @@ fn dispatch<'a>(
             }
             "project_init" => {
                 let path = PathBuf::from(text(&p, "path")?);
-                let accounts = state.store()?.data["accounts"].clone();
+                let accounts = {
+                    let store = state.store()?;
+                    project_accounts(&store.data["accounts"], &store.data["destinations"])?
+                };
                 project::initialize(&path, &accounts, &state.vendor)?;
                 state
                     .store()?
@@ -553,6 +568,26 @@ fn dispatch<'a>(
                     .map_err(|e| e.to_string())?;
                 if !status.success() {
                     return Err("Finder no pudo abrir la ubicación".into());
+                }
+                Ok(Value::Null)
+            }
+            "okf_file" => {
+                let account = state.store()?.item("accounts", text(&p, "accountId")?)?;
+                let path = capabilities::authorized_okf_file(
+                    &account,
+                    std::path::Path::new(text(&p, "path")?),
+                )?;
+                let mut command = std::process::Command::new("/usr/bin/open");
+                match text(&p, "action")? {
+                    "open" => {}
+                    "reveal" => {
+                        command.arg("-R");
+                    }
+                    _ => return Err("Acción de archivo OKF desconocida".into()),
+                }
+                let status = command.arg(path).status().map_err(|e| e.to_string())?;
+                if !status.success() {
+                    return Err("No se pudo abrir el documento OKF".into());
                 }
                 Ok(Value::Null)
             }
@@ -639,6 +674,19 @@ fn project_path(state: &Runtime) -> Result<PathBuf, String> {
         .as_str()
         .map(PathBuf::from)
         .ok_or_else(|| "Elige la carpeta del proyecto en Recetas".into())
+}
+
+fn project_accounts(accounts: &Value, destinations: &Value) -> Result<Value, String> {
+    let destinations = destinations.as_array().ok_or("Destinos inválidos")?;
+    let accounts = accounts.as_array().ok_or("Cuentas inválidas")?;
+    Ok(json!(accounts
+        .iter()
+        .filter(|account| !destinations.iter().any(|destination| {
+            destination["id"] == account["id"]
+                && destination["account"] == account["id"]
+                && destination["program"].is_null()
+        }))
+        .collect::<Vec<_>>()))
 }
 async fn authorize_watched_folder(
     app: &tauri::AppHandle,
@@ -1357,6 +1405,22 @@ pub fn run() {
 #[cfg(test)]
 mod command_events_tests {
     use super::*;
+
+    #[test]
+    fn iniciar_proyecto_no_genera_destinos_para_cuentas_con_conector_en_la_app() {
+        let accounts = json!([
+            {"id":"app","name":"App","provider":"notion","enabled":true},
+            {"id":"code","name":"Code","provider":"okf","enabled":true}
+        ]);
+        let destinations = json!([
+            {"id":"app","account":"app","provider":"notion","configuration":{}},
+            {"id":"coded","account":"code","provider":"okf","program":"compiled"}
+        ]);
+        assert_eq!(
+            project_accounts(&accounts, &destinations).unwrap(),
+            json!([accounts[1]])
+        );
+    }
 
     #[test]
     fn polling_the_library_and_recorder_does_not_request_another_refresh() {

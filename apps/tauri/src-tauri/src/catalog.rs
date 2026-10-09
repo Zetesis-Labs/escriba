@@ -74,7 +74,14 @@ pub fn install(store: &mut Store, package: &Value) -> Result<(), String> {
         }
     }
     next["recipes"] = json!(recipes);
-    let mut destinations = destinations.clone();
+    let mut destinations = store.data["destinations"]
+        .as_array()
+        .ok_or("Destinos inválidos")?
+        .iter()
+        .filter(|destination| destination["program"].is_null())
+        .cloned()
+        .chain(destinations.iter().cloned())
+        .collect::<Vec<_>>();
     for destination in &mut destinations {
         if let Some(old) = store.data["destinations"]
             .as_array()
@@ -130,5 +137,32 @@ mod tests {
         assert_eq!(missing["values"]["language"], "en");
         assert!(missing["bundle"].is_null());
         assert!(missing["error"].is_string());
+    }
+    #[test]
+    fn compilar_conserva_destinos_de_la_app_y_sustituye_los_del_proyecto() {
+        let temp = tempfile::tempdir().unwrap();
+        let mut store = Store::open(temp.path().into()).unwrap();
+        store.mutate("config_save", &json!({"collection":"destinations","item":{"id":"app","name":"App","provider":"okf","account":"app","enabled":true,"configuration":{"folder":"/tmp"}}})).unwrap();
+        store.mutate("config_save", &json!({"collection":"destinations","item":{"id":"code","name":"Old","provider":"notion","account":"code","enabled":true,"configuration":{},"program":"old"}})).unwrap();
+        install(&mut store, &json!({"recipes":[],"destinations":[{"id":"code","name":"New","provider":"notion","account":"code","enabled":false,"configuration":{},"program":"new"}]})).unwrap();
+        assert_eq!(
+            store.item("destinations", "app").unwrap()["configuration"]["folder"],
+            "/tmp"
+        );
+        assert_eq!(
+            store.item("destinations", "code").unwrap()["program"],
+            "new"
+        );
+        assert_eq!(store.data["destinations"].as_array().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn compilar_rechaza_id_de_proyecto_que_pertenece_a_un_destino_de_la_app() {
+        let temp = tempfile::tempdir().unwrap();
+        let mut store = Store::open(temp.path().into()).unwrap();
+        store.mutate("config_save", &json!({"collection":"destinations","item":{"id":"same","name":"App","provider":"okf","account":"same","enabled":true,"configuration":{}}})).unwrap();
+        let error = install(&mut store, &json!({"recipes":[],"destinations":[{"id":"same","name":"Project","provider":"okf","account":"same","enabled":true,"configuration":{},"program":"new"}]})).unwrap_err();
+        assert!(error.contains("Identificador duplicado"));
+        assert_eq!(store.item("destinations", "same").unwrap()["name"], "App");
     }
 }
