@@ -36,6 +36,14 @@ borrar después las notas no hace que reaparezcan. Los errores se muestran en la
 ventana y permiten reintentar. `ESCRIBA_TAURI_DATA` desactiva esta detección para
 que las pruebas aisladas no accedan a datos de la instalación normal.
 
+También se recuperan una vez las carpetas vigiladas de las preferencias SwiftUI
+si no hay carpetas configuradas en Tauri. Esto repara instalaciones que ya habían
+importado la biblioteca sin sus fuentes. Los audios conocidos se enlazan con las
+notas importadas y conservan sus versiones y estado, incluidas las descartadas.
+La vigilancia incorpora los nuevos audios; **Reanudar procesamiento** en el aviso
+de la biblioteca activa la ejecución de las recetas. Si Tauri ya tiene carpetas,
+se conserva esa configuración. No se leen credenciales al recuperar las fuentes.
+
 Si Tauri ya tiene grabaciones o se quiere elegir otra biblioteca, está
 **Ajustes → Importar biblioteca SwiftUI**, con un plist de preferencias opcional.
 La importación abre SQLite en modo de lectura y copia los audios. Incluye versiones, datos,

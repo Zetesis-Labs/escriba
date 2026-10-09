@@ -887,6 +887,15 @@ pub fn run() {
                 snapshot["settings"]["startupMigration"] = json!({"state":"importing"});
                 snapshot
             });
+            let legacy_preferences = if isolated_root.is_none() {
+                Some(
+                    app.path()
+                        .home_dir()?
+                        .join("Library/Preferences/dev.ruben.escriba.plist"),
+                )
+            } else {
+                None
+            };
             app.asset_protocol_scope()
                 .allow_directory(root.join("audio"), true)?;
             let resource_vendor = app.path().resource_dir()?.join("vendor");
@@ -949,10 +958,17 @@ pub fn run() {
                 .build(app)?;
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
-                if let Some(source) = legacy {
+                if legacy.is_some() || legacy_preferences.is_some() {
                     let importing = state.clone();
                     let result = tokio::task::spawn_blocking(move || {
-                        importing.store()?.import_startup_legacy(&source)
+                        let mut store = importing.store()?;
+                        if let Some(source) = legacy {
+                            store.import_startup_legacy(&source)?;
+                        }
+                        if let Some(preferences) = legacy_preferences {
+                            store.adopt_legacy_watched_folders(&preferences)?;
+                        }
+                        Ok::<(), String>(())
                     })
                     .await
                     .map_err(|error| error.to_string())

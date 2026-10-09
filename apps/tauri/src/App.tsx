@@ -671,12 +671,23 @@ export default function App() {
             <Button onClick={() => setSection("settings")}>Abrir ajustes</Button>
           </div>
         )}
+        {data?.settings.watchMigration?.state === "error" && (
+          <div className="banner error" role="alert">
+            <CircleAlert size={18} />
+            <span>
+              No se pudieron recuperar las carpetas vigiladas:{" "}
+              {data.settings.watchMigration.message}. Puedes añadirlas en Ajustes
+              o volver a abrir la app para reintentar.
+            </span>
+            <Button onClick={() => setSection("settings")}>Abrir ajustes</Button>
+          </div>
+        )}
         {migration?.state === "imported" && !migration.dismissed && (
           <div className="banner success migration-notice" role="status">
             <Check size={17} />
             <span>
               Se han incorporado {migration.report.recordings} grabaciones de
-              Escriba. El procesamiento automático está pausado.
+              Escriba.
               {migration.report.audioMissing > 0 &&
                 ` ${migration.report.audioMissing} grabaciones no tienen una copia de audio disponible.`}
             </span>
@@ -694,6 +705,29 @@ export default function App() {
             >
               <X size={16} />
             </IconButton>
+          </div>
+        )}
+        {!importingLibrary && data?.settings.autoProcess === false && (
+          <div className="banner migration-notice" role="status">
+            <Pause size={17} />
+            <span>
+              <strong>Procesamiento automático pausado.</strong>{" "}
+              Revisa las recetas, sus resolutores y destinos antes de reanudar:
+              el procesamiento puede publicar en los destinos configurados.
+            </span>
+            <Button onClick={() => setSection("recipes")}>Revisar recetas</Button>
+            <Button
+              icon={Play}
+              primary
+              disabled={Boolean(busy)}
+              onClick={() =>
+                void run("Reanudar procesamiento", () =>
+                  call("settings_save", { settings: { autoProcess: true } }),
+                )
+              }
+            >
+              Reanudar procesamiento
+            </Button>
           </div>
         )}
         {!data || importingLibrary ? (
