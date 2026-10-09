@@ -153,7 +153,7 @@ funcionando. Detalle en `docs/pendiente-tauri.md`, apartado 3.
 
 ### Notificaciones
 
-- [ ] Los textos de Swift: «Nota transcrita» con el principio del texto, «Fallo al transcribir», motor que no responde, receta no disponible, grabaciones que no se pueden leer, recetas que no arrancan y otra copia abierta (`Notifier.swift`). Implementados en `notifications.rs` y `notification_delivery.rs`, con pruebas de formato, sonido, preferencia y origen automático; pendiente de confirmar los avisos y el sonido en la app instalada.
+- [x] Los textos de Swift: «Nota transcrita» con el principio del texto, «Fallo al transcribir», motor que no responde, receta no disponible, grabaciones que no se pueden leer, recetas que no arrancan y otra copia abierta (`Notifier.swift`). Implementados en `notifications.rs` y `notification_delivery.rs`, con pruebas de formato, sonido, preferencia y origen automático. Rubén confirmó los avisos y el sonido en la app instalada el 2026-10-10.
 
 ## Lo que el motor tiene que arreglar
 
