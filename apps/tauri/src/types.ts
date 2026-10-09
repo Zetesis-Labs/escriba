@@ -104,6 +104,7 @@ export interface Destination {
 }
 export interface WatchedFolder {
   style?: "justPressRecord" | "voiceMemos" | "any";
+  authorizationSaved?: boolean;
   id: string;
   path: string;
   name: string;

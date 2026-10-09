@@ -44,24 +44,34 @@ La vigilancia incorpora los nuevos audios; **Reanudar procesamiento** en el avis
 de la biblioteca activa la ejecución de las recetas. Si Tauri ya tiene carpetas,
 se conserva esa configuración. No se leen credenciales al recuperar las fuentes.
 
-### Permiso para leer Notas de Voz
+### Autorizar carpetas: opción recomendada
 
-En macOS, las grabaciones de Notas de Voz están dentro de datos de otra app.
-Para el caso en que Escriba Tauri no puede leer esa carpeta, concede permiso a
-**Escriba Tauri.app**: abre **Ajustes del Sistema → Privacidad y seguridad →
-Acceso total al disco**, activa Escriba Tauri si aparece o añádela con **+** y
-**Abrir**. Después cierra y vuelve a abrir Escriba Tauri para que el escaneo se
-reintente. El permiso se configura para la app que accede; haberlo concedido a
-la edición Swift de Escriba no lo concede a Escriba Tauri. Consulta la
-[guía de Apple sobre Privacidad y seguridad](https://support.apple.com/es-es/guide/mac-help/mchl211c911f/27/mac/27).
-Esto explica el fallo observado al acceder a Notas de Voz; un `EPERM` por sí
-solo no identifica su causa.
+En **Ajustes → Carpetas vigiladas**, o en el aviso de acceso, pulsa **Autorizar
+carpeta** y selecciónala en el panel de macOS. Para una fuente existente debes
+elegir esa carpeta; si se ha trasladado y la ruta anterior ya no existe, puedes
+indicar su nueva ubicación conservando su identidad y configuración.
+La selección se guarda en SurrealDB mediante un bookmark nativo privado y se
+restaura antes de iniciar la vigilancia. Cancelar el panel no cambia los ajustes.
+
+**Acceso total al disco** sigue disponible como alternativa opcional si macOS
+impide el acceso por carpeta. El botón abre Ajustes del Sistema: ve a
+**Privacidad y seguridad → Acceso total al disco**, añade o activa **Escriba
+Tauri.app** y reiníciala. El permiso de la edición Swift no se traslada a Tauri.
+[Guía de Apple sobre Privacidad y seguridad](https://support.apple.com/es-es/guide/mac-help/mchl211c911f/27/mac/27).
+
+Notas de Voz guarda sus audios en un contenedor protegido. Apple demuestra el
+acceso a una grabación seleccionada mediante el panel; la vigilancia de toda la
+carpeta y su acceso tras reiniciar requieren comprobarse sin Acceso total al
+disco en la instalación de destino. Esta versión conserva el empaquetado sin
+App Sandbox: seleccionar carpetas no impone aislamiento de todo el sistema de
+archivos. [Investigación y límites](../../docs/investigacion-acceso-carpetas-macos.md).
 
 Si una carpeta no se puede leer, la app muestra un aviso persistente y marca el
-problema en la barra lateral y en Ajustes. **Abrir Ajustes** abre los Ajustes del
-Sistema; **Reintentar** vuelve a escanear. También se solicita una notificación
+problema en la barra lateral y en Ajustes. **Autorizar carpeta** es la primera
+opción; **Reintentar** vuelve a escanear. También se solicita una notificación
 de escritorio cuando cambia el fallo, sin repetirla en cada pasada. El aviso
-se retira cuando se recupera el acceso.
+se retira cuando se recupera el acceso. Los fallos al descargar un audio de
+iCloud también aparecen en este aviso.
 
 Si Tauri ya tiene grabaciones o se quiere elegir otra biblioteca, está
 **Ajustes → Importar biblioteca SwiftUI**, con un plist de preferencias opcional.

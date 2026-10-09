@@ -107,6 +107,44 @@ struct ProtocolTests {
         #expect(invalid["error"]?["code"] == .string("invalid_params"))
     }
 
+    @Test func materializacionRechazaBookmarkCorruptoAunqueElArchivoSeaLegible() async throws {
+        let file = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString + ".wav")
+        defer { try? FileManager.default.removeItem(at: file) }
+        try syntheticWAV(duration: 0.25).write(to: file)
+        let reply = try parseData(await NativeHost().handle(#"{"id":"b1","method":"materialize","params":{"path":"\#(file.path)","folderBookmark":[1,2,3],"timeoutSeconds":1}}"#))
+        #expect(reply["error"]?["code"] == .string("invalid_params"))
+        #expect(reply["result"] == nil)
+    }
+
+    @Test func materializacionResuelveCarpetaAutorizadaYRechazaAudioFueraDeElla() async throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        let folder = root.appending(path: "autorizada", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let inside = folder.appending(path: "dentro.wav")
+        let outside = root.appending(path: "fuera.wav")
+        try syntheticWAV(duration: 0.25).write(to: inside)
+        try syntheticWAV(duration: 0.25).write(to: outside)
+        let bookmark = try folder.bookmarkData(options: [], includingResourceValuesForKeys: nil, relativeTo: nil)
+        func request(_ file: URL) -> String {
+            dataText(.object([
+                .init(name: "id", value: .string("folder")),
+                .init(name: "method", value: .string("materialize")),
+                .init(name: "params", value: .object([
+                    .init(name: "path", value: .string(file.path)),
+                    .init(name: "timeoutSeconds", value: .number(1)),
+                    .init(name: "folderBookmark", value: .array(bookmark.map { .number(Double($0)) })),
+                ])),
+            ]))
+        }
+        let insideReply = try parseData(await NativeHost().handle(request(inside)))
+        #expect(insideReply["result"]?["ready"] == .bool(true))
+        #expect(insideReply["result"]?["size"] == .number(8044))
+        let outsideReply = try parseData(await NativeHost().handle(request(outside)))
+        #expect(outsideReply["error"]?["code"] == .string("invalid_params"))
+        #expect(outsideReply["result"] == nil)
+    }
+
     private func syntheticWAV(duration: Double) -> Data {
         let samples = UInt32(16_000 * duration)
         let bytes = samples * 2
