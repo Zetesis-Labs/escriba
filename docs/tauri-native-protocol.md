@@ -10,7 +10,8 @@ Petición: `{"id":"r1","method":"status","params":{}}`. `id` es un texto no vac�
 | `audioInfo` | `audioPath:string` | `{duration:number}` en segundos |
 | `fileStatus` | `path:string` | `{size:number,blocks:number,flags:number,dataless:boolean,modifiedAt:string}`. Usa `lstat`; rechaza symlinks y rutas ausentes. `dataless` refleja `SF_DATALESS` de macOS sin abrir el audio. |
 | `materialize` | `path:string`, `timeoutSeconds?:number` (1–300, 300 de serie) | `{ready:boolean,dataless:boolean,size:number}`. Solicita a macOS la descarga y lee un byte en una cola auxiliar con tiempo límite. |
-| `transcribe` | `audioPath:string`, `model?:string`, `language?:string\|null`, `diarize?:boolean`, `speakers?:number\|null` | `{text:string,segments:[{start:number,end:number,text:string,speaker:string\|null,words:[{start:number,end:number,text:string}]}],language:string,duration:number}` |
+| `transcribe` | `audioPath:string`, `model?:string`, `language?:string\|null`, `diarize?:boolean`, `speakers?:number\|null` | `{text:string,segments:[{start:number,end:number,text:string,speaker:string\|null,words:[{start:number,end:number,text:string}]}],voices:[{speaker:string,embedding:number[],model:string}],language:string,duration:number}`. `voices` está vacío si no hay huellas. |
+| `diarizedVoices` | `audioPath:string` | `{voices:[{speaker:string,embedding:number[],model:string}],spans:[{speaker:string,start:number,end:number}]}`. Diariza el audio para registrar una voz sin crear una transcripción. |
 | `summarize` | `instructions:string`, `prompt:string` | `{title:string,summary:string,tags:string[]}` |
 | `ask` | `instructions:string`, `prompt:string`, `schema?:object` | Valor JSON generado; `schema` es JSON Schema de objeto aceptado por `answerSchema(from:)`. Sin esquema, el valor es un texto. |
 | `downloadModel` | `model?:string` | `{model:string,path:string}` al terminar la descarga. El modelo por defecto es el de `WhisperKitBackend`. |
@@ -20,6 +21,8 @@ Petición: `{"id":"r1","method":"status","params":{}}`. `id` es un texto no vac�
 | `recordingStop` | ninguno | `{audioPath:string,duration:number}` |
 
 `duration`, `start` y `end` son segundos. `language` toma `"es"` si se omite; `null` o `"auto"` activan la detección automática de WhisperKit. La respuesta indica `"auto"` cuando se solicitó detección: el tipo `Transcript` del núcleo no comunica el idioma detectado. Un idioma explícito debe ser un código de dos o tres letras minúsculas. `speakers` omitido o `null` no fija el número de hablantes; un valor explícito debe ser un entero positivo. `model` se restringe a nombres de variante sin separadores de ruta. `status` consulta la instalación de esa variante sin descargarla. `transcribe` solo usa modelos ya instalados; `downloadModel` es la operación explícita que puede descargar pesos. El motor Whisper se conserva entre peticiones del mismo modelo e idioma y aplica su descarga de memoria por inactividad. La grabadora permite una sesión activa por proceso.
+
+Las huellas (`embedding`) cruzan únicamente el tubo privado entre este proceso y Rust. Rust las guarda y las quita de cualquier respuesta a la WebView o al runtime de recetas; nunca llegan a JavaScript, conectores ni exportaciones. Los tramos de `diarizedVoices` identifican al hablante con el mismo nombre que su huella (`Speaker N`).
 
 El proceso solo contiene las capacidades nativas de audio, WhisperKit/SpeakerKit y FoundationModels. La aplicación Tauri conserva biblioteca, configuración, recetas, conectores y orquestación en TypeScript/Rust. El supervisor Rust descarga el proceso de inferencia después de cinco minutos sin peticiones completas, sin interrumpir una petición en curso.
 

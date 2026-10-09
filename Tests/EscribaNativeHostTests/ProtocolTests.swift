@@ -62,6 +62,66 @@ struct ProtocolTests {
         }
     }
 
+    @Test func transcribirDevuelveHuellasDeLaVersionDiarizadaAlPuertoNativo() async throws {
+        let file = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString + ".wav")
+        defer { try? FileManager.default.removeItem(at: file) }
+        try syntheticWAV(duration: 0.25).write(to: file)
+        let transcript = Transcript(segments: [
+            TranscriptSegment(start: 0, end: 0.25, speaker: "Speaker 1", text: "voz sintética"),
+        ], voices: [SpeakerVoice(speaker: "Speaker 1", embedding: [0.25, -0.5], model: "modelo-de-prueba")])
+        let host = NativeHost(inference: NativeInference(
+            transcribe: { _, _, _, _, _ in transcript },
+            diarize: { _ in VoiceDiarization(voices: [], spans: []) }))
+
+        let reply = try parseData(await host.handle(#"{"id":"v1","method":"transcribe","params":{"audioPath":"\#(file.path)","diarize":true}}"#))
+
+        #expect(reply["error"] == nil)
+        guard let segmentsValue = reply["result"]?["segments"], case .array(let segments) = segmentsValue,
+              let voicesValue = reply["result"]?["voices"], case .array(let voices) = voicesValue else {
+            Issue.record("La transcripción no devolvió segmentos y huellas")
+            return
+        }
+        #expect(segments.first?["speaker"] == .string("Speaker 1"))
+        #expect(voices.first?["speaker"] == .string("Speaker 1"))
+        #expect(voices.first?["embedding"] == .array([.number(0.25), .number(-0.5)]))
+        #expect(voices.first?["model"] == .string("modelo-de-prueba"))
+    }
+
+    @Test func registrarVozDevuelveHuellasYTramosSinCrearTranscripcion() async throws {
+        let file = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString + ".wav")
+        defer { try? FileManager.default.removeItem(at: file) }
+        try syntheticWAV(duration: 0.25).write(to: file)
+        let diarization = VoiceDiarization(
+            voices: [SpeakerVoice(speaker: "Speaker 2", embedding: [0.125, 0.75], model: "modelo-de-prueba")],
+            spans: [SpeakerSpan(speaker: "Speaker 2", start: 0.02, end: 0.22)])
+        let host = NativeHost(inference: NativeInference(
+            transcribe: { _, _, _, _, _ in Transcript(text: "no debe usarse") },
+            diarize: { _ in diarization }))
+
+        let reply = try parseData(await host.handle(#"{"id":"d1","method":"diarizedVoices","params":{"audioPath":"\#(file.path)"}}"#))
+
+        #expect(reply["error"] == nil)
+        guard let voicesValue = reply["result"]?["voices"], case .array(let voices) = voicesValue,
+              let spansValue = reply["result"]?["spans"], case .array(let spans) = spansValue else {
+            Issue.record("La diarización no devolvió huellas y tramos")
+            return
+        }
+        #expect(voices.first?["speaker"] == .string("Speaker 2"))
+        #expect(voices.first?["embedding"] == .array([.number(0.125), .number(0.75)]))
+        #expect(voices.first?["model"] == .string("modelo-de-prueba"))
+        #expect(spans.first?["speaker"] == .string("Speaker 2"))
+        #expect(spans.first?["start"] == .number(0.02))
+        #expect(spans.first?["end"] == .number(0.22))
+        #expect(reply["result"]?["text"] == nil)
+    }
+
+    @Test func registrarVozRechazaUnAudioAusenteAntesDeDiarizar() async throws {
+        let missing = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString + ".wav")
+        let reply = try parseData(await NativeHost().handle(#"{"id":"d2","method":"diarizedVoices","params":{"audioPath":"\#(missing.path)"}}"#))
+        #expect(reply["error"]?["code"] == .string("audio_missing"))
+        #expect(reply["result"] == nil)
+    }
+
     @Test func invalidRequestDoesNotEndSession() async throws {
         let host = NativeHost()
         let invalid = try parseData(await host.handle(#"{"id":"bad","method":"unknown","params":{}}"#))

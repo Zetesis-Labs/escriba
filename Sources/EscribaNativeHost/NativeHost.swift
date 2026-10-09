@@ -15,13 +15,25 @@ struct HostFailure: Error {
     }
 }
 
+@MainActor
+struct NativeInference {
+    let transcribe: (URL, String, String?, Bool, Int?) async throws -> Transcript
+    let diarize: (URL) async throws -> VoiceDiarization
+}
+
 /// The native seam exposed to the Tauri host. One instance lives for the entire child process.
 @MainActor
 final class NativeHost {
+    private let inference: NativeInference?
     private var transcriptionEngines: [String: WhisperKitEngine] = [:]
+    private var voiceEngine: WhisperKitEngine?
     private var recorder: AVAudioRecorder?
     private var recordingURL: URL?
     private var recordingActivity: NSObjectProtocol?
+
+    init(inference: NativeInference? = nil) {
+        self.inference = inference
+    }
 
     func handle(_ line: String) async -> String {
         let id: DataValue
@@ -58,6 +70,7 @@ final class NativeHost {
         switch method {
         case "status": return try status(params)
         case "transcribe": return try await transcribe(params)
+        case "diarizedVoices": return try await diarizedVoices(params)
         case "summarize": return try await summarize(params)
         case "ask": return try await ask(params)
         case "audioInfo": return try audioInfo(params)
@@ -101,22 +114,44 @@ final class NativeHost {
         } else {
             speakers = try optionalPositiveInt(params, "speakers")
         }
-        let key = variant + "\u{0}" + (language ?? "auto")
-        let engine: WhisperKitEngine
-        if let existing = transcriptionEngines[key] {
-            engine = existing
+        let transcript: Transcript
+        if let inference {
+            transcript = try await inference.transcribe(url, variant, language, diarize, speakers)
         } else {
-            let created = WhisperKitEngine(language: language, variant: variant)
-            transcriptionEngines[key] = created
-            engine = created
+            let key = variant + "\u{0}" + (language ?? "auto")
+            let engine: WhisperKitEngine
+            if let existing = transcriptionEngines[key] {
+                engine = existing
+            } else {
+                let created = WhisperKitEngine(language: language, variant: variant)
+                transcriptionEngines[key] = created
+                engine = created
+            }
+            transcript = try await engine.backend(diarize: diarize, speakerCount: speakers).transcribe(url)
         }
-        let transcript = try await engine.backend(diarize: diarize, speakerCount: speakers).transcribe(url)
         let duration = try audioDuration(url)
         return .object([
             field("text", .string(transcript.text)),
             field("segments", .array(transcript.segments.map(segmentValue))),
+            field("voices", .array(transcript.voices.map(voiceValue))),
             field("language", .string(language ?? "auto")),
             field("duration", .number(duration)),
+        ])
+    }
+
+    private func diarizedVoices(_ params: DataValue) async throws -> DataValue {
+        let url = try audioURL(params)
+        let diarization: VoiceDiarization
+        if let inference {
+            diarization = try await inference.diarize(url)
+        } else {
+            let engine = voiceEngine ?? WhisperKitEngine()
+            voiceEngine = engine
+            diarization = try await engine.diarizedVoices(of: url)
+        }
+        return .object([
+            field("voices", .array(diarization.voices.map(voiceValue))),
+            field("spans", .array(diarization.spans.map(spanValue))),
         ])
     }
 
@@ -380,6 +415,22 @@ private func segmentValue(_ segment: TranscriptSegment) -> DataValue {
             field("start", .number(word.start)), field("end", .number(word.end)),
             field("text", .string(word.text)),
         ]) })),
+    ])
+}
+
+private func voiceValue(_ voice: SpeakerVoice) -> DataValue {
+    .object([
+        field("speaker", .string(voice.speaker)),
+        field("embedding", .array(voice.embedding.map { .number(Double($0)) })),
+        field("model", .string(voice.model)),
+    ])
+}
+
+private func spanValue(_ span: SpeakerSpan) -> DataValue {
+    .object([
+        field("speaker", .string(span.speaker)),
+        field("start", .number(span.start)),
+        field("end", .number(span.end)),
     ])
 }
 
