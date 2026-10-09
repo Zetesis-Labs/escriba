@@ -37,6 +37,7 @@ Errores rechazan la promesa con texto legible; nunca éxitos vacíos.
 - recording_start -> {audioPath}; recording_pause/resume -> void; recording_stop {recipeId?} -> Recording.
 - export_file {path,contents} -> void (archivo elegido por usuario en diálogo).
 - reveal {path} -> void; open_url {url} -> void (http/https).
+- open_privacy_settings -> void (abre Ajustes del Sistema, destino fijo; no disponible para recetas).
 - project_init {path} -> void (solo crea ausentes; tipos y paquetes npm propios de serie).
 - project_build -> {recipes:Recipe[],connectorProgram?:string} (esbuild nativo, bundles IIFE __recipe / __conectores, preserva último válido).
 - project_read {entry} -> {source:string}; project_write {entry,source} -> void (confinado proyecto).
@@ -76,3 +77,12 @@ SwiftUI (`adopted`, `preserved` o `error`). Se aplica una sola vez tras importar
 la biblioteca, también en instalaciones que ya la habían importado. Las
 configuraciones Tauri existentes se conservan; adoptar carpetas pausa la creación
 automática de trabajos hasta que el usuario reanude el procesamiento.
+
+`watchIssues` contiene los errores del último escaneo de las carpetas habilitadas
+(`folderId`, `path`, `message`, `permissionDenied`). La UI mantiene un aviso
+visible y un estado de error hasta que un escaneo confirme la recuperación.
+Cada cambio de errores emite `escriba://changed`; si hay errores, registra el
+problema y solicita una notificación de escritorio. Un fallo repetido sin
+cambios no vuelve a notificar ni a llenar el registro. La entrega del aviso del
+sistema depende de los permisos de notificaciones; el aviso dentro de la app
+siempre se muestra. Los escaneos automáticos y manuales se ejecutan en serie.
