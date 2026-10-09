@@ -19,7 +19,10 @@ deno_ready() {
 DENO_READY=false
 for DENO_BIN in $(type -ap deno) "$HOME/.deno/bin/deno" /opt/homebrew/bin/deno /usr/local/bin/deno; do
   if [[ -x "$DENO_BIN" ]] && deno_ready "$DENO_BIN"; then
-    export PATH="$(dirname "$DENO_BIN"):$PATH"
+    DENO_DIR="$(mktemp -d)"
+    trap 'rm -rf "$DENO_DIR"' EXIT
+    ln -s "$DENO_BIN" "$DENO_DIR/deno"
+    export PATH="$DENO_DIR:$PATH"
     DENO_READY=true
     break
   fi
