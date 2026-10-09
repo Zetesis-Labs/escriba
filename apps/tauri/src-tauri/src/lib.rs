@@ -1,5 +1,6 @@
 mod capabilities;
 mod catalog;
+mod folder_access;
 mod jobs;
 mod migration;
 mod native;
@@ -26,16 +27,22 @@ struct Runtime {
     jobs: Arc<jobs::Queue>,
     scripts: scripts::Scripts,
     materializer: native::Native,
-    materializing: Mutex<HashMap<PathBuf, SystemTime>>,
+    materializing: Mutex<watcher::Materializations>,
     scanner: Mutex<watcher::Scanner>,
     watch_health: Mutex<watcher::Health>,
     scan_lock: tokio::sync::Mutex<()>,
+    folder_accesses: Mutex<HashMap<String, FolderAccess>>,
     watch_wake: tokio::sync::mpsc::Sender<()>,
     inference: native::Native,
     recorder: native::Native,
     vendor: PathBuf,
     compiler: PathBuf,
     startup: Mutex<Startup>,
+}
+
+struct FolderAccess {
+    bookmark: Vec<u8>,
+    resolved: folder_access::ResolvedFolder,
 }
 
 #[derive(Default)]
@@ -136,7 +143,8 @@ fn refreshes_library(method: &str, params: &Value) -> bool {
         | "log_clear"
         | "trace_save"
         | "runtime_cancel"
-        | "watch_scan" => true,
+        | "watch_scan"
+        | "watch_folder_authorize" => true,
         _ => false,
     }
 }
@@ -497,6 +505,7 @@ fn dispatch<'a>(
                 Ok(Value::Null)
             }
             "watch_scan" => scan(app, state).await,
+            "watch_folder_authorize" => authorize_watched_folder(app, state, &p).await,
             "settings_save" => {
                 if let Some(enabled) = p["settings"]["launchAtLogin"].as_bool() {
                     use tauri_plugin_autostart::ManagerExt;
@@ -523,6 +532,103 @@ fn project_path(state: &Runtime) -> Result<PathBuf, String> {
         .map(PathBuf::from)
         .ok_or_else(|| "Elige la carpeta del proyecto en Recetas".into())
 }
+async fn authorize_watched_folder(
+    app: &tauri::AppHandle,
+    state: &Arc<Runtime>,
+    params: &Value,
+) -> Result<Value, String> {
+    let folder_id = params["folderId"].as_str();
+    let initial_path = {
+        let store = state.store()?;
+        match folder_id {
+            Some(id) => Some(PathBuf::from(text(
+                store.data["settings"]["watchedFolders"]
+                    .as_array()
+                    .and_then(|folders| folders.iter().find(|folder| folder["id"] == id))
+                    .ok_or("La carpeta ya no está configurada")?,
+                "path",
+            )?)),
+            None => None,
+        }
+    };
+    let (reply, receive) = tokio::sync::oneshot::channel();
+    app.run_on_main_thread(move || {
+        let _ = reply.send(folder_access::select_folder(initial_path.as_deref()));
+    })
+    .map_err(|error| format!("No se pudo abrir el selector de carpetas: {error}"))?;
+    let Some(selected) = receive
+        .await
+        .map_err(|_| "El selector de carpetas se cerró inesperadamente")??
+    else {
+        return Ok(Value::Null);
+    };
+    let _scan = state.scan_lock.lock().await;
+    let resolved = folder_access::restore(&selected.bookmark)?;
+    if resolved.path != selected.path {
+        return Err("La carpeta cambió mientras se autorizaba. Vuelve a seleccionarla".into());
+    }
+    let bookmark = resolved
+        .refreshed_bookmark
+        .clone()
+        .unwrap_or(selected.bookmark);
+    let saved = state.store()?.authorize_watched_folder(
+        folder_id,
+        &resolved.path,
+        params["name"].as_str(),
+        params["style"].as_str().unwrap_or("any"),
+        &bookmark,
+    )?;
+    state
+        .folder_accesses
+        .lock()
+        .map_err(|_| "No se pudo mantener el acceso a la carpeta")?
+        .insert(
+            text(&saved, "id")?.to_owned(),
+            FolderAccess { bookmark, resolved },
+        );
+    let _ = state.watch_wake.try_send(());
+    Ok(saved)
+}
+
+fn restore_watched_folders(state: &Runtime) -> Result<Vec<watcher::FolderError>, String> {
+    let bookmarks = state.store()?.watched_folder_bookmarks()?;
+    let mut accesses = state
+        .folder_accesses
+        .lock()
+        .map_err(|_| "No se pudo mantener el acceso a las carpetas")?;
+    accesses.retain(|id, access| {
+        bookmarks.iter().any(|(folder_id, path, bookmark)| {
+            folder_id == id && bookmark == &access.bookmark && path == &access.resolved.path
+        })
+    });
+    let mut issues = Vec::new();
+    for (id, path, bookmark) in bookmarks {
+        if accesses.contains_key(&id) {
+            continue;
+        }
+        match folder_access::restore(&bookmark) {
+            Ok(resolved) => {
+                if state.store()?.refresh_watched_folder_bookmark(
+                    &id,
+                    &bookmark,
+                    &resolved.path,
+                    resolved.refreshed_bookmark.as_deref(),
+                )? {
+                    let bookmark = resolved.refreshed_bookmark.clone().unwrap_or(bookmark);
+                    accesses.insert(id, FolderAccess { bookmark, resolved });
+                }
+            }
+            Err(message) => issues.push(watcher::FolderError {
+                folder_id: id,
+                path,
+                message: format!("Vuelve a autorizar la carpeta: {message}"),
+                permission_denied: false,
+            }),
+        }
+    }
+    Ok(issues)
+}
+
 fn audio_type(path: &Path) -> &'static str {
     match path
         .extension()
@@ -568,6 +674,7 @@ fn log_error(state: &Runtime, message: &str) {
 }
 async fn scan(app: &tauri::AppHandle, state: &Arc<Runtime>) -> Result<Value, String> {
     let _scan = state.scan_lock.lock().await;
+    let mut issues = restore_watched_folders(state)?;
     let watched = folders(state)?;
     let runtime = state.clone();
     let batch = tokio::task::spawn_blocking(move || {
@@ -579,7 +686,7 @@ async fn scan(app: &tauri::AppHandle, state: &Arc<Runtime>) -> Result<Value, Str
     })
     .await
     .map_err(|e| e.to_string())??;
-    let mut issues = batch.errors;
+    issues.extend(batch.errors);
     let mut added = Vec::new();
     for candidate in batch
         .ready
@@ -599,37 +706,59 @@ async fn scan(app: &tauri::AppHandle, state: &Arc<Runtime>) -> Result<Value, Str
             }
         };
         if status["dataless"] == true {
+            let requested_at = SystemTime::now();
             let start = {
                 let mut inflight = state
                     .materializing
                     .lock()
                     .map_err(|_| "Materialización ocupada")?;
-                let should = inflight.get(&candidate.path).is_none_or(|last| {
-                    last.elapsed().unwrap_or_default() >= Duration::from_secs(600)
-                });
-                if should {
-                    inflight.insert(candidate.path.clone(), SystemTime::now());
+                let should = inflight.request(&candidate.path, requested_at);
+                if let Some(issue) = inflight.issue(&candidate) {
+                    issues.push(issue);
                 }
                 should
             };
             if start {
+                let folder_bookmark = state
+                    .folder_accesses
+                    .lock()
+                    .map_err(|_| "No se pudo consultar el acceso a la carpeta")?
+                    .get(&candidate.folder_id)
+                    .map(|access| access.bookmark.clone());
                 let runtime = state.clone();
                 tokio::spawn(async move {
-                    if let Err(error) = runtime
+                    let result = runtime
                         .materializer
                         .call(
                             "materialize",
-                            json!({"path":candidate.path,"timeoutSeconds":60}),
+                            json!({"path":candidate.path,"timeoutSeconds":60,"folderBookmark":folder_bookmark}),
                         )
                         .await
-                    {
-                        log_error(&runtime, &error);
+                        .and_then(|result| {
+                            if result["ready"] == true {
+                                Ok(())
+                            } else {
+                                Err("El audio sigue pendiente de descarga desde iCloud".into())
+                            }
+                        });
+                    match runtime.materializing.lock() {
+                        Ok(mut inflight) => {
+                            inflight.complete(&candidate.path, requested_at, result);
+                        }
+                        Err(_) => {
+                            log_error(&runtime, "No se pudo actualizar la descarga de iCloud")
+                        }
                     }
                     let _ = runtime.watch_wake.try_send(());
                 });
             }
             continue;
         }
+        state
+            .materializing
+            .lock()
+            .map_err(|_| "Materialización ocupada")?
+            .forget(&candidate.path);
         if status["size"].as_u64().unwrap_or(0) == 0 {
             if candidate.stamp.modified.elapsed().unwrap_or_default() >= Duration::from_secs(3600) {
                 let mut store = state.store()?;
@@ -865,6 +994,14 @@ fn start_watcher(
         let mut previous = Value::Null;
         let mut watcher = None;
         loop {
+            match scan(&app, &state).await {
+                Ok(items) if items.as_array().is_some_and(|v| !v.is_empty()) => {
+                    let _ = app.emit("escriba://imported", items);
+                    let _ = app.emit("escriba://changed", ());
+                }
+                Err(error) => log_error(&state, &error),
+                _ => {}
+            }
             let current = state
                 .store()
                 .map(|s| s.data["settings"]["watchedFolders"].clone());
@@ -881,14 +1018,6 @@ fn start_watcher(
                         }
                         Err(error) => log_error(&state, &error),
                     }
-                }
-                Err(error) => log_error(&state, &error),
-                _ => {}
-            }
-            match scan(&app, &state).await {
-                Ok(items) if items.as_array().is_some_and(|v| !v.is_empty()) => {
-                    let _ = app.emit("escriba://imported", items);
-                    let _ = app.emit("escriba://changed", ());
                 }
                 Err(error) => log_error(&state, &error),
                 _ => {}
@@ -959,10 +1088,11 @@ pub fn run() {
                     native::binary("escriba-runtime").map_err(std::io::Error::other)?,
                 ),
                 materializer: native::Native::new(engine.clone()),
-                materializing: Mutex::new(HashMap::new()),
+                materializing: Mutex::new(watcher::Materializations::default()),
                 scanner: Mutex::new(watcher::Scanner::new()),
                 watch_health: Mutex::new(watcher::Health::default()),
                 scan_lock: tokio::sync::Mutex::new(()),
+                folder_accesses: Mutex::new(HashMap::new()),
                 watch_wake,
                 inference: native::Native::new(engine.clone()),
                 recorder: native::Native::new(engine),
