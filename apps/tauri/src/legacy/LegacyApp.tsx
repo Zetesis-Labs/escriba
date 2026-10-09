@@ -37,8 +37,8 @@ import {
   X,
 } from "lucide-react";
 import type { ReactNode, RefObject } from "react";
-import { audioURL, call, desktop, snapshot as getSnapshot } from "./api";
-import { recordingSubline } from "./library/rowText";
+import { audioURL, call, desktop, snapshot as getSnapshot } from "../api";
+import { recordingSubline } from "../library/rowText";
 import {
   cancelProcessing,
   discoverDestination,
@@ -52,8 +52,8 @@ import {
   summarizeRecording,
   unpublishRecording,
   validateDestination,
-} from "./runtime";
-import { SchemaForm } from "./components/SchemaForm";
+} from "../runtime";
+import { SchemaForm } from "../components/SchemaForm";
 import type {
   Account,
   Destination,
@@ -73,8 +73,8 @@ import type {
   WatchedFolder,
   RuntimeHistory,
   RecipeTrace,
-} from "./types";
-import "./styles.css";
+} from "../types";
+import "./legacy.css";
 
 type Section =
   | "library"
@@ -3682,3 +3682,6 @@ function SettingsView({
     </>
   );
 }
+
+export { Connectors, Resolvers, Recipes, LogView, SettingsView, demoSnapshot };
+export type { RunAction, WatchAuthorization };
