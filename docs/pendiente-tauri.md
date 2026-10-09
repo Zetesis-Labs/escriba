@@ -373,6 +373,13 @@ test de Rust que falle si alguna respuesta a la WebView o al runtime contiene
 7. La importación de Swift copia las tablas `voice` y `person` de su
    `library.sqlite` a las de Rust, sin pasar por JavaScript.
 
+Ampliación pedida por Rubén el 2026-10-09, después de instalar Personas:
+«Registrar una voz» permite también elegir un archivo de audio. Usa el mismo
+análisis local y exige 30 s de habla del hablante dominante. El original se
+conserva; solo se elimina la copia temporal usada para extraer la huella. No
+crea una nota ni publica el audio. Esta opción es una excepción expresa a la
+paridad con Swift.
+
 Hecho cuando: Rubén registra su voz, graba una nota a dos voces con detectar
 hablantes y su nombre sale reconocido; «No es Rubén» lo deshace.
 

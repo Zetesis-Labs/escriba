@@ -1,10 +1,12 @@
 import { listen } from "@tauri-apps/api/event";
+import { open } from "@tauri-apps/plugin-dialog";
 import { AudioLines, Mic, Minus, Plus, Trash2, Users, CircleDot, TriangleAlert } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { call, desktop } from "../api";
 import { Pane } from "../app/Pane";
 import { demoPeople } from "../app/demo";
-import { personName, voiceCount } from "../core/people";
+import { audioExtensions } from "../core/inbox";
+import { canBeginVoiceSample, personName, voiceCount } from "../core/people";
 import { Button, ContentUnavailable, FormSection, ListBar, ListBarButton, Sheet, Spinner } from "../mac/controls";
 import { alertMessage, confirmDestructive, errorText, item, popupMenu } from "../mac/native";
 import type { Person, VoiceRegistration } from "../types";
@@ -19,8 +21,10 @@ export function PeoplePane({ active }: { active: boolean }) {
   const [selected, setSelected] = useState<string | null>(null);
   const [registering, setRegistering] = useState<string | null>(null);
   const [sample, setSample] = useState<VoiceRegistration>(idle);
+  const [choosingAudio, setChoosingAudio] = useState(false);
   const [busy, setBusy] = useState(false);
   const sampleEpoch = useRef(0);
+  const sampleRequest = useRef(false);
   const registeringRef = useRef<string | null>(null);
 
   const reload = useCallback(async () => {
@@ -84,6 +88,8 @@ export function PeoplePane({ active }: { active: boolean }) {
   });
   const openSample = (name: string) => {
     const epoch = ++sampleEpoch.current;
+    sampleRequest.current = false;
+    setChoosingAudio(false);
     registeringRef.current = name;
     setRegistering(name);
     if (desktop) void call<VoiceRegistration>("voice_registration_status").then((state) => {
@@ -91,8 +97,10 @@ export function PeoplePane({ active }: { active: boolean }) {
     }).catch((failure) => void alertMessage("No se pudo", errorText(failure)));
   };
   const cancelSample = async () => {
-    if (sample.state === "analyzing") return;
+    if (sample.state === "analyzing" || choosingAudio) return;
     ++sampleEpoch.current;
+    sampleRequest.current = false;
+    setChoosingAudio(false);
     registeringRef.current = null;
     setRegistering(null);
     setSample(idle);
@@ -104,25 +112,55 @@ export function PeoplePane({ active }: { active: boolean }) {
     } catch (failure) { await alertMessage("No se pudo", errorText(failure)); }
   };
   const startSample = async (name: string) => {
+    if (sampleRequest.current || !canBeginVoiceSample(name, sample.state)) return;
+    sampleRequest.current = true;
     const epoch = sampleEpoch.current;
+    setSample({ state: "requesting", person: name.trim() });
     try {
       const state = await call<VoiceRegistration>("voice_registration_start", { name });
       if (sampleEpoch.current === epoch) setSample(state);
     } catch (failure) { if (sampleEpoch.current === epoch) setSample({ state: "failed", message: errorText(failure) }); }
+    finally { if (sampleEpoch.current === epoch) sampleRequest.current = false; }
+  };
+  const finishSample = async (name: string, state: VoiceRegistration, epoch: number) => {
+    if (sampleEpoch.current !== epoch) return;
+    setSample(state);
+    if (state.state !== "idle") return;
+    registeringRef.current = null;
+    setRegistering(null);
+    setSelected(name.trim());
+    await reload().catch((failure) => void alertMessage("No se pudo", errorText(failure)));
   };
   const stopSample = async (name: string) => {
+    if (sampleRequest.current || sample.state !== "recording") return;
+    sampleRequest.current = true;
     const epoch = sampleEpoch.current;
+    setSample({ state: "analyzing", person: name.trim() });
     try {
       const state = await call<VoiceRegistration>("voice_registration_stop");
-      if (sampleEpoch.current !== epoch) return;
-      setSample(state);
-      if (state.state === "idle") {
-        registeringRef.current = null;
-        setRegistering(null);
-        setSelected(name.trim());
-        await reload();
-      }
+      await finishSample(name, state, epoch);
     } catch (failure) { if (sampleEpoch.current === epoch) setSample({ state: "failed", message: errorText(failure) }); }
+    finally { if (sampleEpoch.current === epoch) sampleRequest.current = false; }
+  };
+  const importSample = async (name: string) => {
+    if (sampleRequest.current || !canBeginVoiceSample(name, sample.state)) return;
+    sampleRequest.current = true;
+    setChoosingAudio(true);
+    const epoch = sampleEpoch.current;
+    try {
+      const chosen = await open({ multiple: false, directory: false, filters: [{ name: "Audio", extensions: audioExtensions }] });
+      if (sampleEpoch.current !== epoch || typeof chosen !== "string") return;
+      setChoosingAudio(false);
+      setSample({ state: "analyzing", person: name.trim() });
+      const state = await call<VoiceRegistration>("voice_registration_import", { name, path: chosen });
+      await finishSample(name, state, epoch);
+    } catch (failure) { if (sampleEpoch.current === epoch) setSample({ state: "failed", message: errorText(failure) }); }
+    finally {
+      if (sampleEpoch.current === epoch) {
+        sampleRequest.current = false;
+        setChoosingAudio(false);
+      }
+    }
   };
   const move = (event: KeyboardEvent) => {
     if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
@@ -154,7 +192,7 @@ export function PeoplePane({ active }: { active: boolean }) {
             : <ContentUnavailable title="Sin persona elegida" icon={Users} description="Una persona aparece al renombrar a un hablante en una grabación (Hablantes → Renombrar…) o al registrar su voz con +. Escriba la reconoce en las grabaciones siguientes." />}
         </div>
       </div>
-      {registering !== null && <SampleSheet initialName={registering} sample={sample} onStart={startSample} onStop={stopSample} onCancel={() => void cancelSample()} />}
+      {registering !== null && <SampleSheet initialName={registering} sample={sample} choosingAudio={choosingAudio} onStart={startSample} onStop={stopSample} onImport={importSample} onCancel={() => void cancelSample()} />}
     </Pane>
   );
 }
@@ -179,7 +217,7 @@ function PersonDetail({ person, others, busy, onRename, onRemoveVoice, onRegiste
   </div>;
 }
 
-function SampleSheet({ initialName, sample, onStart, onStop, onCancel }: { initialName: string; sample: VoiceRegistration; onStart: (name: string) => void; onStop: (name: string) => void; onCancel: () => void }) {
+function SampleSheet({ initialName, sample, choosingAudio, onStart, onStop, onImport, onCancel }: { initialName: string; sample: VoiceRegistration; choosingAudio: boolean; onStart: (name: string) => void; onStop: (name: string) => void; onImport: (name: string) => void; onCancel: () => void }) {
   const [name, setName] = useState(initialName);
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
@@ -193,21 +231,22 @@ function SampleSheet({ initialName, sample, onStart, onStop, onCancel }: { initi
   return <Sheet onCancel={onCancel}>
     <div className="people-sample" onKeyDown={(event) => {
       if (event.key !== "Enter" || event.target instanceof HTMLButtonElement) return;
-      if (sample.state === "requesting" || sample.state === "analyzing") return;
-      if (sample.state !== "recording" && !name.trim()) return;
+      if (choosingAudio || sample.state === "requesting" || sample.state === "analyzing") return;
+      if (sample.state !== "recording" && !canBeginVoiceSample(name, sample.state)) return;
       event.preventDefault();
       if (sample.state === "recording") onStop(name);
       else onStart(name);
     }}>
       <div className="font-headline">Registrar una voz</div>
-      <input className="text-field selectable" aria-label="Nombre" placeholder="Nombre" value={name} autoFocus onChange={(event) => setName(event.target.value)} disabled={busy} />
-      <p className="font-callout secondary">Pulsa Grabar y habla con normalidad durante un minuto, por ejemplo leyendo un texto en voz alta. Hacen falta al menos 30 segundos de voz. El audio se borra al terminar: solo queda su huella, que no sale de este Mac.</p>
+      <input className="text-field selectable" aria-label="Nombre" placeholder="Nombre" value={name} autoFocus onChange={(event) => setName(event.target.value)} disabled={busy || choosingAudio} />
+      <p className="font-callout secondary">Pulsa Grabar y habla con normalidad durante un minuto, por ejemplo leyendo un texto en voz alta. Hacen falta al menos 30 segundos de voz. También puedes elegir un audio con al menos 30 segundos de voz; el original se conserva. Si grabas con el micrófono, el audio de la muestra se borra al terminar: solo queda su huella, que no sale de este Mac.</p>
       {sample.state === "requesting" && <div className="people-sample-status"><Spinner />Pidiendo permiso para el micrófono…</div>}
       {sample.state === "recording" && <div className="people-sample-status"><CircleDot size={16} color="var(--red)" /> <span className="people-clock">{clock}</span></div>}
       {sample.state === "analyzing" && <div className="people-sample-status"><Spinner />Sacando la huella…</div>}
       {sample.state === "failed" && <div className="people-sample-error"><TriangleAlert size={16} /><span>{sample.message}</span></div>}
-      <div className="sheet-actions"><Button disabled={sample.state === "analyzing"} onClick={onCancel}>Cancelar</Button>
-        {sample.state === "recording" ? <Button prominent onClick={() => onStop(name)}>Terminar</Button> : <Button prominent disabled={!name.trim() || busy} onClick={() => onStart(name)}>Grabar</Button>}
+      <div className="sheet-actions"><Button disabled={sample.state === "analyzing" || choosingAudio} onClick={onCancel}>Cancelar</Button>
+        {sample.state !== "recording" && <Button disabled={!canBeginVoiceSample(name, sample.state) || choosingAudio} onClick={() => onImport(name)}>Elegir audio…</Button>}
+        {sample.state === "recording" ? <Button prominent onClick={() => onStop(name)}>Terminar</Button> : <Button prominent disabled={!canBeginVoiceSample(name, sample.state) || choosingAudio} onClick={() => onStart(name)}>Grabar</Button>}
       </div>
     </div>
   </Sheet>;
