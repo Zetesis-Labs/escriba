@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "./vendor/zod/index.js";
 import type { Request, Host, Result, Note } from "./types.js";
 export declare const notionSchema: z.ZodObject<{
     source: z.ZodObject<{
