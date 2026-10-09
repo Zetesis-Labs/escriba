@@ -32,5 +32,10 @@ rusqlite = "0.32"
 plist = "1"
 surrealdb = { version = "3.3", default-features = false, features = ["kv-surrealkv"] }
 
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = { version = "0.6", default-features = false, features = ["std"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSArray", "NSData", "NSError", "NSString", "NSURL"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSOpenPanel", "NSSavePanel", "NSPanel", "NSResponder", "NSWindow"] }
+
 [dev-dependencies]
 tempfile = "3"

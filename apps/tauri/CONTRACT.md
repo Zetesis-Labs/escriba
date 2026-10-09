@@ -47,6 +47,7 @@ Errores rechazan la promesa con texto legible; nunca éxitos vacíos.
 - publication_save {recordingId,destinationId,accountId,name,provider,receipt,configuration,program?} -> void.
 - publication_remove {recordingId,destinationId} -> void.
 - watch_scan -> Recording[] (audio asentado, deduplicado; intervalos en host).
+- watch_folder_authorize {folderId?,name?,style?} -> WatchedFolder | null (panel nativo; cancelar no modifica configuración). Sin folderId incorpora la carpeta elegida; con folderId reautoriza esa fuente, conservando su identidad. Si la ruta anterior ya no existe, permite seleccionar su nueva ubicación. No disponible para recetas.
 
 ## Trabajos y estado de la interfaz
 
@@ -86,3 +87,19 @@ problema y solicita una notificación de escritorio. Un fallo repetido sin
 cambios no vuelve a notificar ni a llenar el registro. La entrega del aviso del
 sistema depende de los permisos de notificaciones; el aviso dentro de la app
 siempre se muestra. Los escaneos automáticos y manuales se ejecutan en serie.
+
+Cada carpeta puede tener `authorizationSaved` en el snapshot. Indica que se
+conserva una selección, no que macOS permita leerla ahora: el resultado actual
+se comunica mediante `watchIssues`. Los bytes del bookmark (`accessBookmark`)
+se guardan en SurrealDB, sólo los manipula Rust y nunca se incluyen en snapshots
+ni respuestas a TypeScript. Guardar ajustes conserva la selección cuando sigue
+correspondiendo al mismo id y ruta; quitar la carpeta elimina esa referencia.
+
+Rust restaura el bookmark antes del escaneo y de registrar FSEvents, renueva los
+bookmarks obsoletos y mantiene vivo el acceso mientras la carpeta está habilitada.
+La app actual usa bookmarks implícitos sin activar App Sandbox globalmente.
+Para materializar un archivo de iCloud, Rust pasa el bookmark directamente al
+adaptador Swift, que lo resuelve, comprueba que el archivo pertenece a la carpeta
+y mantiene el acceso durante la operación. Fallos de materialización se añaden
+a `watchIssues` y se reintentan con espera; un callback antiguo no puede sustituir
+el estado de un intento más reciente.

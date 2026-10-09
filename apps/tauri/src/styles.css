@@ -1362,9 +1362,10 @@ select {
   display: grid;
 }
 .folder-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto 15px 29px;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   padding: 11px 0;
   border-bottom: 1px solid var(--line);
 }
@@ -1374,7 +1375,6 @@ select {
 }
 .folder-row div {
   min-width: 0;
-  flex: 1;
 }
 .folder-row strong,
 .folder-row small {
@@ -1398,19 +1398,30 @@ select {
   color: #c8625e;
   white-space: normal;
 }
+.folder-row .folder-issue svg {
+  color: #c8625e;
+}
+.folder-authorization {
+  grid-column: 2 / -1;
+  justify-self: start;
+}
 .folder-row input {
   width: 15px;
   height: 15px;
   accent-color: var(--accent);
 }
 .folder-add {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 145px);
   gap: 7px;
   margin-top: 15px;
 }
 .folder-add input {
-  flex: 1;
   min-width: 0;
+}
+.folder-add > .button {
+  grid-column: 1 / -1;
+  justify-self: start;
 }
 .storage-panel p {
   display: flex;

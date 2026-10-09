@@ -383,6 +383,7 @@ impl Store {
     }
     pub fn snapshot(&self) -> Value {
         let mut value = self.data.clone();
+        value["settings"] = redacted_settings(&value["settings"]);
         value["dataPath"] = json!(self.root);
         for key in ["accounts", "resolvers"] {
             if let Some(items) = value[key].as_array_mut() {
@@ -394,6 +395,142 @@ impl Store {
             }
         }
         value
+    }
+
+    pub fn authorize_watched_folder(
+        &mut self,
+        folder_id: Option<&str>,
+        path: &Path,
+        name: Option<&str>,
+        style: &str,
+        bookmark: &[u8],
+    ) -> Result<Value, String> {
+        if bookmark.is_empty() {
+            return Err("La autorización de carpeta está vacía".into());
+        }
+        if !["any", "voiceMemos", "justPressRecord"].contains(&style) {
+            return Err("Estilo de carpeta desconocido".into());
+        }
+        let canonical = canonical_folder(path)?;
+        let mut next = self.data.clone();
+        let folders = next["settings"]["watchedFolders"]
+            .as_array_mut()
+            .ok_or("Carpetas inválidas")?;
+        let found = if let Some(folder_id) = folder_id {
+            Some(
+                folders
+                    .iter()
+                    .position(|folder| folder["id"] == folder_id)
+                    .ok_or("La carpeta vigilada ya no existe")?,
+            )
+        } else {
+            folders.iter().position(|folder| {
+                folder["path"]
+                    .as_str()
+                    .is_some_and(|existing| same_folder(Path::new(existing), &canonical))
+            })
+        };
+        let saved = if let Some(index) = found {
+            let relocation = {
+                let existing = Path::new(text(&folders[index], "path")?);
+                if same_folder(existing, &canonical) {
+                    false
+                } else {
+                    match fs::metadata(existing) {
+                        Err(error) if error.kind() == std::io::ErrorKind::NotFound => true,
+                        _ => {
+                            return Err(
+                                "La carpeta elegida no corresponde a la que se reautoriza".into()
+                            );
+                        }
+                    }
+                }
+            };
+            if relocation
+                && folders.iter().enumerate().any(|(other_index, folder)| {
+                    other_index != index
+                        && folder["path"]
+                            .as_str()
+                            .is_some_and(|path| same_folder(Path::new(path), &canonical))
+                })
+            {
+                return Err("La nueva ubicación ya pertenece a otra carpeta vigilada".into());
+            }
+            let folder = &mut folders[index];
+            if relocation {
+                folder["path"] = json!(canonical);
+            }
+            folder["accessBookmark"] = json!(bookmark);
+            folder
+                .as_object_mut()
+                .ok_or("Carpeta inválida")?
+                .remove("authorizationSaved");
+            folder.clone()
+        } else {
+            let default_name = canonical
+                .file_name()
+                .and_then(|value| value.to_str())
+                .unwrap_or("Carpeta");
+            let folder = json!({
+                "id":id(),
+                "path":canonical,
+                "name":name.filter(|value| !value.trim().is_empty()).unwrap_or(default_name),
+                "style":style,
+                "enabled":true,
+                "accessBookmark":bookmark,
+            });
+            folders.push(folder.clone());
+            folder
+        };
+        self.replace(next)?;
+        Ok(redacted_folder(&saved))
+    }
+
+    pub fn watched_folder_bookmarks(&self) -> Result<Vec<(String, PathBuf, Vec<u8>)>, String> {
+        let folders = self.data["settings"]["watchedFolders"]
+            .as_array()
+            .ok_or("Carpetas inválidas")?;
+        folders
+            .iter()
+            .filter(|folder| folder["enabled"] != false && !folder["accessBookmark"].is_null())
+            .map(|folder| {
+                Ok((
+                    text(folder, "id")?.to_owned(),
+                    PathBuf::from(text(folder, "path")?),
+                    bookmark_bytes(&folder["accessBookmark"])?,
+                ))
+            })
+            .collect()
+    }
+
+    pub fn refresh_watched_folder_bookmark(
+        &mut self,
+        folder_id: &str,
+        previous: &[u8],
+        resolved_path: &Path,
+        replacement: Option<&[u8]>,
+    ) -> Result<bool, String> {
+        if replacement.is_some_and(|bytes| bytes.is_empty()) {
+            return Err("La autorización renovada está vacía".into());
+        }
+        let mut next = self.data.clone();
+        let folders = next["settings"]["watchedFolders"]
+            .as_array_mut()
+            .ok_or("Carpetas inválidas")?;
+        let Some(folder) = folders.iter_mut().find(|folder| folder["id"] == folder_id) else {
+            return Ok(false);
+        };
+        if folder["accessBookmark"].is_null()
+            || bookmark_bytes(&folder["accessBookmark"])? != previous
+        {
+            return Ok(false);
+        }
+        folder["path"] = json!(canonical_folder(resolved_path)?);
+        if let Some(replacement) = replacement {
+            folder["accessBookmark"] = json!(replacement);
+        }
+        self.replace(next)?;
+        Ok(true)
     }
     pub fn recording(&self, record_id: &str) -> Result<Value, String> {
         self.data["recordings"]
@@ -971,15 +1108,28 @@ impl Store {
             }
             "settings_save" => {
                 let s = p["settings"].as_object().ok_or("Ajustes inválidos")?;
+                let watched = s
+                    .get("watchedFolders")
+                    .map(|incoming| {
+                        sanitize_watched_folders(incoming, &self.data["settings"]["watchedFolders"])
+                    })
+                    .transpose()?;
                 let target = next["settings"]
                     .as_object_mut()
                     .ok_or("Ajustes inválidos")?;
                 for (key, value) in s {
                     if target.contains_key(key) {
-                        target.insert(key.clone(), value.clone());
+                        target.insert(
+                            key.clone(),
+                            if key == "watchedFolders" {
+                                watched.clone().ok_or("Carpetas inválidas")?
+                            } else {
+                                value.clone()
+                            },
+                        );
                     }
                 }
-                Value::Object(target.clone())
+                redacted_settings(&Value::Object(target.clone()))
             }
             "log" => {
                 let entry = json!({"id":id(),"at":now(),"message":text(p,"message")?,"level":p["level"].as_str().unwrap_or("info"),"recordingId":p["recordingId"],"recipeId":p["recipeId"]});
@@ -1082,6 +1232,83 @@ fn file_hash(path: &Path) -> Result<Vec<u8>, String> {
     }
     Ok(hash.finalize().to_vec())
 }
+fn canonical_folder(path: &Path) -> Result<PathBuf, String> {
+    let path = path
+        .canonicalize()
+        .map_err(|error| format!("No se puede acceder a la carpeta: {error}"))?;
+    if !path.is_dir() {
+        return Err("La ruta elegida no es una carpeta".into());
+    }
+    Ok(path)
+}
+fn same_folder(left: &Path, right: &Path) -> bool {
+    left == right
+        || left
+            .canonicalize()
+            .ok()
+            .zip(right.canonicalize().ok())
+            .is_some_and(|(left, right)| left == right)
+}
+fn bookmark_bytes(value: &Value) -> Result<Vec<u8>, String> {
+    let bytes = serde_json::from_value::<Vec<u8>>(value.clone())
+        .map_err(|_| "La autorización guardada está dañada")?;
+    if bytes.is_empty() {
+        return Err("La autorización guardada está vacía".into());
+    }
+    Ok(bytes)
+}
+fn redacted_folder(folder: &Value) -> Value {
+    let mut redacted = folder.clone();
+    let authorized = bookmark_bytes(&redacted["accessBookmark"]).is_ok();
+    if let Some(object) = redacted.as_object_mut() {
+        object.remove("accessBookmark");
+        object.insert("authorizationSaved".into(), json!(authorized));
+    }
+    redacted
+}
+fn redacted_settings(settings: &Value) -> Value {
+    let mut redacted = settings.clone();
+    if let Some(folders) = redacted["watchedFolders"].as_array_mut() {
+        for folder in folders {
+            *folder = redacted_folder(folder);
+        }
+    }
+    redacted
+}
+fn sanitize_watched_folders(incoming: &Value, existing: &Value) -> Result<Value, String> {
+    let incoming = incoming.as_array().ok_or("Carpetas inválidas")?;
+    let existing = existing.as_array().ok_or("Carpetas inválidas")?;
+    let mut seen = std::collections::HashSet::new();
+    let mut result = Vec::with_capacity(incoming.len());
+    for folder in incoming {
+        let folder_id = text(folder, "id")?;
+        if !seen.insert(folder_id) {
+            return Err("Hay carpetas con el mismo identificador".into());
+        }
+        let path = text(folder, "path")?;
+        let name = text(folder, "name")?;
+        let style = folder["style"].as_str().unwrap_or("any");
+        if !["any", "voiceMemos", "justPressRecord"].contains(&style) {
+            return Err("Estilo de carpeta desconocido".into());
+        }
+        let mut entry = json!({
+            "id":folder_id,
+            "path":path,
+            "name":name,
+            "style":style,
+            "enabled":folder["enabled"] != false,
+        });
+        if let Some(prior) = existing.iter().find(|prior| prior["id"] == folder_id) {
+            if same_folder(Path::new(path), Path::new(text(prior, "path")?))
+                && !prior["accessBookmark"].is_null()
+            {
+                entry["accessBookmark"] = prior["accessBookmark"].clone();
+            }
+        }
+        result.push(entry);
+    }
+    Ok(json!(result))
+}
 fn collection(p: &Value) -> Result<&str, String> {
     let c = text(p, "collection")?;
     if ["accounts", "resolvers", "recipes", "destinations"].contains(&c) {
@@ -1120,6 +1347,194 @@ fn defaults() -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn carpeta_autorizada_persiste_y_el_bookmark_no_sale_en_respuestas() {
+        let dir = tempfile::tempdir().unwrap();
+        let library = dir.path().join("library");
+        let folder = dir.path().join("VoiceMemos");
+        fs::create_dir_all(&folder).unwrap();
+        let bytes = b"synthetic-private-bookmark";
+        let mut store = Store::open(library.clone()).unwrap();
+        let created = store
+            .authorize_watched_folder(None, &folder, Some("Notas"), "voiceMemos", bytes)
+            .unwrap();
+        let id = created["id"].as_str().unwrap().to_owned();
+        assert_eq!(created["authorizationSaved"], true);
+        assert!(created.get("accessBookmark").is_none());
+        assert_eq!(store.watched_folder_bookmarks().unwrap()[0].2, bytes);
+        let snapshot = store.snapshot();
+        assert_eq!(
+            snapshot["settings"]["watchedFolders"][0]["authorizationSaved"],
+            true
+        );
+        assert!(snapshot["settings"]["watchedFolders"][0]
+            .get("accessBookmark")
+            .is_none());
+        let reply = store
+            .mutate(
+                "settings_save",
+                &json!({"settings":{"watchedFolders":snapshot["settings"]["watchedFolders"]}}),
+            )
+            .unwrap();
+        assert!(reply["watchedFolders"][0].get("accessBookmark").is_none());
+        assert_eq!(store.watched_folder_bookmarks().unwrap()[0].2, bytes);
+        drop(store);
+        let store = Store::open(library).unwrap();
+        assert_eq!(store.watched_folder_bookmarks().unwrap()[0].0, id);
+        assert_eq!(store.watched_folder_bookmarks().unwrap()[0].2, bytes);
+        assert!(!store
+            .snapshot()
+            .to_string()
+            .contains("synthetic-private-bookmark"));
+    }
+
+    #[test]
+    fn reautorizar_misma_ruta_conserva_metadatos_y_cambiar_o_quitar_revoca() {
+        let dir = tempfile::tempdir().unwrap();
+        let first = dir.path().join("first");
+        let second = dir.path().join("second");
+        fs::create_dir_all(&first).unwrap();
+        fs::create_dir_all(&second).unwrap();
+        let mut store = Store::open(dir.path().join("library")).unwrap();
+        let folder = store
+            .authorize_watched_folder(
+                None,
+                &first,
+                Some("Original"),
+                "voiceMemos",
+                b"first-bookmark",
+            )
+            .unwrap();
+        let id = folder["id"].as_str().unwrap().to_owned();
+        store.mutate("settings_save", &json!({"settings":{"watchedFolders":[{"id":id,"path":first,"name":"Chosen","style":"any","enabled":false,"authorizationSaved":false,"accessBookmark":[1,2,3]}]}})).unwrap();
+        assert_eq!(store.watched_folder_bookmarks().unwrap().len(), 0);
+        let duplicate = store
+            .authorize_watched_folder(
+                None,
+                &first,
+                Some("Ignored"),
+                "justPressRecord",
+                b"second-bookmark",
+            )
+            .unwrap();
+        assert_eq!(duplicate["id"], id);
+        assert_eq!(duplicate["name"], "Chosen");
+        assert_eq!(duplicate["style"], "any");
+        assert_eq!(duplicate["enabled"], false);
+        assert!(store
+            .authorize_watched_folder(Some(&id), &second, None, "any", b"wrong-path")
+            .is_err());
+        assert_eq!(
+            store.data["settings"]["watchedFolders"][0]["accessBookmark"],
+            json!(b"second-bookmark")
+        );
+        store.mutate("settings_save", &json!({"settings":{"watchedFolders":[{"id":id,"path":second,"name":"Moved","style":"any","enabled":true,"accessBookmark":[9,9],"authorizationSaved":true}]}})).unwrap();
+        assert!(store.watched_folder_bookmarks().unwrap().is_empty());
+        assert!(store.data["settings"]["watchedFolders"][0]
+            .get("accessBookmark")
+            .is_none());
+        store
+            .mutate("settings_save", &json!({"settings":{"watchedFolders":[]}}))
+            .unwrap();
+        assert!(store.data["settings"]["watchedFolders"]
+            .as_array()
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn renovar_bookmark_respeta_actualizaciones_concurrentes_y_traslados() {
+        let dir = tempfile::tempdir().unwrap();
+        let old = dir.path().join("old");
+        let moved = dir.path().join("moved");
+        fs::create_dir_all(&old).unwrap();
+        fs::create_dir_all(&moved).unwrap();
+        let mut store = Store::open(dir.path().join("library")).unwrap();
+        let folder = store
+            .authorize_watched_folder(None, &old, None, "any", b"original")
+            .unwrap();
+        let id = folder["id"].as_str().unwrap().to_owned();
+        assert!(!store
+            .refresh_watched_folder_bookmark(&id, b"stale", &moved, Some(b"replacement"))
+            .unwrap());
+        assert_eq!(
+            store.data["settings"]["watchedFolders"][0]["path"],
+            json!(old.canonicalize().unwrap())
+        );
+        assert!(store
+            .refresh_watched_folder_bookmark(&id, b"original", &moved, Some(b"replacement"))
+            .unwrap());
+        assert_eq!(
+            store.data["settings"]["watchedFolders"][0]["path"],
+            json!(moved.canonicalize().unwrap())
+        );
+        assert_eq!(
+            store.watched_folder_bookmarks().unwrap()[0].2,
+            b"replacement"
+        );
+        assert!(!store
+            .refresh_watched_folder_bookmark(&id, b"original", &old, None)
+            .unwrap());
+        store
+            .mutate("settings_save", &json!({"settings":{"watchedFolders":[]}}))
+            .unwrap();
+        assert!(!store
+            .refresh_watched_folder_bookmark(&id, b"replacement", &old, None)
+            .unwrap());
+    }
+
+    #[test]
+    fn reautorizar_carpeta_trasladada_conserva_identidad_y_no_usurpa_otra() {
+        let dir = tempfile::tempdir().unwrap();
+        let first = dir.path().join("first");
+        let moved = dir.path().join("moved");
+        let second = dir.path().join("second");
+        fs::create_dir_all(&first).unwrap();
+        fs::create_dir_all(&second).unwrap();
+        let mut store = Store::open(dir.path().join("library")).unwrap();
+        let original = store
+            .authorize_watched_folder(None, &first, Some("Original"), "voiceMemos", b"old")
+            .unwrap();
+        let other = store
+            .authorize_watched_folder(None, &second, Some("Otra"), "any", b"other")
+            .unwrap();
+        let id = original["id"].as_str().unwrap();
+        store
+            .mutate(
+                "settings_save",
+                &json!({"settings":{"watchedFolders":[
+                    {"id":id,"path":first,"name":"Elegida","style":"voiceMemos","enabled":false},
+                    other
+                ]}}),
+            )
+            .unwrap();
+        fs::rename(&first, &moved).unwrap();
+        assert!(store
+            .authorize_watched_folder(Some(id), &second, None, "any", b"wrong")
+            .is_err());
+        let saved = store
+            .authorize_watched_folder(
+                Some(id),
+                &moved,
+                Some("Ignorado"),
+                "justPressRecord",
+                b"new",
+            )
+            .unwrap();
+        assert_eq!(saved["id"], original["id"]);
+        assert_eq!(saved["path"], json!(moved.canonicalize().unwrap()));
+        assert_eq!(saved["name"], "Elegida");
+        assert_eq!(saved["style"], "voiceMemos");
+        assert_eq!(saved["enabled"], false);
+        assert_eq!(saved["authorizationSaved"], true);
+        assert!(saved.get("accessBookmark").is_none());
+        let folders = store.data["settings"]["watchedFolders"].as_array().unwrap();
+        assert_eq!(folders.len(), 2);
+        assert_eq!(folders[0]["accessBookmark"], json!(b"new"));
+        assert_eq!(folders[1]["id"], other["id"]);
+        assert_eq!(folders[1]["accessBookmark"], json!(b"other"));
+    }
 
     #[test]
     fn startup_imports_discovered_swift_notes_once_without_processing_them() {
