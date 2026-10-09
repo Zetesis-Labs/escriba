@@ -28,6 +28,8 @@ struct Runtime {
     materializer: native::Native,
     materializing: Mutex<HashMap<PathBuf, SystemTime>>,
     scanner: Mutex<watcher::Scanner>,
+    watch_health: Mutex<watcher::Health>,
+    scan_lock: tokio::sync::Mutex<()>,
     watch_wake: tokio::sync::mpsc::Sender<()>,
     inference: native::Native,
     recorder: native::Native,
@@ -74,6 +76,11 @@ impl Runtime {
         if let Some(error) = &startup.error {
             snapshot["settings"]["startupMigration"] = json!({"state":"error","message":error});
         }
+        snapshot["watchIssues"] = self
+            .watch_health
+            .lock()
+            .map_err(|_| "No se pudo consultar el acceso a las carpetas")?
+            .snapshot();
         Ok(snapshot)
     }
 }
@@ -479,7 +486,17 @@ fn dispatch<'a>(
                 }
                 Ok(Value::Null)
             }
-            "watch_scan" => scan(state).await,
+            "open_privacy_settings" => {
+                let status = std::process::Command::new("/usr/bin/open")
+                    .args(["-b", "com.apple.systempreferences"])
+                    .status()
+                    .map_err(|e| format!("No se pudieron abrir los ajustes: {e}"))?;
+                if !status.success() {
+                    return Err("No se pudieron abrir los Ajustes del Sistema".into());
+                }
+                Ok(Value::Null)
+            }
+            "watch_scan" => scan(app, state).await,
             "settings_save" => {
                 if let Some(enabled) = p["settings"]["launchAtLogin"].as_bool() {
                     use tauri_plugin_autostart::ManagerExt;
@@ -549,8 +566,8 @@ fn log_error(state: &Runtime, message: &str) {
         eprintln!("{message}");
     }
 }
-async fn scan(state: &Arc<Runtime>) -> Result<Value, String> {
-    recover_captures(state).await?;
+async fn scan(app: &tauri::AppHandle, state: &Arc<Runtime>) -> Result<Value, String> {
+    let _scan = state.scan_lock.lock().await;
     let watched = folders(state)?;
     let runtime = state.clone();
     let batch = tokio::task::spawn_blocking(move || {
@@ -562,17 +579,7 @@ async fn scan(state: &Arc<Runtime>) -> Result<Value, String> {
     })
     .await
     .map_err(|e| e.to_string())??;
-    for error in batch.errors {
-        log_error(
-            state,
-            &format!(
-                "Carpeta {} ({}): {}",
-                error.folder_id,
-                error.path.display(),
-                error.message
-            ),
-        );
-    }
+    let mut issues = batch.errors;
     let mut added = Vec::new();
     for candidate in batch
         .ready
@@ -583,7 +590,11 @@ async fn scan(state: &Arc<Runtime>) -> Result<Value, String> {
         let status = match watcher::file_status(&candidate.path) {
             Ok(status) => status,
             Err(error) => {
-                log_error(state, &error);
+                issues.push(watcher::FolderError::from_io(
+                    candidate.folder_id.clone(),
+                    candidate.path.clone(),
+                    error,
+                ));
                 continue;
             }
         };
@@ -647,9 +658,42 @@ async fn scan(state: &Arc<Runtime>) -> Result<Value, String> {
                     .acknowledge(&candidate);
                 added.push(record);
             }
-            Err(error) => log_error(state, &format!("{}: {error}", candidate.path.display())),
+            Err(error) => issues.push(watcher::FolderError {
+                folder_id: candidate.folder_id,
+                path: candidate.path,
+                message: format!("No se pudo incorporar el audio: {error}"),
+                permission_denied: false,
+            }),
         }
     }
+    let changed = state
+        .watch_health
+        .lock()
+        .map_err(|_| "No se pudo actualizar el acceso a las carpetas")?
+        .update(issues);
+    if let Some(issues) = changed {
+        for error in &issues {
+            log_error(
+                state,
+                &format!(
+                    "Carpeta {} ({}): {}",
+                    error.folder_id,
+                    error.path.display(),
+                    error.message
+                ),
+            );
+        }
+        let _ = app.emit("escriba://changed", ());
+        if !issues.is_empty() {
+            let message = if issues.iter().any(|issue| issue.permission_denied) {
+                "macOS ha denegado el acceso a una carpeta vigilada. Abre Escriba Tauri para revisar los permisos."
+            } else {
+                "No se puede leer una carpeta vigilada. Abre Escriba Tauri para revisar el problema."
+            };
+            let _ = notify(app, state, "No se pueden incorporar nuevos audios", message);
+        }
+    }
+    recover_captures(state).await?;
     state.jobs.wake.notify_one();
     Ok(json!(added))
 }
@@ -841,7 +885,7 @@ fn start_watcher(
                 Err(error) => log_error(&state, &error),
                 _ => {}
             }
-            match scan(&state).await {
+            match scan(&app, &state).await {
                 Ok(items) if items.as_array().is_some_and(|v| !v.is_empty()) => {
                     let _ = app.emit("escriba://imported", items);
                     let _ = app.emit("escriba://changed", ());
@@ -917,6 +961,8 @@ pub fn run() {
                 materializer: native::Native::new(engine.clone()),
                 materializing: Mutex::new(HashMap::new()),
                 scanner: Mutex::new(watcher::Scanner::new()),
+                watch_health: Mutex::new(watcher::Health::default()),
+                scan_lock: tokio::sync::Mutex::new(()),
                 watch_wake,
                 inference: native::Native::new(engine.clone()),
                 recorder: native::Native::new(engine),

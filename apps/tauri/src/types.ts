@@ -157,6 +157,12 @@ export interface Snapshot {
   logs: LogEntry[];
   dataPath: string;
   native?: NativeStatus;
+  watchIssues?: Array<{
+    folderId: string;
+    path: string;
+    message: string;
+    permissionDenied: boolean;
+  }>;
 }
 export interface ProcessOptions {
   recipeId?: string;
