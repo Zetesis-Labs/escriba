@@ -883,7 +883,17 @@ mod tests {
                     let mut snapshot = state.lock().unwrap();
                     let record = &mut snapshot["recordings"][0];
                     match method.as_str() {
-                        "snapshot" => Ok(snapshot.clone()),
+                        "runtime_context" => {
+                            let mut context = snapshot.clone();
+                            context["recordings"] = json!(snapshot["recordings"]
+                                .as_array()
+                                .unwrap()
+                                .iter()
+                                .filter(|recording| params["recordingId"] == recording["id"])
+                                .cloned()
+                                .collect::<Vec<_>>());
+                            Ok(context)
+                        }
                         "transcribe" => Ok(json!({"text":"Audio sintético","segments":[]})),
                         "version_save" => {
                             let mut version = params.clone();

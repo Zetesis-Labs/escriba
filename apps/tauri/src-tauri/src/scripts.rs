@@ -51,7 +51,7 @@ struct PendingTask {
 }
 type Pending = Arc<Mutex<HashMap<String, PendingTask>>>;
 type Input = Arc<Mutex<ChildStdin>>;
-const MAX_FRAME: u64 = 48 * 1024 * 1024;
+const MAX_FRAME: u64 = 32 * 1024 * 1024;
 
 struct Worker {
     _child: Child,
@@ -92,7 +92,7 @@ async fn frame<R: AsyncRead + Unpin>(reader: &mut BufReader<R>) -> Result<Value,
     if count == 0 {
         return Err("El motor TypeScript se detuvo".into());
     }
-    if count as u64 > MAX_FRAME || bytes.last() != Some(&b'\n') {
+    if count as u64 > MAX_FRAME + 1 || bytes.last() != Some(&b'\n') {
         return Err("Mensaje TypeScript demasiado grande o incompleto".into());
     }
     serde_json::from_slice(&bytes).map_err(|_| "Mensaje TypeScript inválido".into())
@@ -100,7 +100,7 @@ async fn frame<R: AsyncRead + Unpin>(reader: &mut BufReader<R>) -> Result<Value,
 async fn send(input: &Input, value: &Value) -> Result<(), String> {
     let mut data = serde_json::to_vec(value).map_err(|e| e.to_string())?;
     if data.len() as u64 > MAX_FRAME {
-        return Err("Petición TypeScript demasiado grande".into());
+        return Err("Trama hacia TypeScript demasiado grande (límite 32 MiB)".into());
     }
     data.push(b'\n');
     let mut input = input.lock().await;
@@ -127,7 +127,7 @@ fn spawn(path: &PathBuf, worker: bool) -> Result<Child, String> {
 fn allowed(method: &str) -> bool {
     matches!(
         method,
-        "snapshot"
+        "runtime_context"
             | "recording_update"
             | "version_save"
             | "version_select"
@@ -227,6 +227,8 @@ impl Scripts {
                         let input = reader_input.clone();
                         let callback = capability.clone();
                         let pending = reader_pending.clone();
+                        let workers = reader_workers.clone();
+                        let alive = reader_alive.clone();
                         tokio::spawn(async move {
                             let result = if valid {
                                 callback(
@@ -246,7 +248,20 @@ impl Scripts {
                                 Ok(v) => json!({"type":"resolve","id":value["id"],"value":v}),
                                 Err(e) => json!({"type":"reject","id":value["id"],"message":e}),
                             };
-                            let _ = send(&input, &response).await;
+                            if let Err(error) = send(&input, &response).await {
+                                let fallback =
+                                    json!({"type":"reject","id":value["id"],"message":error});
+                                if send(&input, &fallback).await.is_err() {
+                                    alive.store(false, Ordering::SeqCst);
+                                    workers.lock().await.clear();
+                                    for (_, task) in pending.lock().await.drain() {
+                                        task.lease.revoke();
+                                        let _ = task.reply.send(Err(format!(
+                                            "Se perdió el canal TypeScript: {error}"
+                                        )));
+                                    }
+                                }
+                            }
                         });
                     }
                     "worker_create" => {
@@ -442,7 +457,18 @@ mod tests {
                 let mut snapshot = state.lock().unwrap();
                 let record = &mut snapshot["recordings"][0];
                 match method.as_str() {
-                    "snapshot" => Ok(snapshot.clone()),
+                    "runtime_context" => {
+                        let mut context = snapshot.clone();
+                        context["recordings"] = json!(snapshot["recordings"]
+                            .as_array()
+                            .unwrap()
+                            .iter()
+                            .filter(|recording| params["recordingId"].as_str()
+                                == recording["id"].as_str())
+                            .cloned()
+                            .collect::<Vec<_>>());
+                        Ok(context)
+                    }
                     "transcribe" => Ok(json!({"text":"Audio sintético","segments":[]})),
                     "version_save" => {
                         let mut version = params.clone();
@@ -480,6 +506,149 @@ mod tests {
                 }
             })
         })
+    }
+
+    #[tokio::test]
+    async fn procesa_nota_con_biblioteca_mayor_que_el_canal() {
+        let scripts = Scripts::new(crate::native::binary("escriba-runtime").unwrap());
+        let mut data = fixture();
+        let mut historical = data["recordings"][0].clone();
+        historical["id"] = json!("other-recording");
+        historical["versions"] =
+            json!([{"id":"historical-version","transcript":{"text":"x".repeat(33 * 1024 * 1024)}}]);
+        data["recordings"].as_array_mut().unwrap().push(historical);
+        let directory = tempfile::tempdir().unwrap();
+        let mut store = crate::store::Store::open(directory.path().join("library")).unwrap();
+        data["schemaVersion"] = json!(1);
+        store.replace(data.clone()).unwrap();
+        assert!(store.snapshot().to_string().len() > MAX_FRAME as usize);
+        let library = store.root.clone();
+        let store = Arc::new(StdMutex::new(store));
+        let capability: Capability = Arc::new({
+            let store = store.clone();
+            move |method, params, _task, lease| {
+                let store = store.clone();
+                Box::pin(async move {
+                    lease.ensure_active()?;
+                    let mut store = store.lock().unwrap();
+                    match method.as_str() {
+                        "runtime_context" => store.runtime_context(params["recordingId"].as_str()),
+                        "transcribe" => Ok(json!({"text":"Audio sintético","segments":[]})),
+                        "recording_update" | "version_save" | "version_select"
+                        | "version_update" | "log" => store.mutate(&method, &params),
+                        "memory_recall" => Ok(store
+                            .memory_recall(
+                                crate::store::text(&params, "recordingId")?,
+                                crate::store::text(&params, "versionId")?,
+                                crate::store::text(&params, "fingerprint")?,
+                            )?
+                            .unwrap_or(Value::Null)),
+                        "memory_keep" => {
+                            store.memory_keep(
+                                crate::store::text(&params, "recordingId")?,
+                                crate::store::text(&params, "versionId")?,
+                                crate::store::text(&params, "fingerprint")?,
+                                &params["value"],
+                            )?;
+                            Ok(Value::Null)
+                        }
+                        "trace_save" => {
+                            store.trace_save(&params)?;
+                            Ok(Value::Null)
+                        }
+                        _ => Err(format!("Capacidad inesperada: {method}")),
+                    }
+                })
+            }
+        });
+        tokio::time::timeout(
+            Duration::from_secs(20),
+            scripts.call(
+                "large-library",
+                "processRecording",
+                json!({"recordingId":"r"}),
+                capability.clone(),
+                Arc::new(|_| {}),
+            ),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(
+            store.lock().unwrap().recording("r").unwrap()["status"],
+            "done"
+        );
+        drop(scripts);
+        drop(capability);
+        drop(store);
+        tokio::task::yield_now().await;
+        let reopened = crate::store::Store::open(library).unwrap();
+        let processed = reopened.recording("r").unwrap();
+        assert_eq!(processed["status"], "done");
+        assert_eq!(processed["versions"].as_array().unwrap().len(), 1);
+        assert_eq!(
+            processed["versions"][0]["transcript"]["text"],
+            "Audio sintético"
+        );
+        assert_eq!(
+            processed["currentVersionId"],
+            processed["versions"][0]["id"]
+        );
+        let preserved = reopened.recording("other-recording").unwrap();
+        assert_eq!(preserved["versions"][0]["id"], "historical-version");
+        assert_eq!(
+            preserved["versions"][0]["transcript"]["text"]
+                .as_str()
+                .unwrap()
+                .len(),
+            33 * 1024 * 1024
+        );
+    }
+
+    #[tokio::test]
+    async fn respuesta_demasiado_grande_falla_y_permite_otro_trabajo() {
+        let scripts = Scripts::new(crate::native::binary("escriba-runtime").unwrap());
+        let state = Arc::new(StdMutex::new(fixture()));
+        let fake = fake_host(state);
+        let capability: Capability = Arc::new(move |method, params, task, lease| {
+            if method == "runtime_context" && params["recordingId"] == "r" {
+                Box::pin(async move {
+                    lease.ensure_active()?;
+                    Ok(json!({"large":"x".repeat(MAX_FRAME as usize)}))
+                })
+            } else {
+                fake(method, params, task, lease)
+            }
+        });
+        let events: Events = Arc::new(|_| {});
+        let error = tokio::time::timeout(
+            Duration::from_secs(10),
+            scripts.call(
+                "oversized",
+                "processRecording",
+                json!({"recordingId":"r"}),
+                capability.clone(),
+                events.clone(),
+            ),
+        )
+        .await
+        .unwrap()
+        .unwrap_err();
+        assert!(error.contains("32 MiB"), "{error}");
+        let schema = tokio::time::timeout(
+            Duration::from_secs(10),
+            scripts.call(
+                "next",
+                "getRecipeSchema",
+                json!({"recipeId":"default"}),
+                capability,
+                events,
+            ),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert!(schema["properties"]["idioma"].is_object());
     }
 
     #[tokio::test]
@@ -638,7 +807,7 @@ mod tests {
                 let wrote = wrote.clone();
                 let fixture = fixture.clone();
                 Box::pin(async move {
-                    if method != "snapshot" {
+                    if method != "runtime_context" {
                         return Err("Capacidad inesperada".into());
                     }
                     started.store(true, Ordering::SeqCst);
@@ -680,6 +849,44 @@ mod tests {
     async fn rejects_incomplete_frames() {
         let mut input = BufReader::new(b"{\"type\":\"result\"}".as_slice());
         assert!(frame(&mut input).await.unwrap_err().contains("incompleto"));
+    }
+
+    async fn protocol_error_reaches_running_job(invalid: &[u8], expected: &str) {
+        let path = crate::native::binary("escriba-runtime").unwrap();
+        let mut child = spawn(&path, false).unwrap();
+        let mut input = child.stdin.take().unwrap();
+        let mut output = BufReader::new(child.stdout.take().unwrap());
+        assert_eq!(frame(&mut output).await.unwrap()["type"], "ready");
+        input.write_all(b"{\"type\":\"run\",\"id\":\"broken\",\"operation\":\"processRecording\",\"args\":{\"recordingId\":\"r\"}}\n").await.unwrap();
+        loop {
+            if frame(&mut output).await.unwrap()["type"] == "call" {
+                break;
+            }
+        }
+        input.write_all(invalid).await.unwrap();
+        input.flush().await.unwrap();
+        let result = tokio::time::timeout(Duration::from_secs(5), frame(&mut output))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(result["type"], "error");
+        assert_eq!(result["id"], "broken");
+        assert!(
+            result["message"].as_str().unwrap().contains(expected),
+            "{result}"
+        );
+    }
+
+    #[tokio::test]
+    async fn protocolo_invalido_informa_al_trabajo_activo() {
+        protocol_error_reaches_running_job(b"not-json\n", "JSON").await;
+    }
+
+    #[tokio::test]
+    async fn trama_entrante_grande_informa_al_trabajo_activo() {
+        let mut oversized = vec![b' '; MAX_FRAME as usize + 1];
+        oversized.push(b'\n');
+        protocol_error_reaches_running_job(&oversized, "32 MiB").await;
     }
     #[test]
     fn recipes_cannot_request_credentials_or_shell_commands() {

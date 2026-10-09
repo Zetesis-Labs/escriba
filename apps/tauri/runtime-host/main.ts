@@ -10,9 +10,12 @@ declare const __WORKER_SOURCE__: string;
 declare const __BUILTIN_PROGRAM__: string;
 type ID = string | number;
 const encoder = new TextEncoder();
+const MAX_FRAME = 32 * 1024 * 1024;
 let writing = Promise.resolve();
 function send(value: unknown) {
   const data = encoder.encode(`${JSON.stringify(value)}\n`);
+  if (data.length - 1 > MAX_FRAME)
+    return Promise.reject(Error("Trama de salida demasiado grande (límite 32 MiB)"));
   writing = writing.then(async () => {
     let offset = 0;
     while (offset < data.length)
@@ -21,19 +24,42 @@ function send(value: unknown) {
   return writing;
 }
 async function* frames() {
-  const decoder = new TextDecoder();
-  let buffer = "";
+  const decoder = new TextDecoder("utf-8", { fatal: true });
+  let parts: Uint8Array[] = [];
+  let size = 0;
   for await (const bytes of Deno.stdin.readable) {
-    buffer += decoder.decode(bytes, { stream: true });
-    if (buffer.length > 32 * 1024 * 1024) throw Error("Trama demasiado grande");
-    let end: number;
-    while ((end = buffer.indexOf("\n")) >= 0) {
-      const line = buffer.slice(0, end);
-      buffer = buffer.slice(end + 1);
-      if (line.trim()) yield JSON.parse(line);
+    let start = 0;
+    for (let index = 0; index < bytes.length; index++) {
+      if (bytes[index] !== 10) continue;
+      const piece = bytes.subarray(start, index);
+      size += piece.length;
+      if (size > MAX_FRAME) throw Error("Trama de entrada demasiado grande (límite 32 MiB)");
+      const line = new Uint8Array(size);
+      let offset = 0;
+      for (const part of parts) {
+        line.set(part, offset);
+        offset += part.length;
+      }
+      line.set(piece, offset);
+      if (size) {
+        let value: unknown;
+        try {
+          value = JSON.parse(decoder.decode(line));
+        } catch {
+          throw Error("Trama JSON inválida");
+        }
+        yield value;
+      }
+      parts = [];
+      size = 0;
+      start = index + 1;
     }
+    const remainder = bytes.subarray(start);
+    size += remainder.length;
+    if (size > MAX_FRAME) throw Error("Trama de entrada demasiado grande (límite 32 MiB)");
+    if (remainder.length) parts.push(remainder);
   }
-  if (buffer.trim()) throw Error("Trama incompleta al cerrar stdin");
+  if (size) throw Error("Trama incompleta al cerrar stdin");
 }
 function identifier(value: unknown): ID {
   if (typeof value === "string" && value.length && value.length < 256)
@@ -45,7 +71,9 @@ function identifier(value: unknown): ID {
 async function workerProcess() {
   Object.defineProperty(globalThis, "postMessage", {
     value: (value: unknown) => {
-      void send(value);
+      void send(value).catch(async (error) => {
+        await send({ type: "error", message: message(error) });
+      });
     },
     writable: false,
   });
@@ -72,9 +100,11 @@ async function main() {
     ID,
     { recordingId?: string; abort: AbortController }
   >();
+  let closing: Error | undefined;
   let sequence = 0;
   const host = {
     call(method: string, params: Record<string, unknown> = {}) {
+      if (closing) return Promise.reject(closing);
       const taskId = context.getStore();
       if (taskId !== undefined && running.get(taskId)?.abort.signal.aborted)
         return Promise.reject(
@@ -104,7 +134,9 @@ async function main() {
       onerror: null,
       onmessageerror: null,
       postMessage(value) {
-        void send({ type: "worker_send", id, value });
+        void send({ type: "worker_send", id, value }).catch((error) => {
+          port.onerror?.({ message: message(error) } as ErrorEvent);
+        });
       },
       terminate() {
         if (workers.delete(id)) {
@@ -115,7 +147,9 @@ async function main() {
     };
     workers.set(id, port);
     workerTasks.set(id, context.getStore());
-    void send({ type: "worker_create", id, taskId: context.getStore() });
+    void send({ type: "worker_create", id, taskId: context.getStore() }).catch((error) => {
+      port.onerror?.({ message: message(error) } as ErrorEvent);
+    });
     return port;
   });
   const scopedRunner = {
@@ -183,6 +217,7 @@ async function main() {
     }
   }
   await send({ type: "ready", protocolVersion: 1 });
+  let channelError: unknown;
   try {
     for await (const raw of frames()) {
       const frame = object(raw);
@@ -240,19 +275,32 @@ async function main() {
       void context.run(id, async () => {
         try {
           const result = await execute(operation, args);
-          await send({ type: "result", id, value: result ?? null });
+          if (!closing) await send({ type: "result", id, value: result ?? null });
         } catch (error) {
-          await send({ type: "error", id, message: message(error) });
+          if (!closing) await send({ type: "error", id, message: message(error) });
         } finally {
           running.delete(id);
         }
       });
     }
+  } catch (error) {
+    channelError = error;
+    closing = Error(`Canal de protocolo: ${message(error)}`);
+    await Promise.all(
+      [...running.keys()].map((id) =>
+        send({ type: "error", id, message: closing!.message }),
+      ),
+    );
+    throw error;
   } finally {
-    for (const task of running.values()) task.abort.abort();
+    closing ??= Error(channelError ? message(channelError) : "El host cerró el canal");
     for (const waiter of pending.values())
-      waiter.reject(Error("El host cerró el canal"));
+      waiter.reject(closing);
+    pending.clear();
+    for (const task of running.values()) task.abort.abort();
     for (const worker of workers.values()) worker.terminate();
+    workers.clear();
+    workerTasks.clear();
   }
   await writing;
 }

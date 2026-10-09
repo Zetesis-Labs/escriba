@@ -1,6 +1,5 @@
 import { z } from "zod";
 import type {
-  Snapshot,
   Destination,
   Recording,
   Recipe,
@@ -19,7 +18,8 @@ import {
   jsonObject,
   message,
   object,
-  readSnapshot,
+  readContext,
+  type RuntimeContext,
   request,
   text,
   type RuntimeHost,
@@ -38,7 +38,7 @@ function lookup<T extends { id: string; name: string }>(
   if (found.length !== 1) throw Error(`${kind} desconocido o ambiguo: ${id}`);
   return found[0];
 }
-function lists(snapshot: Snapshot): Lists {
+function lists(snapshot: RuntimeContext): Lists {
   return {
     stts: snapshot.resolvers
       .filter((r) => r.role === "stt" && r.enabled)
@@ -69,7 +69,7 @@ const resolver = (r: Resolver) => ({
   url: r.url || null,
 });
 function selected(
-  snapshot: Snapshot,
+  snapshot: RuntimeContext,
   role: "stt" | "llm",
   id?: string,
 ): Resolver {
@@ -85,7 +85,10 @@ function selected(
 function criteriaKey(value: JSONObject | undefined) {
   return JSON.stringify(value || {}, Object.keys(value || {}).sort());
 }
-function recipeProgram(recipe: Recipe, snapshot: Snapshot): string | undefined {
+function recipeProgram(
+  recipe: Recipe,
+  snapshot: RuntimeContext,
+): string | undefined {
   if (recipe.kind === "code") {
     if (!recipe.bundle)
       throw Error(
@@ -212,7 +215,7 @@ export function createRuntime(
     processOptions: ProcessOptions = {},
   ) {
     return runJob(id, async (signal) => {
-      const snapshot = await readSnapshot(host);
+      const snapshot = await readContext(host, id);
       const recording = snapshot.recordings.find((r) => r.id === id);
       if (!recording) throw Error("Grabación no encontrada");
       if (!recording.audioPath)
@@ -693,7 +696,7 @@ export function createRuntime(
   }
   async function summarizeRecording(id: string, llm?: string) {
     return runJob(id, async (signal) => {
-      const snapshot = await readSnapshot(host);
+      const snapshot = await readContext(host, id);
       const recording = snapshot.recordings.find((r) => r.id === id);
       if (!recording) throw Error("Grabación no encontrada");
       const version = currentVersion(recording);
@@ -722,7 +725,7 @@ export function createRuntime(
         versionId: version.id,
         digest,
       });
-      const latest = (await readSnapshot(host)).recordings.find(
+      const latest = (await readContext(host, id)).recordings.find(
         (r) => r.id === id,
       );
       if (latest && currentVersion(latest).id === version.id) {
@@ -746,7 +749,7 @@ export function createRuntime(
     });
   }
   async function getRecipeSchema(recipeId: string): Promise<JSONObject> {
-    const snapshot = await readSnapshot(host);
+    const snapshot = await readContext(host);
     const recipe = lookup(snapshot.recipes, recipeId, "Receta");
     return jsonObject(
       await runner.run(
@@ -794,7 +797,7 @@ export function createRuntime(
     },
     getRecipeSchema,
     async rebuildProject() {
-      const snapshot = await readSnapshot(host);
+      const snapshot = await readContext(host);
       const built = object(await host.call("project_build"));
       if (!Array.isArray(built.recipes))
         throw Error("El proyecto no devolvió recetas");
