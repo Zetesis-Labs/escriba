@@ -54,6 +54,12 @@ Por orden de daño:
 
 ## Fase 4. Código a las reglas de la casa (puerta 4)
 
+- Runtime de recetas y conectores en **Bun**, no Deno (Rubén, 2026-10-09). Bun no
+  tiene permisos propios: cada proceso de receta corre con un perfil de sandbox
+  de macOS sin red ni disco, y solo sale por las capacidades de Escriba. Los
+  tests de aislamiento actuales (`worker.test.ts`, `sidecar.test.ts`) tienen que
+  seguir pasando con Bun.
+
 - Rust: structs de serde para grabación, versión, trabajo y ajustes; errores
   tipados con «reintentable» como variante; `store.rs` partido por entidad; sin
   `unwrap` fuera de tests.
