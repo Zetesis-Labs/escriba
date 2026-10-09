@@ -2578,7 +2578,14 @@ var __conectores = (() => {
     createProgram: () => createProgram,
     defineNotionDestination: () => defineNotionDestination,
     defineOKFDestination: () => defineOKFDestination,
-    run: () => run
+    notionConfig: () => notionConfig,
+    notionProblem: () => notionProblem,
+    notionSchema: () => notionSchema,
+    okfConfig: () => okfConfig,
+    okfSchema: () => okfSchema,
+    run: () => run,
+    standardDocuments: () => standardDocuments,
+    suggestedColumns: () => suggestedColumns
   });
 
   // node_modules/zod/v4/classic/external.js
@@ -23558,7 +23565,7 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
     if (problem) throw Error(problem);
     const note = request.note;
     if (!note) throw Error("Falta la nota");
-    if (request.operation === "preview") return notionPayload(note, config2);
+    if (request.operation === "preview") return notionPayload(note, config2, "ejemplo");
     const audio = config2.body.includes("{{audio}}") ? await upload(client, host) : void 0;
     const payload = notionPayload(note, config2, audio);
     if (!ref) {

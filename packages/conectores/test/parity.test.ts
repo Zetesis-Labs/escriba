@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { run } from "../src/index.js";
+import { run, suggestedColumns } from "../src/index.js";
 import type { Host, Note, Result, Receipt } from "../src/types.js";
 const note: Note = {
   key: "llamada",
@@ -51,9 +51,32 @@ type Preview = {
   properties: Record<string, unknown>;
   children: { type: string; [key: string]: unknown }[];
 };
+test("la app puede sugerir columnas y refrescarlas sin perder lo escrito", () => {
+  const source = {
+    id: "s", title: "Notas", databaseTitle: "Notas",
+    properties: [
+      { name: "Nombre", type: "title" },
+      { name: "Fecha", type: "date" },
+      { name: "Resumen", type: "rich_text" },
+    ],
+  };
+  assert.deepEqual(suggestedColumns(source), {
+    Nombre: "{{titulo}}", Fecha: "{{fecha-iso}}", Resumen: "{{resumen}}",
+  });
+  assert.deepEqual(suggestedColumns(source, { Nombre: "Manual", Resumen: "", Borrada: "no" }), {
+    Nombre: "Manual", Fecha: "{{fecha-iso}}", Resumen: "",
+  });
+});
 function preview(result: Result) {
   return result as unknown as Preview;
 }
+test("la vista previa sin host muestra el audio sin subir ningún fichero", async () => {
+  const result = preview(await run({
+    operation: "preview", provider: "notion",
+    config: { ...config, body: "{{audio}}" },
+  }));
+  assert.deepEqual(result.children.map((block) => block.type), ["audio"]);
+});
 test("la sugerencia Notion respeta nombres, tipos, columnas manuales y vaciados explícitos", async () => {
   const source = {
     id: "s",

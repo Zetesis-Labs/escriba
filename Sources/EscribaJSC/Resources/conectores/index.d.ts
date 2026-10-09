@@ -1,6 +1,8 @@
 import { z } from "./vendor/zod/index.js";
 import type { Request, Host, Result } from "./types.js";
 export * from "./types.js";
+export { notionConfig, notionSchema, notionProblem, suggestedColumns } from "./notion.js";
+export { okfConfig, okfSchema, standardDocuments } from "./okf.js";
 export declare function run(request: Request, host?: Host): Promise<Result>;
 export interface DestinationOptions {
     id: string;
