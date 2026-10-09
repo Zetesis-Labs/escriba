@@ -5,7 +5,7 @@ import {
   type WorkerPort,
 } from "../src/runtime/workerClient";
 import { object, text, message } from "../src/runtime/contracts";
-import type { ProcessOptions } from "../src/types";
+import type { NativeStatus, ProcessOptions } from "../src/types";
 declare const __WORKER_SOURCE__: string;
 declare const __BUILTIN_PROGRAM__: string;
 type ID = string | number;
@@ -177,6 +177,8 @@ async function main() {
   });
   async function execute(operation: string, args: Record<string, unknown>) {
     switch (operation) {
+      case "notificationProblems":
+        return runtime.notificationProblems(object(args.status) as NativeStatus);
       case "processRecording":
         return runtime.processRecording(
           text(args.recordingId, "grabación"),

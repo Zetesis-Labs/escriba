@@ -43,6 +43,21 @@ impl Queue {
         })
     }
     pub fn enqueue(&self, operation: &str, args: Value) -> Result<String, String> {
+        self.enqueue_with_origin(operation, args, false)
+    }
+    pub fn enqueue_automatic(&self, recording: &str) -> Result<String, String> {
+        self.enqueue_with_origin(
+            "processRecording",
+            json!({"recordingId":recording,"options":{"force":false}}),
+            true,
+        )
+    }
+    fn enqueue_with_origin(
+        &self,
+        operation: &str,
+        args: Value,
+        automatic: bool,
+    ) -> Result<String, String> {
         if !durable(operation) {
             return Err("Operación no encolable".into());
         }
@@ -62,7 +77,7 @@ impl Queue {
         }
         let id = store::id();
         let time = chrono::Utc::now().timestamp_millis();
-        guard.job_save(&json!({"id":id,"recordingId":recording,"operation":operation,"args":args,"audioHash":record["audioHash"],"state":"queued","stage":"En cola","attempt":0,"createdAt":time,"startedAt":time,"nextAttemptAt":0}))?;
+        guard.job_save(&json!({"id":id,"recordingId":recording,"operation":operation,"args":args,"automatic":automatic,"audioHash":record["audioHash"],"state":"queued","stage":"En cola","attempt":0,"createdAt":time,"startedAt":time,"nextAttemptAt":0}))?;
         self.wake.notify_one();
         self.changed.notify_waiters();
         Ok(id)
@@ -102,10 +117,7 @@ impl Queue {
                 .collect::<Vec<_>>()
         };
         for id in candidates {
-            self.enqueue(
-                "processRecording",
-                json!({"recordingId":id,"options":{"force":false}}),
-            )?;
+            self.enqueue_automatic(id.as_str().ok_or("Grabación sin identificador")?)?;
         }
         Ok(())
     }
@@ -133,13 +145,13 @@ impl Queue {
         self.changed.notify_waiters();
         Ok(Some(job))
     }
-    pub fn finish(&self, id: &str, result: Result<Value, String>) -> Result<(), String> {
+    pub fn finish(&self, id: &str, result: Result<Value, String>) -> Result<bool, String> {
         let mut guard = self.store.lock().map_err(|_| "Biblioteca ocupada")?;
         let Some(mut job) = guard.jobs()?.into_iter().find(|j| j["id"] == id) else {
-            return Ok(());
+            return Ok(false);
         };
         if job["state"] == "cancelled" {
-            return Ok(());
+            return Ok(false);
         }
         match result {
             Ok(value) => {
@@ -184,7 +196,7 @@ impl Queue {
         guard.job_save(&job)?;
         self.changed.notify_waiters();
         self.wake.notify_one();
-        Ok(())
+        Ok(true)
     }
     pub fn stages(&self, stages: &Value) -> Result<(), String> {
         let Some(stages) = stages.as_array() else {
@@ -261,6 +273,21 @@ mod tests {
         Arc::new(Mutex::new(Store::open(path.to_owned()).unwrap()))
     }
     #[test]
+    fn cancelar_tras_la_inferencia_impide_confirmar_el_resultado_y_avisar_del_exito() {
+        let temp = tempfile::tempdir().unwrap();
+        let audio = temp.path().join("note.wav");
+        std::fs::write(&audio, b"synthetic audio").unwrap();
+        let store = library(&temp.path().join("library"));
+        let record = store.lock().unwrap().import(&audio, None).unwrap();
+        let queue = Queue::new(store).unwrap();
+        let id = queue
+            .enqueue_automatic(record["id"].as_str().unwrap())
+            .unwrap();
+        queue.claim().unwrap().unwrap();
+        queue.cancel(record["id"].as_str().unwrap()).unwrap();
+        assert!(!queue.finish(&id, Ok(Value::Null)).unwrap());
+    }
+    #[test]
     fn interrupted_job_resumes_without_creating_another_manual_version() {
         let temp = tempfile::tempdir().unwrap();
         let audio = temp.path().join("note.wav");
@@ -283,7 +310,28 @@ mod tests {
         assert_eq!(resumed["id"], id);
         assert_eq!(resumed["attempt"], 2);
         assert_eq!(resumed["args"]["options"]["force"], false);
+        assert_eq!(resumed["automatic"], false);
     }
+    #[test]
+    fn el_origen_automatico_se_conserva_al_recuperar_un_trabajo() {
+        let temp = tempfile::tempdir().unwrap();
+        let audio = temp.path().join("note.wav");
+        std::fs::write(&audio, b"synthetic audio").unwrap();
+        let root = temp.path().join("library");
+        let store = library(&root);
+        store.lock().unwrap().import(&audio, None).unwrap();
+        let queue = Queue::new(store.clone()).unwrap();
+        queue.automatic().unwrap();
+        let first = queue.claim().unwrap().unwrap();
+        assert_eq!(first["automatic"], true);
+        drop(queue);
+        drop(store);
+        let queue = Queue::new(library(&root)).unwrap();
+        let resumed = queue.claim().unwrap().unwrap();
+        assert_eq!(resumed["id"], first["id"]);
+        assert_eq!(resumed["automatic"], true);
+    }
+
     #[test]
     fn unavailable_services_retry_but_bad_input_does_not() {
         assert!(retryable("BACKEND_UNAVAILABLE: 429"));

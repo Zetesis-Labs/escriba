@@ -73,6 +73,13 @@ de escritorio cuando cambia el fallo, sin repetirla en cada pasada. El aviso
 se retira cuando se recupera el acceso. Los fallos al descargar un audio de
 iCloud también aparecen en este aviso.
 
+Las notificaciones usan el centro nativo de macOS y solicitan permiso para
+alertas y sonido al arrancar. «Nota transcrita» muestra hasta 80 caracteres del
+texto, sin sonido, si está activo «Notificar cada transcripción». Los problemas
+se avisan siempre y con el sonido del sistema; el cuerpo se limita a 240
+caracteres. Como Swift, estos avisos de transcripción corresponden al pipeline
+automático, no a reprocesar, resumir o publicar a mano.
+
 Si Tauri ya tiene grabaciones o se quiere elegir otra biblioteca, está
 **Ajustes → Importar biblioteca SwiftUI**, con un plist de preferencias opcional.
 La importación abre SQLite en modo de lectura y copia los audios. Incluye versiones, datos,

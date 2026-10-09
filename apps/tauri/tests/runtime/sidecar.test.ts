@@ -28,7 +28,7 @@ beforeAll(async () => {
 afterAll(async () => {
   await rm(directory, { recursive: true, force: true });
 });
-function supervisor(state: Snapshot, hangFirstTranscribe = false) {
+function supervisor(state: Snapshot, hangFirstTranscribe = false, onCall?: (method: string, params: Record<string, unknown>) => void) {
   let hung = false;
   const cancelled = new Set<string>();
   const child = spawn(executable, [], { env: {} });
@@ -38,6 +38,7 @@ function supervisor(state: Snapshot, hangFirstTranscribe = false) {
     { resolve: (value: unknown) => void; reject: (error: Error) => void }
   >();
   const methods: string[] = [];
+  const contextRequests: Record<string, unknown>[] = [];
   const taskIds: unknown[] = [];
   const events: unknown[] = [];
   let readyResolve!: () => void;
@@ -120,7 +121,10 @@ function supervisor(state: Snapshot, hangFirstTranscribe = false) {
         state.recordings.find(
           (r) => r.id === params.recordingId || r.id === params.id,
         ) || state.recordings[0];
-      if (value.method === "runtime_context") result = runtimeContext(state, params.recordingId);
+      if (value.method === "runtime_context") {
+        contextRequests.push(params);
+        result = runtimeContext(state, params.recordingId);
+      }
       else if (value.method === "transcribe")
         result = { text: "Texto preservado", segments: [] };
       else if (value.method === "recording_update")
@@ -157,6 +161,7 @@ function supervisor(state: Snapshot, hangFirstTranscribe = false) {
         });
         return;
       }
+      onCall?.(value.method, params);
       send({ type: "resolve", id, value: result });
     }
   });
@@ -167,6 +172,7 @@ function supervisor(state: Snapshot, hangFirstTranscribe = false) {
   return {
     ready,
     methods,
+    contextRequests,
     taskIds,
     events,
     run(operation: string, args: Record<string, unknown>) {
@@ -189,6 +195,45 @@ function supervisor(state: Snapshot, hangFirstTranscribe = false) {
     },
   };
 }
+test("notificaciones consultan solo el contexto de configuración y devuelven los problemas", async () => {
+  const state = structuredClone(snapshot);
+  const host = supervisor(state);
+  try {
+    await host.ready;
+    const result = await host.run("notificationProblems", {
+      status: { protocolVersion: 1, whisper: { available: false }, llm: { available: false, reason: "modelo aún no disponible" } },
+    }).result;
+    assert.deepEqual(result, [
+      { role: "stt", name: "Whisper", reason: "el modelo de Whisper no está descargado; descárgalo aquí abajo" },
+      { role: "llm", name: "Apple", reason: "modelo aún no disponible" },
+    ]);
+    assert.deepEqual(host.methods, ["runtime_context"]);
+    assert.deepEqual(host.contextRequests, [{}]);
+  } finally {
+    host.close();
+  }
+});
+
+test("procesar devuelve la versión creada aunque cambie la selección durante el cierre", async () => {
+  const state = structuredClone(snapshot);
+  state.recipes[0].values = { resumir: false };
+  state.recordings[0].versions.push({
+    id: "v0", createdAt: "antes", backend: "Whisper", recipeId: "default",
+    transcript: { text: "Anterior", segments: [] }, inputs: {},
+  });
+  state.recordings[0].currentVersionId = "v0";
+  const host = supervisor(state, false, (method, params) => {
+    if (method === "recording_update" && params.status === "done") state.recordings[0].currentVersionId = "v0";
+  });
+  try {
+    await host.ready;
+    const result = await host.run("processRecording", { recordingId: "r" }).result;
+    assert.deepEqual(result, { versionId: "v2" });
+    assert.equal(state.recordings[0].currentVersionId, "v0");
+  } finally {
+    host.close();
+  }
+});
 test("sidecar compilado preserva transcripción entre reinicios y emite jobs/capacidades con taskId", async () => {
   const state = structuredClone(snapshot);
   state.recipes[0].values = { resumir: false };

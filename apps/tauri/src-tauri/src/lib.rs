@@ -7,6 +7,9 @@ mod library_view;
 mod menubar;
 mod migration;
 mod native;
+mod notification_delivery;
+mod notification_events;
+mod notifications;
 mod persistence;
 mod project;
 mod project_watch;
@@ -20,6 +23,7 @@ mod voice_registration;
 mod voices;
 mod watcher;
 
+use notifications::Problem;
 use serde_json::{json, Value};
 use std::{
     collections::HashMap,
@@ -127,6 +131,7 @@ async fn app_command(
 ) -> Result<Value, String> {
     let runtime = state.inner().clone();
     let refresh = refreshes_library(&method, &params);
+    let check_resolvers = notification_events::settings_changed(&method, &params);
     let result = dispatch(&app, &runtime, &method, params)
         .await
         .and_then(voices::public_reply);
@@ -135,6 +140,9 @@ async fn app_command(
     }
     if refresh {
         state.jobs.wake.notify_one();
+    }
+    if result.is_ok() && check_resolvers {
+        tauri::async_runtime::spawn(async move { warn_about_unusable(&app, &runtime).await });
     }
     result
 }
@@ -369,17 +377,14 @@ fn dispatch<'a>(
                 state.store()?.mutate(method, &p)
             }
             "notification_permission" => {
-                notify(app, state, "Escriba", "Las notificaciones de Escriba están disponibles. Puedes ajustarlas en Ajustes del Sistema.")?;
-                Ok(json!("sent"))
+                notification_delivery::request_authorization()?;
+                Ok(json!("requested"))
             }
             "recording_restore" => {
                 let record = state.store()?.mutate(method, &p)?;
                 let automatic = state.store()?.data["settings"]["autoProcess"] == true;
                 if automatic && record["audioPath"].is_string() {
-                    state.jobs.enqueue(
-                        "processRecording",
-                        json!({"recordingId":record["id"],"options":{"force":false}}),
-                    )?;
+                    state.jobs.enqueue_automatic(text(&record, "id")?)?;
                 }
                 Ok(record)
             }
@@ -917,6 +922,7 @@ async fn scan(app: &tauri::AppHandle, state: &Arc<Runtime>) -> Result<Value, Str
     let _scan = state.scan_lock.lock().await;
     let mut issues = restore_watched_folders(state)?;
     let watched = folders(state)?;
+    let watched_paths: Vec<_> = watched.iter().map(|folder| folder.path.clone()).collect();
     let runtime = state.clone();
     let batch = tokio::task::spawn_blocking(move || {
         runtime
@@ -1002,8 +1008,14 @@ async fn scan(app: &tauri::AppHandle, state: &Arc<Runtime>) -> Result<Value, Str
             .forget(&candidate.path);
         if status["size"].as_u64().unwrap_or(0) == 0 {
             if candidate.stamp.modified.elapsed().unwrap_or_default() >= Duration::from_secs(3600) {
-                let mut store = state.store()?;
-                store.mutate("recording_abandoned", &json!({"path":candidate.path,"source":candidate.folder_id,"sourceKey":candidate.source_key,"title":candidate.title,"modifiedAt":chrono::DateTime::<chrono::Utc>::from(candidate.started_at).to_rfc3339()}))?;
+                let record = state.store()?.mutate("recording_abandoned", &json!({"path":candidate.path,"source":candidate.folder_id,"sourceKey":candidate.source_key,"title":candidate.title,"modifiedAt":chrono::DateTime::<chrono::Utc>::from(candidate.started_at).to_rfc3339()}))?;
+                notify_problem(
+                    state,
+                    Problem::Failed {
+                        key: text(&record, "id")?,
+                        reason: "el fichero está vacío (0 bytes) desde hace más de una hora",
+                    },
+                );
                 state
                     .scanner
                     .lock()
@@ -1054,13 +1066,15 @@ async fn scan(app: &tauri::AppHandle, state: &Arc<Runtime>) -> Result<Value, Str
             );
         }
         let _ = app.emit("escriba://changed", ());
-        if !issues.is_empty() {
-            let message = if issues.iter().any(|issue| issue.permission_denied) {
-                "macOS ha denegado el acceso a una carpeta vigilada. Abre Escriba Tauri para revisar los permisos."
+        for issue in &issues {
+            if watched_paths.contains(&issue.path) {
+                notify_problem(
+                    state,
+                    Problem::FolderInaccessible(&issue.path.to_string_lossy()),
+                );
             } else {
-                "No se puede leer una carpeta vigilada. Abre Escriba Tauri para revisar el problema."
-            };
-            let _ = notify(app, state, "No se pueden incorporar nuevos audios", message);
+                notify_problem(state, Problem::ScanFailed(&issue.message));
+            }
         }
     }
     recover_captures(state).await?;
@@ -1103,23 +1117,80 @@ async fn recover_captures(state: &Arc<Runtime>) -> Result<(), String> {
     }
     Ok(())
 }
-fn notify(
-    app: &tauri::AppHandle,
+fn notify(state: &Runtime, notice: notifications::Notification) {
+    if let Err(error) = notification_delivery::send(&notice) {
+        log_error(state, &error);
+    }
+}
+fn notify_problem(state: &Runtime, problem: Problem<'_>) {
+    notify(state, notifications::notification(problem));
+}
+async fn warn_about_unusable(app: &tauri::AppHandle, state: &Arc<Runtime>) {
+    let model = match state.store() {
+        Ok(store) => store.data["settings"]["whisperModel"].clone(),
+        Err(error) => {
+            notify_problem(state, Problem::StartupFailed(&error));
+            return;
+        }
+    };
+    let status = match state
+        .inference
+        .call("status", json!({"model": model}))
+        .await
+    {
+        Ok(status) => status,
+        Err(error) => {
+            log_error(state, &error);
+            notify_problem(state, Problem::BackendUnavailable(&error));
+            return;
+        }
+    };
+    match script_call(
+        app,
+        state,
+        &store::id(),
+        "notificationProblems",
+        json!({"status": {
+            "protocolVersion": status["protocolVersion"],
+            "whisper": {"available": status["whisper"]["available"]},
+            "llm": {"available": status["llm"]["available"], "reason": status["llm"]["reason"]}
+        }}),
+    )
+    .await
+    {
+        Ok(value) => {
+            match serde_json::from_value::<Vec<notification_events::ResolverProblem>>(value) {
+                Ok(problems) => {
+                    for problem in problems {
+                        log_error(state, &problem.reason);
+                        notify(state, problem.notification());
+                    }
+                }
+                Err(error) => log_error(
+                    state,
+                    &format!("No se pudieron leer los avisos de los resolutores: {error}"),
+                ),
+            }
+        }
+        Err(error) => {
+            log_error(state, &error);
+            notify_problem(state, Problem::RecipesUnavailable(&error));
+        }
+    }
+}
+fn job_notification(
     state: &Runtime,
-    title: &str,
-    message: &str,
-) -> Result<(), String> {
-    use tauri_plugin_notification::NotificationExt;
-    app.notification()
-        .builder()
-        .title(title)
-        .body(message.chars().take(240).collect::<String>())
-        .show()
-        .map_err(|e| {
-            let message = format!("No se pudo mostrar la notificación: {e}");
-            log_error(state, &message);
-            message
-        })
+    job: &Value,
+    result: &Result<Value, String>,
+) -> Result<Option<notifications::Notification>, String> {
+    let store = state.store()?;
+    let record = store.recording(text(job, "recordingId")?)?;
+    Ok(notification_events::finished(
+        job,
+        &record,
+        result.as_ref().map_err(String::as_str),
+        &store.data["settings"],
+    ))
 }
 fn emit_jobs(app: &tauri::AppHandle, state: &Runtime) {
     match state.jobs.visible() {
@@ -1190,30 +1261,15 @@ fn start_jobs(app: tauri::AppHandle, state: Arc<Runtime>) {
                         job["args"].clone(),
                     )
                     .await;
-                    if job["args"]["options"]["dryRun"] != true {
-                        match &result {
-                            Ok(_) if job["operation"] == "processRecording" => {
-                                let setting = state
-                                    .store()
-                                    .map(|s| s.data["settings"]["notifyEveryNote"] != false)
-                                    .unwrap_or(false);
-                                if setting {
-                                    let _ = notify(
-                                        &app,
-                                        &state,
-                                        "Nota transcrita",
-                                        "La grabación está lista en la biblioteca.",
-                                    );
-                                }
-                            }
-                            Err(error) if job["attempt"] == 1 && error != "Proceso cancelado" => {
-                                let _ = notify(&app, &state, "Escriba necesita atención", error);
-                            }
+                    let notice = job_notification(&state, &job, &result);
+                    match state.jobs.finish(id, result) {
+                        Ok(true) => match notice {
+                            Ok(Some(notice)) => notify(&state, notice),
+                            Err(error) => log_error(&state, &error),
                             _ => {}
-                        }
-                    }
-                    if let Err(error) = state.jobs.finish(id, result) {
-                        log_error(&state, &error);
+                        },
+                        Ok(false) => {}
+                        Err(error) => log_error(&state, &error),
                     }
                     emit_jobs(&app, &state);
                 }
@@ -1287,7 +1343,10 @@ fn start_watcher(
                     let _ = app.emit("escriba://imported", items);
                     let _ = app.emit("escriba://changed", ());
                 }
-                Err(error) => log_error(&state, &error),
+                Err(error) => {
+                    log_error(&state, &error);
+                    notify_problem(&state, Problem::ScanFailed(&error));
+                }
                 _ => {}
             }
             let current = state
@@ -1300,14 +1359,24 @@ fn start_watcher(
                         Ok(next) => {
                             for error in &next.errors {
                                 log_error(&state, &error.message);
+                                notify_problem(
+                                    &state,
+                                    Problem::FolderInaccessible(&error.path.to_string_lossy()),
+                                );
                             }
                             watcher = Some(next);
                             previous = current;
                         }
-                        Err(error) => log_error(&state, &error),
+                        Err(error) => {
+                            log_error(&state, &error);
+                            notify_problem(&state, Problem::ScanFailed(&error));
+                        }
                     }
                 }
-                Err(error) => log_error(&state, &error),
+                Err(error) => {
+                    log_error(&state, &error);
+                    notify_problem(&state, Problem::ScanFailed(&error));
+                }
                 _ => {}
             }
             tokio::select! { _ = wake.recv() => {}, _ = tokio::time::sleep(Duration::from_secs(15)) => {} }
@@ -1320,6 +1389,11 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _, _| {
             let _ = menubar::show(app, "library");
+            if let Err(error) = notification_delivery::send(&notifications::notification(
+                Problem::AlreadyOpen("otra copia"),
+            )) {
+                eprintln!("{error}");
+            }
         }))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
@@ -1329,130 +1403,150 @@ pub fn run() {
                 .build(),
         )
         .setup(|app| {
-            let isolated_root = std::env::var_os("ESCRIBA_TAURI_DATA").map(PathBuf::from);
-            let root = isolated_root.clone().unwrap_or(app.path().app_data_dir()?);
-            let store = Store::open(root.clone()).map_err(std::io::Error::other)?;
-            let legacy = if isolated_root.is_none()
-                && store.data["settings"]["legacyImported"] != true
-                && store.data["recordings"]
-                    .as_array()
-                    .is_some_and(Vec::is_empty)
-            {
-                Some(
-                    app.path()
-                        .home_dir()?
-                        .join("Library/Application Support/escriba/library"),
-                )
-            } else {
-                None
-            };
-            let opening = legacy.as_ref().map(|_| {
-                let mut snapshot = store.snapshot();
-                snapshot["settings"]["startupMigration"] = json!({"state":"importing"});
-                snapshot
-            });
-            let legacy_preferences = if isolated_root.is_none() {
-                Some(
-                    app.path()
-                        .home_dir()?
-                        .join("Library/Preferences/dev.ruben.escriba.plist"),
-                )
-            } else {
-                None
-            };
-            app.asset_protocol_scope()
-                .allow_directory(root.join("audio"), true)?;
-            let resource_vendor = app.path().resource_dir()?.join("vendor");
-            let vendor = if resource_vendor.is_dir() {
-                resource_vendor
-            } else {
-                Path::new(env!("CARGO_MANIFEST_DIR")).join("vendor")
-            };
-            let engine = native::binary("EscribaNativeHost").map_err(std::io::Error::other)?;
-            let store = Arc::new(Mutex::new(store));
-            let jobs = Arc::new(jobs::Queue::new(store.clone()).map_err(std::io::Error::other)?);
-            let (watch_wake, wake) = tokio::sync::mpsc::channel(1);
-            let state = Arc::new(Runtime {
-                store,
-                jobs,
-                scripts: scripts::Scripts::new(
-                    native::binary("escriba-runtime").map_err(std::io::Error::other)?,
-                ),
-                materializer: native::Native::new(engine.clone()),
-                materializing: Mutex::new(watcher::Materializations::default()),
-                scanner: Mutex::new(watcher::Scanner::new()),
-                watch_health: Mutex::new(watcher::Health::default()),
-                scan_lock: tokio::sync::Mutex::new(()),
-                folder_accesses: Mutex::new(HashMap::new()),
-                watch_wake,
-                inference: native::Native::new(engine.clone()),
-                voice_registration: voice_registration::Registration::new(
-                    root.join("voice-samples"),
-                    engine.clone(),
-                )
-                .map_err(std::io::Error::other)?,
-                recorder: native::Native::new(engine),
-                recording: Mutex::new(None),
-                recording_problem: Mutex::new(None),
-                recording_lock: tokio::sync::Mutex::new(()),
-                menubar: Mutex::new(menubar::Bar::default()),
-                quitting: AtomicBool::new(false),
-                vendor,
-                compiler: native::binary("escriba-esbuild").map_err(std::io::Error::other)?,
-                startup: Mutex::new(Startup {
-                    snapshot: opening,
-                    error: None,
-                }),
-            });
-            app.manage(state.clone());
-            menubar::install(app.handle(), &state)?;
-            app.on_menu_event(|app, event| menubar::handle(app, event.id().as_ref()));
-            menubar::watch(app.handle().clone());
-            let handle = app.handle().clone();
-            tauri::async_runtime::spawn(async move {
-                if legacy.is_some() || legacy_preferences.is_some() {
-                    let importing = state.clone();
-                    let result = tokio::task::spawn_blocking(move || {
-                        let mut store = importing.store()?;
-                        if let Some(source) = legacy {
-                            store.import_startup_legacy(&source)?;
+            if let Err(error) = notification_delivery::request_authorization() {
+                eprintln!("{error}");
+            }
+            let result: Result<(), Box<dyn std::error::Error>> = (|| {
+                let isolated_root = std::env::var_os("ESCRIBA_TAURI_DATA").map(PathBuf::from);
+                let root = isolated_root.clone().unwrap_or(app.path().app_data_dir()?);
+                let store = Store::open(root.clone()).map_err(std::io::Error::other)?;
+                let legacy = if isolated_root.is_none()
+                    && store.data["settings"]["legacyImported"] != true
+                    && store.data["recordings"]
+                        .as_array()
+                        .is_some_and(Vec::is_empty)
+                {
+                    Some(
+                        app.path()
+                            .home_dir()?
+                            .join("Library/Application Support/escriba/library"),
+                    )
+                } else {
+                    None
+                };
+                let opening = legacy.as_ref().map(|_| {
+                    let mut snapshot = store.snapshot();
+                    snapshot["settings"]["startupMigration"] = json!({"state":"importing"});
+                    snapshot
+                });
+                let legacy_preferences = if isolated_root.is_none() {
+                    Some(
+                        app.path()
+                            .home_dir()?
+                            .join("Library/Preferences/dev.ruben.escriba.plist"),
+                    )
+                } else {
+                    None
+                };
+                app.asset_protocol_scope()
+                    .allow_directory(root.join("audio"), true)?;
+                let resource_vendor = app.path().resource_dir()?.join("vendor");
+                let vendor = if resource_vendor.is_dir() {
+                    resource_vendor
+                } else {
+                    Path::new(env!("CARGO_MANIFEST_DIR")).join("vendor")
+                };
+                let engine = native::binary("EscribaNativeHost").map_err(std::io::Error::other)?;
+                let store = Arc::new(Mutex::new(store));
+                let jobs =
+                    Arc::new(jobs::Queue::new(store.clone()).map_err(std::io::Error::other)?);
+                let (watch_wake, wake) = tokio::sync::mpsc::channel(1);
+                let state = Arc::new(Runtime {
+                    store,
+                    jobs,
+                    scripts: scripts::Scripts::new(
+                        native::binary("escriba-runtime").map_err(std::io::Error::other)?,
+                    ),
+                    materializer: native::Native::new(engine.clone()),
+                    materializing: Mutex::new(watcher::Materializations::default()),
+                    scanner: Mutex::new(watcher::Scanner::new()),
+                    watch_health: Mutex::new(watcher::Health::default()),
+                    scan_lock: tokio::sync::Mutex::new(()),
+                    folder_accesses: Mutex::new(HashMap::new()),
+                    watch_wake,
+                    inference: native::Native::new(engine.clone()),
+                    voice_registration: voice_registration::Registration::new(
+                        root.join("voice-samples"),
+                        engine.clone(),
+                    )
+                    .map_err(std::io::Error::other)?,
+                    recorder: native::Native::new(engine),
+                    recording: Mutex::new(None),
+                    recording_problem: Mutex::new(None),
+                    recording_lock: tokio::sync::Mutex::new(()),
+                    menubar: Mutex::new(menubar::Bar::default()),
+                    quitting: AtomicBool::new(false),
+                    vendor,
+                    compiler: native::binary("escriba-esbuild").map_err(std::io::Error::other)?,
+                    startup: Mutex::new(Startup {
+                        snapshot: opening,
+                        error: None,
+                    }),
+                });
+                app.manage(state.clone());
+                menubar::install(app.handle(), &state)?;
+                app.on_menu_event(|app, event| menubar::handle(app, event.id().as_ref()));
+                menubar::watch(app.handle().clone());
+                let handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    if legacy.is_some() || legacy_preferences.is_some() {
+                        let importing = state.clone();
+                        let result = tokio::task::spawn_blocking(move || {
+                            let mut store = importing.store()?;
+                            if let Some(source) = legacy {
+                                store.import_startup_legacy(&source)?;
+                            }
+                            if let Some(preferences) = legacy_preferences {
+                                store.adopt_legacy_watched_folders(&preferences)?;
+                            }
+                            Ok::<(), String>(())
+                        })
+                        .await
+                        .map_err(|error| error.to_string())
+                        .and_then(|result| result);
+                        if let Err(error) = &result {
+                            notify_problem(&state, Problem::StartupFailed(error));
                         }
-                        if let Some(preferences) = legacy_preferences {
-                            store.adopt_legacy_watched_folders(&preferences)?;
+                        match state.startup.lock() {
+                            Ok(mut startup) => {
+                                startup.snapshot = None;
+                                startup.error = result.err();
+                            }
+                            Err(error) => {
+                                eprintln!(
+                                    "No se pudo finalizar la apertura de la biblioteca: {error}"
+                                )
+                            }
                         }
-                        Ok::<(), String>(())
-                    })
-                    .await
-                    .map_err(|error| error.to_string())
-                    .and_then(|result| result);
-                    match state.startup.lock() {
-                        Ok(mut startup) => {
-                            startup.snapshot = None;
-                            startup.error = result.err();
-                        }
-                        Err(error) => {
-                            eprintln!("No se pudo finalizar la apertura de la biblioteca: {error}")
+                        let _ = handle.emit("escriba://changed", ());
+                    }
+                    if let Ok(root) = voice_memos_root(&handle) {
+                        let seeded = state
+                            .store()
+                            .and_then(|mut store| store.seed_voice_memos(&root));
+                        match seeded {
+                            Ok(true) => {
+                                let _ = handle.emit("escriba://changed", ());
+                            }
+                            Ok(false) => {}
+                            Err(error) => log_error(&state, &error),
                         }
                     }
-                    let _ = handle.emit("escriba://changed", ());
+                    warn_about_unusable(&handle, &state).await;
+                    start_jobs(handle.clone(), state.clone());
+                    start_project_watcher(handle.clone(), state.clone());
+                    start_watcher(handle, state, wake);
+                });
+                Ok(())
+            })();
+            if let Err(error) = &result {
+                if let Err(delivery) = notification_delivery::send(&notifications::notification(
+                    Problem::StartupFailed(&error.to_string()),
+                )) {
+                    eprintln!("{delivery}");
                 }
-                if let Ok(root) = voice_memos_root(&handle) {
-                    let seeded = state
-                        .store()
-                        .and_then(|mut store| store.seed_voice_memos(&root));
-                    match seeded {
-                        Ok(true) => {
-                            let _ = handle.emit("escriba://changed", ());
-                        }
-                        Ok(false) => {}
-                        Err(error) => log_error(&state, &error),
-                    }
-                }
-                start_jobs(handle.clone(), state.clone());
-                start_project_watcher(handle.clone(), state.clone());
-                start_watcher(handle, state, wake);
-            });
-            Ok(())
+            }
+            result
         })
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
