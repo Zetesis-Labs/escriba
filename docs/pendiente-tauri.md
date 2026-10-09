@@ -430,6 +430,17 @@ verificada. Rubén confirmó los avisos y el sonido en la app instalada el
   (`recover_captures` en `lib.rs`), la fecha de la nota tiene que ser la del
   fichero, no la de la recuperación.
 
+Implementación de este apartado: la hoja carga el formulario de la receta y
+usa un borrador para esa ejecución. `options.values` sustituye los parámetros
+guardados sin modificarlos ni aplicarlos a las recetas llamadas con `procesar`.
+El progreso de Whisper viaja por JSONL del host nativo a Rust y por un evento
+a la barra «Descargando…»; las capturas recuperadas guardan la fecha del fichero.
+Validación: 148 pruebas TypeScript, suite de 152 Rust más la prueba pura de
+fecha añadida después, 17 del host Swift, tipos, Clippy y formato correctos.
+Release instalada el 2026-10-10, firma verificada y 983 archivos idénticos al
+bundle construido. Pendiente de la comprobación de Rubén; no empezar §7 hasta
+que la confirme.
+
 ## 7. Arreglos del motor
 
 Por orden de daño. Cada uno con su test antes del arreglo.

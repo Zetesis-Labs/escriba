@@ -90,7 +90,8 @@ al abrirla, conservando ese archivo de origen.
 
 Los tokens introducidos en la app se guardan en archivos privados 0600 y se leen
 solo en Rust. Los pesos Whisper instalados se reutilizan desde
-`~/Library/Application Support/escriba/models`; las descargas son explícitas.
+`~/Library/Application Support/escriba/models`; las descargas son explícitas y
+muestran «Descargando…» con una barra de progreso en STT.
 Detalles del esquema y la importación: [persistencia](../../docs/tauri-persistence.md).
 
 ## Responsabilidades
@@ -120,7 +121,9 @@ cinco minutos de inactividad. Véase [runtime](runtime-host/README.md) y
   datos, exportación TXT/Markdown/SRT/JSON, descarte y borrado local.
 - **Procesamiento:** motores locales Apple y resolutores remotos compatibles
   con OpenAI, diarización local, cancelación, reprocesamiento manual con nueva
-  versión y recuperación automática sin repetir inferencias compatibles.
+  versión y recuperación automática sin repetir inferencias compatibles. La hoja
+  de reprocesado permite ajustar los parámetros solo para esa ejecución sin
+  cambiar la receta guardada.
 - **Recetas:** formularios declarados con Zod, parámetros, preguntas estructuradas,
   delegación, ejecución de prueba y trazas. Un proyecto se edita externamente y
   se compila con el esbuild incluido en la app.
