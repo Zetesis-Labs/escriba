@@ -413,7 +413,8 @@ aunque la selección de la biblioteca cambie. Las pruebas cubren los textos,
 grafemas Unicode, preferencias, fallos, cancelación, reinicio y reintentos.
 Validación: 136 pruebas TypeScript y 150 Rust correctas (una de inferencia real
 omitida), tipos, Clippy y formato. Versión release instalada y abierta, con firma
-verificada. La aceptación de los avisos y el sonido sigue pendiente de Rubén.
+verificada. Rubén confirmó los avisos y el sonido en la app instalada el
+2026-10-10; apartado validado.
 
 ## 6. Pequeños pendientes de la interfaz
 
