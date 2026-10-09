@@ -96,7 +96,7 @@ Cada casilla se marca cuando funciona en la app instalada y Rubén lo ha visto.
 - [ ] Datos como tabla de etiqueta y valor (`NoteDataView.swift`).
 - [ ] Tarjeta «Cómo se procesó» con pasos, logs, datos, error y «Copiar» (`TraceCard.swift`).
 - [ ] Menú de versiones con la actual marcada.
-- [ ] «Reprocesar con una receta…»: hoja con la receta y sus parámetros solo esa vez (`ReprocessSheet.swift`).
+- [ ] «Reprocesar con una receta…»: hoja con la receta y sus parámetros solo esa vez (`ReprocessSheet.swift`). Implementado en `ReprocessSheet` y `options.values`, con pruebas de sustitución puntual, reset del borrador y recetas delegadas; pendiente de probar en la app instalada.
 - [ ] «Transcribir ahora» y «Reintentar» en pendientes y fallidas.
 - [ ] Hablantes: renombrar, fusionar y «No es X», insignia de reconocido y aviso «Renombrado, pero sin aprender su voz».
 - [ ] Copiar la transcripción y copiar el JSON de Swift.
@@ -130,7 +130,7 @@ funcionando. Detalle en `docs/pendiente-tauri.md`, apartado 3.
 - [ ] Presets de OpenAI, Groq, OpenRouter, LM Studio y Ollama (`ResolversPane.swift`).
 - [ ] URL, clave y modelo, «Cargar modelos» y «Probar».
 - [ ] Aviso de lo que falta por configurar.
-- [ ] Whisper local: estado del modelo, descarga con progreso y borrar del disco (`SettingsView.swift:130-191`).
+- [ ] Whisper local: estado del modelo, descarga con progreso y borrar del disco (`SettingsView.swift:130-191`). Progreso del host Swift conectado por JSONL y evento Tauri a «Descargando…», con pruebas de protocolo y fracciones; pendiente de probar en la app instalada.
 
 ### Recetas
 
