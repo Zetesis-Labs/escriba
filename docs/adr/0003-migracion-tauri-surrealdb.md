@@ -1,3 +1,7 @@
+---
+status: modificado por ADR-0004
+---
+
 # Tauri y SurrealDB como destino de Escriba
 
 Rubén decidió el 2026-10-09 completar la migración a Tauri y utilizar SurrealDB
