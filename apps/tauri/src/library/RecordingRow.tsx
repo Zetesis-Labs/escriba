@@ -1,6 +1,6 @@
 import { AlertTriangle } from "lucide-react";
 import { clockStamp, recordingExcerpt, recordingTitle, recordingWhen, visibleTags } from "../core/presentation";
-import type { Recording } from "../types";
+import type { Account, Destination, Recording } from "../types";
 import { currentVersion, publishedNames, transcriptDuration } from "./model";
 
 export const displayTitle = (recording: Recording) => {
@@ -34,12 +34,12 @@ export function StatusChip({ status }: { status: Recording["status"] }) {
   return <span className={`status-chip ${descriptor[1]}`}>{descriptor[0]}</span>;
 }
 
-export function RecordingRow({ recording, origin, now }: { recording: Recording; origin: string; now: Date }) {
+export function RecordingRow({ recording, origin, now, destinations, accounts }: { recording: Recording; origin: string; now: Date; destinations: Destination[]; accounts: Account[] }) {
   const version = currentVersion(recording);
   const duration = transcriptDuration(version?.transcript);
   const excerpt = recordingExcerpt(version?.digest, version?.transcript.text);
   const tags = version?.digest?.tags ?? [];
-  const published = publishedNames(recording);
+  const published = publishedNames(recording, destinations, accounts);
   const footer = [origin, recordingWhen(new Date(recording.createdAt), now), published.length ? `en ${published.join(" y ")}` : null]
     .filter(Boolean)
     .join(" · ");

@@ -33,11 +33,11 @@ describe("la biblioteca de Tauri contada como en Swift", () => {
   });
   test("el origen es la carpeta vigilada más concreta, y lo añadido o grabado en la app es la Bandeja", () => {
     const folders = [
-      { id: "1", path: "/Users/r/Library/Group Containers/group.com.apple.VoiceMemos.shared/Recordings", name: "Notas de Voz", enabled: true },
+      { id: "1", path: "/Users/r/Library/Group Containers/group.com.apple.VoiceMemos.shared/Recordings", name: "Recordings", style: "voiceMemos" as const, enabled: true },
       { id: "2", path: "/Users/r/Library", name: "Biblioteca", enabled: true },
     ];
     expect(originName(recording(), folders)).toBe("Notas de Voz");
-    expect(originName(recording({ source: "/Users/r/Library/Application Support/dev.zetesis.escriba.tauri/captures/x.m4a" }), folders)).toBe("Biblioteca");
+    expect(originName(recording({ source: "/Users/r/Library/Application Support/dev.zetesis.escriba.tauri/captures/x.m4a" }), folders)).toBe("Library");
     expect(originName(recording({ source: "/Users/r/Desktop/x.m4a" }), folders)).toBe("Bandeja");
   });
   test("los criterios se describen igual que en Swift", () => {
@@ -61,6 +61,9 @@ describe("la biblioteca de Tauri contada como en Swift", () => {
     expect(isPublished({ ...base, receipt: {} })).toBe(false);
     expect(isPublished({ ...base, receipt: { url: "x" }, error: "401" })).toBe(false);
     expect(publishedNames(recording({ publications: [{ ...base, receipt: { url: "x" } }] }))).toEqual(["Notion"]);
+    const importada = { ...base, name: "03823BB9-D0D1", destinationId: "03823BB9-D0D1", receipt: { url: "x" } };
+    expect(publishedNames(recording({ publications: [importada] }), [{ id: "03823BB9-D0D1", name: "Voice Inbox", provider: "notion", account: "n", enabled: true, configuration: {} }])).toEqual(["Voice Inbox"]);
+    expect(publishedNames(recording({ publications: [importada] }))).toEqual(["Notion"]);
   });
   test("solo publican los destinos activos de una cuenta activa", () => {
     const destinations = [
