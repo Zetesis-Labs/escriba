@@ -1,0 +1,164 @@
+:root {
+  color-scheme: light dark;
+  --label: #1d1d1f;
+  --secondary: rgb(60 60 67 / 0.65);
+  --tertiary: rgb(60 60 67 / 0.4);
+  --quaternary: rgb(60 60 67 / 0.2);
+  --separator: rgb(0 0 0 / 0.1);
+  --accent: #e8792a;
+  --accent-text: #fff;
+  --content: #fff;
+  --window: #f5f5f5;
+  --control: #fff;
+  --fill: rgb(0 0 0 / 0.05);
+  --fill-strong: rgb(0 0 0 / 0.08);
+  --unemphasized: rgb(0 0 0 / 0.08);
+  --orange: #f08c00;
+  --red: #ff3b30;
+  --green: #28cd41;
+  --blue: #007aff;
+  --gray: #8e8e93;
+  --sidebar: rgb(236 236 238 / 0.94);
+  font: 13px/1.38 -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  font-synthesis: none;
+  color: var(--label);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --label: #f5f5f7;
+    --secondary: rgb(235 235 245 / 0.6);
+    --tertiary: rgb(235 235 245 / 0.35);
+    --quaternary: rgb(235 235 245 / 0.18);
+    --separator: rgb(255 255 255 / 0.1);
+    --content: #1e1e1e;
+    --window: #282828;
+    --control: #3a3a3c;
+    --fill: rgb(255 255 255 / 0.07);
+    --fill-strong: rgb(255 255 255 / 0.12);
+    --unemphasized: rgb(255 255 255 / 0.1);
+    --sidebar: rgb(40 40 42 / 0.94);
+  }
+}
+@supports (color: -apple-system-label) {
+  :root {
+    --label: -apple-system-label;
+    --secondary: -apple-system-secondary-label;
+    --tertiary: -apple-system-tertiary-label;
+    --quaternary: -apple-system-quaternary-label;
+    --separator: -apple-system-separator;
+    --accent: -apple-system-control-accent;
+    --content: -apple-system-text-background;
+    --control: -apple-system-control-background;
+    --unemphasized: -apple-system-unemphasized-selected-content-background;
+    --orange: -apple-system-orange;
+    --red: -apple-system-red;
+    --green: -apple-system-green;
+    --blue: -apple-system-blue;
+    --gray: -apple-system-gray;
+    --sidebar: transparent;
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: transparent;
+}
+body {
+  cursor: default;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-user-drag: none;
+  overscroll-behavior: none;
+}
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+button {
+  cursor: default;
+}
+:focus {
+  outline: none;
+}
+:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  outline-offset: 1px;
+}
+.selectable,
+.selectable * {
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
+}
+img,
+svg {
+  -webkit-user-drag: none;
+}
+
+.font-title {
+  font-size: 22px;
+  line-height: 1.2;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.font-title3 {
+  font-size: 15px;
+  font-weight: 600;
+}
+.font-headline {
+  font-size: 13px;
+  font-weight: 600;
+}
+.font-callout {
+  font-size: 12px;
+}
+.font-caption {
+  font-size: 11px;
+}
+.font-caption2 {
+  font-size: 10px;
+}
+.secondary {
+  color: var(--secondary);
+}
+.tertiary {
+  color: var(--tertiary);
+}
+.monospaced-digits {
+  font-variant-numeric: tabular-nums;
+}
+.spinner {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid var(--quaternary);
+  border-top-color: var(--secondary);
+  animation: spin 0.8s linear infinite;
+  flex: none;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation-duration: 2.4s;
+  }
+}
+[role="listbox"]:focus-visible {
+  outline: none;
+}
