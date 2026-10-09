@@ -42,26 +42,33 @@ export function TraceCard({ trace, recipeName }: { trace: RecipeTrace; recipeNam
         <Icon size={14} strokeWidth={1.8} />
         <span>{traceHeadline(trace, recipeName)}</span>
       </button>
-      {expanded && (
-        <div className="trace-detail">
-          <div className="trace-copy">
-            <Button small onClick={() => void navigator.clipboard.writeText(traceText(trace, recipeName))} title="Copia la traza entera como texto">
-              Copiar
-            </Button>
-          </div>
-          {trace.steps.map((step, index) => (
-            <div className="trace-step" key={index}>
-              <div className="trace-step-line">
-                {step.error ? <XCircle size={13} className="warning" /> : <CheckCircle2 size={13} className="secondary" />}
-                <span className="trace-step-title">{stepTitle(step)}</span>
-                <span className="secondary monospaced-digits">{seconds.format(step.seconds)} s</span>
-              </div>
-              {step.error && <div className="font-caption secondary selectable">{step.error}</div>}
-            </div>
-          ))}
-          {trace.error && <div className="font-caption warning selectable trace-error">{trace.error}</div>}
-        </div>
-      )}
+      {expanded && <TraceDetail trace={trace} recipeName={recipeName} />}
     </div>
   );
 }
+
+export function TraceDetail({ trace, recipeName }: { trace: RecipeTrace; recipeName?: string }) {
+  return (
+    <div className="trace-detail">
+      <div className="trace-copy">
+        <Button small onClick={() => void navigator.clipboard.writeText(traceText(trace, recipeName))} title="Copia la traza entera como texto">
+          Copiar
+        </Button>
+      </div>
+      {trace.steps.map((step, index) => (
+        <div className="trace-step" key={index}>
+          <div className="trace-step-line">
+            {step.error ? <XCircle size={13} className="warning" /> : <CheckCircle2 size={13} className="secondary" />}
+            <span className="trace-step-title">{stepTitle(step)}</span>
+            <span className="secondary monospaced-digits">{seconds.format(step.seconds)} s</span>
+          </div>
+          {step.error && <div className="font-caption secondary selectable">{step.error}</div>}
+        </div>
+      ))}
+      {trace.error && <div className="font-caption warning selectable trace-error">{trace.error}</div>}
+    </div>
+  );
+}
+
+export const traceSeconds = (trace: RecipeTrace) => elapsed(trace);
+export const formatSeconds = (value: number) => seconds.format(value);
