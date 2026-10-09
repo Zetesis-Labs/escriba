@@ -38,6 +38,7 @@ import {
 } from "lucide-react";
 import type { ReactNode, RefObject } from "react";
 import { audioURL, call, desktop, snapshot as getSnapshot } from "./api";
+import { recordingSubline } from "./library/rowText";
 import {
   cancelProcessing,
   discoverDestination,
@@ -994,10 +995,10 @@ export default function App() {
                               {clock(item.duration)}
                             </small>
                             <span className="record-subline">
-                              {item.versions.at(-1)?.digest?.summary ||
-                                item.versions.at(-1)?.transcript.text ||
-                                item.error ||
-                                "Esperando transcripción"}
+                              {recordingSubline(
+                                item,
+                                jobs.find((job) => job.recordingId === item.id),
+                              )}
                             </span>
                           </span>
                           <span
