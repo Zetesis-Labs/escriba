@@ -1,4 +1,4 @@
-import type { Transcript } from "../types";
+import type { Transcript, VoiceRegistration } from "../types";
 
 export const personName = (value: string, current?: string) => {
   const name = value.trim();
@@ -6,6 +6,9 @@ export const personName = (value: string, current?: string) => {
 };
 
 export const voiceCount = (count: number) => (count === 1 ? "1 huella" : `${count} huellas`);
+
+export const canBeginVoiceSample = (name: string, state: VoiceRegistration["state"]) =>
+  Boolean(name.trim()) && (state === "idle" || state === "failed");
 
 export function speakerTitle(speaker: string, transcript: Transcript) {
   const recognition = transcript.recognitions?.find((item) => item.person === speaker);

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { correctedSpeaker, forgottenRecognition, personName, speakerTitle, voiceCount } from "../../src/core/people";
+import { canBeginVoiceSample, correctedSpeaker, forgottenRecognition, personName, speakerTitle, voiceCount } from "../../src/core/people";
 import type { Transcript } from "../../src/types";
 
 const recognized: Transcript = {
@@ -66,5 +66,14 @@ describe("Personas como en Swift", () => {
       ],
     };
     expect(correctedSpeaker(transcript, "Ana", "Luis", true)?.transcript.recognitions).toEqual([]);
+  });
+
+  test("elegir un audio o grabar exige nombre y una muestra inactiva o fallida", () => {
+    expect(canBeginVoiceSample(" Ana ", "idle")).toBe(true);
+    expect(canBeginVoiceSample("Ana", "failed")).toBe(true);
+    expect(canBeginVoiceSample("  ", "idle")).toBe(false);
+    expect(canBeginVoiceSample("Ana", "requesting")).toBe(false);
+    expect(canBeginVoiceSample("Ana", "recording")).toBe(false);
+    expect(canBeginVoiceSample("Ana", "analyzing")).toBe(false);
   });
 });
