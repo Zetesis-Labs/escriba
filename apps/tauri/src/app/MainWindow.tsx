@@ -2,13 +2,14 @@ import { Users } from "lucide-react";
 import { useCallback, useEffect, useState, type KeyboardEvent } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { ask, open } from "@tauri-apps/plugin-dialog";
-import { Connectors, SettingsView, type RunAction, type WatchAuthorization } from "../legacy/LegacyApp";
+import { Connectors, type RunAction } from "../legacy/LegacyApp";
 import { call, desktop } from "../api";
 import type { WatchedFolder } from "../types";
 import { LibraryView } from "../library/LibraryView";
 import { ResolversPane } from "../resolvers/ResolversPane";
 import { RecipesPane } from "../recipes/RecipesPane";
 import { LogPane } from "../log/LogPane";
+import { SettingsPane } from "../settings/SettingsPane";
 import { dismissRecorderProblem, openMicrophoneSettings, useRecorderStatus, type RecorderProblem } from "../recording/useRecording";
 import { ContentUnavailable } from "../mac/controls";
 import { alertMessage, confirmDestructive, errorText } from "../mac/native";
@@ -104,19 +105,6 @@ export function MainWindow() {
     return typeof chosen === "string" ? chosen : null;
   }, []);
 
-  const retryWatchScan = () => run("Reintentar escaneo", () => call("watch_scan"));
-  const openPrivacySettings = () => run("Abrir Ajustes", () => call("open_privacy_settings", { pane: "disk" }));
-  const authorizeWatchedFolder = async (options: WatchAuthorization) => {
-    try {
-      const folder = await call<WatchedFolder | null>("watch_folder_authorize", options);
-      await refresh();
-      return folder;
-    } catch (failure) {
-      await alertMessage("No se pudo autorizar la carpeta", errorText(failure));
-      return null;
-    }
-  };
-
   const move = (event: KeyboardEvent) => {
     if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
     event.preventDefault();
@@ -159,18 +147,7 @@ export function MainWindow() {
   else if (section === "llms") detail = <ResolversPane key="llm" data={data} role="llm" refresh={refresh} />;
   else if (section === "recipes") detail = <RecipesPane data={data} refresh={refresh} />;
   else if (section === "log") detail = <LogPane data={data} />;
-  else
-    detail = legacy(
-      <SettingsView
-        data={data}
-        busy={false}
-        run={run}
-        chooseFolder={chooseFolder}
-        retryWatchScan={retryWatchScan}
-        authorizeWatchedFolder={authorizeWatchedFolder}
-        openPrivacySettings={openPrivacySettings}
-      />,
-    );
+  else detail = <SettingsPane data={data} refresh={refresh} />;
 
   return (
     <div className={`window ${active ? "" : "inactive"}`}>
