@@ -1,0 +1,73 @@
+.recording-hud {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  height: 100vh;
+  padding: 10px 10px 10px 16px;
+  color: var(--label);
+}
+.record-symbol {
+  flex: none;
+  color: var(--red);
+  animation: recording-pulse 1.6s ease-in-out infinite;
+}
+@keyframes recording-pulse {
+  50% {
+    opacity: 0.45;
+  }
+}
+.recording-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.recording-clock {
+  font-size: 15px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+.recording-recipe {
+  max-width: 150px;
+  font-size: 11px;
+  color: var(--secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.waveform {
+  flex: none;
+}
+.waveform rect {
+  fill: var(--label);
+  opacity: 0.75;
+}
+.recording-discard,
+.recording-stop {
+  flex: none;
+  display: grid;
+  place-items: center;
+  border: 0;
+  padding: 0;
+  border-radius: 50%;
+}
+.recording-discard {
+  width: 30px;
+  height: 30px;
+  background: transparent;
+  color: var(--secondary);
+}
+.recording-discard:active {
+  background: var(--fill);
+}
+.recording-stop {
+  width: 34px;
+  height: 34px;
+  background: var(--red);
+  color: #fff;
+}
+.recording-stop:active {
+  filter: brightness(0.9);
+}
