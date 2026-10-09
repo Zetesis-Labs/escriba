@@ -115,11 +115,10 @@ Cada casilla se marca cuando funciona en la app instalada y Rubén lo ha visto.
 - [ ] «Así queda» en vivo para Notion y OKF.
 - [ ] Guardar y descartar cambios.
 
-Punto abierto: el ADR-0001 deja la lógica de los conectores en TypeScript y los
-destinos declarados por el proyecto. La interfaz de Swift los configura sin
-código. La propuesta es que el editor guarde la configuración como datos y la
-librería TypeScript la interprete; hay que cerrarlo con Rubén antes de esta
-sección.
+Decidido por Rubén el 2026-10-09: la configuración de cada destino vive en la
+app, como en Swift. El editor la guarda como datos y la librería TypeScript la
+interpreta al publicar; los destinos escritos en código en el proyecto siguen
+funcionando. Detalle en `docs/pendiente-tauri.md`, apartado 3.
 
 ### STT y LLMs
 
