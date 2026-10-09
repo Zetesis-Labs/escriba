@@ -1,10 +1,8 @@
-import { Users } from "lucide-react";
-import { useCallback, useEffect, useState, type KeyboardEvent } from "react";
+import { Share, Users } from "lucide-react";
+import { useEffect, useState, type KeyboardEvent } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { ask, open } from "@tauri-apps/plugin-dialog";
-import { Connectors, type RunAction } from "../legacy/LegacyApp";
+import { ask } from "@tauri-apps/plugin-dialog";
 import { call, desktop } from "../api";
-import type { WatchedFolder } from "../types";
 import { LibraryView } from "../library/LibraryView";
 import { ResolversPane } from "../resolvers/ResolversPane";
 import { RecipesPane } from "../recipes/RecipesPane";
@@ -12,7 +10,7 @@ import { LogPane } from "../log/LogPane";
 import { SettingsPane } from "../settings/SettingsPane";
 import { dismissRecorderProblem, openMicrophoneSettings, useRecorderStatus, type RecorderProblem } from "../recording/useRecording";
 import { ContentUnavailable } from "../mac/controls";
-import { alertMessage, confirmDestructive, errorText } from "../mac/native";
+import { alertMessage } from "../mac/native";
 import { Pane } from "./Pane";
 import { initialSection, sections, type MainSection } from "./sections";
 import { useAppData } from "./useAppData";
@@ -86,25 +84,6 @@ export function MainWindow() {
   useNavigation(setSection);
   useRecorderAlert(recorder.problem);
 
-  const run: RunAction = useCallback(
-    async (label, action, _message, confirmation) => {
-      if (confirmation && !(await confirmDestructive(label, confirmation, label))) return;
-      try {
-        await action();
-      } catch (failure) {
-        await alertMessage("No se pudo", errorText(failure));
-      } finally {
-        await refresh();
-      }
-    },
-    [refresh],
-  );
-  const chooseFolder = useCallback(async () => {
-    if (!desktop) return null;
-    const chosen = await open({ directory: true });
-    return typeof chosen === "string" ? chosen : null;
-  }, []);
-
   const move = (event: KeyboardEvent) => {
     if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
     event.preventDefault();
@@ -114,16 +93,6 @@ export function MainWindow() {
   };
 
   const label = sections.find((item) => item.id === section)?.label ?? "";
-  const legacy = (body: React.ReactNode) => (
-    <Pane title={label}>
-      <div className="legacy">
-        <div className="app-shell theme-system legacy-host">
-          <main className={`content section-${section}`}>{body}</main>
-        </div>
-      </div>
-    </Pane>
-  );
-
   let detail: React.ReactNode;
   if (!data)
     detail = (
@@ -142,7 +111,12 @@ export function MainWindow() {
         />
       </Pane>
     );
-  else if (section === "connectors") detail = legacy(<Connectors data={data} busy={false} run={run} chooseFolder={chooseFolder} />);
+  else if (section === "connectors")
+    detail = (
+      <Pane title="Conectores">
+        <ContentUnavailable title="Conectores se está rehaciendo" icon={Share} description="Vuelve igual que en la app Swift." />
+      </Pane>
+    );
   else if (section === "stt") detail = <ResolversPane key="stt" data={data} role="stt" refresh={refresh} />;
   else if (section === "llms") detail = <ResolversPane key="llm" data={data} role="llm" refresh={refresh} />;
   else if (section === "recipes") detail = <RecipesPane data={data} refresh={refresh} />;
