@@ -70,7 +70,7 @@ fn timeout_for(method: &str) -> Duration {
         "status" => Duration::from_secs(10),
         "fileStatus" | "audioInfo" | "recordingStatus" => Duration::from_secs(20),
         "materialize" => Duration::from_secs(330),
-        "transcribe" | "downloadModel" => Duration::from_secs(7200),
+        "transcribe" | "diarizedVoices" | "downloadModel" => Duration::from_secs(7200),
         _ => Duration::from_secs(600),
     }
 }

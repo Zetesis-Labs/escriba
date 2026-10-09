@@ -1,10 +1,14 @@
+use crate::persistence::{
+    ImportedPerson, ImportedPersonVoice, ImportedVersionVoice, ImportedVoices,
+};
+use crate::voices::SpeakerVoice;
 use chrono::{DateTime, NaiveDateTime};
 use plist::Value as Plist;
 use rusqlite::{Connection, OpenFlags};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeMap, BTreeSet},
     fs::{self, File},
     io::Read,
     os::unix::fs::{DirBuilderExt, MetadataExt},
@@ -16,6 +20,7 @@ pub struct Plan {
     pub copies: Vec<(PathBuf, PathBuf)>,
     pub memories: Vec<Value>,
     pub traces: Vec<Value>,
+    pub voices: ImportedVoices,
     pub report: Value,
 }
 
@@ -387,6 +392,7 @@ pub fn plan(
         merge_settings(&mut next, settings)?;
         upgrade_publications(&mut next, settings)?;
     }
+    let voices = import_voices(&db, &mut next)?;
     let memories = import_answers(&db, &next)?;
     let traces = import_runs(&db, &next)?;
     fs::remove_dir_all(&staged.directory)
@@ -397,6 +403,7 @@ pub fn plan(
         report: json!({"recordings":imported,"audioMissing":missing_audio,"settingsImported":settings.is_some(),"credentialsImported":0,"answers":memories.len(),"runs":traces.len()}),
         memories,
         traces,
+        voices,
     })
 }
 
@@ -408,6 +415,190 @@ fn has_table(db: &Connection, table: &str) -> Result<bool, String> {
     )
     .map(|count| count > 0)
     .map_err(|e| e.to_string())
+}
+
+fn decoded_embedding(raw: &[u8]) -> Option<Vec<f32>> {
+    let (chunks, remainder) = raw.as_chunks::<4>();
+    if chunks.is_empty() || !remainder.is_empty() {
+        return None;
+    }
+    let embedding: Vec<f32> = chunks
+        .iter()
+        .map(|chunk| f32::from_le_bytes(*chunk))
+        .collect();
+    embedding
+        .iter()
+        .all(|value| value.is_finite())
+        .then_some(embedding)
+}
+
+fn import_voices(db: &Connection, next: &mut Value) -> Result<ImportedVoices, String> {
+    import_recognitions(db, next)?;
+    Ok(ImportedVoices {
+        versions: import_version_voices(db, next)?,
+        people: import_people(db)?,
+        person_voices: import_person_voices(db)?,
+    })
+}
+
+fn import_recognitions(db: &Connection, next: &mut Value) -> Result<(), String> {
+    if has_table(db, "recognition")? {
+        let mut stmt = db.prepare("SELECT recognition.transcriptId, recognition.position, recognition.speaker, recognition.person, recognition.distance, transcript.recordingId FROM recognition JOIN transcript ON transcript.id = recognition.transcriptId ORDER BY recognition.transcriptId, recognition.position").map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, f64>(4)?,
+                    row.get::<_, i64>(5)?,
+                ))
+            })
+            .map_err(|e| e.to_string())?;
+        let mut by_version: BTreeMap<String, Vec<Value>> = BTreeMap::new();
+        for row in rows {
+            let (transcript_id, _, speaker, person, distance, recording_id) =
+                row.map_err(|e| e.to_string())?;
+            if distance.is_finite() {
+                by_version
+                    .entry(format!("swift:{recording_id}:{transcript_id}"))
+                    .or_default()
+                    .push(json!({"speaker":speaker,"person":person,"distance":distance}));
+            }
+        }
+        for version in next["recordings"]
+            .as_array_mut()
+            .into_iter()
+            .flatten()
+            .flat_map(|record| record["versions"].as_array_mut().into_iter().flatten())
+        {
+            if let Some(found) = version["id"].as_str().and_then(|id| by_version.remove(id)) {
+                if version["transcript"]["recognitions"]
+                    .as_array()
+                    .is_none_or(Vec::is_empty)
+                {
+                    version["transcript"]["recognitions"] = Value::Array(found);
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn import_version_voices(
+    db: &Connection,
+    next: &mut Value,
+) -> Result<Vec<ImportedVersionVoice>, String> {
+    let mut imported = Vec::new();
+    if has_table(db, "voice")? {
+        let mut stmt = db.prepare("SELECT voice.transcriptId, voice.position, voice.speaker, voice.model, voice.embedding, transcript.recordingId FROM voice JOIN transcript ON transcript.id = voice.transcriptId ORDER BY voice.transcriptId, voice.position").map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, Vec<u8>>(4)?,
+                    row.get::<_, i64>(5)?,
+                ))
+            })
+            .map_err(|e| e.to_string())?;
+        for row in rows {
+            let (transcript_id, position, speaker, model, raw, recording_id) =
+                row.map_err(|e| e.to_string())?;
+            let Some(embedding) = decoded_embedding(&raw) else {
+                continue;
+            };
+            let version_id = format!("swift:{recording_id}:{transcript_id}");
+            let Some(version) = next["recordings"]
+                .as_array_mut()
+                .into_iter()
+                .flatten()
+                .flat_map(|record| record["versions"].as_array_mut().into_iter().flatten())
+                .find(|version| version["id"] == version_id)
+            else {
+                continue;
+            };
+            version["hasVoices"] = json!(true);
+            imported.push(ImportedVersionVoice {
+                id: format!("swift:voice:{transcript_id}:{position}"),
+                version_id,
+                position,
+                voice: SpeakerVoice {
+                    speaker,
+                    model,
+                    embedding,
+                },
+            });
+        }
+    }
+    Ok(imported)
+}
+
+fn import_people(db: &Connection) -> Result<Vec<ImportedPerson>, String> {
+    let mut imported = Vec::new();
+    if has_table(db, "person")? {
+        let mut stmt = db
+            .prepare("SELECT id, name, createdAt FROM person ORDER BY id")
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            })
+            .map_err(|e| e.to_string())?;
+        for row in rows {
+            let (id, name, created_at) = row.map_err(|e| e.to_string())?;
+            imported.push(ImportedPerson {
+                id: format!("swift:person:{id}"),
+                name,
+                created_at: date(&created_at),
+            });
+        }
+    }
+    Ok(imported)
+}
+
+fn import_person_voices(db: &Connection) -> Result<Vec<ImportedPersonVoice>, String> {
+    let mut imported = Vec::new();
+    if has_table(db, "personVoice")? {
+        let mut stmt = db.prepare("SELECT id, personId, model, embedding, source, addedAt FROM personVoice ORDER BY id").map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, Vec<u8>>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, String>(5)?,
+                ))
+            })
+            .map_err(|e| e.to_string())?;
+        for row in rows {
+            let (id, person_id, model, raw, source, added_at) = row.map_err(|e| e.to_string())?;
+            let Some(embedding) = decoded_embedding(&raw) else {
+                continue;
+            };
+            imported.push(ImportedPersonVoice {
+                id: format!("swift:personVoice:{id}"),
+                person_id: format!("swift:person:{person_id}"),
+                voice: SpeakerVoice {
+                    speaker: String::new(),
+                    model,
+                    embedding,
+                },
+                source,
+                added_at: date(&added_at),
+            });
+        }
+    }
+    Ok(imported)
 }
 
 fn has_version(data: &Value, recording_id: &str, version_id: &str) -> bool {
