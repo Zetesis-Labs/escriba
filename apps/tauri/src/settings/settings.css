@@ -1,0 +1,48 @@
+.settings-pane {
+  gap: 26px;
+}
+.settings-block {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.settings-block-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+}
+.folder-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+.folder-path {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  direction: rtl;
+  text-align: left;
+}
+.folder-problem {
+  color: var(--red);
+}
+.folder-remove {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--secondary);
+}
+.folder-remove:active:not(:disabled) {
+  background: var(--fill-strong);
+}
+.folder-remove:disabled {
+  opacity: 0.4;
+}
