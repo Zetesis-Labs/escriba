@@ -32,6 +32,7 @@ export interface Version {
   transcript: Transcript;
   digest?: Digest | null;
   data?: JSONValue;
+  dataSchema?: JSONValue;
   inputs?: JSONObject;
 }
 export interface Publication {
