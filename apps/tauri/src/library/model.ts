@@ -59,11 +59,16 @@ export function liveDestinations(destinations: Destination[], accounts: Account[
   );
 }
 
+function legacyProvider(publication: Publication) {
+  const url = typeof publication.receipt.url === "string" ? publication.receipt.url : "";
+  return /^https?:\/\/[^/]*notion\./.test(url) ? "notion" : "okf";
+}
+
 export function publicationName(publication: Publication, destinations: Destination[], accounts: Account[]) {
   return (
     destinations.find((destination) => destination.id === publication.destinationId)?.name ??
     accounts.find((account) => account.id === publication.accountId)?.name ??
-    providerLabel(publication.provider)
+    providerLabel(publication.provider === "legacy" ? legacyProvider(publication) : publication.provider)
   );
 }
 
