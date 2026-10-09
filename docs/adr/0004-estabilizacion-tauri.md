@@ -32,7 +32,8 @@ declara hecha por decisión, sino por evidencia.
 - No entra ninguna función nueva en Tauri. Solo cambios que acercan a una puerta.
 - La app SwiftUI sigue siendo la que se usa a diario y no pierde nada por la
   migración. Un cambio de comportamiento entra en las dos o en ninguna.
-- La estabilización la lleva Claude por encargo de Rubén. Ningún otro agente
-  trabaja en `spike/conectores-js-npm` ni en `feat/tauri-dual-app`.
+- La estabilización la llevó Claude por encargo de Rubén hasta el 2026-10-09.
+  Desde entonces la continúa Codex con `docs/pendiente-tauri.md`, que fija qué
+  queda y cómo se hace.
 - Cuando pasen las cinco puertas, un ADR nuevo declara la sustitución y fija
   cuándo se retira la app SwiftUI.
