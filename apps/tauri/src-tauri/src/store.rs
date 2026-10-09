@@ -152,10 +152,9 @@ impl Store {
             .as_array()
             .ok_or("Carpetas SwiftUI inválidas")?
             .len();
-        let status = json!({"state":"adopted","count":count,"paused":true});
+        let status = json!({"state":"adopted","count":count,"paused":false});
         let mut next = self.data.clone();
         next["settings"]["watchedFolders"] = folders;
-        next["settings"]["autoProcess"] = json!(false);
         next["settings"]["legacyWatchAdopted"] = json!(true);
         next["settings"]["watchMigration"] = status.clone();
         self.replace(next)?;
@@ -324,7 +323,7 @@ impl Store {
             return Err("Elige la biblioteca SwiftUI, no la biblioteca Tauri actual".into());
         }
         let mut plan = migration::plan(source, &self.root, &self.data, settings_plist)?;
-        plan.data["settings"]["autoProcess"] = json!(false);
+        plan.data["settings"]["autoProcess"] = json!(true);
         plan.data["settings"]["legacyImported"] = json!(true);
         if settings_plist.is_some() {
             plan.data["settings"]["legacyWatchAdopted"] = json!(true);
@@ -332,7 +331,7 @@ impl Store {
                 .as_array()
                 .map_or(0, Vec::len);
             plan.data["settings"]["watchMigration"] =
-                json!({"state":"adopted","count":count,"paused":true});
+                json!({"state":"adopted","count":count,"paused":false});
         }
         plan.data["settings"]["startupMigration"] =
             json!({"state":"imported","report":plan.report.clone(),"completedAt":now()});
@@ -1709,7 +1708,7 @@ mod tests {
     }
 
     #[test]
-    fn startup_imports_discovered_swift_notes_once_without_processing_them() {
+    fn startup_imports_discovered_swift_notes_once_and_resumes_processing() {
         let dir = tempfile::tempdir().unwrap();
         let legacy = dir.path().join("escriba/library");
         let root = dir.path().join("tauri");
@@ -1729,7 +1728,7 @@ mod tests {
         assert_eq!(store.snapshot()["recordings"].as_array().unwrap().len(), 2);
         assert_eq!(store.jobs().unwrap().len(), 0);
         assert_eq!(store.recording("voice-2").unwrap()["status"], "pending");
-        assert_eq!(store.data["settings"]["autoProcess"], false);
+        assert_eq!(store.data["settings"]["autoProcess"], true);
         assert_eq!(store.data["settings"]["legacyImported"], true);
         assert_eq!(fs::read(legacy.join("library.sqlite")).unwrap(), original);
         assert!(!legacy.join("library.sqlite-shm").exists());
@@ -1785,6 +1784,7 @@ mod tests {
             "imported"
         );
         assert_eq!(store.recording("recovered").unwrap()["status"], "done");
+        assert_eq!(store.data["settings"]["autoProcess"], true);
     }
 
     #[test]
@@ -1808,7 +1808,7 @@ mod tests {
     }
 
     #[test]
-    fn startup_import_restores_voice_memos_watch_configuration_without_running_it() {
+    fn startup_import_restores_voice_memos_watch_configuration_and_keeps_processing() {
         let dir = tempfile::tempdir().unwrap();
         let home = dir.path();
         let legacy = home.join("Library/Application Support/escriba/library");
@@ -1837,12 +1837,12 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(adoption["state"], "adopted");
-        assert_eq!(adoption["paused"], true);
+        assert_eq!(adoption["paused"], false);
         let watched = store.data["settings"]["watchedFolders"].as_array().unwrap();
         assert_eq!(watched.len(), 1);
         assert_eq!(watched[0]["style"], "voiceMemos");
         assert_eq!(watched[0]["path"], json!(voice));
-        assert_eq!(store.data["settings"]["autoProcess"], false);
+        assert_eq!(store.data["settings"]["autoProcess"], true);
         let folder = crate::watcher::Folder {
             id: watched[0]["id"].as_str().unwrap().to_owned(),
             path: voice,
@@ -1870,7 +1870,7 @@ mod tests {
                 .len(),
             1
         );
-        assert_eq!(store.data["settings"]["autoProcess"], false);
+        assert_eq!(store.data["settings"]["autoProcess"], true);
     }
 
     #[test]
@@ -2044,7 +2044,7 @@ mod tests {
                 .count(),
             1
         );
-        assert_eq!(store.data["settings"]["autoProcess"], false);
+        assert_eq!(store.data["settings"]["autoProcess"], true);
         assert!(store.jobs().unwrap().is_empty());
         let new_id = recordings
             .iter()
@@ -2053,13 +2053,6 @@ mod tests {
             .clone();
         let shared = std::sync::Arc::new(std::sync::Mutex::new(store));
         let queue = crate::jobs::Queue::new(shared.clone()).unwrap();
-        queue.automatic().unwrap();
-        assert!(queue.jobs().unwrap().is_empty());
-        shared
-            .lock()
-            .unwrap()
-            .mutate("settings_save", &json!({"settings":{"autoProcess":true}}))
-            .unwrap();
         queue.automatic().unwrap();
         assert_eq!(queue.jobs().unwrap().len(), 1);
         assert_eq!(queue.claim().unwrap().unwrap()["recordingId"], new_id);
