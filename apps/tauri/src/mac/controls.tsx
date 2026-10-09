@@ -201,3 +201,63 @@ export function TextField({
     />
   );
 }
+
+export function FormSection({ header, footer, children }: { header?: string; footer?: ReactNode; children: ReactNode }) {
+  return (
+    <section className="form-section">
+      {header && <div className="form-header font-headline">{header}</div>}
+      <div className="form-group">{children}</div>
+      {footer && <div className="form-footer font-caption secondary">{footer}</div>}
+    </section>
+  );
+}
+
+export function LabeledRow({ label, children }: { label: string; children?: ReactNode }) {
+  return (
+    <div className="form-row">
+      <span className="form-label">{label}</span>
+      <div className="form-value">{children}</div>
+    </div>
+  );
+}
+
+export function FormRow({ children }: { children: ReactNode }) {
+  return <div className="form-row form-row-free">{children}</div>;
+}
+
+export function InlineField({
+  value,
+  onChange,
+  placeholder,
+  secure,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  secure?: boolean;
+}) {
+  return (
+    <input
+      className="inline-field selectable"
+      type={secure ? "password" : "text"}
+      value={value}
+      placeholder={placeholder}
+      onChange={(event) => onChange(event.target.value)}
+      spellCheck={false}
+      autoCorrect="off"
+      autoCapitalize="off"
+    />
+  );
+}
+
+export function ListBar({ children }: { children: ReactNode }) {
+  return <div className="list-bar">{children}</div>;
+}
+
+export function ListBarButton({ icon: IconView, label, onClick, disabled }: { icon: Icon; label: string; onClick: (event: React.MouseEvent<HTMLButtonElement>) => void; disabled?: boolean }) {
+  return (
+    <button type="button" className="list-bar-button" onClick={onClick} disabled={disabled} title={label} aria-label={label}>
+      <IconView size={14} strokeWidth={1.8} />
+    </button>
+  );
+}

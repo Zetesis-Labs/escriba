@@ -124,6 +124,67 @@ async fn app_command(
     result
 }
 
+fn resolver_draft(state: &Runtime, p: &Value) -> Result<(Value, Option<String>), String> {
+    let typed = p["key"]
+        .as_str()
+        .map(str::trim)
+        .filter(|key| !key.is_empty())
+        .map(str::to_owned);
+    let secret = match (typed, p["resolverId"].as_str()) {
+        (Some(key), _) => Some(key),
+        (None, Some(id)) => state.store()?.credential(id)?.map(|key| key.trim().to_owned()),
+        (None, None) => None,
+    };
+    Ok((p["resolver"].clone(), secret))
+}
+
+fn directory_size(path: &std::path::Path) -> u64 {
+    walkdir::WalkDir::new(path)
+        .into_iter()
+        .filter_map(Result::ok)
+        .filter_map(|entry| entry.metadata().ok())
+        .filter(|metadata| metadata.is_file())
+        .map(|metadata| metadata.len())
+        .sum()
+}
+
+fn models_root(status: &Value) -> Result<PathBuf, String> {
+    let root = PathBuf::from(text(&status["whisper"], "modelsPath")?);
+    if !root.ends_with("Application Support/escriba/models") {
+        return Err("La carpeta de modelos no es la de Escriba".into());
+    }
+    Ok(root)
+}
+
+async fn whisper_model(state: &Arc<Runtime>, p: &Value) -> Result<Value, String> {
+    let model = state.store()?.data["settings"]["whisperModel"].clone();
+    let status = state.inference.call("status", json!({"model": model})).await?;
+    let root = models_root(&status)?;
+    match text(p, "action")? {
+        "info" => {
+            let size = if status["whisper"]["available"] == true {
+                let root = root.clone();
+                tokio::task::spawn_blocking(move || directory_size(&root))
+                    .await
+                    .map_err(|e| e.to_string())?
+            } else {
+                0
+            };
+            Ok(json!({"model": status["whisper"]["model"], "available": status["whisper"]["available"], "bytes": size}))
+        }
+        "delete" => {
+            state.inference.unload_if_idle(Duration::ZERO);
+            if root.exists() {
+                tokio::fs::remove_dir_all(&root)
+                    .await
+                    .map_err(|e| format!("No se pudo borrar el modelo: {e}"))?;
+            }
+            Ok(Value::Null)
+        }
+        _ => Err("Acción desconocida".into()),
+    }
+}
+
 fn refreshes_library(method: &str, params: &Value) -> bool {
     match method {
         "runtime_run" => params["operation"]
@@ -512,6 +573,26 @@ fn dispatch<'a>(
                 Ok(Value::Null)
             }
             "system_appearance" => Ok(json!({"accent": appearance::accent()})),
+            "resolver_models" => {
+                let (draft, secret) = resolver_draft(state, &p)?;
+                Ok(json!(remote::models(&draft, secret).await?))
+            }
+            "resolver_try" => {
+                let (draft, secret) = resolver_draft(state, &p)?;
+                let llm = text(&p, "role")? == "llm";
+                let request = json!({"instructions": p["instructions"], "prompt": p["prompt"]});
+                match (draft["local"] == true, llm) {
+                    (true, true) => state.inference.call("summarize", request).await,
+                    (true, false) => Err("Whisper en este Mac no tiene prueba".into()),
+                    (false, true) => {
+                        let mut request = request;
+                        request["schema"] = remote::digest_schema();
+                        remote::ask(&draft, secret, &request).await
+                    }
+                    (false, false) => Ok(json!({"text": remote::probe_transcription(&draft, secret).await?})),
+                }
+            }
+            "whisper_model" => whisper_model(state, &p).await,
             "open_privacy_settings" => {
                 let status = std::process::Command::new("/usr/bin/open")
                     .args(["-b", "com.apple.systempreferences"])
