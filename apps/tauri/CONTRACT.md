@@ -18,6 +18,7 @@ Errores rechazan la promesa con texto legible; nunca éxitos vacíos.
 ## Comandos Rust
 
 - snapshot -> Snapshot (todos los datos, jamás secretos).
+- runtime_context {recordingId?} -> RuntimeContext (catálogos y ajustes de procesamiento; solo la grabación solicitada, sin registros, carpetas vigiladas ni rutas de audio). El controlador TypeScript usa esta consulta; `snapshot` queda para la interfaz.
 - import_audio {paths:string[], recipeId?} -> Recording[] (copia audio).
 - recording_update {id, title?, status?, error?, duration?, recipeId?} -> Recording.
 - recording_discard {id} -> void; recording_restore {id} -> Recording.

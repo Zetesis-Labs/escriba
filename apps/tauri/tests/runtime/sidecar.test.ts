@@ -10,7 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createInterface } from "node:readline";
-import { snapshot } from "./fixture";
+import { snapshot, runtimeContext } from "./fixture";
 import type { Snapshot, Version } from "../../src/types";
 let directory = "";
 let executable = "";
@@ -120,7 +120,7 @@ function supervisor(state: Snapshot, hangFirstTranscribe = false) {
         state.recordings.find(
           (r) => r.id === params.recordingId || r.id === params.id,
         ) || state.recordings[0];
-      if (value.method === "snapshot") result = state;
+      if (value.method === "runtime_context") result = runtimeContext(state, params.recordingId);
       else if (value.method === "transcribe")
         result = { text: "Texto preservado", segments: [] };
       else if (value.method === "recording_update")
