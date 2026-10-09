@@ -18,6 +18,9 @@ use uuid::Uuid;
 pub fn now() -> String {
     Utc::now().to_rfc3339()
 }
+fn import_created_at(capture_date: Option<SystemTime>, imported_at: SystemTime) -> String {
+    chrono::DateTime::<Utc>::from(capture_date.unwrap_or(imported_at)).to_rfc3339()
+}
 pub fn id() -> String {
     Uuid::new_v4().to_string()
 }
@@ -928,7 +931,10 @@ impl Store {
         }
     }
     pub fn import(&mut self, source: &Path, recipe_id: Option<&str>) -> Result<Value, String> {
-        self.import_internal(source, recipe_id, None)
+        self.import_internal(source, recipe_id, None, false)
+    }
+    pub fn import_recovered_capture(&mut self, source: &Path) -> Result<Value, String> {
+        self.import_internal(source, None, None, true)
     }
     pub fn import_with_metadata(
         &mut self,
@@ -941,13 +947,19 @@ impl Store {
         if source_key.is_empty() || source_key.len() > 4096 {
             return Err("Identidad de origen inválida".into());
         }
-        self.import_internal(source, recipe_id, Some((title, started_at, source_key)))
+        self.import_internal(
+            source,
+            recipe_id,
+            Some((title, started_at, source_key)),
+            false,
+        )
     }
     fn import_internal(
         &mut self,
         source: &Path,
         recipe_id: Option<&str>,
         metadata_from_watcher: Option<(&str, SystemTime, &str)>,
+        recovered_capture: bool,
     ) -> Result<Value, String> {
         let metadata = source
             .metadata()
@@ -955,6 +967,14 @@ impl Store {
         if !metadata.is_file() || metadata.len() == 0 {
             return Err("El audio está vacío o no es un archivo".into());
         }
+        let capture_date =
+            if recovered_capture {
+                Some(metadata.modified().map_err(|e| {
+                    format!("No se puede leer la fecha de {}: {e}", source.display())
+                })?)
+            } else {
+                None
+            };
         let ext = source
             .extension()
             .and_then(|s| s.to_str())
@@ -1198,7 +1218,7 @@ impl Store {
                             .and_then(|s| s.to_str())
                             .unwrap_or("Grabación")
                             .to_owned(),
-                        now(),
+                        import_created_at(capture_date, SystemTime::now()),
                         None,
                     )
                 });
@@ -1773,6 +1793,44 @@ fn defaults() -> Value {
 mod tests {
     use super::*;
     use crate::voices::SpeakerVoice;
+
+    #[test]
+    fn fecha_de_incorporacion_usa_la_del_fichero_solo_para_captura_recuperada() {
+        let imported_at = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_750_000_000);
+        let captured_at = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_700_000_000);
+
+        assert_eq!(
+            import_created_at(Some(captured_at), imported_at),
+            "2023-11-14T22:13:20+00:00"
+        );
+        assert_eq!(
+            import_created_at(None, imported_at),
+            "2025-06-15T15:06:40+00:00"
+        );
+    }
+
+    #[test]
+    fn captura_recuperada_conserva_la_fecha_del_fichero_tras_reabrir_la_biblioteca() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("library");
+        let capture = dir.path().join("captura.m4a");
+        fs::write(&capture, b"audio sintetico").unwrap();
+        File::open(&capture)
+            .unwrap()
+            .set_modified(std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_700_000_000))
+            .unwrap();
+
+        let mut store = Store::open(root.clone()).unwrap();
+        let record = store.import_recovered_capture(&capture).unwrap();
+        assert_eq!(record["createdAt"], "2023-11-14T22:13:20+00:00");
+        drop(store);
+
+        let reopened = Store::open(root).unwrap();
+        assert_eq!(
+            reopened.recording(record["id"].as_str().unwrap()).unwrap()["createdAt"],
+            "2023-11-14T22:13:20+00:00"
+        );
+    }
 
     #[test]
     fn las_personas_guardan_varias_huellas_privadas_y_solo_exponen_metadatos() {
