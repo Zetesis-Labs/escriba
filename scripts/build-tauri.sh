@@ -13,10 +13,18 @@ if ! node -e 'const [major, minor] = process.versions.node.split(".").map(Number
   done
   if [[ "$NODE_READY" != true ]]; then echo "Escriba Tauri necesita Node 22.12 o posterior." >&2; exit 1; fi
 fi
-if ! command -v deno >/dev/null 2>&1; then
-  if [[ -x "$HOME/.deno/bin/deno" ]]; then export PATH="$HOME/.deno/bin:$PATH";
-  else echo "Instala Deno 2.6.9 o posterior para empaquetar el motor TypeScript." >&2; exit 1; fi
-fi
+deno_ready() {
+  "$1" eval --quiet 'const [a, b, c] = Deno.version.deno.split(".").map(Number); Deno.exit(a > 2 || a === 2 && (b > 6 || b === 6 && c >= 9) ? 0 : 1)' >/dev/null 2>&1
+}
+DENO_READY=false
+for DENO_BIN in $(type -ap deno) "$HOME/.deno/bin/deno" /opt/homebrew/bin/deno /usr/local/bin/deno; do
+  if [[ -x "$DENO_BIN" ]] && deno_ready "$DENO_BIN"; then
+    export PATH="$(dirname "$DENO_BIN"):$PATH"
+    DENO_READY=true
+    break
+  fi
+done
+if [[ "$DENO_READY" != true ]]; then echo "Escriba Tauri necesita Deno 2.6.9 o posterior." >&2; exit 1; fi
 CONFIGURATION=debug
 TAURI_ARGS=(build --debug --bundles app)
 if [[ "${1:-}" == "--release" ]]; then CONFIGURATION=release; TAURI_ARGS=(build --bundles app); fi
