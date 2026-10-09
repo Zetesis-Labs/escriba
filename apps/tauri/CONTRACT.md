@@ -1,8 +1,10 @@
 # Escriba Tauri — contrato de integración
 
 Migración definitiva con dos instalaciones durante la transición. Tauri usa identificador
-dev.zetesis.escriba.tauri y biblioteca propia. No importa credenciales ni datos
-de la app estable al arrancar. No pruebas contra Notion ni tokens reales.
+dev.zetesis.escriba.tauri y biblioteca propia. Al arrancar con la biblioteca vacía
+incorpora una vez la biblioteca SwiftUI local sin modificarla ni leer credenciales.
+El procesamiento queda pausado. Las bibliotecas de prueba con ESCRIBA_TAURI_DATA
+no buscan datos de la app estable. No pruebas contra Notion ni tokens reales.
 
 TypeScript: UI React, formularios Zod, recetas, conectores npm y orquestación en un proceso propio.
 Rust: SurrealDB, cola duradera, biblioteca y versiones, configuración, cuentas/secretos 0600, transporte
@@ -63,3 +65,8 @@ Errores rechazan la promesa con texto legible; nunca éxitos vacíos.
 controlador de `runtime-host` incluso sin ventana. Véase el protocolo del
 [proceso TypeScript](runtime-host/README.md). La UI escucha `escriba://changed`
 y `escriba://jobs`; el sondeo de respaldo es de 15 s, o 2 s durante captura.
+Las consultas de estado y de formularios no emiten `escriba://changed`, para que
+un refresco no se realimente. Durante la importación inicial la UI recibe un
+snapshot de apertura; los trabajos y vigilantes empiezan después de terminarla.
+`settings.startupMigration` expone `importing`, `imported` con informe o `error`
+con mensaje. La copia se hace en segundo plano, fuera del ciclo de la ventana.

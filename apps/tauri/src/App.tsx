@@ -395,6 +395,8 @@ export default function App() {
     "transcript",
   );
   const audio = useRef<HTMLAudioElement>(null);
+  const migration = data?.settings.startupMigration;
+  const importingLibrary = migration?.state === "importing";
 
   const refresh = useCallback(async (quiet = false) => {
     if (DEMO) return;
@@ -409,7 +411,7 @@ export default function App() {
       setSelectedID((current) =>
         current && next.recordings.some((item) => item.id === current)
           ? current
-          : next.recordings[0]?.id || null,
+          : null,
       );
     } catch (failure) {
       if (!quiet || desktop) setError(errorText(failure));
@@ -551,12 +553,6 @@ export default function App() {
       return null;
     }
   }
-  const selected =
-    data?.recordings.find((item) => item.id === selectedID) || null;
-  const activeVersion =
-    selected?.versions.find(
-      (version) => version.id === selected.currentVersionId,
-    ) || selected?.versions.at(-1);
   const visible = useMemo(
     () =>
       (data?.recordings || [])
@@ -565,23 +561,28 @@ export default function App() {
             `${item.title} ${item.source} ${item.versions.at(-1)?.transcript.text || ""}`
               .toLocaleLowerCase("es")
               .includes(query.toLocaleLowerCase("es"));
-          return matches && (filter === "all" || item.status === filter);
+          return (
+            matches &&
+            (filter === "all"
+              ? item.status !== "discarded"
+              : item.status === filter)
+          );
         })
         .sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
     [data?.recordings, query, filter],
   );
+  const selected =
+    visible.find((item) => item.id === selectedID) || visible[0] || null;
+  const activeVersion =
+    selected?.versions.find(
+      (version) => version.id === selected.currentVersionId,
+    ) || selected?.versions.at(-1);
 
   return (
     <div className={`app-shell theme-${data?.settings.theme || "system"}`}>
       <aside className="sidebar">
-        <div className="brand">
-          <div className="brand-mark">
-            E<span>.</span>
-          </div>
-          <div>
-            <strong>Escriba</strong>
-            <small>Tu archivo de voz</small>
-          </div>
+        <div className="brand" data-tauri-drag-region>
+          <strong data-tauri-drag-region>Escriba</strong>
         </div>
         <nav aria-label="Secciones">
           {tabs.map(({ id, title, icon: Icon }) => (
@@ -596,9 +597,11 @@ export default function App() {
               <span>{title}</span>
               {id === "library" && (
                 <small>
-                  {data?.recordings.filter(
-                    (item) => item.status !== "discarded",
-                  ).length || 0}
+                  {importingLibrary
+                    ? "…"
+                    : data?.recordings.filter(
+                        (item) => item.status !== "discarded",
+                      ).length || 0}
                 </small>
               )}
             </button>
@@ -607,25 +610,27 @@ export default function App() {
         <div className="sidebar-bottom">
           <div className="small-rule" />
           <div className="sidebar-state">
-            <span className={`state-dot ${jobs.length ? "working" : ""}`} />
+            <span
+              className={`state-dot ${jobs.length || importingLibrary ? "working" : data?.settings.autoProcess === false ? "paused" : ""}`}
+            />
             <span>
-              {jobs.length
-                ? `${jobs.length} trabajo${jobs.length > 1 ? "s" : ""} en curso`
-                : "Todo al día"}
+              {importingLibrary
+                ? "Incorporando biblioteca…"
+                : jobs.length
+                  ? `${jobs.length} trabajo${jobs.length > 1 ? "s" : ""} en curso`
+                  : data?.settings.autoProcess === false
+                    ? "Procesamiento pausado"
+                    : "Todo al día"}
             </span>
           </div>
-          <small className="sidebar-path" title={data?.dataPath}>
-            {DEMO
-              ? "Vista de muestra"
-              : data?.dataPath || "Conectando al motor…"}
-          </small>
+          {DEMO && <small className="sidebar-path">Vista de muestra</small>}
         </div>
       </aside>
       <div className="main-frame">
-        <header className="topbar">
-          <div className="breadcrumb">
-            ESCRIBA <span>/</span> {headline(section).toUpperCase()}
-          </div>
+        <header className="topbar" data-tauri-drag-region>
+          <strong className="toolbar-title" data-tauri-drag-region>
+            {headline(section)}
+          </strong>
           <div className="topbar-actions">
             {DEMO && <span className="demo-tag">MUESTRA</span>}
             {busy && (
@@ -656,23 +661,62 @@ export default function App() {
             </IconButton>
           </div>
         )}
-        {!data ? (
+        {migration?.state === "error" && (
+          <div className="banner error" role="alert">
+            <CircleAlert size={18} />
+            <span>
+              No se pudo incorporar la biblioteca anterior: {migration.message}.
+              Puedes reintentarlo desde Ajustes o al volver a abrir la app.
+            </span>
+            <Button onClick={() => setSection("settings")}>Abrir ajustes</Button>
+          </div>
+        )}
+        {migration?.state === "imported" && !migration.dismissed && (
+          <div className="banner success migration-notice" role="status">
+            <Check size={17} />
+            <span>
+              Se han incorporado {migration.report.recordings} grabaciones de
+              Escriba. El procesamiento automático está pausado.
+              {migration.report.audioMissing > 0 &&
+                ` ${migration.report.audioMissing} grabaciones no tienen una copia de audio disponible.`}
+            </span>
+            <IconButton
+              title="Cerrar aviso de importación"
+              onClick={() =>
+                void run("Cerrar aviso", () =>
+                  call("settings_save", {
+                    settings: {
+                      startupMigration: { ...migration, dismissed: true },
+                    },
+                  }),
+                )
+              }
+            >
+              <X size={16} />
+            </IconButton>
+          </div>
+        )}
+        {!data || importingLibrary ? (
           <div className="center-state">
             <LoaderCircle className="spin" />
-            <h2>Abriendo la biblioteca</h2>
-            <p>Preparando la conexión local.</p>
+            <h2>
+              {importingLibrary
+                ? "Incorporando tus grabaciones"
+                : "Abriendo la biblioteca"}
+            </h2>
+            <p>
+              {importingLibrary
+                ? "Copiando el audio y las versiones de Escriba. La biblioteca original se conserva."
+                : "Preparando tus notas de voz."}
+            </p>
           </div>
         ) : (
-          <main className="content">
+          <main className={`content section-${section}`}>
             {section === "library" && (
               <>
                 <div className="page-heading">
                   <div>
-                    <p className="eyebrow">ARCHIVO PERSONAL</p>
-                    <h1>Biblioteca</h1>
-                    <p>
-                      Grabaciones, versiones y publicaciones en un solo lugar.
-                    </p>
+                    <h1>Grabaciones</h1>
                   </div>
                   <div className="heading-actions">
                     <select
@@ -778,7 +822,7 @@ export default function App() {
                         <button
                           type="button"
                           key={item.id}
-                          className={`recording-item ${item.id === selectedID ? "selected" : ""}`}
+                          className={`recording-item ${item.id === selected?.id ? "selected" : ""}`}
                           onClick={() => {
                             setSelectedID(item.id);
                             setDetailTab("transcript");

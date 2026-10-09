@@ -3,7 +3,11 @@
 Rubén decidió el 2026-10-09 completar la migración a Tauri y utilizar SurrealDB
 definitivamente. Esta decisión sustituye el experimento del ADR-0002. La app
 SwiftUI se conserva durante la transición; la nueva aplicación usa una biblioteca
-propia e importa expresamente la anterior sin modificarla.
+propia e incorpora la anterior sin modificarla cuando arranca vacía. Esta
+continuidad se corrigió el 2026-10-09 tras comprobar que exigir una importación
+manual en Ajustes dejaba al usuario ante una biblioteca vacía. La incorporación
+es única, visible, sin credenciales y con procesamiento automático pausado;
+las bibliotecas Tauri que ya tienen grabaciones conservan la importación manual.
 
 TypeScript implementa interfaz, recetas, conectores y transformaciones. Rust
 custodia capacidades, archivos y credenciales y mantiene los trabajos en
