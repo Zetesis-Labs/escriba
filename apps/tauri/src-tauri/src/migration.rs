@@ -547,6 +547,33 @@ fn read_settings(path: &Path) -> Result<Plist, String> {
     Plist::from_file(path).map_err(|e| format!("Preferencias SwiftUI inválidas: {e}"))
 }
 
+pub(crate) fn watched_folders_from_plist(path: &Path) -> Result<Option<Value>, String> {
+    let plist = read_settings(path)?;
+    let Some(watched) = setting_json(&plist, "watchedFolders")? else {
+        return Ok(None);
+    };
+    let folders = watched.as_array().ok_or("Carpetas SwiftUI inválidas")?;
+    let mut result = Vec::with_capacity(folders.len());
+    for (index, folder) in folders.iter().enumerate() {
+        let path = folder["path"]
+            .as_str()
+            .filter(|path| Path::new(path).is_absolute())
+            .ok_or("Carpeta SwiftUI sin ruta absoluta")?;
+        let style = folder["style"].as_str().unwrap_or("any");
+        if !["any", "justPressRecord", "voiceMemos"].contains(&style) {
+            return Err("Estilo de carpeta SwiftUI desconocido".into());
+        }
+        result.push(json!({
+            "id":format!("swift:{index}"),
+            "path":path,
+            "name":Path::new(path).file_name().and_then(|value| value.to_str()).unwrap_or(path),
+            "enabled":true,
+            "style":style,
+        }));
+    }
+    Ok(Some(json!(result)))
+}
+
 fn setting_json(settings: &Plist, key: &str) -> Result<Option<Value>, String> {
     let value = settings.as_dictionary().and_then(|d| d.get(key));
     match value {
