@@ -1,3 +1,4 @@
+mod appearance;
 mod capabilities;
 mod catalog;
 mod folder_access;
@@ -70,6 +71,7 @@ impl Runtime {
             "snapshot" => Ok(Some(snapshot.clone())),
             "runtime_jobs" => Ok(Some(json!([]))),
             "recording_status" => Ok(Some(json!({"active":false,"paused":false}))),
+            "system_appearance" => Ok(Some(json!({"accent": appearance::accent()}))),
             _ => Err("Espera a que termine de incorporarse la biblioteca anterior".into()),
         }
     }
@@ -496,6 +498,7 @@ fn dispatch<'a>(
                 }
                 Ok(Value::Null)
             }
+            "system_appearance" => Ok(json!({"accent": appearance::accent()})),
             "open_privacy_settings" => {
                 let status = std::process::Command::new("/usr/bin/open")
                     .args(["-b", "com.apple.systempreferences"])

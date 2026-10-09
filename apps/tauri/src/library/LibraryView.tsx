@@ -287,7 +287,7 @@ export function LibraryView({ data, jobs, refresh }: { data: Snapshot; jobs: Job
               onMouseDown={() => setSelectedId(recording.id)}
               onContextMenu={(event) => contextMenu(event, recording)}
             >
-              <RecordingRow recording={recording} origin={originName(recording, folders)} now={now} />
+              <RecordingRow recording={recording} origin={originName(recording, folders)} now={now} destinations={data.destinations} accounts={data.accounts} />
             </div>
           ))}
         </div>
