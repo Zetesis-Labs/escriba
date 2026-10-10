@@ -633,12 +633,21 @@ Verificación: 196 pruebas TypeScript; 190 Rust comprobadas (189 en la tanda
 completa y una repetida tras corregir un fixture de carpeta incompleto), más
 la prueba de copia privada con 16 trabajos históricos. Clippy con advertencias
 como errores y formato correctos. La prueba de inferencia real sigue omitida.
+Release instalada en `/Applications/Escriba.app`, con firma estricta y copia
+idéntica al bundle construido; anterior conservada en `.build/Escriba-anterior.app`.
+Pendiente de confirmación manual de Rubén sobre esta instalación.
 
 ## 9. Puertas 5 y 6: tamaño, empaquetado y documentación
 
 - Perfil de release con `strip`, `lto` y `codegen-units = 1`, midiendo tamaño y
   memoria antes y después. La app ocupaba 2,5-3 GB de memoria con la biblioteca
   de Rubén antes de aligerar el transporte; mídela otra vez tras cinco minutos.
+  **Hecho el 2026-10-10:** `strip = "symbols"`, `lto = "thin"` y una unidad
+  de generación. App instalada de 170,69 MiB frente a 233,54 MiB; `footprint`
+  de app y auxiliares de 290,40 MiB frente a 728,26 MiB tras cinco minutos.
+  Procedimiento, desglose, RSS y límites de la comparación en
+  [rendimiento-escriba.md](rendimiento-escriba.md). Medidor reproducible en
+  `scripts/measure-app.py`.
 - Notarizar una vez con los binarios externos.
 - `CLAUDE.md` con una sección por app; decidir con Rubén si vuelve la sonda WASI
   al CI o se retira la frase «El núcleo viaja»; cuando pasen las cinco puertas,
