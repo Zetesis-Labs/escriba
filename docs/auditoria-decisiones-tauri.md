@@ -10,6 +10,20 @@ Rutas: `controller.ts`, `worker.ts`, `summary.ts`, `memory.ts` y
 `connectors.ts` están en `apps/tauri/src/runtime/`; los `.rs` en
 `apps/tauri/src-tauri/src/`; `notion.ts` en `packages/conectores/src/`.
 
+## Estado posterior del apartado 7
+
+La tabla y los hallazgos siguientes describen el código auditado en `78a0598`;
+se conservan como registro histórico. En el código actual, incorporar sin
+elección no fija la receta por defecto y una actualización retira una sola vez
+las asignaciones antiguas de procedencia desconocida. Las versiones Swift con
+audio comprobado reciben huella y criterios de WhisperKit reutilizables sin
+pisar correcciones al reimportar. «Rehacer el resumen» consulta de nuevo el
+LLM, idioma y prompt del formulario por defecto vigente. Descartar deja solo
+la identidad de la nota, limpia sus datos privados y solicita el borrado de su
+copia en una cola duradera; importar la biblioteca SwiftUI por defecto añade
+también las lápidas que solo constan en su ledger. La validación en la app
+instalada por Rubén sigue pendiente; véase `docs/pendiente-tauri.md`, apartado 7.
+
 ## Qué decidió Rubén y qué decidió Codex
 
 Leído en el hilo de Codex del 2026-10-08 y 09:
