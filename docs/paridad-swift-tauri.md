@@ -96,7 +96,7 @@ Cada casilla se marca cuando funciona en la app instalada y Rubén lo ha visto.
 - [ ] Datos como tabla de etiqueta y valor (`NoteDataView.swift`).
 - [ ] Tarjeta «Cómo se procesó» con pasos, logs, datos, error y «Copiar» (`TraceCard.swift`).
 - [ ] Menú de versiones con la actual marcada.
-- [ ] «Reprocesar con una receta…»: hoja con la receta y sus parámetros solo esa vez (`ReprocessSheet.swift`). Implementado en `ReprocessSheet` y `options.values`, con pruebas de sustitución puntual, reset del borrador y recetas delegadas; pendiente de probar en la app instalada.
+- [x] «Reprocesar con una receta…»: hoja con la receta y sus parámetros solo esa vez (`ReprocessSheet.swift`). Implementado en `ReprocessSheet` y `options.values`, con pruebas de sustitución puntual, reset del borrador y recetas delegadas. Rubén confirmó su funcionamiento y la corrección del solapamiento en la app instalada el 2026-10-10.
 - [ ] «Transcribir ahora» y «Reintentar» en pendientes y fallidas.
 - [ ] Hablantes: renombrar, fusionar y «No es X», insignia de reconocido y aviso «Renombrado, pero sin aprender su voz».
 - [ ] Copiar la transcripción y copiar el JSON de Swift.
