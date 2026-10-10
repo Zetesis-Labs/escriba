@@ -938,7 +938,7 @@ mod tests {
             )
             .await
             .unwrap();
-        assert_eq!(schema["type"], "object");
+        assert!(schema.is_null());
         scripts
             .call(
                 "legacy-run",
