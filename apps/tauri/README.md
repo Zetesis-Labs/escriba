@@ -52,6 +52,8 @@ elegir esa carpeta; si se ha trasladado y la ruta anterior ya no existe, puedes
 indicar su nueva ubicación conservando su identidad y configuración.
 La selección se guarda en SurrealDB mediante un bookmark nativo privado y se
 restaura antes de iniciar la vigilancia. Cancelar el panel no cambia los ajustes.
+El botón de autorización solo aparece si el escaneo informa un problema de
+acceso; no se pide otra vez por faltar un bookmark si macOS ya deja leer la carpeta.
 
 **Acceso total al disco** sigue disponible como alternativa opcional si macOS
 impide el acceso por carpeta. El botón abre Ajustes del Sistema: ve a

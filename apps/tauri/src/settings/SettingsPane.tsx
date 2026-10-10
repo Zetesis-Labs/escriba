@@ -86,7 +86,7 @@ export function SettingsPane({ data, refresh }: { data: Snapshot; refresh: () =>
           </FormSection>
           <FormSection
             header="Carpetas vigiladas"
-            footer="Cualquier audio que caiga en ellas lo procesa la receta por defecto, que se configura en Recetas. macOS pide autorizar cada carpeta una vez; si aun así no deja leerla, la alternativa es el acceso total al disco."
+            footer="Cualquier audio que caiga en ellas lo procesa la receta por defecto, que se configura en Recetas. Si macOS impide leer una carpeta, puedes autorizarla; si aun así no deja leerla, la alternativa es el acceso total al disco."
           >
             {settings.watchedFolders.length === 0 && (
               <FormRow>
@@ -104,7 +104,7 @@ export function SettingsPane({ data, refresh }: { data: Snapshot; refresh: () =>
                     </span>
                     {problem && <span className="font-caption folder-problem">No se puede leer esta carpeta</span>}
                   </div>
-                  {(problem || !folder.authorizationSaved) && (
+                  {problem && (
                     <Button small disabled={busy} onClick={() => void authorize({ folderId: folder.id })}>
                       {folder.authorizationSaved ? "Volver a autorizar…" : "Autorizar…"}
                     </Button>
