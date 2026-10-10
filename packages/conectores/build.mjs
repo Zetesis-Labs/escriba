@@ -9,7 +9,7 @@ import {
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 const root = dirname(fileURLToPath(import.meta.url));
-const resources = join(root, "../../Sources/EscribaJSC/Resources/conectores");
+const resources = join(root, "bundle");
 await mkdir(resources, { recursive: true });
 await build({
   entryPoints: [join(root, "src/index.ts")],

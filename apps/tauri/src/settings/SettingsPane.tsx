@@ -3,10 +3,10 @@ import { FolderPlus, Settings, Trash2, type LucideIcon } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { call, desktop } from "../api";
 import { Pane } from "../app/Pane";
-import { abbreviatedPath, importReport } from "../core/settings";
+import { abbreviatedPath } from "../core/settings";
 import { folderDisplayName } from "../library/model";
 import { Button, FormRow, FormSection, LabeledRow, Toggle } from "../mac/controls";
-import { alertMessage, confirmDestructive, errorText } from "../mac/native";
+import { alertMessage, errorText } from "../mac/native";
 import type { Settings as AppSettings, Snapshot, WatchedFolder } from "../types";
 import "./settings.css";
 
@@ -49,14 +49,6 @@ export function SettingsPane({ data, refresh }: { data: Snapshot; refresh: () =>
   const save = (patch: Partial<AppSettings>) => perform(() => call("settings_save", { settings: patch }));
   const authorize = (options: { folderId?: string; style?: WatchedFolder["style"] }) => perform(() => call("watch_folder_authorize", options));
   const remove = (folder: WatchedFolder) => save({ watchedFolders: settings.watchedFolders.filter((item) => item.id !== folder.id) });
-  const importLibrary = async () => {
-    const confirmed = await confirmDestructive(
-      "¿Importar la biblioteca de Escriba?",
-      "Se copian las notas, el audio y las carpetas vigiladas de la app Escriba. La biblioteca de origen no se toca y lo que ya está aquí no se duplica.",
-      "Importar",
-    );
-    if (confirmed) await perform(async () => alertMessage("Biblioteca importada", importReport(await call("library_import", {}))));
-  };
   const issue = (folder: WatchedFolder) => data.watchIssues?.find((item) => item.folderId === folder.id);
   const hasVoiceMemos = settings.watchedFolders.some((folder) => folder.style === "voiceMemos");
 
@@ -130,13 +122,6 @@ export function SettingsPane({ data, refresh }: { data: Snapshot; refresh: () =>
             <FormRow>
               <Button disabled={busy} onClick={() => void perform(() => call("open_privacy_settings", { pane: "disk" }))}>
                 Acceso total al disco…
-              </Button>
-            </FormRow>
-          </FormSection>
-          <FormSection footer="Copia las notas de la app Escriba de siempre. Se hace solo la primera vez que se abre esta app.">
-            <FormRow>
-              <Button disabled={busy} onClick={() => void importLibrary()}>
-                Importar la biblioteca de Escriba…
               </Button>
             </FormRow>
           </FormSection>

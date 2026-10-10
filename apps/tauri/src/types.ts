@@ -147,19 +147,6 @@ export interface Settings {
   notifyEveryNote?: boolean;
   launchAtLogin: boolean;
   theme: "system" | "light" | "dark";
-  watchMigration?:
-    | { state: "adopted"; count: number; paused: boolean }
-    | { state: "preserved"; count: number }
-    | { state: "error"; message: string };
-  startupMigration?:
-    | { state: "importing" }
-    | { state: "error"; message: string }
-    | {
-        state: "imported";
-        report: { recordings: number; audioMissing: number };
-        completedAt: string;
-        dismissed?: boolean;
-      };
 }
 export interface LogEntry {
   id: string;

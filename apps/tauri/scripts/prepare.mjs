@@ -7,7 +7,7 @@ const vendor = join(app, "src-tauri/vendor/node_modules");
 await mkdir(join(vendor, "@escriba"), { recursive: true });
 for (const [source, target] of [
   [
-    join(root, "Sources/EscribaJSC/Resources/conectores"),
+    join(root, "packages/conectores/bundle"),
     join(vendor, "@escriba/conectores"),
   ],
   [join(app, "node_modules/zod"), join(vendor, "zod")],

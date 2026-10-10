@@ -1,8 +1,15 @@
-# Lo que queda de la estabilización de Escriba Tauri
+# Lo que queda de la estabilización de Escriba
 
 Encargo de Rubén del 2026-10-09 para Codex. Sustituye a cualquier plan anterior
 de Codex sobre Tauri. Léelo entero antes de tocar nada; cada apartado dice qué
 hacer, dónde, con qué textos y cómo se comprueba.
+
+Actualización de Rubén, 2026-10-10: **Escriba es la única aplicación**
+([ADR-0005](adr/0005-escriba-unica-app.md)). Se retiran la app SwiftUI y su
+importador; la referencia de paridad se consulta en Git. El playground
+TypeScript/Bun/CodeMirror y TypeScript 7 son ampliaciones aprobadas. Las
+comprobaciones técnicas y manuales aún pendientes no cambian por retirar la
+coexistencia.
 
 ## 0. La única directriz
 
@@ -44,8 +51,8 @@ Está **prohibido**, por decisión de Rubén:
   nombres de test describen el comportamiento en castellano.
 - Sin comentarios salvo un porqué no obvio de una línea. Nombres claros y
   funciones pequeñas.
-- Un commit por cosa, convencional y en castellano (`feat(tauri): …`,
-  `fix(tauri): …`). **Sin trailers de IA** (`Co-Authored-By` ni similares).
+- Un commit por cosa, convencional y en castellano (`feat(app): …`,
+  `fix(app): …`). **Sin trailers de IA** (`Co-Authored-By` ni similares).
 - Una sección está «hecha» cuando funciona en la app instalada y Rubén la ha
   visto. Motor más tests no basta. Marca la casilla en
   `docs/paridad-swift-tauri.md` solo cuando él lo confirme.
@@ -68,23 +75,38 @@ cd ~/Developer/_worktrees/escriba-tauri/apps/tauri
 npx tsc --noEmit -p .                      # tipos
 npx vitest run --no-file-parallelism        # Bun de runtime-host/bun-version en PATH
 cd src-tauri && cargo test --lib && cargo clippy --all-targets && cargo fmt --check
-cd ~/Developer/_worktrees/escriba-tauri && ./scripts/build-tauri.sh --release
+cd ~/Developer/_worktrees/escriba-tauri && ./scripts/build-app.sh --release
 export TOOLCHAINS=org.swift.640202609131a && swift test --filter EscribaNativeHostTests   # host nativo
 ```
 
-Instalar (cierra la app, guarda **solo** la versión anterior y abre la nueva):
+Instalar (cierra Escriba desde su menú después de guardar los cambios):
 
 ```bash
 cd ~/Developer/_worktrees/escriba-tauri
-osascript -e 'quit app "Escriba Tauri"'; sleep 3
-APP="apps/tauri/src-tauri/target/release/bundle/macos/Escriba Tauri.app"; T="/Applications/Escriba Tauri.app"
-codesign --verify --deep --strict "$APP" && rm -rf ".build/Escriba Tauri-anterior.app" \
-  && mv "$T" ".build/Escriba Tauri-anterior.app" && ditto "$APP" "$T" && open "$T"
+./scripts/install-app.sh --release
+open /Applications/Escriba.app
 ```
+
+El instalador verifica el bundle antes de sustituirlo y conserva la copia
+anterior. La primera actualización también retira el nombre de instalación
+anterior, manteniendo la misma identidad de datos y permisos.
 
 Capturas sin tocar la app de Rubén: `npx vite --port 5199` y abrir
 `http://127.0.0.1:5199/?demo=1` (datos de `src/app/demo.ts`). El panel de
 grabación se ve en `?panel=recording&demo=1`.
+
+### Aplicación única (2026-10-10)
+
+- Escriba.app es el único producto de escritorio. Retirados la interfaz SwiftUI,
+  sus modelos y runtime exclusivos, el importador y el arranque de transición.
+- `build-app.sh` e `install-app.sh` construyen e instalan la app actual. Se
+  conservan el identificador de macOS y la carpeta de datos; los formatos ya
+  persistidos siguen siendo legibles.
+- El inicio automático cambia al nombre Escriba y el lanzador administrado del
+  proyecto actualiza sus rutas al cargarlo. La instalación conserva un backup
+  recuperable y admite actualizar desde las instalaciones que coexistían.
+- La decisión de producto no marca como resueltos los apartados técnicos o
+  manuales que siguen pendientes más abajo.
 
 ### Trampas ya conocidas
 

@@ -1,6 +1,9 @@
 # Tauri sustituye a SwiftUI solo al pasar sus puertas
 
 Estado: aceptado por Rubén el 2026-10-09. Modifica el ADR-0003.
+La coexistencia y la condición para retirar SwiftUI quedan sustituidas por el
+[ADR-0005](0005-escriba-unica-app.md), decidido el 2026-10-10. Las comprobaciones
+de calidad pendientes se mantienen.
 
 El ADR-0003 fija Tauri y SurrealDB como destino. Este ADR fija cuándo se llega.
 El encargo original era igualar las capacidades de la app SwiftUI. La rama

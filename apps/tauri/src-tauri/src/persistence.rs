@@ -3,12 +3,7 @@ use chrono::Utc;
 use fs2::FileExt;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::{
-    collections::{BTreeMap, HashMap, HashSet},
-    path::Path,
-    sync::mpsc,
-    thread,
-};
+use std::{collections::BTreeMap, path::Path, sync::mpsc, thread};
 use surrealdb::{
     engine::local::{Db, SurrealKv},
     types::SurrealValue,
@@ -67,37 +62,6 @@ struct TeachingPlan {
     start_position: i64,
 }
 
-#[derive(Clone)]
-pub struct ImportedVersionVoice {
-    pub id: String,
-    pub version_id: String,
-    pub position: i64,
-    pub voice: SpeakerVoice,
-}
-
-#[derive(Clone)]
-pub struct ImportedPerson {
-    pub id: String,
-    pub name: String,
-    pub created_at: String,
-}
-
-#[derive(Clone)]
-pub struct ImportedPersonVoice {
-    pub id: String,
-    pub person_id: String,
-    pub voice: SpeakerVoice,
-    pub source: String,
-    pub added_at: String,
-}
-
-#[derive(Clone, Default)]
-pub struct ImportedVoices {
-    pub versions: Vec<ImportedVersionVoice>,
-    pub people: Vec<ImportedPerson>,
-    pub person_voices: Vec<ImportedPersonVoice>,
-}
-
 #[derive(Clone, Deserialize, Serialize)]
 pub struct AudioDeletion {
     pub id: String,
@@ -128,14 +92,6 @@ enum Command {
     ),
     PendingAudioDeletions(mpsc::Sender<Result<Vec<AudioDeletion>, String>>),
     CompleteAudioDeletion(String, mpsc::Sender<Result<(), String>>),
-    Import(
-        Value,
-        Value,
-        Vec<Value>,
-        Vec<Value>,
-        ImportedVoices,
-        mpsc::Sender<Result<(), String>>,
-    ),
     Jobs(mpsc::Sender<Result<Vec<Value>, String>>),
     SaveJob(Value, mpsc::Sender<Result<(), String>>),
     #[cfg(test)]
@@ -229,22 +185,6 @@ impl Persistence {
                         }
                         Command::CompleteAudioDeletion(id, reply) => {
                             let _ = reply.send(complete_audio_deletion(&db, &id).await);
-                        }
-                        Command::Import(before, after, memories, traces, imported, reply) => {
-                            let _ = reply.send(
-                                save_with_aux(
-                                    &db,
-                                    &before,
-                                    &after,
-                                    SaveExtras {
-                                        memories: &memories,
-                                        traces: &traces,
-                                        imported: Some(&imported),
-                                        ..SaveExtras::default()
-                                    },
-                                )
-                                .await,
-                            );
                         }
                         Command::Jobs(reply) => {
                             let _ = reply.send(jobs(&db).await);
@@ -386,25 +326,6 @@ impl Persistence {
     }
     pub fn complete_audio_deletion(&self, id: &str) -> Result<(), String> {
         self.request(|reply| Command::CompleteAudioDeletion(id.to_owned(), reply))
-    }
-    pub fn import(
-        &self,
-        before: &Value,
-        after: &Value,
-        memories: &[Value],
-        traces: &[Value],
-        imported: &ImportedVoices,
-    ) -> Result<(), String> {
-        self.request(|reply| {
-            Command::Import(
-                before.clone(),
-                after.clone(),
-                memories.to_vec(),
-                traces.to_vec(),
-                imported.clone(),
-                reply,
-            )
-        })
     }
     pub fn jobs(&self) -> Result<Vec<Value>, String> {
         self.request(Command::Jobs)
@@ -895,12 +816,9 @@ async fn save(db: &Surreal<Db>, before: &Value, after: &Value) -> Result<(), Str
 
 #[derive(Default)]
 struct SaveExtras<'a> {
-    memories: &'a [Value],
-    traces: &'a [Value],
     audio_deletions: &'a [AudioDeletion],
     version_voices: Option<(&'a str, &'a [SpeakerVoice])>,
     teaching: Option<&'a TeachingPlan>,
-    imported: Option<&'a ImportedVoices>,
 }
 
 async fn save_version(
@@ -968,21 +886,6 @@ async fn save_with_aux(
 ) -> Result<(), String> {
     let old = flatten(before)?;
     let new = flatten(after)?;
-    let mut existing_people = Vec::new();
-    let mut existing_version_voices = HashSet::new();
-    let mut existing_person_voices = HashSet::new();
-    let mut next_person_voice_position = 0;
-    if extras.imported.is_some() {
-        existing_people = person_records(db).await?;
-        existing_version_voices = rows(db, "voice")
-            .await?
-            .into_iter()
-            .map(|row| row.key)
-            .collect();
-        let rows = rows(db, "person_voice").await?;
-        next_person_voice_position = rows.iter().map(|row| row.position).max().unwrap_or(-1) + 1;
-        existing_person_voices = rows.into_iter().map(|row| row.key).collect();
-    }
     let tx = db.clone().begin().await.map_err(|e| e.to_string())?;
     let result = async {
         for ((table, key), row) in &new {
@@ -1046,56 +949,6 @@ async fn save_with_aux(
                     .bind(("position", teaching.start_position + index as i64)).bind(("payload", serde_json::to_value(record).map_err(|e| e.to_string())?))
                     .await.map_err(|e| e.to_string())?.check().map_err(|e| e.to_string())?;
             }
-        }
-        if let Some(imported) = extras.imported {
-            let mut person_ids: HashMap<&str, String> = HashMap::new();
-            for person in &imported.people {
-                let actual = existing_people.iter().find(|old| old.id == person.id || old.name == person.name);
-                if let Some(actual) = actual {
-                    person_ids.insert(&person.id, actual.id.clone());
-                    continue;
-                }
-                let record = PersonRecord { id: person.id.clone(), name: person.name.clone(), created_at: person.created_at.clone() };
-                tx.query("CREATE type::record('person', $key) SET key = $key, parent = '', position = 0, payload = $payload")
-                    .bind(("key", record.id.as_str())).bind(("payload", serde_json::to_value(&record).map_err(|e| e.to_string())?))
-                    .await.map_err(|e| e.to_string())?.check().map_err(|e| e.to_string())?;
-                person_ids.insert(&person.id, record.id.clone());
-                existing_people.push(record);
-            }
-            for voice in &imported.versions {
-                if !existing_version_voices.insert(voice.id.clone()) { continue; }
-                let record = VersionVoiceRecord { id: voice.id.clone(), version_id: voice.version_id.clone(), speaker: voice.voice.speaker.clone(), model: voice.voice.model.clone(), embedding: voice.voice.embedding.clone() };
-                tx.query("CREATE type::record('voice', $key) SET key = $key, parent = $parent, position = $position, payload = $payload")
-                    .bind(("key", record.id.as_str())).bind(("parent", record.version_id.as_str()))
-                    .bind(("position", voice.position)).bind(("payload", serde_json::to_value(record).map_err(|e| e.to_string())?))
-                    .await.map_err(|e| e.to_string())?.check().map_err(|e| e.to_string())?;
-            }
-            for voice in &imported.person_voices {
-                if !existing_person_voices.insert(voice.id.clone()) { continue; }
-                let person_id = person_ids.get(voice.person_id.as_str()).ok_or("Persona SwiftUI de la huella no encontrada")?;
-                let record = PersonVoiceRecord { id: voice.id.clone(), person_id: person_id.clone(), model: voice.voice.model.clone(), embedding: voice.voice.embedding.clone(), source: voice.source.clone(), added_at: voice.added_at.clone() };
-                tx.query("CREATE type::record('person_voice', $key) SET key = $key, parent = $parent, position = $position, payload = $payload")
-                    .bind(("key", record.id.as_str())).bind(("parent", person_id.as_str()))
-                    .bind(("position", next_person_voice_position)).bind(("payload", serde_json::to_value(record).map_err(|e| e.to_string())?))
-                    .await.map_err(|e| e.to_string())?.check().map_err(|e| e.to_string())?;
-                next_person_voice_position += 1;
-            }
-        }
-        for memory in extras.memories {
-            let key = memory["key"].as_str().ok_or("Memoria importada sin clave")?;
-            let parent = memory["parent"].as_str().ok_or("Memoria importada sin grabación")?;
-            let payload = memory["value"].clone();
-            tx.query("UPSERT type::record('memory', $key) SET key = $key, parent = $parent, position = 0, payload = $payload")
-                .bind(("key", key)).bind(("parent", parent)).bind(("payload", payload))
-                .await.map_err(|e| e.to_string())?.check().map_err(|e| e.to_string())?;
-        }
-        for trace in extras.traces {
-            let key = trace["id"].as_str().ok_or("Traza importada sin ID")?;
-            let parent = trace["recordingId"].as_str().ok_or("Traza importada sin grabación")?;
-            let payload = trace.clone();
-            tx.query("UPSERT type::record('trace', $key) SET key = $key, parent = $parent, position = 0, payload = $payload")
-                .bind(("key", key)).bind(("parent", parent)).bind(("payload", payload))
-                .await.map_err(|e| e.to_string())?.check().map_err(|e| e.to_string())?;
         }
         for deletion in extras.audio_deletions {
             tx.query("UPSERT type::record('audio_deletion', $key) SET key = $key, parent = '', position = 0, payload = $payload")

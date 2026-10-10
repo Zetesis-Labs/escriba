@@ -4,8 +4,8 @@ mod catalog;
 mod folder_access;
 mod jobs;
 mod library_view;
+mod login;
 mod menubar;
-mod migration;
 mod native;
 mod notification_delivery;
 mod notification_events;
@@ -57,7 +57,6 @@ struct Runtime {
     vendor: PathBuf,
     project_runtime: PathBuf,
     project_lock: tokio::sync::Mutex<()>,
-    startup: Mutex<Startup>,
 }
 
 struct FolderAccess {
@@ -65,39 +64,11 @@ struct FolderAccess {
     resolved: folder_access::ResolvedFolder,
 }
 
-#[derive(Default)]
-struct Startup {
-    snapshot: Option<Value>,
-    error: Option<String>,
-}
-
-fn ledger_for_import(home: &Path, default_library: bool) -> Option<PathBuf> {
-    default_library.then(|| home.join(".local/state/escriba/ledger.db"))
-}
-
 impl Runtime {
     fn store(&self) -> Result<std::sync::MutexGuard<'_, Store>, String> {
         self.store
             .lock()
             .map_err(|_| "No se pudo acceder a la biblioteca".into())
-    }
-
-    fn startup_reply(&self, method: &str) -> Result<Option<Value>, String> {
-        let startup = self
-            .startup
-            .lock()
-            .map_err(|_| "No se pudo consultar el arranque")?;
-        let Some(snapshot) = &startup.snapshot else {
-            return Ok(None);
-        };
-        match method {
-            "snapshot" => Ok(Some(snapshot.clone())),
-            "library" => Ok(Some(library_view::light_library(snapshot))),
-            "runtime_jobs" => Ok(Some(json!([]))),
-            "recording_status" => Ok(Some(recording::view(None, None))),
-            "system_appearance" => Ok(Some(json!({"accent": appearance::accent()}))),
-            _ => Err("Espera a que termine de incorporarse la biblioteca anterior".into()),
-        }
     }
 
     fn library(&self) -> Result<Value, String> {
@@ -111,13 +82,6 @@ impl Runtime {
     }
 
     fn decorate(&self, mut snapshot: Value) -> Result<Value, String> {
-        let startup = self
-            .startup
-            .lock()
-            .map_err(|_| "No se pudo consultar el arranque")?;
-        if let Some(error) = &startup.error {
-            snapshot["settings"]["startupMigration"] = json!({"state":"error","message":error});
-        }
         snapshot["watchIssues"] = self
             .watch_health
             .lock()
@@ -227,7 +191,6 @@ fn refreshes_library(method: &str, params: &Value) -> bool {
             .as_str()
             .is_some_and(|operation| jobs::durable(operation) || operation == "rebuildProject"),
         "import_audio"
-        | "library_import"
         | "recording_update"
         | "recording_discard"
         | "recording_delete"
@@ -268,9 +231,6 @@ fn dispatch<'a>(
     p: Value,
 ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Value, String>> + Send + 'a>> {
     Box::pin(async move {
-        if let Some(reply) = state.startup_reply(method)? {
-            return Ok(reply);
-        }
         match method {
             "snapshot" => state.snapshot(),
             "library" => state.library(),
@@ -333,33 +293,6 @@ fn dispatch<'a>(
                 }
                 emit_jobs(app, state);
                 Ok(Value::Null)
-            }
-            "library_import" => {
-                let home = app.path().home_dir().map_err(|e| e.to_string())?;
-                let default_source = p["path"].is_null();
-                let path = match p["path"].as_str() {
-                    Some(path) => PathBuf::from(path),
-                    None => home.join("Library/Application Support/escriba/library"),
-                };
-                let settings = match p["settingsPath"].as_str() {
-                    Some(path) => Some(PathBuf::from(path)),
-                    None if p["path"].is_null() => {
-                        Some(home.join("Library/Preferences/dev.ruben.escriba.plist"))
-                            .filter(|path| path.is_file())
-                    }
-                    None => None,
-                };
-                let ledger = ledger_for_import(&home, default_source);
-                let state = state.clone();
-                tokio::task::spawn_blocking(move || {
-                    state.store()?.import_legacy_with_settings_and_ledger(
-                        &path,
-                        settings.as_deref(),
-                        ledger.as_deref(),
-                    )
-                })
-                .await
-                .map_err(|e| e.to_string())?
             }
             "recording_discard" | "recording_delete" => {
                 let recording = text(&p, "id")?;
@@ -644,9 +577,13 @@ fn dispatch<'a>(
             "project_load" => {
                 let _project_guard = state.project_lock.lock().await;
                 let path = project_path(state)?;
-                tokio::task::spawn_blocking(move || project::load(&path))
-                    .await
-                    .map_err(|e| e.to_string())?
+                let runtime = state.project_runtime.clone();
+                let vendor = state.vendor.clone();
+                tokio::task::spawn_blocking(move || {
+                    project::load_with_tools(&path, &runtime, &vendor)
+                })
+                .await
+                .map_err(|e| e.to_string())?
             }
             "project_list" => project::list(&project_path(state)?),
             "project_open_vscode" => {
@@ -1485,6 +1422,7 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .plugin(
             tauri_plugin_autostart::Builder::new()
+                .app_name("Escriba")
                 .macos_launcher(tauri_plugin_autostart::MacosLauncher::LaunchAgent)
                 .build(),
         )
@@ -1496,39 +1434,6 @@ pub fn run() {
                 let isolated_root = std::env::var_os("ESCRIBA_TAURI_DATA").map(PathBuf::from);
                 let root = isolated_root.clone().unwrap_or(app.path().app_data_dir()?);
                 let store = Store::open(root.clone()).map_err(std::io::Error::other)?;
-                let legacy = if isolated_root.is_none()
-                    && store.data["settings"]["legacyImported"] != true
-                    && store.data["recordings"]
-                        .as_array()
-                        .is_some_and(Vec::is_empty)
-                {
-                    Some(
-                        app.path()
-                            .home_dir()?
-                            .join("Library/Application Support/escriba/library"),
-                    )
-                } else {
-                    None
-                };
-                let opening = legacy.as_ref().map(|_| {
-                    let mut snapshot = store.snapshot();
-                    snapshot["settings"]["startupMigration"] = json!({"state":"importing"});
-                    snapshot
-                });
-                let legacy_preferences = if isolated_root.is_none() {
-                    Some(
-                        app.path()
-                            .home_dir()?
-                            .join("Library/Preferences/dev.ruben.escriba.plist"),
-                    )
-                } else {
-                    None
-                };
-                let legacy_ledger = if legacy.is_some() {
-                    ledger_for_import(&app.path().home_dir()?, true)
-                } else {
-                    None
-                };
                 app.asset_protocol_scope()
                     .allow_directory(root.join("audio"), true)?;
                 let resource_vendor = app.path().resource_dir()?.join("vendor");
@@ -1571,51 +1476,24 @@ pub fn run() {
                     project_runtime: native::binary("escriba-runtime")
                         .map_err(std::io::Error::other)?,
                     project_lock: tokio::sync::Mutex::new(()),
-                    startup: Mutex::new(Startup {
-                        snapshot: opening,
-                        error: None,
-                    }),
                 });
                 app.manage(state.clone());
+                if isolated_root.is_none() {
+                    let enabled = state.store().map_err(std::io::Error::other)?.data["settings"]
+                        ["launchAtLogin"]
+                        == true;
+                    if let Err(error) = login::synchronize(app.handle(), enabled) {
+                        log_error(
+                            &state,
+                            &format!("No se pudo actualizar el inicio automático: {error}"),
+                        );
+                    }
+                }
                 menubar::install(app.handle(), &state)?;
                 app.on_menu_event(|app, event| menubar::handle(app, event.id().as_ref()));
                 menubar::watch(app.handle().clone());
                 let handle = app.handle().clone();
                 tauri::async_runtime::spawn(async move {
-                    if legacy.is_some() || legacy_preferences.is_some() {
-                        let importing = state.clone();
-                        let result = tokio::task::spawn_blocking(move || {
-                            let mut store = importing.store()?;
-                            if let Some(source) = legacy {
-                                store.import_startup_legacy_with_ledger(
-                                    &source,
-                                    legacy_ledger.as_deref(),
-                                )?;
-                            }
-                            if let Some(preferences) = legacy_preferences {
-                                store.adopt_legacy_watched_folders(&preferences)?;
-                            }
-                            Ok::<(), String>(())
-                        })
-                        .await
-                        .map_err(|error| error.to_string())
-                        .and_then(|result| result);
-                        if let Err(error) = &result {
-                            notify_problem(&state, Problem::StartupFailed(error));
-                        }
-                        match state.startup.lock() {
-                            Ok(mut startup) => {
-                                startup.snapshot = None;
-                                startup.error = result.err();
-                            }
-                            Err(error) => {
-                                eprintln!(
-                                    "No se pudo finalizar la apertura de la biblioteca: {error}"
-                                )
-                            }
-                        }
-                        let _ = handle.emit("escriba://changed", ());
-                    }
                     if let Ok(root) = voice_memos_root(&handle) {
                         let seeded = state
                             .store()
@@ -1652,7 +1530,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![app_command])
         .build(tauri::generate_context!())
-        .expect("No se pudo iniciar Escriba Tauri")
+        .expect("No se pudo iniciar Escriba")
         .run(|app, event| match event {
             tauri::RunEvent::ExitRequested { api, .. } => {
                 let state = app.state::<Arc<Runtime>>().inner().clone();
@@ -1675,16 +1553,6 @@ pub fn run() {
 #[cfg(test)]
 mod command_events_tests {
     use super::*;
-
-    #[test]
-    fn ledger_swift_solo_acompana_a_la_biblioteca_por_defecto() {
-        let home = Path::new("/synthetic/home");
-        assert_eq!(
-            ledger_for_import(home, true),
-            Some(home.join(".local/state/escriba/ledger.db"))
-        );
-        assert_eq!(ledger_for_import(home, false), None);
-    }
 
     #[test]
     fn iniciar_proyecto_no_genera_destinos_para_cuentas_con_conector_en_la_app() {
@@ -1721,7 +1589,6 @@ mod command_events_tests {
     #[test]
     fn changes_to_recordings_and_recipe_catalogues_still_refresh_the_window() {
         assert!(refreshes_library("recording_stop", &json!({})));
-        assert!(refreshes_library("library_import", &json!({})));
         assert!(refreshes_library(
             "runtime_run",
             &json!({"operation":"rebuildProject"})
