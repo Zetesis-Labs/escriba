@@ -564,6 +564,13 @@ verificada y 1607 archivos idénticos por SHA256 al bundle construido,
 245422598 bytes (234,05 MiB lógicos). App, host nativo y Bun arrancados;
 versión anterior conservada en `.build/Escriba Tauri-anterior.app`.
 
+Corrección posterior del 2026-10-10: Ajustes mostraba «Autorizar…» en carpetas
+legibles cuando no había un bookmark guardado, aunque macOS ya permitiera el
+acceso. Ahora solo se ofrece ante un problema de lectura o de restauración del
+acceso. Regresión comprobada renderizando el componente real: 196 pruebas
+TypeScript correctas. Release reconstruida, instalada y abierta, con firma y
+1607 archivos comprobados por SHA256.
+
 ## 9. Puertas 5 y 6: tamaño, empaquetado y documentación
 
 - Perfil de release con `strip`, `lto` y `codegen-units = 1`, midiendo tamaño y
