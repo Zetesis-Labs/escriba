@@ -1,3 +1,4 @@
+use crate::error::{AppError, ErrorCode};
 use serde_json::{json, Value};
 use std::{
     collections::HashMap,
@@ -40,13 +41,13 @@ pub type Capability = Arc<
             Value,
             String,
             Lease,
-        ) -> Pin<Box<dyn Future<Output = Result<Value, String>> + Send>>
+        ) -> Pin<Box<dyn Future<Output = Result<Value, AppError>> + Send>>
         + Send
         + Sync,
 >;
 pub type Events = Arc<dyn Fn(Value) + Send + Sync>;
 struct PendingTask {
-    reply: oneshot::Sender<Result<Value, String>>,
+    reply: oneshot::Sender<Result<Value, AppError>>,
     lease: Lease,
 }
 type Pending = Arc<Mutex<HashMap<String, PendingTask>>>;
@@ -149,33 +150,47 @@ pub struct Scripts {
     path: PathBuf,
     session: Mutex<Option<Arc<Session>>>,
 }
-async fn frame<R: AsyncRead + Unpin>(reader: &mut BufReader<R>) -> Result<Value, String> {
+async fn frame<R: AsyncRead + Unpin>(reader: &mut BufReader<R>) -> Result<Value, AppError> {
     let mut bytes = Vec::new();
     let count = reader
         .take(MAX_FRAME + 1)
         .read_until(b'\n', &mut bytes)
         .await
-        .map_err(|e| format!("Se perdió el canal TypeScript: {e}"))?;
+        .map_err(|e| {
+            AppError::new(
+                ErrorCode::RuntimeUnavailable,
+                format!("Se perdió el canal TypeScript: {e}"),
+            )
+        })?;
     if count == 0 {
-        return Err("El motor TypeScript se detuvo".into());
+        return Err(AppError::new(
+            ErrorCode::RuntimeUnavailable,
+            "El motor TypeScript se detuvo",
+        ));
     }
     if count as u64 > MAX_FRAME + 1 || bytes.last() != Some(&b'\n') {
         return Err("Mensaje TypeScript demasiado grande o incompleto".into());
     }
     serde_json::from_slice(&bytes).map_err(|_| "Mensaje TypeScript inválido".into())
 }
-async fn send(input: &Input, value: &Value) -> Result<(), String> {
-    let mut data = serde_json::to_vec(value).map_err(|e| e.to_string())?;
+async fn send(input: &Input, value: &Value) -> Result<(), AppError> {
+    let mut data =
+        serde_json::to_vec(value).map_err(|e| AppError::new(ErrorCode::Failed, e.to_string()))?;
     if data.len() as u64 > MAX_FRAME {
         return Err("Trama hacia TypeScript demasiado grande (límite 32 MiB)".into());
     }
     data.push(b'\n');
     let mut input = input.lock().await;
+    input.write_all(&data).await.map_err(|e| {
+        AppError::new(
+            ErrorCode::RuntimeUnavailable,
+            format!("No se pudo escribir al motor TypeScript: {e}"),
+        )
+    })?;
     input
-        .write_all(&data)
+        .flush()
         .await
-        .map_err(|e| format!("No se pudo escribir al motor TypeScript: {e}"))?;
-    input.flush().await.map_err(|e| e.to_string())
+        .map_err(|e| AppError::new(ErrorCode::RuntimeUnavailable, e.to_string()))
 }
 fn spawn(path: &Path, worker: bool) -> Result<(Child, StderrCapture), String> {
     let executable = path
@@ -350,24 +365,33 @@ impl Scripts {
         &self,
         capability: Capability,
         events: Events,
-    ) -> Result<Arc<Session>, String> {
+    ) -> Result<Arc<Session>, AppError> {
         let mut slot = self.session.lock().await;
         if let Some(session) = slot.as_ref().filter(|s| s.alive.load(Ordering::SeqCst)) {
             return Ok(session.clone());
         }
         *slot = None;
-        let (mut child, mut stderr) = spawn(&self.path, false)?;
+        let (mut child, mut stderr) = spawn(&self.path, false)
+            .map_err(|error| AppError::new(ErrorCode::RuntimeUnavailable, error))?;
         let input = Arc::new(Mutex::new(
             child.stdin.take().ok_or("TypeScript sin entrada")?,
         ));
         let mut output = BufReader::new(child.stdout.take().ok_or("TypeScript sin salida")?);
         let hello = match tokio::time::timeout(Duration::from_secs(30), frame(&mut output)).await {
             Ok(Ok(value)) => value,
-            Ok(Err(error)) => return Err(stderr.startup_error(error).await),
+            Ok(Err(error)) => {
+                return Err(AppError::new(
+                    error.code,
+                    stderr.startup_error(error.message).await,
+                ))
+            }
             Err(_) => {
-                return Err(stderr
-                    .startup_error("TypeScript no arrancó a tiempo".into())
-                    .await)
+                return Err(AppError::new(
+                    ErrorCode::RuntimeUnavailable,
+                    stderr
+                        .startup_error("TypeScript no arrancó a tiempo".into())
+                        .await,
+                ))
             }
         };
         if hello["type"] != "ready" || hello["protocolVersion"] != 1 {
@@ -402,10 +426,7 @@ impl Scripts {
                             let result = if kind == "result" {
                                 Ok(value["value"].clone())
                             } else {
-                                Err(value["message"]
-                                    .as_str()
-                                    .unwrap_or("Falló TypeScript")
-                                    .to_owned())
+                                Err(AppError::from_frame(&value))
                             };
                             task.lease.revoke();
                             let _ = task.reply.send(result);
@@ -420,21 +441,14 @@ impl Scripts {
                             .await
                             .get(&task)
                             .map(|pending| pending.lease.clone());
-                        let valid = allowed(&method) && lease.is_some();
                         let input = reader_input.clone();
                         let callback = capability.clone();
                         let pending = reader_pending.clone();
                         let workers = reader_workers.clone();
                         let alive = reader_alive.clone();
                         tokio::spawn(async move {
-                            let result = if valid {
-                                callback(
-                                    method,
-                                    value["params"].clone(),
-                                    task.clone(),
-                                    lease.unwrap(),
-                                )
-                                .await
+                            let result = if let Some(lease) = lease.filter(|_| allowed(&method)) {
+                                callback(method, value["params"].clone(), task.clone(), lease).await
                             } else {
                                 Err("Capacidad no autorizada o trabajo terminado".into())
                             };
@@ -443,18 +457,20 @@ impl Scripts {
                             }
                             let response = match result {
                                 Ok(v) => json!({"type":"resolve","id":value["id"],"value":v}),
-                                Err(e) => json!({"type":"reject","id":value["id"],"message":e}),
+                                Err(e) => {
+                                    json!({"type":"reject","id":value["id"],"message":e.message,"code":e.code})
+                                }
                             };
                             if let Err(error) = send(&input, &response).await {
-                                let fallback =
-                                    json!({"type":"reject","id":value["id"],"message":error});
+                                let fallback = json!({"type":"reject","id":value["id"],"message":&error.message,"code":&error.code});
                                 if send(&input, &fallback).await.is_err() {
                                     alive.store(false, Ordering::SeqCst);
                                     workers.lock().await.clear();
                                     for (_, task) in pending.lock().await.drain() {
                                         task.lease.revoke();
-                                        let _ = task.reply.send(Err(format!(
-                                            "Se perdió el canal TypeScript: {error}"
+                                        let _ = task.reply.send(Err(AppError::new(
+                                            ErrorCode::RuntimeUnavailable,
+                                            format!("Se perdió el canal TypeScript: {error}"),
                                         )));
                                     }
                                 }
@@ -501,7 +517,7 @@ impl Scripts {
                                                     2 => "No se pudo vigilar memoria del worker".into(),
                                                     _ => message,
                                                 };
-                                                let _ = send(&destination, &json!({"type":"worker_error","id":worker_key,"message":message})).await;
+                                                let _ = send(&destination, &json!({"type":"worker_error","id":worker_key,"message":message.message})).await;
                                                 break;
                                             }
                                         };
@@ -541,7 +557,7 @@ impl Scripts {
                             if let Err(message) = send(&input, &value["value"]).await {
                                 let _ = send(
                                     &reader_input,
-                                    &json!({"type":"worker_error","id":key,"message":message}),
+                                    &json!({"type":"worker_error","id":key,"message":message.message}),
                                 )
                                 .await;
                             }
@@ -579,7 +595,7 @@ impl Scripts {
         args: Value,
         capability: Capability,
         events: Events,
-    ) -> Result<Value, String> {
+    ) -> Result<Value, AppError> {
         let session = self.session(capability, events).await?;
         let (tx, rx) = oneshot::channel();
         {
@@ -609,10 +625,16 @@ impl Scripts {
         }
         match tokio::time::timeout(Duration::from_secs(7200), rx).await {
             Ok(Ok(result)) => result,
-            Ok(Err(_)) => Err("El proceso TypeScript perdió el trabajo".into()),
+            Ok(Err(_)) => Err(AppError::new(
+                ErrorCode::RuntimeUnavailable,
+                "El proceso TypeScript perdió el trabajo",
+            )),
             Err(_) => {
                 self.cancel(id).await;
-                Err("El trabajo superó dos horas".into())
+                Err(AppError::new(
+                    ErrorCode::Failed,
+                    "El trabajo superó dos horas",
+                ))
             }
         }
     }
@@ -744,6 +766,7 @@ mod tests {
                     "log" | "memory_recall" | "memory_keep" | "trace_save" => Ok(Value::Null),
                     _ => Err(format!("Capacidad inesperada: {method}")),
                 }
+                .map_err(Into::into)
             })
         })
     }
@@ -765,7 +788,7 @@ mod tests {
                                 let store = store.lock().unwrap();
                                 (
                                     store.audio(crate::store::text(&params, "recordingId")?)?,
-                                    store.data["settings"]["whisperModel"].clone(),
+                                    json!(store.data.settings.whisper_model.as_ref()),
                                 )
                             };
                             return native.transcribe(&audio, model, params).await;
@@ -802,6 +825,7 @@ mod tests {
                         }
                         _ => Err(format!("Capacidad inesperada: {method}")),
                     }
+                    .map_err(Into::into)
                 })
             }
         })
@@ -871,15 +895,27 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn receta_predeterminada_llega_al_motor_nativo_sin_fijar_hablantes() {
+    async fn error_nativo_cruza_bun_y_la_cola_con_codigo_de_reintento() {
         let directory = tempfile::tempdir().unwrap();
         let audio = directory.path().join("synthetic.wav");
-        std::fs::write(&audio, []).unwrap();
+        std::fs::write(&audio, b"synthetic audio").unwrap();
+        let store = Arc::new(StdMutex::new(
+            crate::store::Store::open(directory.path().join("library")).unwrap(),
+        ));
+        let recording = store.lock().unwrap().import(&audio, None).unwrap();
+        let recording_id = recording["id"].as_str().unwrap().to_owned();
+        let queue = crate::jobs::Queue::new(store).unwrap();
+        let id = queue
+            .enqueue("processRecording", json!({"recordingId":recording_id}))
+            .unwrap();
+        queue.claim().unwrap().unwrap();
         let native = Arc::new(crate::native::Native::new(
             crate::native::binary("EscribaNativeHost").unwrap(),
         ));
         let scripts = Scripts::new(crate::native::binary("escriba-runtime").unwrap());
-        let fake = fake_host(Arc::new(StdMutex::new(fixture())));
+        let mut state = fixture();
+        state["recordings"][0]["id"] = json!(recording_id);
+        let fake = fake_host(Arc::new(StdMutex::new(state)));
         let capability: Capability = Arc::new(move |method, params, task, lease| {
             if method == "transcribe" {
                 let native = native.clone();
@@ -897,9 +933,9 @@ mod tests {
         let error = tokio::time::timeout(
             Duration::from_secs(20),
             scripts.call(
-                "native-contract",
+                &id,
                 "processRecording",
-                json!({"recordingId":"r"}),
+                json!({"recordingId":recording_id}),
                 capability,
                 Arc::new(|_| {}),
             ),
@@ -907,8 +943,17 @@ mod tests {
         .await
         .unwrap()
         .unwrap_err();
-        assert!(error.contains("BACKEND_UNAVAILABLE"), "{error}");
-        assert!(!error.contains("speakers"), "{error}");
+        assert_eq!(error.code, ErrorCode::BackendUnavailable);
+        assert!(!error.message.contains("speakers"), "{error}");
+        queue.finish(&id, Err(error)).unwrap();
+        let saved = queue
+            .jobs()
+            .unwrap()
+            .into_iter()
+            .find(|job| job["id"] == id)
+            .unwrap();
+        assert_eq!(saved["state"], "retry");
+        assert_eq!(saved["errorCode"], "backend_unavailable");
     }
 
     #[tokio::test]
@@ -917,8 +962,7 @@ mod tests {
         let mut data = fixture();
         let mut historical = data["recordings"][0].clone();
         historical["id"] = json!("other-recording");
-        historical["versions"] =
-            json!([{"id":"historical-version","transcript":{"text":"x".repeat(33 * 1024 * 1024)}}]);
+        historical["versions"] = json!([{"id":"historical-version","transcript":{"text":"x".repeat(33 * 1024 * 1024),"segments":[]}}]);
         data["recordings"].as_array_mut().unwrap().push(historical);
         let directory = tempfile::tempdir().unwrap();
         let mut store = crate::store::Store::open(directory.path().join("library")).unwrap();
@@ -1001,7 +1045,7 @@ mod tests {
         .await
         .unwrap()
         .unwrap_err();
-        assert!(error.contains("32 MiB"), "{error}");
+        assert!(error.message.contains("32 MiB"), "{error}");
         let schema = tokio::time::timeout(
             Duration::from_secs(10),
             scripts.call(
@@ -1157,7 +1201,7 @@ mod tests {
         .await
         .expect("La fuga no terminó a tiempo")
         .unwrap_err();
-        assert!(error.contains("512 MiB"), "{error}");
+        assert!(error.message.contains("512 MiB"), "{error}");
         state.lock().unwrap()["recipes"][0] =
             json!({"id":"default","name":"Por defecto","kind":"form","values":{"resumir":false}});
         scripts
@@ -1188,7 +1232,7 @@ mod tests {
             )
             .await
             .unwrap_err();
-        assert!(error.contains("sandbox-exec"), "{error}");
+        assert!(error.message.contains("sandbox-exec"), "{error}");
     }
 
     #[tokio::test]
@@ -1231,7 +1275,7 @@ mod tests {
             .unwrap()
             .unwrap()
             .unwrap_err();
-        assert!(error.contains("cancelado"), "{error}");
+        assert!(error.message.contains("cancelado"), "{error}");
         let session = scripts.session.lock().await.clone().unwrap();
         assert!(session.workers.lock().await.is_empty());
         state.lock().unwrap()["recipes"][0] =
@@ -1338,7 +1382,7 @@ mod tests {
             .unwrap()
             .unwrap()
             .unwrap_err();
-        assert!(error.contains("cancelado"), "{error}");
+        assert!(error.message.contains("cancelado"), "{error}");
         tokio::time::sleep(Duration::from_millis(150)).await;
         assert!(!wrote.load(Ordering::SeqCst));
     }
@@ -1346,7 +1390,11 @@ mod tests {
     #[tokio::test]
     async fn rejects_incomplete_frames() {
         let mut input = BufReader::new(b"{\"type\":\"result\"}".as_slice());
-        assert!(frame(&mut input).await.unwrap_err().contains("incompleto"));
+        assert!(frame(&mut input)
+            .await
+            .unwrap_err()
+            .message
+            .contains("incompleto"));
     }
 
     async fn protocol_error_reaches_running_job(invalid: &[u8], expected: &str) {

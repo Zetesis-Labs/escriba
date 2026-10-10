@@ -26,6 +26,24 @@ export interface RuntimeRunner {
 }
 export const message = (error: unknown) =>
   error instanceof Error ? error.message : String(error);
+export type ErrorCode = "backend_unavailable" | "recipe_unavailable" | "runtime_unavailable" | "microphone_denied" | "failed";
+export class RuntimeError extends Error {
+  constructor(message: string, public readonly code: ErrorCode) { super(message); }
+}
+export const errorCode = (error: unknown): ErrorCode =>
+  error instanceof RuntimeError ? error.code : "failed";
+export function protocolError(value: Record<string, unknown>): RuntimeError {
+  const message = String(value.message || "El trabajo falló");
+  switch (value.code) {
+    case "backend_unavailable":
+    case "recipe_unavailable":
+    case "runtime_unavailable":
+    case "microphone_denied":
+      return new RuntimeError(message, value.code);
+    default:
+      return new RuntimeError(message, "failed");
+  }
+}
 export function object(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value))
     throw Error("Se esperaba un objeto");

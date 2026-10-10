@@ -20,7 +20,7 @@ Errores rechazan la promesa con texto legible; nunca éxitos vacíos.
 - runtime_context {recordingId?} -> RuntimeContext (catálogos y ajustes de procesamiento; solo la grabación solicitada, sin registros, carpetas vigiladas ni rutas de audio). El controlador TypeScript usa esta consulta; `snapshot` queda para la interfaz.
 - import_audio {paths:string[], recipeId?} -> Recording[] (copia audio).
 - recording_update {id, title?, status?, error?, duration?, recipeId?} -> Recording.
-- recording_discard {id} -> void; recording_restore {id} -> Recording.
+- recording_discard {id} -> void.
 - recording_remove_audio {id} -> void (solo copia propia).
 - version_save {recordingId, transcript, digest?, data?, backend, recipeId?, inputs?} -> Version (siempre nueva).
 - version_select {recordingId, versionId} -> void.
@@ -29,12 +29,12 @@ Errores rechazan la promesa con texto legible; nunca éxitos vacíos.
 - config_remove {collection,id} -> void (locales/base no se borran).
 - settings_save {settings: Partial<Settings>} -> Settings.
 - credential_save {id, value} -> void (vacío elimina; nunca lectura a JS).
-- log {message,level?,recordingId?,recipeId?} -> void; log_clear -> void.
+- log {message,level?,recordingId?,recipeId?} -> void.
 - native {method,params} -> resultado sidecar; native_cancel -> void (interrumpe proceso y se reinicia a demanda).
 - transcribe {recordingId,resolverId,language?,diarize?,speakers?} -> Transcript (local Swift/remoto Rust).
 - summarize {resolverId,instructions,prompt} -> Digest (una petición; troceo TS).
 - ask {resolverId,instructions,prompt,schema?} -> JSON.
-- recording_start -> {audioPath}; recording_pause/resume -> void; recording_stop {recipeId?} -> Recording.
+- recording_start {recipeId?} -> estado del panel; recording_stop -> Recording | null.
 - export_file {path,contents} -> void (archivo elegido por usuario en diálogo).
 - reveal {path} -> void; open_url {url} -> void (http/https).
 - open_privacy_settings -> void (abre Ajustes del Sistema, destino fijo; no disponible para recetas).
@@ -58,9 +58,7 @@ Errores rechazan la promesa con texto legible; nunca éxitos vacíos.
 - runtime_jobs -> JobState[] (pendientes, activos y en espera de reintento).
 - runtime_history -> trabajos duraderos, resultado y error.
 - runtime_cancel {recordingId} -> void; revoca capacidades y termina la receta.
-- recording_status -> {active,paused,audioPath,duration} del proceso de captura.
-- recording_delete {id} -> void; borra biblioteca/copia propia, conserva fuente y servicios externos.
-- notification_permission -> envía una notificación de comprobación desde una acción explícita.
+- recording_status -> {active,clock,recipeName,levels,problem} del panel de captura.
 - project_install {recipes,destinations} -> void; actualización transaccional de catálogo.
 - memory_recall / memory_keep {recordingId,versionId,fingerprint,value?} -> JSON / void.
 - trace_save {recordingId,...} -> void; trace_list {recordingId?} -> trazas.
@@ -71,6 +69,13 @@ controlador de `runtime-host` incluso sin ventana. Véase el protocolo del
 y `escriba://jobs`; el sondeo de respaldo es de 15 s, o 2 s durante captura.
 Las consultas de estado y de formularios no emiten `escriba://changed`, para que
 un refresco no se realimente. Los trabajos y vigilantes empiezan después de abrir la biblioteca local.
+
+Los trabajos conservan `error` como texto y `errorCode` como clasificación. El
+código viaja entre Rust, controlador y receta; decide el reintento sin buscar
+marcadores dentro del mensaje. La entrega de notificaciones usa el permiso
+solicitado al arrancar. Los ajustes de usuario ya no aceptan `theme`, `language`
+ni `autoProcess`; el idioma guardado anteriormente sigue siendo legible para
+las recetas que lo usaban como valor de partida.
 
 `watchIssues` contiene los errores del último escaneo de las carpetas habilitadas
 (`folderId`, `path`, `message`, `permissionDenied`). La UI mantiene un aviso

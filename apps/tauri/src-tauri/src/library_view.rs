@@ -3,6 +3,7 @@ use sha2::{Digest, Sha256};
 
 pub const PREVIEW_CHARACTERS: usize = 400;
 
+#[cfg(test)]
 fn preview(transcript: &Value) -> String {
     let text = transcript["text"].as_str().unwrap_or("");
     if !text.is_empty() {
@@ -21,6 +22,7 @@ fn preview(transcript: &Value) -> String {
     joined.chars().take(PREVIEW_CHARACTERS).collect()
 }
 
+#[cfg(test)]
 fn light_transcript(transcript: &Value) -> Value {
     let duration = transcript
         .get("duration")
@@ -46,6 +48,7 @@ fn without<'a>(
         .map(|(key, value)| (key.clone(), value.clone()))
 }
 
+#[cfg(test)]
 pub fn light_version(version: &Value) -> Value {
     let Some(object) = version.as_object() else {
         return version.clone();
@@ -58,6 +61,7 @@ pub fn light_version(version: &Value) -> Value {
     Value::Object(light)
 }
 
+#[cfg(test)]
 pub fn light_recording(recording: &Value) -> Value {
     let Some(object) = recording.as_object() else {
         return recording.clone();
@@ -100,11 +104,16 @@ fn without_program(items: &Value, field: &str, renamed: &str) -> Value {
     )
 }
 
+#[cfg(test)]
 pub fn light_library(data: &Value) -> Value {
     let Some(object) = data.as_object() else {
         return data.clone();
     };
-    let mut light: Map<String, Value> = without(object, "recordings").collect();
+    let mut light: Map<String, Value> = object
+        .iter()
+        .filter(|(key, _)| !["recordings", "recipes", "destinations"].contains(&key.as_str()))
+        .map(|(key, value)| (key.clone(), value.clone()))
+        .collect();
     light.insert(
         "recipes".into(),
         without_program(&data["recipes"], "bundle", "bundleFingerprint"),
@@ -125,6 +134,115 @@ pub fn light_library(data: &Value) -> Value {
         .unwrap_or_default();
     light.insert("recordings".into(), Value::Array(recordings));
     Value::Object(light)
+}
+
+pub fn typed_library(data: &crate::store::LibraryData) -> Value {
+    use crate::store::{Field, RecordingStatus};
+    fn field<T: serde::Serialize>(fields: &mut Map<String, Value>, name: &str, value: &Field<T>) {
+        if !value.is_missing() {
+            fields.insert(name.to_owned(), json!(value));
+        }
+    }
+    let recordings = data
+        .recordings
+        .iter()
+        .filter(|record| record.status != RecordingStatus::Discarded)
+        .map(|record| {
+            let mut fields = record.extra.clone();
+            fields.insert("id".into(), json!(record.id));
+            fields.insert("status".into(), json!(record.status));
+            field(&mut fields, "title", &record.title);
+            field(&mut fields, "createdAt", &record.created_at);
+            field(&mut fields, "source", &record.source);
+            field(&mut fields, "sourceKey", &record.source_key);
+            field(&mut fields, "legacyKey", &record.legacy_key);
+            field(&mut fields, "audioPath", &record.audio_path);
+            field(&mut fields, "audioHash", &record.audio_hash);
+            field(&mut fields, "duration", &record.duration);
+            field(&mut fields, "error", &record.error);
+            field(&mut fields, "recipeId", &record.recipe_id);
+            field(&mut fields, "currentVersionId", &record.current_version_id);
+            field(&mut fields, "publications", &record.publications);
+            let versions = record
+                .versions
+                .as_ref()
+                .into_iter()
+                .flatten()
+                .map(|version| {
+                    let mut fields = version.extra.clone();
+                    fields.insert("id".into(), json!(version.id));
+                    field(&mut fields, "createdAt", &version.created_at);
+                    field(&mut fields, "backend", &version.backend);
+                    field(&mut fields, "hasVoices", &version.has_voices);
+                    field(&mut fields, "recipeId", &version.recipe_id);
+                    field(&mut fields, "digest", &version.digest);
+                    field(&mut fields, "data", &version.data);
+                    field(&mut fields, "inputs", &version.inputs);
+                    let transcript = version.transcript.as_ref();
+                    let text = transcript
+                        .map(|transcript| {
+                            if !transcript.text.is_empty() {
+                                return transcript
+                                    .text
+                                    .chars()
+                                    .take(PREVIEW_CHARACTERS)
+                                    .collect::<String>();
+                            }
+                            let mut text = String::new();
+                            for segment in &transcript.segments {
+                                if text.chars().count() >= PREVIEW_CHARACTERS {
+                                    break;
+                                }
+                                if !text.is_empty() {
+                                    text.push('\n');
+                                }
+                                text.extend(segment.text.chars().take(PREVIEW_CHARACTERS));
+                            }
+                            text.chars().take(PREVIEW_CHARACTERS).collect()
+                        })
+                        .unwrap_or_default();
+                    let duration = transcript
+                        .and_then(|transcript| {
+                            transcript
+                                .duration
+                                .as_ref()
+                                .map(|duration| json!(duration))
+                                .or_else(|| {
+                                    transcript.segments.last().map(|segment| json!(segment.end))
+                                })
+                        })
+                        .unwrap_or(Value::Null);
+                    let language = transcript
+                        .and_then(|transcript| transcript.language.as_ref())
+                        .map(|language| json!(language))
+                        .unwrap_or(Value::Null);
+                    fields.insert(
+                        "transcript".into(),
+                        json!({"text":text,"segments":[],"duration":duration,"language":language}),
+                    );
+                    Value::Object(fields)
+                })
+                .collect();
+            fields.insert("versions".into(), Value::Array(versions));
+            Value::Object(fields)
+        })
+        .collect();
+    let mut fields = data.extra.clone();
+    fields.insert("schemaVersion".into(), json!(data.schema_version));
+    fields.insert("recordings".into(), Value::Array(recordings));
+    fields.insert("settings".into(), json!(data.settings));
+    fields.insert("accounts".into(), data.accounts.clone());
+    fields.insert("resolvers".into(), data.resolvers.clone());
+    fields.insert("logs".into(), data.logs.clone());
+    fields.insert(
+        "recipes".into(),
+        without_program(&data.recipes, "bundle", "bundleFingerprint"),
+    );
+    fields.insert(
+        "destinations".into(),
+        without_program(&data.destinations, "program", "programFingerprint"),
+    );
+    Value::Object(fields)
 }
 
 #[cfg(test)]

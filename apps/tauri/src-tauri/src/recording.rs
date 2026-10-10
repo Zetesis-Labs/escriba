@@ -1,3 +1,4 @@
+use crate::error::{AppError, ErrorCode};
 use chrono::{DateTime, Datelike, Local, Timelike, Utc};
 use serde_json::{json, Value};
 use std::collections::VecDeque;
@@ -63,8 +64,8 @@ pub struct Problem {
 }
 
 impl Problem {
-    pub fn starting(error: &str) -> Self {
-        if error.starts_with("MICROPHONE_DENIED:") {
+    pub fn starting(error: &AppError) -> Self {
+        if error.code == ErrorCode::MicrophoneDenied {
             Self {
                 message: MICROPHONE_DENIED.into(),
                 denied: true,
@@ -149,14 +150,20 @@ mod tests {
 
     #[test]
     fn sin_permiso_de_microfono_se_explica_como_en_swift() {
-        let denied = Problem::starting("MICROPHONE_DENIED: sin permiso para usar el micrófono");
+        let denied = Problem::starting(&AppError::new(
+            ErrorCode::MicrophoneDenied,
+            "sin permiso para usar el micrófono",
+        ));
         assert!(denied.denied);
         assert_eq!(denied.message, MICROPHONE_DENIED);
-        let failed = Problem::starting("el micrófono no empezó a grabar");
+        let failed = Problem::starting(&AppError::from("el micrófono no empezó a grabar"));
         assert!(!failed.denied);
         assert_eq!(
             failed.message,
             "No se pudo empezar a grabar: el micrófono no empezó a grabar"
+        );
+        assert!(
+            !Problem::starting(&AppError::from("MICROPHONE_DENIED: texto de otro fallo")).denied
         );
     }
 

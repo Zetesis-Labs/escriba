@@ -1574,6 +1574,7 @@ mod tests {
                         "log" | "memory_recall" | "memory_keep" | "trace_save" => Ok(Value::Null),
                         _ => Err(format!("Capacidad inesperada: {method}")),
                     }
+                    .map_err(Into::into)
                 })
             })
         };

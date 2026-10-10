@@ -1,7 +1,100 @@
+use crate::error::{AppError, ErrorCode};
 use crate::store::{self, Store};
-use serde_json::{json, Value};
+use serde::{Deserialize, Serialize};
+use serde_json::{json, Map, Value};
 use std::sync::{Arc, Mutex};
 use tokio::sync::Notify;
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum JobState {
+    Queued,
+    Running,
+    Retry,
+    Failed,
+    Succeeded,
+    Cancelled,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+#[allow(clippy::enum_variant_names)]
+pub enum JobOperation {
+    ProcessRecording,
+    SummarizeRecording,
+    PublishRecording,
+    UnpublishRecording,
+}
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Job {
+    pub id: String,
+    pub recording_id: String,
+    pub operation: JobOperation,
+    pub args: Value,
+    #[serde(default)]
+    pub automatic: bool,
+    #[serde(default)]
+    pub audio_hash: Option<String>,
+    pub state: JobState,
+    #[serde(default)]
+    pub stage: String,
+    #[serde(default)]
+    pub attempt: u64,
+    #[serde(default)]
+    pub created_at: i64,
+    #[serde(default)]
+    pub started_at: i64,
+    #[serde(default)]
+    pub next_attempt_at: i64,
+    #[serde(default)]
+    pub error: Option<String>,
+    #[serde(default)]
+    pub error_code: Option<ErrorCode>,
+    #[serde(default)]
+    pub result: Option<Value>,
+    #[serde(flatten)]
+    pub extra: Map<String, Value>,
+}
+impl Job {
+    fn active(&self) -> bool {
+        matches!(
+            self.state,
+            JobState::Queued | JobState::Running | JobState::Retry
+        )
+    }
+    fn dry_run(&self) -> bool {
+        self.args["options"]["dryRun"] == true
+    }
+}
+fn load(store: &Store) -> Result<Vec<Job>, String> {
+    store
+        .jobs()?
+        .into_iter()
+        .map(|value| {
+            let mut job: Job = serde_json::from_value(value)
+                .map_err(|e| format!("Trabajo guardado inválido: {e}"))?;
+            if job.state == JobState::Retry && job.error_code.is_none() {
+                job.error_code = match job.error.as_deref() {
+                    Some(error) if error.starts_with("BACKEND_UNAVAILABLE:") => {
+                        Some(ErrorCode::BackendUnavailable)
+                    }
+                    Some(error) if error.starts_with("RECIPE_UNAVAILABLE:") => {
+                        Some(ErrorCode::RecipeUnavailable)
+                    }
+                    _ => None,
+                };
+            }
+            Ok(job)
+        })
+        .collect()
+}
+fn save(store: &mut Store, job: &Job) -> Result<(), String> {
+    store.job_save(&serde_json::to_value(job).map_err(|e| e.to_string())?)
+}
+fn value(job: Job) -> Result<Value, String> {
+    serde_json::to_value(job).map_err(|e| e.to_string())
+}
 
 pub struct Queue {
     store: Arc<Mutex<Store>>,
@@ -14,25 +107,16 @@ pub fn durable(operation: &str) -> bool {
         "processRecording" | "summarizeRecording" | "publishRecording" | "unpublishRecording"
     )
 }
-fn active(job: &Value) -> bool {
-    matches!(job["state"].as_str(), Some("queued" | "running" | "retry"))
-}
-fn retryable(message: &str) -> bool {
-    message.contains("BACKEND_UNAVAILABLE:")
-        || message.contains("RECIPE_UNAVAILABLE:")
-        || message.contains("El motor TypeScript se detuvo")
-        || message.contains("El proceso TypeScript perdió")
-}
 impl Queue {
     pub fn new(store: Arc<Mutex<Store>>) -> Result<Self, String> {
         {
             let mut guard = store.lock().map_err(|_| "Biblioteca ocupada")?;
-            for mut job in guard.jobs()? {
-                if job["state"] == "running" {
-                    job["state"] = json!("queued");
-                    job["stage"] = json!("Recuperando trabajo interrumpido");
-                    job["nextAttemptAt"] = json!(0);
-                    guard.job_save(&job)?;
+            for mut job in load(&guard)? {
+                if job.state == JobState::Running {
+                    job.state = JobState::Queued;
+                    job.stage = "Recuperando trabajo interrumpido".into();
+                    job.next_attempt_at = 0;
+                    save(&mut guard, &job)?;
                 }
             }
         }
@@ -58,162 +142,175 @@ impl Queue {
         args: Value,
         automatic: bool,
     ) -> Result<String, String> {
-        if !durable(operation) {
-            return Err("Operación no encolable".into());
-        }
-        let recording = store::text(&args, "recordingId")?;
+        let operation: JobOperation =
+            serde_json::from_value(json!(operation)).map_err(|_| "Operación no encolable")?;
+        let recording_id = store::text(&args, "recordingId")?.to_owned();
         let mut guard = self.store.lock().map_err(|_| "Biblioteca ocupada")?;
-        let record = guard.recording(recording)?;
-        if record["status"] == "discarded" {
+        let record = guard
+            .data
+            .recordings
+            .iter()
+            .find(|r| r.id == recording_id)
+            .ok_or("Grabación no encontrada")?;
+        if record.status == store::RecordingStatus::Discarded {
             return Err("Restaura la grabación antes de procesarla".into());
         }
-        for job in guard.jobs()?.into_iter().filter(active) {
-            if job["recordingId"] == recording {
-                if job["operation"] == operation && job["args"] == args {
-                    return Ok(store::text(&job, "id")?.to_owned());
+        let audio_hash = record.audio_hash.as_ref().cloned();
+        for job in load(&guard)?.into_iter().filter(Job::active) {
+            if job.recording_id == recording_id {
+                if job.operation == operation && job.args == args {
+                    return Ok(job.id);
                 }
                 return Err("La grabación ya tiene un trabajo pendiente".into());
             }
         }
         let id = store::id();
         let time = chrono::Utc::now().timestamp_millis();
-        guard.job_save(&json!({"id":id,"recordingId":recording,"operation":operation,"args":args,"automatic":automatic,"audioHash":record["audioHash"],"state":"queued","stage":"En cola","attempt":0,"createdAt":time,"startedAt":time,"nextAttemptAt":0}))?;
+        save(
+            &mut guard,
+            &Job {
+                id: id.clone(),
+                recording_id,
+                operation,
+                args,
+                automatic,
+                audio_hash,
+                state: JobState::Queued,
+                stage: "En cola".into(),
+                attempt: 0,
+                created_at: time,
+                started_at: time,
+                next_attempt_at: 0,
+                error: None,
+                error_code: None,
+                result: None,
+                extra: Map::new(),
+            },
+        )?;
         self.wake.notify_one();
         self.changed.notify_waiters();
         Ok(id)
     }
     pub fn jobs(&self) -> Result<Vec<Value>, String> {
-        self.store.lock().map_err(|_| "Biblioteca ocupada")?.jobs()
+        let guard = self.store.lock().map_err(|_| "Biblioteca ocupada")?;
+        load(&guard)?.into_iter().map(value).collect()
     }
     pub fn visible(&self) -> Result<Value, String> {
-        Ok(json!(self
-            .jobs()?
+        let guard = self.store.lock().map_err(|_| "Biblioteca ocupada")?;
+        Ok(json!(load(&guard)?
             .into_iter()
-            .filter(active)
+            .filter(Job::active)
             .collect::<Vec<_>>()))
     }
     pub fn automatic(&self) -> Result<(), String> {
         let candidates = {
             let guard = self.store.lock().map_err(|_| "Biblioteca ocupada")?;
-            if guard.data["settings"]["autoProcess"] != true {
-                return Ok(());
-            }
-            let jobs = guard.jobs()?;
-            guard.data["recordings"]
-                .as_array()
-                .ok_or("Biblioteca inválida")?
+            let jobs = load(&guard)?;
+            guard
+                .data
+                .recordings
                 .iter()
-                .filter(|r| {
-                    r["status"] == "pending"
-                        && r["audioPath"].is_string()
-                        && !jobs.iter().any(|j| {
-                            j["recordingId"] == r["id"]
-                                && j["operation"] == "processRecording"
-                                && j["args"]["options"]["dryRun"] != true
-                                && (active(j) || j["audioHash"] == r["audioHash"])
+                .filter(|record| {
+                    record.status == store::RecordingStatus::Pending
+                        && record.audio_path.as_ref().is_some()
+                        && !jobs.iter().any(|job| {
+                            job.recording_id == record.id
+                                && job.operation == JobOperation::ProcessRecording
+                                && !job.dry_run()
+                                && (job.active()
+                                    || job.audio_hash.as_ref() == record.audio_hash.as_ref())
                         })
                 })
-                .map(|r| r["id"].clone())
+                .map(|record| record.id.clone())
                 .collect::<Vec<_>>()
         };
         for id in candidates {
-            self.enqueue_automatic(id.as_str().ok_or("Grabación sin identificador")?)?;
+            self.enqueue_automatic(&id)?;
         }
         Ok(())
     }
     pub fn claim(&self) -> Result<Option<Value>, String> {
         let mut guard = self.store.lock().map_err(|_| "Biblioteca ocupada")?;
         let now = chrono::Utc::now().timestamp_millis();
-        let mut jobs = guard.jobs()?;
-        jobs.sort_by_key(|j| j["createdAt"].as_i64().unwrap_or(0));
-        if jobs.iter().any(|j| j["state"] == "running") {
+        let mut jobs = load(&guard)?;
+        jobs.sort_by_key(|job| job.created_at);
+        if jobs.iter().any(|job| job.state == JobState::Running) {
             return Ok(None);
         }
-        let Some(mut job) = jobs.into_iter().find(|j| {
-            matches!(j["state"].as_str(), Some("queued" | "retry"))
-                && j["nextAttemptAt"].as_i64().unwrap_or(0) <= now
+        let Some(mut job) = jobs.into_iter().find(|job| {
+            matches!(job.state, JobState::Queued | JobState::Retry) && job.next_attempt_at <= now
         }) else {
             return Ok(None);
         };
-        job["attempt"] = json!(job["attempt"].as_u64().unwrap_or(0) + 1);
-        if job["attempt"].as_u64().unwrap_or(1) > 1 && job["operation"] == "processRecording" {
-            job["args"]["options"]["force"] = json!(false);
+        job.attempt += 1;
+        if job.attempt > 1 && job.operation == JobOperation::ProcessRecording {
+            job.args["options"]["force"] = json!(false);
         }
-        job["state"] = json!("running");
-        job["stage"] = json!("Procesando");
-        guard.job_save(&job)?;
+        job.state = JobState::Running;
+        job.stage = "Procesando".into();
+        save(&mut guard, &job)?;
         self.changed.notify_waiters();
-        Ok(Some(job))
+        value(job).map(Some)
     }
-    pub fn finish(&self, id: &str, result: Result<Value, String>) -> Result<bool, String> {
+    pub fn finish(&self, id: &str, result: Result<Value, AppError>) -> Result<bool, String> {
         let mut guard = self.store.lock().map_err(|_| "Biblioteca ocupada")?;
-        let Some(mut job) = guard.jobs()?.into_iter().find(|j| j["id"] == id) else {
+        let Some(mut job) = load(&guard)?.into_iter().find(|job| job.id == id) else {
             return Ok(false);
         };
-        if job["state"] == "cancelled" {
+        if job.state == JobState::Cancelled {
             return Ok(false);
         }
         match result {
-            Ok(value) => {
-                job["state"] = json!("succeeded");
-                job["result"] = value;
-                job["stage"] = json!("Completado");
-                job["error"] = Value::Null;
+            Ok(result) => {
+                job.state = JobState::Succeeded;
+                job.result = Some(result);
+                job.stage = "Completado".into();
+                job.error = None;
+                job.error_code = None;
             }
             Err(error) => {
-                let retry = retryable(&error);
-                job["state"] = json!(if retry { "retry" } else { "failed" });
-                job["stage"] = json!(if retry {
+                let retry = error.retryable();
+                job.state = if retry {
+                    JobState::Retry
+                } else {
+                    JobState::Failed
+                };
+                job.stage = if retry {
                     "Esperando al servicio"
                 } else {
                     "Error"
-                });
-                job["error"] = json!(error);
+                }
+                .into();
+                job.error = Some(error.message.clone());
+                job.error_code = Some(error.code);
                 if retry {
-                    let seconds = (10_u64
-                        * 2_u64.pow(job["attempt"].as_u64().unwrap_or(1).min(5) as u32))
-                    .min(300);
-                    job["nextAttemptAt"] =
-                        json!(chrono::Utc::now().timestamp_millis() + seconds as i64 * 1000);
-                    if job["operation"] == "processRecording"
-                        && job["args"]["options"]["dryRun"] != true
-                    {
-                        guard.mutate(
-                            "recording_update",
-                            &json!({"id":job["recordingId"],"status":"pending","error":error}),
-                        )?;
-                    }
-                } else if job["operation"] == "processRecording"
-                    && job["args"]["options"]["dryRun"] != true
-                {
-                    guard.mutate(
-                        "recording_update",
-                        &json!({"id":job["recordingId"],"status":"failed","error":error}),
-                    )?;
+                    let seconds = (10_u64 * 2_u64.pow(job.attempt.min(5) as u32)).min(300);
+                    job.next_attempt_at =
+                        chrono::Utc::now().timestamp_millis() + seconds as i64 * 1000;
+                }
+                if job.operation == JobOperation::ProcessRecording && !job.dry_run() {
+                    guard.mutate("recording_update", &json!({"id":job.recording_id,"status":if retry { "pending" } else { "failed" },"error":error.message}))?;
                 }
             }
         }
-        guard.job_save(&job)?;
+        save(&mut guard, &job)?;
         self.changed.notify_waiters();
         self.wake.notify_one();
         Ok(true)
     }
     pub fn stages(&self, stages: &Value) -> Result<(), String> {
-        let Some(stages) = stages.as_array() else {
-            return Err("Estado de trabajos inválido".into());
-        };
+        let stages = stages.as_array().ok_or("Estado de trabajos inválido")?;
         let mut guard = self.store.lock().map_err(|_| "Biblioteca ocupada")?;
-        for mut job in guard
-            .jobs()?
+        for mut job in load(&guard)?
             .into_iter()
-            .filter(|j| j["state"] == "running")
+            .filter(|job| job.state == JobState::Running)
         {
             if let Some(stage) = stages
                 .iter()
-                .find(|s| s["recordingId"] == job["recordingId"])
+                .find(|stage| stage["recordingId"] == job.recording_id)
             {
-                job["stage"] = stage["stage"].clone();
-                guard.job_save(&job)?;
+                job.stage = store::text(stage, "stage")?.to_owned();
+                save(&mut guard, &job)?;
             }
         }
         self.changed.notify_waiters();
@@ -222,17 +319,17 @@ impl Queue {
     pub fn cancel(&self, recording: &str) -> Result<Vec<String>, String> {
         let mut guard = self.store.lock().map_err(|_| "Biblioteca ocupada")?;
         let mut ids = Vec::new();
-        for mut job in guard
-            .jobs()?
+        for mut job in load(&guard)?
             .into_iter()
-            .filter(|j| j["recordingId"] == recording && active(j))
+            .filter(|job| job.recording_id == recording && job.active())
         {
-            ids.push(store::text(&job, "id")?.to_owned());
-            job["state"] = json!("cancelled");
-            job["error"] = json!("Proceso cancelado");
-            job["stage"] = json!("Cancelado");
-            guard.job_save(&job)?;
-            if job["operation"] == "processRecording" && job["args"]["options"]["dryRun"] != true {
+            ids.push(job.id.clone());
+            job.state = JobState::Cancelled;
+            job.error = Some("Proceso cancelado".into());
+            job.error_code = Some(ErrorCode::Failed);
+            job.stage = "Cancelado".into();
+            save(&mut guard, &job)?;
+            if job.operation == JobOperation::ProcessRecording && !job.dry_run() {
                 guard.mutate(
                     "recording_update",
                     &json!({"id":recording,"status":"failed","error":"Proceso cancelado"}),
@@ -245,18 +342,17 @@ impl Queue {
     pub async fn wait(&self, id: &str) -> Result<Value, String> {
         loop {
             let changed = self.changed.notified();
-            let job = self
-                .jobs()?
-                .into_iter()
-                .find(|j| j["id"] == id)
-                .ok_or("Trabajo desconocido")?;
-            match job["state"].as_str() {
-                Some("succeeded") => return Ok(job["result"].clone()),
-                Some("failed" | "cancelled") => {
-                    return Err(job["error"]
-                        .as_str()
-                        .unwrap_or("El trabajo falló")
-                        .to_owned())
+            let job = {
+                let guard = self.store.lock().map_err(|_| "Biblioteca ocupada")?;
+                load(&guard)?
+                    .into_iter()
+                    .find(|job| job.id == id)
+                    .ok_or("Trabajo desconocido")?
+            };
+            match job.state {
+                JobState::Succeeded => return Ok(job.result.unwrap_or(Value::Null)),
+                JobState::Failed | JobState::Cancelled => {
+                    return Err(job.error.unwrap_or_else(|| "El trabajo falló".into()))
                 }
                 _ => {
                     tokio::select! { _ = changed => {}, _ = tokio::time::sleep(std::time::Duration::from_secs(2)) => {} }
@@ -334,8 +430,45 @@ mod tests {
 
     #[test]
     fn unavailable_services_retry_but_bad_input_does_not() {
-        assert!(retryable("BACKEND_UNAVAILABLE: 429"));
-        assert!(!retryable("El resolutor respondió 413"));
+        assert!(AppError::new(ErrorCode::BackendUnavailable, "429").retryable());
+        assert!(!AppError::new(ErrorCode::Failed, "El resolutor respondió 413").retryable());
+        assert!(
+            !AppError::new(ErrorCode::Failed, "BACKEND_UNAVAILABLE: texto de usuario").retryable()
+        );
+    }
+
+    #[test]
+    fn trabajo_legacy_en_espera_conserva_codigo_al_reabrir() {
+        let temp = tempfile::tempdir().unwrap();
+        let audio = temp.path().join("synthetic.wav");
+        std::fs::write(&audio, b"synthetic").unwrap();
+        let root = temp.path().join("library");
+        let store = library(&root);
+        let recording = store.lock().unwrap().import(&audio, None).unwrap();
+        store.lock().unwrap().job_save(&json!({
+            "id":"old-job", "recordingId":recording["id"], "operation":"processRecording",
+            "args":{"recordingId":recording["id"]}, "state":"retry", "stage":"Esperando al servicio",
+            "attempt":1, "createdAt":1, "startedAt":1, "nextAttemptAt":i64::MAX,
+            "error":"BACKEND_UNAVAILABLE: modelo ausente", "externalReceipt":{"id":"receipt"}
+        })).unwrap();
+        drop(store);
+        let queue = Queue::new(library(&root)).unwrap();
+        let old = queue
+            .jobs()
+            .unwrap()
+            .into_iter()
+            .find(|job| job["id"] == "old-job")
+            .unwrap();
+        assert_eq!(old["state"], "retry");
+        assert_eq!(old["errorCode"], "backend_unavailable");
+        queue.cancel(recording["id"].as_str().unwrap()).unwrap();
+        let saved = queue
+            .jobs()
+            .unwrap()
+            .into_iter()
+            .find(|job| job["id"] == "old-job")
+            .unwrap();
+        assert_eq!(saved["externalReceipt"]["id"], "receipt");
     }
 
     #[test]
@@ -363,7 +496,10 @@ mod tests {
             .unwrap();
         assert_eq!(queue.claim().unwrap().unwrap()["id"], first);
         queue
-            .finish(&first, Err("BACKEND_UNAVAILABLE: 429".into()))
+            .finish(
+                &first,
+                Err(AppError::new(ErrorCode::BackendUnavailable, "429")),
+            )
             .unwrap();
         assert_eq!(
             queue.claim().unwrap().unwrap()["recordingId"],

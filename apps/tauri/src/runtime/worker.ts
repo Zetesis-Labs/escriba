@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { run as builtinConnector } from "@escriba/conectores";
 import { defaultRecipeForm, type Lists } from "./defaultRecipe";
-import { object, message } from "./contracts";
+import { object, message, errorCode, protocolError } from "./contracts";
 import type { WorkerTask } from "./contracts";
 declare const __escribaRequire: (specifier: string) => unknown;
 const send = globalThis.postMessage.bind(globalThis);
@@ -376,7 +376,7 @@ globalThis.onmessage = (event) => {
     if (!waiter) return;
     pending.delete(Number(data.id));
     if (data.type === "resolve") waiter.resolve(data.value);
-    else waiter.reject(Error(String(data.message)));
+    else waiter.reject(protocolError(data));
     return;
   }
   if (data.type === "start") {
@@ -387,7 +387,7 @@ globalThis.onmessage = (event) => {
       )
       .then(
         (value) => send({ type: "result", value }),
-        (error) => send({ type: "error", message: message(error) }),
+        (error) => send({ type: "error", message: message(error), code: errorCode(error) }),
       );
   }
 };

@@ -191,9 +191,7 @@ export const demoSnapshot: Snapshot = {
     watchedFolders: [],
     language: "es",
     whisperModel: "openai_whisper-large-v3_turbo",
-    autoProcess: true,
     launchAtLogin: false,
-    theme: "system",
   },
   logs: [
     {

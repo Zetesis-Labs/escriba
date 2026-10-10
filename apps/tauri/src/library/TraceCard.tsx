@@ -7,7 +7,10 @@ const seconds = new Intl.NumberFormat("es-ES", { minimumFractionDigits: 1, maxim
 
 export function traceOutcome(trace: RecipeTrace) {
   if (!trace.error) return "ok" as const;
-  return /BACKEND_UNAVAILABLE|RECIPE_UNAVAILABLE/.test(trace.error) ? ("waiting" as const) : ("failed" as const);
+  if (trace.errorCode === undefined) {
+    return /^(BACKEND_UNAVAILABLE|RECIPE_UNAVAILABLE):/.test(trace.error) ? ("waiting" as const) : ("failed" as const);
+  }
+  return ["backend_unavailable", "recipe_unavailable", "runtime_unavailable"].includes(trace.errorCode ?? "") ? ("waiting" as const) : ("failed" as const);
 }
 
 const outcomeLabel = { ok: "Bien", failed: "Falló", waiting: "Esperando" };

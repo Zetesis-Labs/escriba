@@ -24,6 +24,27 @@ Las capturas que quedaron pendientes de incorporar se recuperan con la fecha
 de modificación de su archivo como `createdAt`, conservada al reabrir la
 biblioteca. La recuperación no les asigna la fecha del reinicio.
 
+## Modelo en memoria y trabajos
+
+La caché usa `LibraryData`, `Recording`, `Version` y `Settings` de serde, con
+segmentos, palabras y reconocimientos tipados. Conserva los campos opcionales
+ausentes, los valores nulos y las extensiones ya guardadas; un campo conocido de
+tipo incorrecto falla antes de confirmar el cambio. El JSON queda en los
+contratos de IPC, en los datos abiertos de recetas y en las filas de SurrealDB.
+Los módulos de `src-tauri/src/store/` separan grabaciones, versiones, ajustes,
+catálogos, personas, importación y vistas. La lista se construye directamente
+desde los tipos y omite las transcripciones completas y los programas antes de
+copiarlos.
+
+Las carpetas vigiladas también están tipadas. Su bookmark de macOS se conserva
+como valor opaco y se valida al restaurar el acceso: una autorización antigua
+dañada no impide abrir el resto de la biblioteca.
+
+La cola usa `Job` con estado y operación enumerados. Guarda `errorCode` junto al
+texto; la decisión de reintento usa ese código, conservado al atravesar el
+controlador y el worker de Bun. Los trabajos anteriores siguen siendo legibles
+sin ese campo y conservan su estado de espera o recuperación.
+
 ## Personas y huellas privadas
 
 `person` conserva los nombres; `person_voice`, las huellas aprendidas con su modelo, origen y fecha; `voice`, las huellas de cada versión de transcripción. Estas tablas se consultan en Rust y no forman parte del documento que recibe la WebView o el runtime. La interfaz obtiene nombres y metadatos de las huellas, `hasVoices` en las versiones y reconocimientos `{speaker, person, distance}`. Las respuestas a JavaScript rechazan cualquier campo de embedding.

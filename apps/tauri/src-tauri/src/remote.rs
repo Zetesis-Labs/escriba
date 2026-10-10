@@ -1,4 +1,7 @@
-use crate::store::text;
+use crate::{
+    error::{AppError, ErrorCode},
+    store::text,
+};
 use reqwest::{multipart, Client, Url};
 use serde_json::{json, Value};
 use std::{path::Path, time::Duration};
@@ -122,14 +125,21 @@ fn client() -> Result<Client, String> {
         .map_err(|e| e.to_string())
 }
 async fn response(r: reqwest::Response, secret: Option<&str>) -> Result<Value, String> {
+    response_typed(r, secret)
+        .await
+        .map_err(|error| error.message)
+}
+
+async fn response_typed(r: reqwest::Response, secret: Option<&str>) -> Result<Value, AppError> {
     let status = r.status();
     let mut r = r;
     let mut bytes = Vec::new();
-    while let Some(chunk) = r
-        .chunk()
-        .await
-        .map_err(|_| "BACKEND_UNAVAILABLE: Se cortó la respuesta del resolutor")?
-    {
+    while let Some(chunk) = r.chunk().await.map_err(|_| {
+        AppError::new(
+            ErrorCode::BackendUnavailable,
+            "Se cortó la respuesta del resolutor",
+        )
+    })? {
         if bytes.len() + chunk.len() > 32 * 1024 * 1024 {
             return Err("Respuesta del resolutor demasiado grande".into());
         }
@@ -142,14 +152,16 @@ async fn response(r: reqwest::Response, secret: Option<&str>) -> Result<Value, S
     if !status.is_success() {
         let unavailable =
             status.is_server_error() || [401, 403, 408, 429].contains(&status.as_u16());
-        return Err(format!(
-            "{}El resolutor respondió {status}: {}",
+        return Err(AppError::new(
             if unavailable {
-                "BACKEND_UNAVAILABLE: "
+                ErrorCode::BackendUnavailable
             } else {
-                ""
+                ErrorCode::Failed
             },
-            body.chars().take(1000).collect::<String>()
+            format!(
+                "El resolutor respondió {status}: {}",
+                body.chars().take(1000).collect::<String>()
+            ),
         ));
     }
     serde_json::from_str(&body).map_err(|_| "Respuesta JSON inválida del resolutor".into())
@@ -159,7 +171,7 @@ pub async fn transcribe(
     secret: Option<String>,
     path: &Path,
     p: &Value,
-) -> Result<Value, String> {
+) -> Result<Value, AppError> {
     if p["diarize"] == true {
         return Err("La detección de hablantes requiere Whisper local".into());
     }
@@ -190,10 +202,13 @@ pub async fn transcribe(
     if let Some(token) = secret.as_ref() {
         req = req.bearer_auth(token);
     }
-    let value = response(
-        req.send()
-            .await
-            .map_err(|_| "BACKEND_UNAVAILABLE: No se pudo conectar con el resolutor STT")?,
+    let value = response_typed(
+        req.send().await.map_err(|_| {
+            AppError::new(
+                ErrorCode::BackendUnavailable,
+                "No se pudo conectar con el resolutor STT",
+            )
+        })?,
         secret.as_deref(),
     )
     .await?;
@@ -207,7 +222,7 @@ pub async fn transcribe(
         json!({"text":text,"segments":value["segments"].as_array().cloned().unwrap_or_default(),"language":value["language"].as_str().unwrap_or(""),"duration":value["duration"].as_f64().unwrap_or(0.0)}),
     )
 }
-pub async fn ask(resolver: &Value, secret: Option<String>, p: &Value) -> Result<Value, String> {
+pub async fn ask(resolver: &Value, secret: Option<String>, p: &Value) -> Result<Value, AppError> {
     let mut body = json!({"model":text(resolver,"model")?,"messages":[{"role":"system","content":text(p,"instructions")?},{"role":"user","content":text(p,"prompt")?}],"temperature":0.2});
     if let Some(schema) = p.get("schema").filter(|v| !v.is_null()) {
         body["response_format"] = json!({"type":"json_schema","json_schema":{"name":"escriba","strict":true,"schema":schema}});
@@ -218,10 +233,13 @@ pub async fn ask(resolver: &Value, secret: Option<String>, p: &Value) -> Result<
     if let Some(token) = secret.as_ref() {
         req = req.bearer_auth(token);
     }
-    let value = response(
-        req.send()
-            .await
-            .map_err(|_| "BACKEND_UNAVAILABLE: No se pudo conectar con el resolutor LLM")?,
+    let value = response_typed(
+        req.send().await.map_err(|_| {
+            AppError::new(
+                ErrorCode::BackendUnavailable,
+                "No se pudo conectar con el resolutor LLM",
+            )
+        })?,
         secret.as_deref(),
     )
     .await?;
@@ -268,16 +286,16 @@ mod tests {
     #[tokio::test]
     async fn respuesta_cortada_se_reintenta_y_errores_400_no() {
         let interrupted = fake_http("200 OK", "{\"partial\":", 100).await;
-        let error = response(interrupted, None).await.unwrap_err();
-        assert!(error.starts_with("BACKEND_UNAVAILABLE:"), "{error}");
+        let error = response_typed(interrupted, None).await.unwrap_err();
+        assert_eq!(error.code, ErrorCode::BackendUnavailable);
         for status in ["401 Unauthorized", "429 Too Many Requests"] {
             let unavailable = fake_http(status, "{}", 2).await;
-            let error = response(unavailable, None).await.unwrap_err();
-            assert!(error.starts_with("BACKEND_UNAVAILABLE:"), "{error}");
+            let error = response_typed(unavailable, None).await.unwrap_err();
+            assert_eq!(error.code, ErrorCode::BackendUnavailable);
         }
         let invalid = fake_http("400 Bad Request", "{}", 2).await;
-        let error = response(invalid, None).await.unwrap_err();
-        assert!(!error.starts_with("BACKEND_UNAVAILABLE:"), "{error}");
+        let error = response_typed(invalid, None).await.unwrap_err();
+        assert_eq!(error.code, ErrorCode::Failed);
     }
 }
 

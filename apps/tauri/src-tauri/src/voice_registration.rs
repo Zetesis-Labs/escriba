@@ -1,4 +1,5 @@
 use crate::{
+    error::{AppError, ErrorCode},
     native::Native,
     store::Store,
     voices::{self, SpeakerSpan, SpeakerVoice},
@@ -281,7 +282,7 @@ impl Registration {
         self.recorder
             .call("recordingStop", json!({}))
             .await
-            .map_err(analysis_problem)?;
+            .map_err(|error| analysis_problem(error.to_string()))?;
         self.analyze_audio(sample, inference, store).await
     }
 
@@ -294,7 +295,7 @@ impl Registration {
         let reply = inference
             .call("diarizedVoices", json!({"audioPath":sample.path}))
             .await
-            .map_err(analysis_problem)?;
+            .map_err(|error| analysis_problem(error.to_string()))?;
         let voice = sample_voice(reply)?;
         store
             .lock()
@@ -357,8 +358,8 @@ fn sample_voice(reply: Value) -> Result<SpeakerVoice, String> {
         .ok_or_else(|| "El motor no ha dado la huella de esa voz. Prueba otra vez.".into())
 }
 
-fn starting_problem(error: &str) -> String {
-    if error.starts_with("MICROPHONE_DENIED:") {
+fn starting_problem(error: &AppError) -> String {
+    if error.code == ErrorCode::MicrophoneDenied {
         "Escriba no tiene permiso para usar el micrófono.".into()
     } else {
         format!("No se pudo empezar a grabar: {error}")

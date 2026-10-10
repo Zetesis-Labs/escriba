@@ -115,7 +115,7 @@ grabación se ve en `?panel=recording&demo=1`.
   hilo de tokio tumbó la app al salir (`9a275fe`).
 - Cada ventana nueva de Tauri tiene que estar en `capabilities/main.json`
   (`windows`), o sus `listen`/`invoke` fallan en silencio.
-- `settings_save` solo guarda las claves de `SETTABLE` en `store.rs`.
+- `settings_save` solo guarda las claves de `SETTABLE` en `store/settings.rs`.
 - La biblioteca viaja ligera (`library()` en Rust): sin segmentos, texto
   recortado y huellas de paquete en vez de los paquetes. El detalle completo se
   pide con `recording_detail`. `config_save` conserva `bundle` y `program`
@@ -572,8 +572,8 @@ carga de `dist/`, herramientas incluidas, TypeScript 7.0.2 y editor CodeMirror.
 La protección de memoria observa 512 MiB cada 50 ms y puede sobrepasarlos entre
 muestras; no es una cuota estricta del heap. Las recetas y conectores siguen
 usando capacidades de Escriba. Contrato y límites en
-`docs/proyecto-recetas-tauri.md`. La limpieza general de Rust queda para el
-siguiente bloque, después de probar esta instalación.
+`docs/proyecto-recetas-tauri.md`. El cierre de la limpieza general de Rust se
+registra debajo.
 
 Verificación del 2026-10-10: 192 pruebas TypeScript y 197 Rust correctas, una
 inferencia real omitida; tipos, Clippy y formato correctos. Release construida
@@ -610,6 +610,29 @@ al abrir el editor externo. Verificados el tamaño mínimo 960×640, tipos, 196
 pruebas TypeScript, Clippy y formato. Release instalada con firma y 1607 archivos
 verificados por SHA256; comprobados «Construir» y la apertura de `EscribaRecipes`
 en VS Code desde la app.
+
+Limpieza de Rust del 2026-10-10: grabaciones, versiones, transcripciones,
+segmentos, palabras, ajustes y trabajos usan modelos serde. La biblioteca
+conserva los campos ausentes, nulos y de extensión; una copia privada de la
+biblioteca real confirmó igualdad de los datos al pasar por el modelo tipado
+(242 grabaciones y 218 versiones). `store.rs` delega en módulos de ajustes,
+grabaciones, versiones, personas, configuración, importación, vistas y trabajos.
+Los códigos de error sobreviven al recorrido Rust → Bun → worker → Rust; los
+reintentos dependen del código, no del mensaje. Solo se interpreta el prefijo de
+errores heredados al leer trabajos antiguos. Clippy impide `unwrap` y `expect`
+en producción.
+
+Retirados `notification_permission`, `recording_restore`, `recording_delete` y
+`log_clear` del despacho de producción y el plugin de notificaciones sin uso.
+La entrega nativa de notificaciones sigue activa. `theme`, `language` y
+`autoProcess` no son ajustes modificables; `language` se conserva como dato
+interno para los consumidores existentes. Contratos actualizados en
+`apps/tauri/CONTRACT.md` y `docs/tauri-persistence.md`.
+
+Verificación: 196 pruebas TypeScript; 190 Rust comprobadas (189 en la tanda
+completa y una repetida tras corregir un fixture de carpeta incompleto), más
+la prueba de copia privada con 16 trabajos históricos. Clippy con advertencias
+como errores y formato correctos. La prueba de inferencia real sigue omitida.
 
 ## 9. Puertas 5 y 6: tamaño, empaquetado y documentación
 

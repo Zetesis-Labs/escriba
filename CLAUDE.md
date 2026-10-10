@@ -160,7 +160,7 @@ Whisper e Intelligence encapsulan las dependencias de inferencia.
 
 - Bandejas, menús y `NSStatusItem`, incluida su destrucción, en el hilo principal.
 - Declarar cada ventana en `capabilities/main.json` para habilitar IPC/eventos.
-- `settings_save` sólo acepta claves de `SETTABLE` en `store.rs`.
+- `settings_save` sólo acepta claves de `SETTABLE` en `store/settings.rs`.
 - La lista de biblioteca omite segmentos y paquetes completos; el detalle usa
   `recording_detail`. Guardar configuración conserva `bundle` y `program` si el
   cliente no los envía.

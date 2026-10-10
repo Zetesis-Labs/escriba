@@ -1,6 +1,9 @@
+#![cfg_attr(not(test), deny(clippy::unwrap_used, clippy::expect_used))]
+
 mod appearance;
 mod capabilities;
 mod catalog;
+mod error;
 mod folder_access;
 mod jobs;
 mod library_view;
@@ -152,7 +155,7 @@ fn models_root(status: &Value) -> Result<PathBuf, String> {
 }
 
 async fn whisper_model(state: &Arc<Runtime>, p: &Value) -> Result<Value, String> {
-    let model = state.store()?.data["settings"]["whisperModel"].clone();
+    let model = json!(state.store()?.data.settings.whisper_model.as_ref());
     let status = state
         .inference
         .call("status", json!({"model": model}))
@@ -193,8 +196,6 @@ fn refreshes_library(method: &str, params: &Value) -> bool {
         "import_audio"
         | "recording_update"
         | "recording_discard"
-        | "recording_delete"
-        | "recording_restore"
         | "recording_remove_audio"
         | "recording_stop"
         | "version_save"
@@ -215,12 +216,65 @@ fn refreshes_library(method: &str, params: &Value) -> bool {
         | "project_install"
         | "project_write"
         | "log"
-        | "log_clear"
         | "trace_save"
         | "runtime_cancel"
         | "watch_scan"
         | "watch_folder_authorize" => true,
         _ => false,
+    }
+}
+
+async fn dispatch_inference(
+    state: &Arc<Runtime>,
+    method: &str,
+    p: Value,
+) -> Result<Value, error::AppError> {
+    match method {
+        "transcribe" => {
+            let (audio, resolver, secret, model) = {
+                let store = state.store()?;
+                let key = p["resolverId"].as_str().unwrap_or("local-stt");
+                (
+                    store.audio(text(&p, "recordingId")?)?,
+                    store.item("resolvers", key)?,
+                    store.credential(key)?,
+                    json!(store.data.settings.whisper_model.as_ref()),
+                )
+            };
+            if resolver["enabled"] == false {
+                return Err("El resolutor está apagado".into());
+            }
+            let recording_id = text(&p, "recordingId")?.to_owned();
+            let transcript = if resolver["local"] == true {
+                state.inference.transcribe(&audio, model, p).await
+            } else {
+                remote::transcribe(&resolver, secret, &audio, &p).await
+            }?;
+            state
+                .store()?
+                .recognize_transcription(&recording_id, transcript)
+                .map_err(Into::into)
+        }
+        "summarize" | "ask" => {
+            let (resolver, secret) = {
+                let store = state.store()?;
+                let key = p["resolverId"].as_str().unwrap_or("local-llm");
+                (store.item("resolvers", key)?, store.credential(key)?)
+            };
+            if resolver["enabled"] == false {
+                return Err("El resolutor está apagado".into());
+            }
+            if resolver["local"] == true {
+                state.inference.call(method, p).await
+            } else {
+                let mut params = p;
+                if method == "summarize" {
+                    params["schema"] = remote::digest_schema();
+                }
+                remote::ask(&resolver, secret, &params).await
+            }
+        }
+        _ => Err("Capacidad de inferencia desconocida".into()),
     }
 }
 
@@ -248,7 +302,9 @@ fn dispatch<'a>(
                     emit_jobs(app, state);
                     state.jobs.wait(&id).await
                 } else {
-                    script_call(app, state, &store::id(), operation, args).await
+                    script_call(app, state, &store::id(), operation, args)
+                        .await
+                        .map_err(|error| error.message)
                 }
             }
             "runtime_jobs" => state.jobs.visible(),
@@ -294,7 +350,7 @@ fn dispatch<'a>(
                 emit_jobs(app, state);
                 Ok(Value::Null)
             }
-            "recording_discard" | "recording_delete" => {
+            "recording_discard" => {
                 let recording = text(&p, "id")?;
                 dispatch(
                     app,
@@ -316,18 +372,6 @@ fn dispatch<'a>(
                     return Err("Cancela el trabajo antes de quitar su audio".into());
                 }
                 state.store()?.mutate(method, &p)
-            }
-            "notification_permission" => {
-                notification_delivery::request_authorization()?;
-                Ok(json!("requested"))
-            }
-            "recording_restore" => {
-                let record = state.store()?.mutate(method, &p)?;
-                let automatic = state.store()?.data["settings"]["autoProcess"] == true;
-                if automatic && record["audioPath"].is_string() {
-                    state.jobs.enqueue_automatic(text(&record, "id")?)?;
-                }
-                Ok(record)
             }
             "recording_status" => Ok(recorder::view(state)),
             "recording_dismiss" => {
@@ -458,57 +502,22 @@ fn dispatch<'a>(
                                 );
                             }
                         })
-                        .await;
+                        .await
+                        .map_err(Into::into);
                 }
-                state.inference.call(method, params).await
+                state
+                    .inference
+                    .call(method, params)
+                    .await
+                    .map_err(Into::into)
             }
             "native_cancel" => {
                 state.inference.cancel();
                 Ok(Value::Null)
             }
-            "transcribe" => {
-                let (audio, resolver, secret, model) = {
-                    let store = state.store()?;
-                    let key = p["resolverId"].as_str().unwrap_or("local-stt");
-                    (
-                        store.audio(text(&p, "recordingId")?)?,
-                        store.item("resolvers", key)?,
-                        store.credential(key)?,
-                        store.data["settings"]["whisperModel"].clone(),
-                    )
-                };
-                if resolver["enabled"] == false {
-                    return Err("El resolutor está apagado".into());
-                }
-                let recording_id = text(&p, "recordingId")?.to_owned();
-                let transcript = if resolver["local"] == true {
-                    state.inference.transcribe(&audio, model, p).await
-                } else {
-                    remote::transcribe(&resolver, secret, &audio, &p).await
-                }?;
-                state
-                    .store()?
-                    .recognize_transcription(&recording_id, transcript)
-            }
-            "summarize" | "ask" => {
-                let (resolver, secret) = {
-                    let store = state.store()?;
-                    let key = p["resolverId"].as_str().unwrap_or("local-llm");
-                    (store.item("resolvers", key)?, store.credential(key)?)
-                };
-                if resolver["enabled"] == false {
-                    return Err("El resolutor está apagado".into());
-                }
-                if resolver["local"] == true {
-                    state.inference.call(method, p).await
-                } else {
-                    let mut params = p;
-                    if method == "summarize" {
-                        params["schema"] = remote::digest_schema();
-                    }
-                    remote::ask(&resolver, secret, &params).await
-                }
-            }
+            "transcribe" | "summarize" | "ask" => dispatch_inference(state, method, p)
+                .await
+                .map_err(|e| e.message),
             "recording_start" => {
                 recorder::start(app, state, p["recipeId"].as_str().map(str::to_owned)).await
             }
@@ -556,7 +565,7 @@ fn dispatch<'a>(
                 let path = PathBuf::from(text(&p, "path")?);
                 let accounts = {
                     let store = state.store()?;
-                    project_accounts(&store.data["accounts"], &store.data["destinations"])?
+                    project_accounts(&store.data.accounts, &store.data.destinations)?
                 };
                 let has_dist =
                     project::initialize(&path, &accounts, &state.vendor, &state.project_runtime)?;
@@ -703,12 +712,18 @@ fn dispatch<'a>(
                 let llm = text(&p, "role")? == "llm";
                 let request = json!({"instructions": p["instructions"], "prompt": p["prompt"]});
                 match (draft["local"] == true, llm) {
-                    (true, true) => state.inference.call("summarize", request).await,
+                    (true, true) => state
+                        .inference
+                        .call("summarize", request)
+                        .await
+                        .map_err(Into::into),
                     (true, false) => Err("Whisper en este Mac no tiene prueba".into()),
                     (false, true) => {
                         let mut request = request;
                         request["schema"] = remote::digest_schema();
-                        remote::ask(&draft, secret, &request).await
+                        remote::ask(&draft, secret, &request)
+                            .await
+                            .map_err(Into::into)
                     }
                     (false, false) => {
                         Ok(json!({"text": remote::probe_transcription(&draft, secret).await?}))
@@ -758,8 +773,13 @@ fn dispatch<'a>(
     })
 }
 fn project_path(state: &Runtime) -> Result<PathBuf, String> {
-    state.store()?.data["settings"]["projectPath"]
-        .as_str()
+    state
+        .store()?
+        .data
+        .settings
+        .project_path
+        .as_ref()
+        .map(String::as_str)
         .map(PathBuf::from)
         .ok_or_else(|| "Elige la carpeta del proyecto en Recetas".into())
 }
@@ -787,13 +807,17 @@ async fn authorize_watched_folder(
         let store = state.store()?;
         match folder_id {
             None if voice_memos => Some(voice_memos_root(app)?),
-            Some(id) => Some(PathBuf::from(text(
-                store.data["settings"]["watchedFolders"]
-                    .as_array()
-                    .and_then(|folders| folders.iter().find(|folder| folder["id"] == id))
-                    .ok_or("La carpeta ya no está configurada")?,
-                "path",
-            )?)),
+            Some(id) => Some(PathBuf::from(
+                store
+                    .data
+                    .settings
+                    .watched_folders
+                    .as_ref()
+                    .and_then(|folders| folders.iter().find(|folder| folder.id == id))
+                    .ok_or("La carpeta ya no está configurada")?
+                    .path
+                    .as_str(),
+            )),
             None => None,
         }
     };
@@ -905,16 +929,20 @@ fn audio_type(path: &Path) -> &'static str {
     }
 }
 fn folders(state: &Runtime) -> Result<Vec<watcher::Folder>, String> {
-    state.store()?.data["settings"]["watchedFolders"]
-        .as_array()
+    state
+        .store()?
+        .data
+        .settings
+        .watched_folders
+        .as_ref()
         .ok_or("Carpetas inválidas")?
         .iter()
         .map(|folder| {
             Ok(watcher::Folder {
-                id: text(folder, "id")?.to_owned(),
-                path: PathBuf::from(text(folder, "path")?),
-                enabled: folder["enabled"] != false,
-                style: watcher::Style::parse(folder["style"].as_str())?,
+                id: folder.id.clone(),
+                path: PathBuf::from(&folder.path),
+                enabled: folder.enabled.as_ref() != Some(&false),
+                style: watcher::Style::parse(folder.style.as_ref().map(String::as_str))?,
             })
         })
         .collect()
@@ -997,7 +1025,7 @@ async fn scan(app: &tauri::AppHandle, state: &Arc<Runtime>) -> Result<Value, Str
                             } else {
                                 Err("El audio sigue pendiente de descarga desde iCloud".into())
                             }
-                        });
+                        }).map_err(String::from);
                     match runtime.materializing.lock() {
                         Ok(mut inflight) => {
                             inflight.complete(&candidate.path, requested_at, result);
@@ -1137,7 +1165,7 @@ fn notify_problem(state: &Runtime, problem: Problem<'_>) {
 }
 async fn warn_about_unusable(app: &tauri::AppHandle, state: &Arc<Runtime>) {
     let model = match state.store() {
-        Ok(store) => store.data["settings"]["whisperModel"].clone(),
+        Ok(store) => json!(store.data.settings.whisper_model.as_ref()),
         Err(error) => {
             notify_problem(state, Problem::StartupFailed(&error));
             return;
@@ -1150,8 +1178,8 @@ async fn warn_about_unusable(app: &tauri::AppHandle, state: &Arc<Runtime>) {
     {
         Ok(status) => status,
         Err(error) => {
-            log_error(state, &error);
-            notify_problem(state, Problem::BackendUnavailable(&error));
+            log_error(state, &error.message);
+            notify_problem(state, Problem::BackendUnavailable(&error.message));
             return;
         }
     };
@@ -1183,23 +1211,23 @@ async fn warn_about_unusable(app: &tauri::AppHandle, state: &Arc<Runtime>) {
             }
         }
         Err(error) => {
-            log_error(state, &error);
-            notify_problem(state, Problem::RecipesUnavailable(&error));
+            log_error(state, &error.message);
+            notify_problem(state, Problem::RecipesUnavailable(&error.message));
         }
     }
 }
 fn job_notification(
     state: &Runtime,
     job: &Value,
-    result: &Result<Value, String>,
+    result: &Result<Value, error::AppError>,
 ) -> Result<Option<notifications::Notification>, String> {
     let store = state.store()?;
     let record = store.recording(text(job, "recordingId")?)?;
     Ok(notification_events::finished(
         job,
         &record,
-        result.as_ref().map_err(String::as_str),
-        &store.data["settings"],
+        result.as_ref(),
+        &store.settings_json(),
     ))
 }
 fn emit_jobs(app: &tauri::AppHandle, state: &Runtime) {
@@ -1217,7 +1245,7 @@ async fn script_call(
     id: &str,
     operation: &str,
     args: Value,
-) -> Result<Value, String> {
+) -> Result<Value, error::AppError> {
     let weak = Arc::downgrade(state);
     let handle = app.clone();
     let capability: scripts::Capability = Arc::new(move |method, params, _task, lease| {
@@ -1226,9 +1254,14 @@ async fn script_call(
         Box::pin(async move {
             let state = weak.upgrade().ok_or("La aplicación se cerró")?;
             lease.ensure_active()?;
-            let result = dispatch(&handle, &state, &method, params)
-                .await
-                .and_then(voices::public_reply);
+            let result = if matches!(method.as_str(), "transcribe" | "summarize" | "ask") {
+                dispatch_inference(&state, &method, params).await
+            } else {
+                dispatch(&handle, &state, &method, params)
+                    .await
+                    .map_err(error::AppError::from)
+            }
+            .and_then(|value| voices::public_reply(value).map_err(Into::into));
             if result.is_ok() && !["runtime_context", "connector_audio"].contains(&method.as_str())
             {
                 let _ = handle.emit("escriba://changed", ());
@@ -1301,11 +1334,10 @@ fn start_project_watcher(app: tauri::AppHandle, state: Arc<Runtime>) {
             tokio::sync::mpsc::unbounded_channel::<project_watch::Change>();
         let mut watching: Option<(String, notify::RecommendedWatcher)> = None;
         loop {
-            let path = state.store().ok().and_then(|store| {
-                store.data["settings"]["projectPath"]
-                    .as_str()
-                    .map(str::to_owned)
-            });
+            let path = state
+                .store()
+                .ok()
+                .and_then(|store| store.data.settings.project_path.as_ref().cloned());
             if watching.as_ref().map(|(current, _)| current) != path.as_ref() {
                 watching = match path {
                     Some(path) => match project_watch::watch(&path, sender.clone()) {
@@ -1358,7 +1390,7 @@ fn start_watcher(
     mut wake: tokio::sync::mpsc::Receiver<()>,
 ) {
     tauri::async_runtime::spawn(async move {
-        let mut previous = Value::Null;
+        let mut previous: Option<Vec<store::WatchedFolder>> = None;
         let mut watcher = None;
         loop {
             match scan(&app, &state).await {
@@ -1374,7 +1406,7 @@ fn start_watcher(
             }
             let current = state
                 .store()
-                .map(|s| s.data["settings"]["watchedFolders"].clone());
+                .map(|s| s.data.settings.watched_folders.as_ref().cloned());
             match current {
                 Ok(current) if current != previous => {
                     match folders(&state).and_then(|f| watcher::watch(&f, state.watch_wake.clone()))
@@ -1419,7 +1451,6 @@ pub fn run() {
             }
         }))
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_notification::init())
         .plugin(
             tauri_plugin_autostart::Builder::new()
                 .app_name("Escriba")
@@ -1479,9 +1510,14 @@ pub fn run() {
                 });
                 app.manage(state.clone());
                 if isolated_root.is_none() {
-                    let enabled = state.store().map_err(std::io::Error::other)?.data["settings"]
-                        ["launchAtLogin"]
-                        == true;
+                    let enabled = state
+                        .store()
+                        .map_err(std::io::Error::other)?
+                        .data
+                        .settings
+                        .launch_at_login
+                        .as_ref()
+                        == Some(&true);
                     if let Err(error) = login::synchronize(app.handle(), enabled) {
                         log_error(
                             &state,
@@ -1530,7 +1566,10 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![app_command])
         .build(tauri::generate_context!())
-        .expect("No se pudo iniciar Escriba")
+        .unwrap_or_else(|error| {
+            eprintln!("No se pudo iniciar Escriba: {error}");
+            std::process::exit(1);
+        })
         .run(|app, event| match event {
             tauri::RunEvent::ExitRequested { api, .. } => {
                 let state = app.state::<Arc<Runtime>>().inner().clone();
