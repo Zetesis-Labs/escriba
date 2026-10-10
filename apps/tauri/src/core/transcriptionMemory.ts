@@ -1,7 +1,14 @@
 import type { JSONObject, Version } from "../types";
 
+export function normalizeTranscriptionInputs(inputs: JSONObject): JSONObject {
+  return inputs.diarize === false && "speakers" in inputs && inputs.speakers !== null
+    ? { ...inputs, speakers: null }
+    : inputs;
+}
+
 export function transcriptionCriteriaKey(inputs?: JSONObject): string {
-  return JSON.stringify(inputs || {}, Object.keys(inputs || {}).sort());
+  const normalized = normalizeTranscriptionInputs(inputs || {});
+  return JSON.stringify(normalized, Object.keys(normalized).sort());
 }
 
 export function reusableTranscription(
