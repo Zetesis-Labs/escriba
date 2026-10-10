@@ -438,8 +438,9 @@ a la barra «Descargando…»; las capturas recuperadas guardan la fecha del fic
 Validación: 148 pruebas TypeScript, suite de 152 Rust más la prueba pura de
 fecha añadida después, 17 del host Swift, tipos, Clippy y formato correctos.
 Release instalada el 2026-10-10, firma verificada y 983 archivos idénticos al
-bundle construido. Pendiente de la comprobación de Rubén; no empezar §7 hasta
-que la confirme.
+bundle construido. Rubén confirmó la hoja de reprocesado y la corrección visual
+el 2026-10-10; continúa el apartado 7. La descarga de Whisper sigue pendiente
+de confirmación en pantalla.
 
 La hoja limita el desplazamiento a los parámetros y conserva el título, la
 explicación y los botones fuera de esa zona. Verificado en WebKit con un
