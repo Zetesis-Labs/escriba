@@ -33,6 +33,7 @@ import type { Lists } from "./defaultRecipe";
 import { reusableTranscription, transcriptionCriteriaKey } from "../core/transcriptionMemory";
 import { notificationProblems } from "../core/notificationProblems";
 import { recipeWithValues } from "../core/recipeValues";
+import { processingRecipeId } from "../core/recordingRecipe";
 function lookup<T extends { id: string; name: string }>(
   values: T[],
   id: string,
@@ -223,10 +224,11 @@ export function createRuntime(
         throw Error("La grabación no tiene copia de audio");
       if (recording.status === "discarded")
         throw Error("Restaura la grabación antes de procesarla");
-      const requestedRecipe =
-        processOptions.recipeId ||
-        recording.recipeId ||
-        snapshot.settings.defaultRecipeId;
+      const requestedRecipe = processingRecipeId(
+        processOptions,
+        recording,
+        snapshot.settings,
+      );
       if (
         !snapshot.recipes.some(
           (recipe) =>
@@ -236,13 +238,7 @@ export function createRuntime(
         throw Error(
           `RECIPE_UNAVAILABLE: La receta ${requestedRecipe} no está disponible`,
         );
-      const chosen = lookup(
-        snapshot.recipes,
-        processOptions.recipeId ||
-          recording.recipeId ||
-          snapshot.settings.defaultRecipeId,
-        "Receta",
-      );
+      const chosen = lookup(snapshot.recipes, requestedRecipe, "Receta");
       const fresh = processOptions.force ?? true;
       const renewed = new Set<string>();
       let current: Version | undefined;
@@ -649,7 +645,6 @@ export function createRuntime(
             id,
             status: "processing",
             error: null,
-            recipeId: chosen.id,
           });
         await execute(recipeWithValues(chosen, processOptions.values), []);
         aborted(signal);

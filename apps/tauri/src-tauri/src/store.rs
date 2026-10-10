@@ -1222,7 +1222,7 @@ impl Store {
                         None,
                     )
                 });
-            let record = json!({"id":key,"title":title,"createdAt":started_at,"sourceKey":source_key,"source":source_text,"audioPath":target,"audioHash":content_hash,"duration":0,"status":"pending","recipeId":recipe_id.unwrap_or(self.data["settings"]["defaultRecipeId"].as_str().unwrap_or("default")),"versions":[],"publications":[]});
+            let record = json!({"id":key,"title":title,"createdAt":started_at,"sourceKey":source_key,"source":source_text,"audioPath":target,"audioHash":content_hash,"duration":0,"status":"pending","recipeId":recipe_id,"versions":[],"publications":[]});
             records.insert(0, record.clone());
             record
         };
@@ -1276,14 +1276,13 @@ impl Store {
                     .as_str()
                     .map(str::to_owned)
                     .unwrap_or_else(now);
-                let recipe = next["settings"]["defaultRecipeId"].clone();
                 let records = next["recordings"]
                     .as_array_mut()
                     .ok_or("Biblioteca inválida")?;
                 if let Some(record) = records.iter().find(|r| r["id"] == key) {
                     record.clone()
                 } else {
-                    let record = json!({"id":key,"title":p["title"].as_str().unwrap_or_else(||Path::new(path).file_stem().and_then(|s|s.to_str()).unwrap_or("Grabación vacía")),"createdAt":created_at,"source":path,"sourceKey":source_key,"audioPath":null,"duration":0,"status":"failed","error":"La grabación permanece vacía tras una hora; vuelve a intentarlo cuando contenga audio.","recipeId":recipe,"versions":[],"publications":[]});
+                    let record = json!({"id":key,"title":p["title"].as_str().unwrap_or_else(||Path::new(path).file_stem().and_then(|s|s.to_str()).unwrap_or("Grabación vacía")),"createdAt":created_at,"source":path,"sourceKey":source_key,"audioPath":null,"duration":0,"status":"failed","error":"La grabación permanece vacía tras una hora; vuelve a intentarlo cuando contenga audio.","recipeId":null,"versions":[],"publications":[]});
                     records.insert(0, record.clone());
                     record
                 }
@@ -2762,6 +2761,48 @@ mod tests {
         assert_eq!(saved["versions"].as_array().unwrap().len(), 2);
         assert_eq!(saved["versions"][0]["digest"]["title"], "Primera");
     }
+    #[test]
+    fn incorporar_sin_elegir_receta_no_fija_la_predeterminada() {
+        let dir = tempfile::tempdir().unwrap();
+        let audio = dir.path().join("prueba.wav");
+        fs::write(&audio, b"audio sintetico").unwrap();
+        let root = dir.path().join("library");
+        let mut store = Store::open(root.clone()).unwrap();
+        let recording = store.import(&audio, None).unwrap();
+        assert_eq!(recording["recipeId"], Value::Null);
+        drop(store);
+        let reopened = Store::open(root).unwrap();
+        assert_eq!(
+            reopened
+                .recording(recording["id"].as_str().unwrap())
+                .unwrap()["recipeId"],
+            Value::Null
+        );
+    }
+
+    #[test]
+    fn una_grabacion_vacia_no_fija_receta_y_la_eleccion_explicita_se_conserva() {
+        let dir = tempfile::tempdir().unwrap();
+        let audio = dir.path().join("prueba.wav");
+        let root = dir.path().join("library");
+        let mut store = Store::open(root.clone()).unwrap();
+        let empty = store
+            .mutate("recording_abandoned", &json!({"path":audio}))
+            .unwrap();
+        assert_eq!(empty["recipeId"], Value::Null);
+        fs::write(&audio, b"audio sintetico elegido").unwrap();
+        let recording = store.import(&audio, Some("elegida")).unwrap();
+        assert_eq!(recording["recipeId"], "elegida");
+        drop(store);
+        let reopened = Store::open(root).unwrap();
+        assert_eq!(
+            reopened
+                .recording(recording["id"].as_str().unwrap())
+                .unwrap()["recipeId"],
+            "elegida"
+        );
+    }
+
     #[test]
     fn deduplicates_audio_and_retains_discard_ledger() {
         let dir = tempfile::tempdir().unwrap();
