@@ -42,6 +42,16 @@ fn recording_id(key: &str) -> Result<String, String> {
     }
 }
 
+fn discarded_recording(key: &str, source: &str) -> Result<Value, String> {
+    Ok(json!({
+        "id": recording_id(key)?,
+        "source": source,
+        "sourceKey": format!("swift:{key}"),
+        "legacyKey": key,
+        "status": "discarded"
+    }))
+}
+
 fn translated_swift_inputs(legacy: &Value, audio_hash: &str) -> Option<Value> {
     if legacy["backend"] != "WhisperKit" {
         return None;
@@ -199,9 +209,22 @@ impl StagedDatabase {
         Self::copy_from_with(source, target, || {})
     }
 
+    fn copy_named_from(source: &Path, target: &Path, database: &str) -> Result<Self, String> {
+        Self::copy_named_with(source, target, database, || {})
+    }
+
     fn copy_from_with(
         source: &Path,
         target: &Path,
+        after_first_copy: impl FnOnce(),
+    ) -> Result<Self, String> {
+        Self::copy_named_with(source, target, "library.sqlite", after_first_copy)
+    }
+
+    fn copy_named_with(
+        source: &Path,
+        target: &Path,
+        database: &str,
         after_first_copy: impl FnOnce(),
     ) -> Result<Self, String> {
         let source = source.canonicalize().map_err(|e| e.to_string())?;
@@ -211,11 +234,13 @@ impl StagedDatabase {
             .create(&directory)
             .map_err(|e| e.to_string())?;
         let stage = Self { directory };
-        let names = ["library.sqlite", "library.sqlite-wal"];
-        let expected = names.map(|name| file_identity(&source.join(name)));
+        let names = [database.to_owned(), format!("{database}-wal")];
+        let expected = names
+            .each_ref()
+            .map(|name| file_identity(&source.join(name)));
         let expected = expected.into_iter().collect::<Result<Vec<_>, _>>()?;
         if expected[0].is_none() {
-            return Err("La carpeta elegida no contiene library.sqlite".into());
+            return Err(format!("La carpeta elegida no contiene {database}"));
         }
         let mut after_first_copy = Some(after_first_copy);
         for (name, expected) in names.iter().zip(expected.iter()) {
@@ -230,7 +255,7 @@ impl StagedDatabase {
                 }
                 fs::copy(&origin, stage.directory.join(name))
                     .map_err(|e| format!("No se pudo copiar {name}: {e}"))?;
-                if *name == "library.sqlite" {
+                if name == database {
                     if let Some(hook) = after_first_copy.take() {
                         hook();
                     }
@@ -268,11 +293,22 @@ impl Drop for StagedDatabase {
     }
 }
 
+#[cfg(test)]
 pub fn plan(
     source: &Path,
     target: &Path,
     current: &Value,
     settings_plist: Option<&Path>,
+) -> Result<Plan, String> {
+    plan_with_ledger(source, target, current, settings_plist, None)
+}
+
+pub fn plan_with_ledger(
+    source: &Path,
+    target: &Path,
+    current: &Value,
+    settings_plist: Option<&Path>,
+    ledger_path: Option<&Path>,
 ) -> Result<Plan, String> {
     let source = source
         .canonicalize()
@@ -345,7 +381,8 @@ pub fn plan(
             .as_array()
             .and_then(|records| records.iter().find(|record| record["legacyKey"] == key))
         {
-            if existing["status"] != "discarded"
+            if status != "discarded"
+                && existing["status"] != "discarded"
                 && existing["audioPath"]
                     .as_str()
                     .is_some_and(|path| !path.is_empty())
@@ -365,7 +402,6 @@ pub fn plan(
             }
             continue;
         }
-        let source_audio = source_audio(&source, audio_root.as_ref(), &relative_audio)?;
         if next["recordings"]
             .as_array()
             .is_some_and(|records| records.iter().any(|r| r["id"] == mapped_id))
@@ -375,6 +411,15 @@ pub fn plan(
             }
             return Err(format!("Conflicto con la clave importada {key}"));
         }
+        if status == "discarded" {
+            next["recordings"]
+                .as_array_mut()
+                .ok_or("Biblioteca inválida")?
+                .push(discarded_recording(&key, &source_path)?);
+            imported += 1;
+            continue;
+        }
+        let source_audio = source_audio(&source, audio_root.as_ref(), &relative_audio)?;
         let mut version_stmt = db.prepare("SELECT id, backend, createdAt, text, language, diarize, speakerCount, optionsKnown, digestTitle, digestSummary, digestTags, data, dataSchema, recipe FROM transcript WHERE recordingId = ? ORDER BY id")
             .map_err(|e| e.to_string())?;
         let versions = version_stmt
@@ -482,6 +527,9 @@ pub fn plan(
             .push(record);
         imported += 1;
     }
+    if let Some(ledger_path) = ledger_path {
+        imported += import_ledger_discarded(ledger_path, target, &mut next)?;
+    }
     if let Some(settings) = &settings {
         merge_settings(&mut next, settings)?;
         upgrade_publications(&mut next, settings)?;
@@ -500,6 +548,70 @@ pub fn plan(
         traces,
         voices,
     })
+}
+
+fn import_ledger_discarded(
+    ledger_path: &Path,
+    target: &Path,
+    next: &mut Value,
+) -> Result<usize, String> {
+    match fs::symlink_metadata(ledger_path) {
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(0),
+        Err(error) => return Err(format!("Ledger SwiftUI inaccesible: {error}")),
+    }
+    if ledger_path.file_name().and_then(|name| name.to_str()) != Some("ledger.db") {
+        return Err("Ruta del ledger SwiftUI inválida".into());
+    }
+    let parent = ledger_path
+        .parent()
+        .ok_or("Ruta del ledger SwiftUI inválida")?;
+    let staged = StagedDatabase::copy_named_from(parent, target, "ledger.db")
+        .map_err(|error| format!("No se puede copiar el ledger SwiftUI: {error}"))?;
+    let db = Connection::open_with_flags(
+        staged.directory.join("ledger.db"),
+        OpenFlags::SQLITE_OPEN_READ_ONLY,
+    )
+    .map_err(|error| format!("No se puede leer el ledger SwiftUI: {error}"))?;
+    let check: String = db
+        .query_row("PRAGMA quick_check", [], |row| row.get(0))
+        .map_err(|error| format!("No se puede verificar el ledger SwiftUI: {error}"))?;
+    if check != "ok" {
+        return Err("El ledger SwiftUI no supera la comprobación de integridad".into());
+    }
+    let mut stmt = db
+        .prepare(
+            "SELECT key, source_path FROM transcriptions WHERE status = 'discarded' ORDER BY key",
+        )
+        .map_err(|error| format!("Esquema del ledger SwiftUI incompatible: {error}"))?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })
+        .map_err(|error| format!("No se puede consultar el ledger SwiftUI: {error}"))?;
+    let mut imported = 0;
+    for row in rows {
+        let (key, source) =
+            row.map_err(|error| format!("Fila del ledger SwiftUI inválida: {error}"))?;
+        let id = recording_id(&key)?;
+        let source_key = format!("swift:{key}");
+        let records = next["recordings"].as_array().ok_or("Biblioteca inválida")?;
+        if records.iter().any(|record| {
+            record["id"] == id || record["legacyKey"] == key || record["sourceKey"] == source_key
+        }) {
+            continue;
+        }
+        next["recordings"]
+            .as_array_mut()
+            .ok_or("Biblioteca inválida")?
+            .push(discarded_recording(&key, &source)?);
+        imported += 1;
+    }
+    drop(stmt);
+    drop(db);
+    fs::remove_dir_all(&staged.directory)
+        .map_err(|error| format!("No se pudo limpiar la copia temporal del ledger: {error}"))?;
+    Ok(imported)
 }
 
 fn has_table(db: &Connection, table: &str) -> Result<bool, String> {
@@ -566,6 +678,7 @@ fn import_recognitions(db: &Connection, next: &mut Value) -> Result<(), String> 
             .as_array_mut()
             .into_iter()
             .flatten()
+            .filter(|record| record["status"] != "discarded")
             .flat_map(|record| record["versions"].as_array_mut().into_iter().flatten())
         {
             if let Some(found) = version["id"].as_str().and_then(|id| by_version.remove(id)) {
@@ -611,6 +724,7 @@ fn import_version_voices(
                 .as_array_mut()
                 .into_iter()
                 .flatten()
+                .filter(|record| record["status"] != "discarded")
                 .flat_map(|record| record["versions"].as_array_mut().into_iter().flatten())
                 .find(|version| version["id"] == version_id)
             else {
@@ -700,6 +814,7 @@ fn has_version(data: &Value, recording_id: &str, version_id: &str) -> bool {
     data["recordings"].as_array().is_some_and(|items| {
         items.iter().any(|record| {
             record["id"] == recording_id
+                && record["status"] != "discarded"
                 && record["versions"].as_array().is_some_and(|versions| {
                     versions.iter().any(|version| version["id"] == version_id)
                 })
@@ -764,10 +879,11 @@ fn import_runs(db: &Connection, data: &Value) -> Result<Vec<Value>, String> {
         let (id, source_key, recipe_id, trigger, started_at, payload) =
             row.map_err(|e| e.to_string())?;
         let recording_id = recording_id(&source_key)?;
-        if !data["recordings"]
-            .as_array()
-            .is_some_and(|items| items.iter().any(|record| record["id"] == recording_id))
-        {
+        if !data["recordings"].as_array().is_some_and(|items| {
+            items
+                .iter()
+                .any(|record| record["id"] == recording_id && record["status"] != "discarded")
+        }) {
             continue;
         }
         let original: Value =
@@ -1107,6 +1223,9 @@ fn upgrade_publications(next: &mut Value, settings: &Plist) -> Result<(), String
         .as_array_mut()
         .ok_or("Biblioteca inválida")?
     {
+        if record["status"] == "discarded" {
+            continue;
+        }
         for publication in record["publications"]
             .as_array_mut()
             .ok_or("Publicaciones inválidas")?
@@ -1187,8 +1306,139 @@ fn remove_credentials(value: &mut Value) {
 #[cfg(test)]
 mod tests {
     use super::StagedDatabase;
+    use rusqlite::Connection;
     use serde_json::{json, Value};
-    use std::fs;
+    use std::{fs, path::Path};
+
+    fn empty_library(source: &Path) {
+        fs::create_dir_all(source).unwrap();
+        let db = Connection::open(source.join("library.sqlite")).unwrap();
+        db.execute_batch("CREATE TABLE recording(id INTEGER PRIMARY KEY,key TEXT,sourcePath TEXT,audioPath TEXT,startedAt TEXT,importedAt TEXT,status TEXT,lastError TEXT,currentTranscriptId INTEGER); CREATE TABLE transcript(id INTEGER PRIMARY KEY,recordingId INTEGER,backend TEXT,createdAt TEXT,text TEXT,language TEXT,diarize INTEGER,speakerCount INTEGER,optionsKnown INTEGER,digestTitle TEXT,digestSummary TEXT,digestTags TEXT,data TEXT,dataSchema TEXT,recipe TEXT); CREATE TABLE segment(transcriptId INTEGER,position INTEGER,startTime REAL,endTime REAL,speaker TEXT,text TEXT,words TEXT); CREATE TABLE publication(id INTEGER PRIMARY KEY,recordingId INTEGER,connector TEXT,pageId TEXT,url TEXT,syncedAt TEXT,error TEXT); CREATE TABLE answer(transcriptId INTEGER,fingerprint TEXT,payload TEXT); CREATE TABLE recipeRun(id INTEGER PRIMARY KEY,recordingId INTEGER,recipeKey TEXT,trigger TEXT,startedAt TEXT,payload TEXT);").unwrap();
+    }
+
+    fn empty_current() -> Value {
+        json!({"recordings":[],"settings":{},"accounts":[],"destinations":[],"recipes":[],"resolvers":[]})
+    }
+
+    #[test]
+    fn actualizar_publicaciones_omite_lapidas_sin_anadir_campos() {
+        let tombstone = json!({
+            "id":"descartada",
+            "source":"/synthetic/original.wav",
+            "sourceKey":"swift:descartada",
+            "legacyKey":"descartada",
+            "status":"discarded"
+        });
+        let mut data = json!({
+            "destinations":[],
+            "recordings":[tombstone, {"id":"activa","status":"done","publications":[]}]
+        });
+        let settings = plist::Value::Dictionary(plist::Dictionary::new());
+        super::upgrade_publications(&mut data, &settings).unwrap();
+        assert_eq!(data["recordings"][0], tombstone);
+        assert_eq!(data["recordings"][1]["publications"], json!([]));
+    }
+
+    #[test]
+    fn swift_descartada_solo_crea_lapida_y_no_restaura_datos_privados() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("swift");
+        let target = dir.path().join("tauri");
+        fs::create_dir_all(&target).unwrap();
+        empty_library(&source);
+        let db = Connection::open(source.join("library.sqlite")).unwrap();
+        db.execute("INSERT INTO recording VALUES (1,'Notas de Voz/123','/synthetic/original.m4a','audio/missing.m4a','2026-10-01 00:00:00','2026-10-01 00:00:00','discarded',NULL,1)", []).unwrap();
+        db.execute("INSERT INTO transcript(id,recordingId,backend,createdAt,text,diarize,optionsKnown,data) VALUES (1,1,'WhisperKit','2026-10-01 00:00:00','secret synthetic',0,0,'invalid json')", []).unwrap();
+        db.execute("INSERT INTO recipeRun VALUES (1,1,'default','automatic','2026-10-01 00:00:00','{\"steps\":[]}')", []).unwrap();
+        drop(db);
+        let plan = super::plan(&source, &target, &empty_current(), None).unwrap();
+        let record = &plan.data["recordings"][0];
+        assert_eq!(
+            record,
+            &json!({"id":super::recording_id("Notas de Voz/123").unwrap(),"source":"/synthetic/original.m4a","sourceKey":"swift:Notas de Voz/123","legacyKey":"Notas de Voz/123","status":"discarded"})
+        );
+        assert!(plan.copies.is_empty());
+        assert!(plan.audio_matches.is_empty());
+        assert!(plan.memories.is_empty());
+        assert!(plan.traces.is_empty());
+        assert!(plan.voices.versions.is_empty());
+    }
+
+    #[test]
+    fn ledger_descartado_solo_anade_lapidas_ausentes_desde_wal_sin_cambiar_origen() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("swift");
+        let target = dir.path().join("tauri");
+        fs::create_dir_all(&target).unwrap();
+        empty_library(&source);
+        let ledger_path = dir.path().join("ledger.db");
+        let ledger = Connection::open(&ledger_path).unwrap();
+        ledger.execute_batch("PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=0; CREATE TABLE transcriptions(key TEXT PRIMARY KEY,source_path TEXT NOT NULL,output_path TEXT,status TEXT NOT NULL,attempts INTEGER NOT NULL DEFAULT 0,last_error TEXT,updated_at REAL NOT NULL);").unwrap();
+        ledger.execute("INSERT INTO transcriptions(key,source_path,status,updated_at) VALUES ('Notas de Voz/456','/synthetic/ledger.m4a','discarded',0)", []).unwrap();
+        ledger.execute("INSERT INTO transcriptions(key,source_path,status,updated_at) VALUES ('existing','/synthetic/old.m4a','discarded',0)", []).unwrap();
+        ledger.execute("INSERT INTO transcriptions(key,source_path,status,updated_at) VALUES ('done','/synthetic/done.m4a','done',0)", []).unwrap();
+        let before_db = fs::read(&ledger_path).unwrap();
+        let before_wal = fs::read(dir.path().join("ledger.db-wal")).unwrap();
+        let existing = json!({"id":"existing","legacyKey":"existing","sourceKey":"swift:existing","source":"/synthetic/edited.m4a","status":"done","versions":[]});
+        let mut current = empty_current();
+        current["recordings"] = json!([existing.clone()]);
+        let plan =
+            super::plan_with_ledger(&source, &target, &current, None, Some(&ledger_path)).unwrap();
+        assert_eq!(plan.data["recordings"].as_array().unwrap().len(), 2);
+        assert_eq!(plan.data["recordings"][0], existing);
+        assert_eq!(
+            plan.data["recordings"][1],
+            json!({"id":super::recording_id("Notas de Voz/456").unwrap(),"source":"/synthetic/ledger.m4a","sourceKey":"swift:Notas de Voz/456","legacyKey":"Notas de Voz/456","status":"discarded"})
+        );
+        assert!(plan.copies.is_empty());
+        assert!(plan.memories.is_empty());
+        assert!(plan.traces.is_empty());
+        let swift = Connection::open(source.join("library.sqlite")).unwrap();
+        swift.execute("INSERT INTO recording VALUES (1,'Notas de Voz/456','/synthetic/ledger.m4a','audio/missing.m4a','2026-10-01 00:00:00','2026-10-01 00:00:00','done',NULL,1)", []).unwrap();
+        swift.execute("INSERT INTO transcript(id,recordingId,backend,createdAt,text,diarize,optionsKnown) VALUES (1,1,'WhisperKit','2026-10-01 00:00:00','synthetic',0,0)", []).unwrap();
+        swift
+            .execute("INSERT INTO answer VALUES (1,'fingerprint','{}')", [])
+            .unwrap();
+        swift.execute("INSERT INTO recipeRun VALUES (1,1,'default','automatic','2026-10-01 00:00:00','{\"steps\":[]}')", []).unwrap();
+        swift.execute_batch("CREATE TABLE voice(transcriptId INTEGER,position INTEGER,speaker TEXT,model TEXT,embedding BLOB); INSERT INTO voice VALUES (1,0,'Speaker 1','synthetic',X'0000803F');").unwrap();
+        drop(swift);
+        let again = super::plan_with_ledger(&source, &target, &plan.data, None, Some(&ledger_path))
+            .unwrap();
+        assert_eq!(again.data["recordings"], plan.data["recordings"]);
+        assert!(again.memories.is_empty());
+        assert!(again.traces.is_empty());
+        assert!(again.voices.versions.is_empty());
+        assert_eq!(fs::read(&ledger_path).unwrap(), before_db);
+        assert_eq!(
+            fs::read(dir.path().join("ledger.db-wal")).unwrap(),
+            before_wal
+        );
+        drop(ledger);
+    }
+
+    #[test]
+    fn ledger_ausente_es_opcional_pero_corrupto_da_error_visible() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("swift");
+        let target = dir.path().join("tauri");
+        fs::create_dir_all(&target).unwrap();
+        empty_library(&source);
+        assert!(super::plan_with_ledger(
+            &source,
+            &target,
+            &empty_current(),
+            None,
+            Some(&dir.path().join("absent.db"))
+        )
+        .is_ok());
+        let ledger_path = dir.path().join("ledger.db");
+        fs::write(&ledger_path, b"not sqlite").unwrap();
+        let error =
+            super::plan_with_ledger(&source, &target, &empty_current(), None, Some(&ledger_path))
+                .err()
+                .unwrap();
+        assert!(error.contains("ledger"), "{error}");
+    }
 
     #[test]
     fn traduce_solo_criterios_swift_locales_con_opciones_conocidas() {
