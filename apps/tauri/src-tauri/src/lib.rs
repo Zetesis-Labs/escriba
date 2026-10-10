@@ -70,6 +70,10 @@ struct Startup {
     error: Option<String>,
 }
 
+fn ledger_for_import(home: &Path, default_library: bool) -> Option<PathBuf> {
+    default_library.then(|| home.join(".local/state/escriba/ledger.db"))
+}
+
 impl Runtime {
     fn store(&self) -> Result<std::sync::MutexGuard<'_, Store>, String> {
         self.store
@@ -331,6 +335,7 @@ fn dispatch<'a>(
             }
             "library_import" => {
                 let home = app.path().home_dir().map_err(|e| e.to_string())?;
+                let default_source = p["path"].is_null();
                 let path = match p["path"].as_str() {
                     Some(path) => PathBuf::from(path),
                     None => home.join("Library/Application Support/escriba/library"),
@@ -343,12 +348,14 @@ fn dispatch<'a>(
                     }
                     None => None,
                 };
+                let ledger = ledger_for_import(&home, default_source);
                 let state = state.clone();
-                tokio::task::spawn_blocking(move || match settings {
-                    Some(settings) => state
-                        .store()?
-                        .import_legacy_with_settings(&path, Some(&settings)),
-                    None => state.store()?.import_legacy(&path),
+                tokio::task::spawn_blocking(move || {
+                    state.store()?.import_legacy_with_settings_and_ledger(
+                        &path,
+                        settings.as_deref(),
+                        ledger.as_deref(),
+                    )
                 })
                 .await
                 .map_err(|e| e.to_string())?
@@ -1453,6 +1460,11 @@ pub fn run() {
                 } else {
                     None
                 };
+                let legacy_ledger = if legacy.is_some() {
+                    ledger_for_import(&app.path().home_dir()?, true)
+                } else {
+                    None
+                };
                 app.asset_protocol_scope()
                     .allow_directory(root.join("audio"), true)?;
                 let resource_vendor = app.path().resource_dir()?.join("vendor");
@@ -1509,7 +1521,10 @@ pub fn run() {
                         let result = tokio::task::spawn_blocking(move || {
                             let mut store = importing.store()?;
                             if let Some(source) = legacy {
-                                store.import_startup_legacy(&source)?;
+                                store.import_startup_legacy_with_ledger(
+                                    &source,
+                                    legacy_ledger.as_deref(),
+                                )?;
                             }
                             if let Some(preferences) = legacy_preferences {
                                 store.adopt_legacy_watched_folders(&preferences)?;
@@ -1594,6 +1609,16 @@ pub fn run() {
 #[cfg(test)]
 mod command_events_tests {
     use super::*;
+
+    #[test]
+    fn ledger_swift_solo_acompana_a_la_biblioteca_por_defecto() {
+        let home = Path::new("/synthetic/home");
+        assert_eq!(
+            ledger_for_import(home, true),
+            Some(home.join(".local/state/escriba/ledger.db"))
+        );
+        assert_eq!(ledger_for_import(home, false), None);
+    }
 
     #[test]
     fn iniciar_proyecto_no_genera_destinos_para_cuentas_con_conector_en_la_app() {

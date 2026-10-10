@@ -232,7 +232,15 @@ pub struct Store {
 }
 
 impl Store {
+    #[cfg(test)]
     pub fn import_startup_legacy(&mut self, source: &Path) -> Result<Option<Value>, String> {
+        self.import_startup_legacy_with_ledger(source, None)
+    }
+    pub fn import_startup_legacy_with_ledger(
+        &mut self,
+        source: &Path,
+        ledger: Option<&Path>,
+    ) -> Result<Option<Value>, String> {
         if self.data["settings"]["legacyImported"] == true
             || self.data["recordings"]
                 .as_array()
@@ -259,7 +267,7 @@ impl Store {
                 return Ok(Some(status));
             }
         }
-        match self.import_legacy_with_settings(source, None) {
+        match self.import_legacy_with_settings_and_ledger(source, None, ledger) {
             Ok(report) => {
                 let status = json!({"state":"imported","report":report});
                 Ok(Some(status))
@@ -622,20 +630,31 @@ impl Store {
         }
         Ok(transcript)
     }
+    #[cfg(test)]
     pub fn import_legacy(&mut self, source: &Path) -> Result<Value, String> {
         self.import_legacy_with_settings(source, None)
     }
+    #[cfg(test)]
     pub fn import_legacy_with_settings(
         &mut self,
         source: &Path,
         settings_plist: Option<&Path>,
+    ) -> Result<Value, String> {
+        self.import_legacy_with_settings_and_ledger(source, settings_plist, None)
+    }
+    pub fn import_legacy_with_settings_and_ledger(
+        &mut self,
+        source: &Path,
+        settings_plist: Option<&Path>,
+        ledger: Option<&Path>,
     ) -> Result<Value, String> {
         if source.canonicalize().map_err(|e| e.to_string())?
             == self.root.canonicalize().map_err(|e| e.to_string())?
         {
             return Err("Elige la biblioteca SwiftUI, no la biblioteca Tauri actual".into());
         }
-        let mut plan = migration::plan(source, &self.root, &self.data, settings_plist)?;
+        let mut plan =
+            migration::plan_with_ledger(source, &self.root, &self.data, settings_plist, ledger)?;
         plan.data["settings"]["autoProcess"] = json!(true);
         plan.data["settings"]["legacyImported"] = json!(true);
         if settings_plist.is_some() {
