@@ -18,10 +18,17 @@ use std::{
 pub struct Plan {
     pub data: Value,
     pub copies: Vec<(PathBuf, PathBuf)>,
+    pub audio_matches: Vec<AudioMatch>,
     pub memories: Vec<Value>,
     pub traces: Vec<Value>,
     pub voices: ImportedVoices,
     pub report: Value,
+}
+
+pub struct AudioMatch {
+    pub recording_id: String,
+    pub source: PathBuf,
+    pub copy: PathBuf,
 }
 
 fn recording_id(key: &str) -> Result<String, String> {
@@ -33,6 +40,95 @@ fn recording_id(key: &str) -> Result<String, String> {
     } else {
         Ok(format!("swift-{:x}", Sha256::digest(key.as_bytes())))
     }
+}
+
+fn translated_swift_inputs(legacy: &Value, audio_hash: &str) -> Option<Value> {
+    if legacy["backend"] != "WhisperKit" {
+        return None;
+    }
+    let language = legacy.get("language")?;
+    if !language.is_null() && !language.is_string() {
+        return None;
+    }
+    let diarize = legacy["diarize"].as_bool()?;
+    let speakers = if diarize {
+        let count = legacy.get("speakers")?;
+        if !count.is_null() && count.as_i64().is_none_or(|value| value <= 0) {
+            return None;
+        }
+        count.clone()
+    } else {
+        Value::Null
+    };
+    Some(json!({
+        "audioHash":audio_hash,
+        "backend":"local-stt",
+        "model":"openai_whisper-large-v3-v20240930",
+        "language":language,
+        "diarize":diarize,
+        "speakers":speakers
+    }))
+}
+
+pub fn repair_swift_inputs(record: &mut Value, audio_hash: &str) {
+    if record["legacyKey"].is_null() || record["status"] == "discarded" {
+        return;
+    }
+    if record["audioHash"].is_null() {
+        record["audioHash"] = json!(audio_hash);
+    }
+    if record["audioHash"] != audio_hash {
+        return;
+    }
+    if let Some(versions) = record["versions"].as_array_mut() {
+        for version in versions {
+            if !version["id"]
+                .as_str()
+                .is_some_and(|id| id.starts_with("swift:"))
+            {
+                continue;
+            }
+            if let Some(inputs) = translated_swift_inputs(&version["inputs"], audio_hash) {
+                version["inputs"] = inputs;
+            }
+        }
+    }
+}
+
+fn source_audio(
+    source: &Path,
+    audio_root: Option<&PathBuf>,
+    relative_audio: &str,
+) -> Result<Option<(PathBuf, String)>, String> {
+    if relative_audio.is_empty() {
+        return Ok(None);
+    }
+    let candidate = source.join(relative_audio);
+    let real = match candidate.canonicalize() {
+        Ok(real) => real,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(format!("No se puede leer el audio SwiftUI: {error}")),
+    };
+    let Some(audio_root) = audio_root else {
+        return Ok(None);
+    };
+    if !real.starts_with(audio_root) || !real.is_file() {
+        return Err("Audio SwiftUI fuera de su biblioteca".into());
+    }
+    let ext = real
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or("")
+        .to_lowercase();
+    if ![
+        "m4a", "mp3", "wav", "aac", "flac", "ogg", "oga", "opus", "mp4", "aiff", "aif", "caf",
+        "webm",
+    ]
+    .contains(&ext.as_str())
+    {
+        return Err("Audio SwiftUI de formato no admitido".into());
+    }
+    Ok(Some((real, ext)))
 }
 
 struct StagedDatabase {
@@ -204,6 +300,7 @@ pub fn plan(
     let mut imported = 0usize;
     let mut missing_audio = 0usize;
     let mut copies = Vec::new();
+    let mut audio_matches = Vec::new();
     let audio_root = if source.join("audio").exists() {
         Some(
             source
@@ -244,12 +341,31 @@ pub fn plan(
             current_id,
         ) = source_row.map_err(|e| e.to_string())?;
         let mapped_id = recording_id(&key)?;
-        if next["recordings"]
+        if let Some(existing) = next["recordings"]
             .as_array()
-            .is_some_and(|records| records.iter().any(|r| r["legacyKey"] == key))
+            .and_then(|records| records.iter().find(|record| record["legacyKey"] == key))
         {
+            if existing["status"] != "discarded"
+                && existing["audioPath"]
+                    .as_str()
+                    .is_some_and(|path| !path.is_empty())
+            {
+                if let Some((real, ext)) =
+                    source_audio(&source, audio_root.as_ref(), &relative_audio)?
+                {
+                    let copy = target.join("audio").join(format!("{mapped_id}.{ext}"));
+                    if existing["audioPath"] == json!(copy) {
+                        audio_matches.push(AudioMatch {
+                            recording_id: mapped_id,
+                            source: real,
+                            copy,
+                        });
+                    }
+                }
+            }
             continue;
         }
+        let source_audio = source_audio(&source, audio_root.as_ref(), &relative_audio)?;
         if next["recordings"]
             .as_array()
             .is_some_and(|records| records.iter().any(|r| r["id"] == mapped_id))
@@ -329,41 +445,19 @@ pub fn plan(
             converted.push(converted_version);
         }
         let publications = publications(&db, record_id)?;
-        let mut audio_path = Value::Null;
-        if !relative_audio.is_empty() {
-            let relative = Path::new(&relative_audio);
-            let candidate = source.join(relative);
-            let real = match candidate.canonicalize() {
-                Ok(real) => Some(real),
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
-                Err(error) => return Err(format!("No se puede leer el audio SwiftUI: {error}")),
-            };
-            if let (Some(audio_root), Some(real)) = (&audio_root, real) {
-                if !real.starts_with(audio_root) || !real.is_file() {
-                    return Err("Audio SwiftUI fuera de su biblioteca".into());
-                }
-                let ext = real
-                    .extension()
-                    .and_then(|v| v.to_str())
-                    .unwrap_or("")
-                    .to_lowercase();
-                if ![
-                    "m4a", "mp3", "wav", "aac", "flac", "ogg", "oga", "opus", "mp4", "aiff", "aif",
-                    "caf", "webm",
-                ]
-                .contains(&ext.as_str())
-                {
-                    return Err("Audio SwiftUI de formato no admitido".into());
-                }
-                let destination = target.join("audio").join(format!("{mapped_id}.{ext}"));
-                copies.push((real, destination.clone()));
-                audio_path = json!(destination);
-            } else {
-                missing_audio += 1;
-            }
+        let audio_path = if let Some((real, ext)) = source_audio {
+            let destination = target.join("audio").join(format!("{mapped_id}.{ext}"));
+            copies.push((real.clone(), destination.clone()));
+            audio_matches.push(AudioMatch {
+                recording_id: mapped_id.clone(),
+                source: real,
+                copy: destination.clone(),
+            });
+            json!(destination)
         } else {
             missing_audio += 1;
-        }
+            Value::Null
+        };
         let current = current_id.map(|id| format!("swift:{record_id}:{id}"));
         let current = current.filter(|id| {
             converted
@@ -379,7 +473,7 @@ pub fn plan(
             "createdAt":date(&started_at),"importedAt":date(&imported_at),"source":source_path,
             "audioPath":audio_path,"duration":converted.last().and_then(|v| v["transcript"]["duration"].as_f64()).unwrap_or(0.0),
             "status":if status == "processing" {"pending"} else {status.as_str()},"error":error,
-            "currentVersionId":current.or(fallback),"recipeId":converted.last().and_then(|v| v["recipeId"].as_str()),
+            "currentVersionId":current.or(fallback),"recipeId":null,
             "versions":converted,"publications":publications
         });
         next["recordings"]
@@ -400,6 +494,7 @@ pub fn plan(
     Ok(Plan {
         data: next,
         copies,
+        audio_matches,
         report: json!({"recordings":imported,"audioMissing":missing_audio,"settingsImported":settings.is_some(),"credentialsImported":0,"answers":memories.len(),"runs":traces.len()}),
         memories,
         traces,
@@ -1092,7 +1187,34 @@ fn remove_credentials(value: &mut Value) {
 #[cfg(test)]
 mod tests {
     use super::StagedDatabase;
+    use serde_json::{json, Value};
     use std::fs;
+
+    #[test]
+    fn traduce_solo_criterios_swift_locales_con_opciones_conocidas() {
+        let legacy = json!({"backend":"WhisperKit","language":"es","diarize":true,"speakers":2});
+        assert_eq!(
+            super::translated_swift_inputs(&legacy, "hash-de-copia"),
+            Some(json!({
+                "audioHash":"hash-de-copia",
+                "backend":"local-stt",
+                "model":"openai_whisper-large-v3-v20240930",
+                "language":"es",
+                "diarize":true,
+                "speakers":2
+            }))
+        );
+        assert!(super::translated_swift_inputs(&json!({}), "hash-de-copia").is_none());
+        assert!(super::translated_swift_inputs(&json!({"backend":"Remoto · whisper-1","language":"es","diarize":false,"speakers":null}), "hash-de-copia").is_none());
+        assert_eq!(
+            super::translated_swift_inputs(
+                &json!({"backend":"WhisperKit","language":null,"diarize":false,"speakers":3}),
+                "hash-de-copia"
+            )
+            .unwrap()["speakers"],
+            Value::Null
+        );
+    }
 
     #[test]
     fn rejects_source_change_during_sqlite_and_wal_staging() {
