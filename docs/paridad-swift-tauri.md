@@ -157,8 +157,8 @@ funcionando. Detalle en `docs/pendiente-tauri.md`, apartado 3.
 
 ## Lo que el motor tiene que arreglar
 
-- Las versiones importadas de Swift guardan sus criterios sin la huella del
-  audio ni el modelo y con el nombre de motor de Swift. Nunca coinciden con los
-  de Tauri, así que reprocesar una nota antigua la vuelve a transcribir entera.
+- La importación ya calcula la huella de audio y traduce los criterios conocidos
+  de WhisperKit. Reimportar repara las versiones Swift existentes sin perder
+  correcciones; pendiente de validar su reutilización en la app instalada.
 - La app ocupa 2,5 a 3 GB de memoria con la biblioteca de Rubén.
 - El host nativo no da niveles de audio ni sabe descartar una grabación.

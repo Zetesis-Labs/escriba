@@ -482,6 +482,38 @@ Por orden de daño. Cada uno con su test antes del arreglo.
    biblioteca de Rubén ya están 32 de las 33, así que es protección para
    instalaciones nuevas. Copia la base a un temporal antes de abrirla.
 
+Implementados los cinco puntos. Incorporar sin elegir receta deja `recipeId`
+vacío y una ejecución manual no lo cambia; la versión y la traza conservan la
+receta ejecutada. La importación calcula la huella sobre la copia confirmada y
+traduce los criterios conocidos de WhisperKit. Volver a importar repara esos
+criterios en versiones Swift existentes sin sustituir correcciones ni restaurar
+audio eliminado; sin diarización, el número de hablantes no cambia el criterio.
+«Rehacer» consulta de nuevo al LLM y lee idioma y prompt del formulario por
+defecto; una receta de código o basada en código usa los valores de serie de Swift.
+
+Borrar deja solo la lápida, elimina el contenido y la copia local y protege
+frente a respuestas tardías y nuevas pasadas de vigilancia. El borrado del
+archivo queda pendiente en la misma transacción y se reintenta al abrir,
+comprobando la identidad del archivo. Las voces ya enseñadas a Personas y las
+publicaciones externas se conservan. La importación incluye los descartes del
+ledger Swift cuando se usa la biblioteca de origen por defecto, siempre desde
+una copia temporal privada de SQLite y su WAL.
+
+Validación: 167 pruebas TypeScript y 177 Rust correctas (una de inferencia real
+omitida), tipos frontend/runtime, Clippy sin avisos y formato correctos. La suite
+TS se ejecutó sin paralelismo entre archivos tras dos timeouts de 5 s; pasó sin
+cambiar el límite. La suite completa Rust detectó y permitió corregir la
+conversión de publicaciones sobre lápidas y dos preparaciones de pruebas
+obsoletas. Las revisiones de requisitos y estándares quedaron sin hallazgos
+pendientes. Release instalada y abierta el 2026-10-10, firma estricta verificada
+y 983 archivos idénticos por SHA256 al bundle construido. Apartado pendiente de
+validación de Rubén; no se inicia el 8 todavía.
+
+Rubén pidió quitar las asignaciones antiguas de Tauri, cuya procedencia no
+quedó registrada. Se eliminan una sola vez al actualizar, sin alterar qué
+receta produjo cada versión. Las elecciones explícitas al añadir o grabar
+después de actualizar se conservan en los siguientes reinicios.
+
 ## 8. Puerta 4: el código a las reglas de la casa
 
 - **Runtime de recetas y conectores en Bun**, no Deno (Rubén). Bun no tiene
