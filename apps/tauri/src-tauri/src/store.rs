@@ -514,6 +514,42 @@ impl Store {
             }
             result?;
         }
+        let repaired = (|| -> Result<(), String> {
+            for audio in &plan.audio_matches {
+                let metadata = match fs::symlink_metadata(&audio.copy) {
+                    Ok(metadata) => metadata,
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+                    Err(error) => return Err(error.to_string()),
+                };
+                if !metadata.file_type().is_file() {
+                    return Err("La copia de audio importada no es un archivo regular".into());
+                }
+                let copied_hash = file_hash(&audio.copy)?;
+                if file_hash(&audio.source)? != copied_hash {
+                    continue;
+                }
+                let hash = copied_hash
+                    .iter()
+                    .map(|byte| format!("{byte:02x}"))
+                    .collect::<String>();
+                if let Some(record) = plan.data["recordings"].as_array_mut().and_then(|records| {
+                    records
+                        .iter_mut()
+                        .find(|record| record["id"] == audio.recording_id)
+                }) {
+                    migration::repair_swift_inputs(record, &hash);
+                }
+            }
+            Ok(())
+        })();
+        if let Err(error) = repaired {
+            return match copied.rollback() {
+                Ok(()) => Err(error),
+                Err(cleanup) => Err(format!(
+                    "{error}; además falló la limpieza del audio copiado: {cleanup}"
+                )),
+            };
+        }
         if let Err(error) = self.database.import(
             &self.data,
             &plan.data,
@@ -3153,6 +3189,70 @@ mod tests {
             "2"
         );
     }
+    #[test]
+    fn importa_y_repara_criterios_swift_sin_pisar_versiones_ni_revivir_audio() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("swift");
+        fs::create_dir_all(source.join("audio")).unwrap();
+        fs::write(source.join("audio/legacy.wav"), b"audio sintetico").unwrap();
+        let sql = rusqlite::Connection::open(source.join("library.sqlite")).unwrap();
+        sql.execute_batch("CREATE TABLE recording(id INTEGER PRIMARY KEY,key TEXT,sourcePath TEXT,audioPath TEXT,startedAt TEXT,importedAt TEXT,status TEXT,lastError TEXT,currentTranscriptId INTEGER); CREATE TABLE transcript(id INTEGER PRIMARY KEY,recordingId INTEGER,backend TEXT,createdAt TEXT,text TEXT,language TEXT,diarize INTEGER,speakerCount INTEGER,optionsKnown INTEGER,digestTitle TEXT,digestSummary TEXT,digestTags TEXT,data TEXT,dataSchema TEXT,recipe TEXT); CREATE TABLE segment(transcriptId INTEGER,position INTEGER,startTime REAL,endTime REAL,speaker TEXT,text TEXT,words TEXT); CREATE TABLE publication(id INTEGER PRIMARY KEY,recordingId INTEGER,connector TEXT,pageId TEXT,url TEXT,syncedAt TEXT,error TEXT);").unwrap();
+        sql.execute("INSERT INTO recording VALUES (1,'legacy','/synthetic/original.wav','audio/legacy.wav','2026-10-01 12:00:00','2026-10-01 12:01:00','done',NULL,7)",[]).unwrap();
+        sql.execute("INSERT INTO transcript VALUES (7,1,'WhisperKit','2026-10-01 12:02:00','texto swift','es',0,NULL,1,NULL,NULL,NULL,NULL,NULL,'receta-ejecutada')",[]).unwrap();
+        drop(sql);
+
+        let mut store = Store::open(dir.path().join("tauri")).unwrap();
+        store.import_legacy(&source).unwrap();
+        let expected_hash = format!("{:x}", Sha256::digest(b"audio sintetico"));
+        let first = store.recording("legacy").unwrap();
+        assert_eq!(first["audioHash"], expected_hash);
+        assert_eq!(first["recipeId"], Value::Null);
+        assert_eq!(
+            first["versions"][0]["inputs"],
+            json!({"audioHash":expected_hash,"backend":"local-stt","model":"openai_whisper-large-v3-v20240930","language":"es","diarize":false,"speakers":null})
+        );
+
+        let mut old_import = store.data.clone();
+        old_import["recordings"][0]["audioHash"] = Value::Null;
+        old_import["recordings"][0]["versions"][0]["inputs"] =
+            json!({"backend":"WhisperKit","language":"es","diarize":false,"speakers":null});
+        store.database.save(&store.data, &old_import).unwrap();
+        store.data = old_import;
+        let correction = store.mutate("version_save", &json!({"recordingId":"legacy","sourceVersionId":"swift:1:7","backend":"corrección","transcript":{"text":"texto corregido","segments":[]}})).unwrap();
+        store.import_legacy(&source).unwrap();
+        let repaired = store.recording("legacy").unwrap();
+        assert_eq!(repaired["audioHash"], expected_hash);
+        assert_eq!(repaired["currentVersionId"], correction["id"]);
+        assert_eq!(repaired["versions"].as_array().unwrap().len(), 2);
+        assert_eq!(
+            repaired["versions"][1]["transcript"]["text"],
+            "texto corregido"
+        );
+        assert_eq!(repaired["versions"][0]["inputs"]["backend"], "local-stt");
+        assert_eq!(
+            repaired["versions"][0]["inputs"]["audioHash"],
+            expected_hash
+        );
+
+        store
+            .mutate("recording_remove_audio", &json!({"id":"legacy"}))
+            .unwrap();
+        store
+            .mutate("recording_discard", &json!({"id":"legacy"}))
+            .unwrap();
+        fs::remove_file(source.join("audio/legacy.wav")).unwrap();
+        fs::write(dir.path().join("fuera.wav"), b"audio ajeno").unwrap();
+        std::os::unix::fs::symlink(
+            dir.path().join("fuera.wav"),
+            source.join("audio/legacy.wav"),
+        )
+        .unwrap();
+        store.import_legacy(&source).unwrap();
+        assert_eq!(store.recording("legacy").unwrap()["status"], "discarded");
+        assert!(store.recording("legacy").unwrap()["audioPath"].is_null());
+        assert!(!store.root.join("audio/legacy.wav").exists());
+    }
+
     #[test]
     fn imports_selected_swift_library_and_settings_without_touching_source_or_tokens() {
         let dir = tempfile::tempdir().unwrap();
