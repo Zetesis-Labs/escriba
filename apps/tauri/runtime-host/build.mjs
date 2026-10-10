@@ -10,9 +10,14 @@ export async function buildRuntime({
     app,
     "src-tauri/binaries/escriba-runtime-aarch64-apple-darwin",
   ),
-  deno = "deno",
+  bun = "bun",
   target,
 } = {}) {
+  const expected = (await readFile(resolve(app, "runtime-host/bun-version"), "utf8")).trim();
+  const version = spawnSync(bun, ["--version"], { encoding: "utf8" });
+  if (version.error) throw version.error;
+  if (version.status !== 0 || version.stdout.trim() !== expected)
+    throw Error(`Escriba necesita Bun ${expected} para compilar el runtime`);
   const options = {
     bundle: true,
     write: false,
@@ -37,9 +42,8 @@ export async function buildRuntime({
   const main = await build({
     ...options,
     entryPoints: [resolve(app, "runtime-host/main.ts")],
-    platform: "neutral",
+    platform: "node",
     format: "esm",
-    external: ["node:async_hooks"],
     define: {
       __WORKER_SOURCE__: JSON.stringify(worker.outputFiles[0].text),
       __BUILTIN_PROGRAM__: JSON.stringify(builtin),
@@ -50,31 +54,19 @@ export async function buildRuntime({
   await mkdir(dirname(output), { recursive: true });
   const entry = resolve(directory, "main.js");
   await writeFile(entry, main.outputFiles[0].contents);
-  const args = [
-    "compile",
-    "--no-config",
-    "--no-check",
-    "--no-lock",
-    "--no-npm",
-    "--no-remote",
-    "--no-prompt",
-    "--v8-flags=--max-old-space-size=512",
-    "--deny-read",
-    "--deny-write",
-    "--deny-net",
-    "--deny-env",
-    "--deny-run",
-    "--deny-ffi",
-    "--deny-sys",
-    "--deny-import",
-    "--output",
-    output,
-    ...(target ? ["--target", target] : []),
-    entry,
-  ];
-  const result = spawnSync(deno, args, { stdio: "inherit" });
-  if (result.status !== 0)
-    throw Error(`Deno compile terminó con ${result.status}`);
+  const bunTarget = target === "aarch64-apple-darwin" ? "bun-darwin-arm64"
+    : target === "x86_64-apple-darwin" ? "bun-darwin-x64" : undefined;
+  if (target && !bunTarget) throw Error(`Plataforma Bun no soportada: ${target}`);
+  const result = spawnSync(bun, [
+    "build", "--compile", "--no-compile-autoload-dotenv", "--no-compile-autoload-bunfig",
+    "--compile-exec-argv=--no-install", entry, "--outfile", output,
+    ...(bunTarget ? [`--target=${bunTarget}`] : []),
+  ], { stdio: "inherit" });
+  if (result.error) throw result.error;
+  if (result.status !== 0) throw Error(`Bun build terminó con ${result.status}`);
+  const signed = spawnSync("codesign", ["--force", "--sign", "-", output], { stdio: "inherit" });
+  if (signed.error) throw signed.error;
+  if (signed.status !== 0) throw Error(`La firma del runtime terminó con ${signed.status}`);
   return output;
 }
 if (

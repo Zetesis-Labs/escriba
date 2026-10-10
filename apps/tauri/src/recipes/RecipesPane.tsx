@@ -1,10 +1,11 @@
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import { AlertTriangle, BadgeCheck, Braces, ChevronRight, Minus, Plus, SlidersHorizontal, Clock, CheckCircle2 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { call, desktop } from "../api";
 import { Pane } from "../app/Pane";
 import { recordingWhen } from "../core/presentation";
+import { projectRevealPath } from "../core/projectDrafts";
 import { recipeFormLoad, recipeFormOverrides, recipeFormValues, recipeFormExport, type RecipeFormLoad } from "../core/recipeForm";
 import { displayTitle } from "../library/RecordingRow";
 import { formatSeconds, TraceDetail, traceOutcome, traceSeconds } from "../library/TraceCard";
@@ -14,6 +15,8 @@ import { getRecipeSchema, processRecording } from "../runtime";
 import type { JSONObject, JSONValue, Recipe, RecipeTrace, Recording, Snapshot } from "../types";
 import { RecipeFormSections } from "./RecipeFormSections";
 import "./recipes.css";
+
+const Playground = lazy(() => import("./Playground").then(({ Playground }) => ({ default: Playground })));
 
 type Phase = { phase: "idle" | "building" | "ready" } | { phase: "failed"; message: string };
 const withoutDerived = ({ bundleFingerprint: _fingerprint, ...recipe }: Recipe) => recipe;
@@ -37,6 +40,7 @@ export function RecipesPane({ data, refresh }: { data: Snapshot; refresh: () => 
   const codes = data.recipes.filter((recipe) => recipe.kind === "code");
   const defaultId = data.settings.defaultRecipeId;
   const [chosen, setChosen] = useState<string>(defaultId);
+  const [editorOpen, setEditorOpen] = useState(false);
   const selected = data.recipes.find((recipe) => recipe.id === chosen) ?? data.recipes.find((recipe) => recipe.id === defaultId) ?? null;
   const [phase, setPhase] = useProjectPhase();
 
@@ -83,9 +87,10 @@ export function RecipesPane({ data, refresh }: { data: Snapshot; refresh: () => 
     if (typeof path !== "string") return;
     setPhase({ phase: "building" });
     try {
-      await call("project_init", { path });
-      await call("runtime_run", { operation: "rebuildProject", args: {} });
+      const project = await call<{ hasDist: boolean }>("project_init", { path });
+      await call("runtime_run", { operation: "rebuildProject", args: { loadOnly: project.hasDist } });
       setPhase({ phase: "ready" });
+      setEditorOpen(false);
     } catch (failure) {
       setPhase({ phase: "failed", message: errorText(failure) });
     } finally {
@@ -130,7 +135,11 @@ export function RecipesPane({ data, refresh }: { data: Snapshot; refresh: () => 
 
   return (
     <Pane title="Recetas">
-      <div className="list-detail">
+      {editorOpen && data.settings.projectPath ? (
+        <Suspense fallback={<div className="playground-loading"><Spinner /> Abriendo editor…</div>}>
+          <Playground key={data.settings.projectPath} path={data.settings.projectPath} onClose={() => setEditorOpen(false)} onBuilt={refresh} />
+        </Suspense>
+      ) : <div className="list-detail">
         <div className="side-list" style={{ width: 260 }}>
           <div className="side-list-items" role="listbox" aria-label="Recetas" tabIndex={0}>
             <div className="list-section font-caption secondary">De formulario</div>
@@ -144,7 +153,7 @@ export function RecipesPane({ data, refresh }: { data: Snapshot; refresh: () => 
             )}
             <div className="list-section font-caption secondary">De código</div>
             {codes.map((recipe) => row(recipe, `Código · ${recipe.id}`, () => [item("Guardar como receta de formulario", () => void saveAsForm(recipe))]))}
-            <ProjectFooter path={data.settings.projectPath} phase={phase} onChoose={() => void chooseProject()} />
+            <ProjectFooter path={data.settings.projectPath} phase={phase} onChoose={() => void chooseProject()} onEditor={() => setEditorOpen(true)} />
           </div>
           {missing && (
             <div className="font-caption warning missing-default">
@@ -172,12 +181,12 @@ export function RecipesPane({ data, refresh }: { data: Snapshot; refresh: () => 
             <ContentUnavailable title="Sin receta elegida" icon={Braces} description="Elige una de la lista, o crea una con +." />
           )}
         </div>
-      </div>
+      </div>}
     </Pane>
   );
 }
 
-function ProjectFooter({ path, phase, onChoose }: { path: string | null; phase: Phase; onChoose: () => void }) {
+function ProjectFooter({ path, phase, onChoose, onEditor }: { path: string | null; phase: Phase; onChoose: () => void; onEditor: () => void }) {
   return (
     <div className="project-footer">
       <div className="font-caption secondary project-path" title={path ?? undefined}>
@@ -188,9 +197,7 @@ function ProjectFooter({ path, phase, onChoose }: { path: string | null; phase: 
           {path ? "Cambiar…" : "Elegir carpeta…"}
         </Button>
         {path && (
-          <Button small onClick={() => void call("reveal", { path })}>
-            Abrir
-          </Button>
+          <><Button small onClick={onEditor}>Abrir editor</Button><Button small onClick={() => void call("reveal", { path })}>Finder</Button></>
         )}
       </div>
       {phase.phase === "building" && (
@@ -255,6 +262,21 @@ function RecipeDetail({
   useEffect(() => () => window.clearTimeout(timer.current), []);
   const base = recipe.kind === "form" && recipe.base ? data.recipes.find((item) => item.id === recipe.base && item.kind === "code") : undefined;
   const usable = recipe.kind === "form" ? !recipe.base || Boolean(base) : Boolean(recipe.bundleFingerprint);
+  const revealRecipe = async () => {
+    const root = data.settings.projectPath;
+    if (!root) return;
+    const source = projectRevealPath(root, recipe.entry);
+    let failure: unknown;
+    for (const path of source === root ? [root] : [source, root]) {
+      try {
+        await call("reveal", { path });
+        return;
+      } catch (error) {
+        failure = error;
+      }
+    }
+    await alertMessage("No se pudo", errorText(failure));
+  };
   const origin =
     recipe.kind === "form"
       ? !recipe.base
@@ -330,7 +352,7 @@ function RecipeDetail({
           {defaultRow}
         </FormSection>
       ) : (
-        <FormSection footer="Se edita en la carpeta del proyecto, con tu editor o un agente. Escriba la compila al guardar.">
+        <FormSection footer="Edita el código en el editor del proyecto o con una herramienta externa y construye el proyecto para usarlo.">
           <LabeledRow label="Nombre">{recipe.name}</LabeledRow>
           <LabeledRow label="Clave">{recipe.id}</LabeledRow>
           {defaultRow}
@@ -358,7 +380,7 @@ function RecipeDetail({
           </FormRow>
           {data.settings.projectPath && (
             <FormRow>
-              <Button onClick={() => void call("reveal", { path: `${data.settings.projectPath}/recetas/${recipe.id}` }).catch((failure) => alertMessage("No se pudo", errorText(failure)))}>
+              <Button onClick={() => void revealRecipe()}>
                 Abrir en el Finder
               </Button>
             </FormRow>

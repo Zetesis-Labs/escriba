@@ -39,9 +39,12 @@ Errores rechazan la promesa con texto legible; nunca éxitos vacíos.
 - export_file {path,contents} -> void (archivo elegido por usuario en diálogo).
 - reveal {path} -> void; open_url {url} -> void (http/https).
 - open_privacy_settings -> void (abre Ajustes del Sistema, destino fijo; no disponible para recetas).
-- project_init {path} -> void (solo crea ausentes; tipos y paquetes npm propios de serie).
-- project_build -> {recipes:Recipe[],connectorProgram?:string} (esbuild nativo, bundles IIFE __recipe / __conectores, preserva último válido).
-- project_read {entry} -> {source:string}; project_write {entry,source} -> void (confinado proyecto).
+- project_init {path} -> {hasDist:boolean} (crea ausentes; si ya existe el artefacto no añade fuentes).
+- project_build -> {recipes:Recipe[],connectorProgram?:string} (Bun aislado construye `dist/` y el cargador lo lee; conserva el artefacto anterior si falla la construcción).
+- project_load -> el mismo resultado que project_build, leyendo solo `dist/escriba.json` y sus paquetes JavaScript.
+- project_list -> {files:string[]} (fuentes y JSON/Markdown; excluye dist, node_modules, .git, .escriba y enlaces).
+- project_read {entry} -> {source:string}; project_write {entry,source,expectedSource?,createNew?} -> void (confinado al proyecto, escritura atómica; rechaza una versión externa distinta o un archivo existente al crear).
+- project_tool {tool:'install'|'check'|'test'} -> {success:boolean,output:string} (Bun y TypeScript 7 incluidos, sandbox de desarrollo, salida y duración acotadas; solo install permite red, sin scripts de instalación).
 - connector_http {accountId,url,method?,headers?,body?,multipart?} -> {status,headers,body} (cuenta fija origen; secreto en Rust, no redirects; multipart [{name,value? ,audio?:{recordingId,start?,end?},filename?,type?}]).
 - connector_files {accountId,operation:'snapshot'|'apply',changes?} -> mapa de textos / void (solo carpeta autorizada, sin symlinks ni escapes, CAS expectedContents).
 - connector_audio {recordingId} -> {size,type,filename} | null (audio opaco, bytes nunca a receta).

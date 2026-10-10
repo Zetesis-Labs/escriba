@@ -13,21 +13,19 @@ if ! node -e 'const [major, minor] = process.versions.node.split(".").map(Number
   done
   if [[ "$NODE_READY" != true ]]; then echo "Escriba Tauri necesita Node 22.12 o posterior." >&2; exit 1; fi
 fi
-deno_ready() {
-  "$1" eval --quiet 'const [a, b, c] = Deno.version.deno.split(".").map(Number); Deno.exit(a > 2 || a === 2 && (b > 6 || b === 6 && c >= 9) ? 0 : 1)' >/dev/null 2>&1
-}
-DENO_READY=false
-for DENO_BIN in $(type -ap deno) "$HOME/.deno/bin/deno" /opt/homebrew/bin/deno /usr/local/bin/deno; do
-  if [[ -x "$DENO_BIN" ]] && deno_ready "$DENO_BIN"; then
-    DENO_DIR="$(mktemp -d)"
-    trap 'rm -rf "$DENO_DIR"' EXIT
-    ln -s "$DENO_BIN" "$DENO_DIR/deno"
-    export PATH="$DENO_DIR:$PATH"
-    DENO_READY=true
+BUN_VERSION=$(cat "$TAURI/runtime-host/bun-version")
+BUN_READY=false
+for BUN_BIN in "$PROJECT/.build/bun/$BUN_VERSION"/bun-darwin-*/bun $(type -ap bun) "$HOME/.bun/bin/bun" /opt/homebrew/bin/bun /usr/local/bin/bun; do
+  if [[ -x "$BUN_BIN" ]] && [[ "$("$BUN_BIN" --version)" == "$BUN_VERSION" ]]; then
+    BUN_DIRECTORY="$(mktemp -d)"
+    trap 'rm -rf "$BUN_DIRECTORY"' EXIT
+    ln -s "$BUN_BIN" "$BUN_DIRECTORY/bun"
+    export PATH="$BUN_DIRECTORY:$PATH"
+    BUN_READY=true
     break
   fi
 done
-if [[ "$DENO_READY" != true ]]; then echo "Escriba Tauri necesita Deno 2.6.9 o posterior." >&2; exit 1; fi
+if [[ "$BUN_READY" != true ]]; then echo "Escriba Tauri necesita Bun $BUN_VERSION." >&2; exit 1; fi
 CONFIGURATION=debug
 TAURI_ARGS=(build --debug --bundles app)
 if [[ "${1:-}" == "--release" ]]; then CONFIGURATION=release; TAURI_ARGS=(build --bundles app); fi
@@ -46,6 +44,7 @@ cp "$BIN/EscribaNativeHost" "$TAURI/src-tauri/binaries/EscribaNativeHost-$TRIPLE
 npm ci --ignore-scripts --prefix "$PROJECT/packages/conectores"
 npm run build --prefix "$PROJECT/packages/conectores"
 npm ci --ignore-scripts --prefix "$TAURI"
+npm ci --ignore-scripts --prefix "$TAURI/runtime-host/toolchain"
 npm run typecheck:runtime --prefix "$TAURI"
 node "$TAURI/scripts/prepare.mjs"
 (cd "$TAURI" && npm exec tauri -- "${TAURI_ARGS[@]}")

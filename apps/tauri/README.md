@@ -7,7 +7,7 @@ para conservar la instalación SwiftUI durante la transición.
 
 ## Construir e instalar
 
-Requiere Rust estable, Node 22.12 o posterior, Deno 2.6.9 o posterior y Xcode con
+Requiere Rust estable, Node 22.12 o posterior, Bun en la versión de `runtime-host/bun-version` y Xcode con
 SDK macOS 26 más el toolchain Swift del repositorio. Desde la raíz:
 
 ```sh
@@ -18,7 +18,7 @@ SDK macOS 26 más el toolchain Swift del repositorio. Desde la raíz:
 
 El script prepara dependencias fijadas por lockfile, compila los adaptadores,
 el runtime TypeScript y la app, y verifica su firma. La aplicación instalada
-incluye los ejecutables; no necesita Node, Deno ni npm en el Mac del usuario.
+incluye los ejecutables; no necesita Node, Bun ni npm en el Mac del usuario.
 `ESCRIBA_SWIFT_SCRATCH` permite reutilizar una caché de SwiftPM.
 
 ## Datos y migración
@@ -108,8 +108,9 @@ de archivos, red o subprocesos. Cerrar o recargar una ventana no cancela la cola
 Tras terminar la app, los trabajos interrumpidos se recuperan al arrancar y
 reutilizan transcripciones y respuestas compatibles.
 
-El host aplica un límite de heap de 512 MiB al runtime y un presupuesto de 10 s
-de ejecución activa por programa, excluyendo las esperas de capacidades. Cada
+El host observa la memoria residente de cada proceso de receta cada 50 ms y lo
+termina al superar 512 MiB; puede haber exceso entre muestras. Aplica además
+un presupuesto de 10 s de ejecución activa, excluyendo las esperas de capacidades. Cada
 trabajo tiene un límite total de dos horas. El motor de inferencia se retira tras
 cinco minutos de inactividad. Véase [runtime](runtime-host/README.md) y
 [protocolo Apple](../../docs/tauri-native-protocol.md).
@@ -125,8 +126,10 @@ cinco minutos de inactividad. Véase [runtime](runtime-host/README.md) y
   de reprocesado permite ajustar los parámetros solo para esa ejecución sin
   cambiar la receta guardada.
 - **Recetas:** formularios declarados con Zod, parámetros, preguntas estructuradas,
-  delegación, ejecución de prueba y trazas. Un proyecto se edita externamente y
-  se compila con el esbuild incluido en la app.
+  delegación, ejecución de prueba y trazas. El playground CodeMirror permite
+  editar el proyecto, instalar dependencias, comprobar tipos con TypeScript 7,
+  ejecutar pruebas y construir `dist/` con el Bun incluido. También admite un
+  editor externo y proyectos distribuidos solo con su `dist/`.
 - **Conectores:** cuentas, credenciales, destinos declarados en TypeScript,
   validación, descubrimiento, vista previa, publicación, regeneración y retirada.
   El recibo conserva la cuenta, configuración y programa usados al publicar.
@@ -137,10 +140,10 @@ cinco minutos de inactividad. Véase [runtime](runtime-host/README.md) y
   asentamiento de archivos y materialización de contenido descargable de iCloud.
 
 Las dependencias npm se instalan en el proyecto y se fijan con su lockfile.
-Esbuild acepta ESM/CommonJS/JSON; el paquete propio de conectores se proporciona
+Bun empaqueta ESM/CommonJS/JSON; el paquete propio de conectores se proporciona
 como dependencia `file:`. Los paquetes deben poder ejecutarse con las capacidades
 ofrecidas; las APIs de Node que necesitan disco, procesos o red no se habilitan
-por instalar un paquete.
+por instalar un paquete. Véase [proyectos de recetas](../../docs/proyecto-recetas-tauri.md).
 
 ## Verificación
 
@@ -163,8 +166,11 @@ La inferencia local se ha comprobado con el proceso incluido en el bundle:
 Whisper transcribió audio sintético con tiempos y Apple Intelligence produjo
 un resumen. Las cifras y resultados de entrega se registran en el PR.
 
-La inspección visual automatizada sigue bloqueada por la herramienta de acceso a
-las apps locales, incluso tras la autorización del usuario. Micrófono y
-notificaciones requieren comprobación interactiva de macOS.
+La herramienta de acceso a las apps locales sigue impidiendo la inspección visual
+nativa. El playground se ha revisado en navegador, con sus componentes reales y
+un proyecto simulado, también a 960×640: edición, indicador de cambios, guardado
+con ⌘S y bloqueo de herramientas con borradores pendientes. Esto no sustituye la
+prueba dentro de Tauri. Micrófono y notificaciones requieren comprobación
+interactiva de macOS.
 No se han usado Notion real, tokens reales ni servicios STT/LLM externos. Estos
 límites de validación no se sustituyen por los datos de muestra (`?demo=1`).

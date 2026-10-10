@@ -32,7 +32,10 @@ al cerrar la ventana y recupera el procesamiento interrumpido tras reiniciar.
 
 Los conectores Notion y OKF viven en `packages/conectores`, compartidos por ambas
 aplicaciones. Las recetas se editan en una carpeta elegida por el usuario y se
-compilan con esbuild. Los secretos y el audio se manejan mediante capacidades
+construyen con el Bun incluido en Tauri. El playground CodeMirror incorpora
+instalación de dependencias, comprobación de tipos con TypeScript 7 y pruebas;
+la app carga el `dist/` resultante. Véase [proyectos de recetas](docs/proyecto-recetas-tauri.md).
+Los secretos y el audio se manejan mediante capacidades
 nativas; las recetas no reciben los tokens.
 
 ## Desarrollo

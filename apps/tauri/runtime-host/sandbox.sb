@@ -1,0 +1,10 @@
+(version 1)
+(deny default)
+(allow process-exec (literal (param "EXECUTABLE")))
+(allow file-read*
+    (literal "/")
+    (literal (param "EXECUTABLE"))
+    (subpath "/System/Library")
+    (subpath "/usr/lib")
+    (subpath "/usr/share/icu"))
+(allow sysctl-read)

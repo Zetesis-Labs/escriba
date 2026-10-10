@@ -6,6 +6,44 @@ import { summarizeText } from "../../src/runtime/summary";
 import type { RuntimeHost, RuntimeRunner } from "../../src/runtime/contracts";
 import type { Publication, Version } from "../../src/types";
 import { snapshot, runtimeContext } from "./fixture";
+
+test("serializa construcción e instalación y permite reintentar después de un fallo", async () => {
+  const events: string[] = [];
+  let release = () => {};
+  let entered = () => {};
+  const paused = new Promise<void>((resolve) => { release = resolve; });
+  const installing = new Promise<void>((resolve) => { entered = resolve; });
+  let installations = 0;
+  const runtime = createRuntime({
+    call: async (method) => {
+      events.push(method);
+      if (method === "runtime_context") return runtimeContext(snapshot);
+      if (method === "project_build" || method === "project_load") return { recipes: [] };
+      if (method === "project_install" && ++installations === 1) {
+        entered();
+        await paused;
+        throw Error("Catálogo inválido de prueba");
+      }
+      return null;
+    },
+  }, { run: async () => null });
+  const first = assert.rejects(runtime.rebuildProject(), /Catálogo inválido de prueba/);
+  await installing;
+  const second = runtime.rebuildProject({ loadOnly: true });
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  try {
+    assert.deepEqual(events, ["runtime_context", "project_build", "project_install"]);
+  } finally {
+    release();
+    await first;
+    await second;
+  }
+  assert.deepEqual(events, [
+    "runtime_context", "project_build", "project_install",
+    "runtime_context", "project_load", "project_install",
+  ]);
+});
+
 function memory() {
   const state = structuredClone(snapshot);
   const calls: { method: string; params: Record<string, unknown> }[] = [];
@@ -467,6 +505,34 @@ test("catálogo se instala solo después de inspeccionar todo y conserva ajustes
     (installed[0].recipes as { name: string }[])[0].name,
     "Nombre declarado",
   );
+});
+test("cargar dist inspecciona e instala el artefacto sin reconstruir las fuentes", async () => {
+  const m = publicationFixture();
+  const calls: string[] = [];
+  const host: RuntimeHost = {
+    call: async (method, params) => {
+      calls.push(method);
+      if (method === "project_build") throw Error("No debe compilar fuentes");
+      if (method === "project_load") return { recipes: [
+        { id: "externa", name: "Externa", entry: "src/recetas/externa/receta.ts", bundle: "external-dist" },
+      ] };
+      if (method === "project_install") return null;
+      return m.host.call(method, params);
+    },
+  };
+  const inspected: string[] = [];
+  const controller = createRuntime(host, {
+    run: async (task) => {
+      assert.ok(typeof task.program === "string");
+      inspected.push(task.program);
+      return { schema: {}, name: "Externa" };
+    },
+  });
+  await controller.rebuildProject({ loadOnly: true });
+  assert.ok(!calls.includes("project_build"));
+  assert.ok(calls.includes("project_load"));
+  assert.ok(calls.includes("project_install"));
+  assert.deepEqual(inspected, ["external-dist"]);
 });
 test("cancelar grabación en cola no cancela el proceso nativo de otra grabación", async () => {
   const m = memory();

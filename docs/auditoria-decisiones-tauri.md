@@ -10,6 +10,13 @@ Rutas: `controller.ts`, `worker.ts`, `summary.ts`, `memory.ts` y
 `connectors.ts` están en `apps/tauri/src/runtime/`; los `.rs` en
 `apps/tauri/src-tauri/src/`; `notion.ts` en `packages/conectores/src/`.
 
+El 2026-10-10 Rubén amplió expresamente el apartado 8: Bun con sandbox,
+proyecto TypeScript con `dist/`, herramientas de desarrollo incluidas,
+playground CodeMirror y comprobador TypeScript 7 nativo. Esa autorización
+sustituye los límites anteriores de editor externo y compilador de recetas
+en Tauri; no cambia los targets Swift. Contrato vigente en
+`docs/proyecto-recetas-tauri.md` y estado de entrega en `docs/pendiente-tauri.md`.
+
 ## Estado posterior del apartado 7
 
 La tabla y los hallazgos siguientes describen el código auditado en `78a0598`;

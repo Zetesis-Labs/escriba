@@ -6,10 +6,12 @@ import {
   type ChildProcessWithoutNullStreams,
 } from "node:child_process";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { readFileSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createInterface } from "node:readline";
+import { connect, createServer } from "node:net";
 import { snapshot, runtimeContext } from "./fixture";
 import type { Snapshot, Version } from "../../src/types";
 let directory = "";
@@ -28,10 +30,17 @@ beforeAll(async () => {
 afterAll(async () => {
   await rm(directory, { recursive: true, force: true });
 });
+function launch(worker = false) {
+  const path = realpathSync(executable);
+  const profile = readFileSync(new URL("../../runtime-host/sandbox.sb", import.meta.url), "utf8");
+  return spawn("/usr/bin/sandbox-exec", [
+    "-p", profile, "-D", `EXECUTABLE=${path}`, path, ...(worker ? ["--worker"] : []),
+  ], { env: {}, cwd: "/" });
+}
 function supervisor(state: Snapshot, hangFirstTranscribe = false, onCall?: (method: string, params: Record<string, unknown>) => void) {
   let hung = false;
   const cancelled = new Set<string>();
-  const child = spawn(executable, [], { env: {} });
+  const child = launch();
   const workers = new Map<string, ChildProcessWithoutNullStreams>();
   const pending = new Map<
     string,
@@ -42,8 +51,10 @@ function supervisor(state: Snapshot, hangFirstTranscribe = false, onCall?: (meth
   const taskIds: unknown[] = [];
   const events: unknown[] = [];
   let readyResolve!: () => void;
-  const ready = new Promise<void>((resolve) => {
+  let readyReject!: (error: Error) => void;
+  const ready = new Promise<void>((resolve, reject) => {
     readyResolve = resolve;
+    readyReject = reject;
   });
   let counter = 0;
   let stderr = "";
@@ -62,7 +73,7 @@ function supervisor(state: Snapshot, hangFirstTranscribe = false, onCall?: (meth
       return;
     }
     if (value.type === "worker_create") {
-      const worker = spawn(executable, ["--worker"], { env: {} });
+      const worker = launch(true);
       workers.set(id, worker);
       createInterface({ input: worker.stdout }).on("line", (output) => {
         try {
@@ -166,6 +177,7 @@ function supervisor(state: Snapshot, hangFirstTranscribe = false, onCall?: (meth
     }
   });
   child.on("exit", (code) => {
+    readyReject(Error(`sidecar ${code}: ${stderr}`));
     for (const waiter of pending.values())
       waiter.reject(Error(`sidecar ${code}: ${stderr}`));
   });
@@ -304,7 +316,44 @@ test("cancelación mata receta CPU y sidecar sigue disponible", async () => {
     host.close();
   }
 });
-test("proceso receta no puede leer ficheros/red ni falsificar capacidades del proceso principal", async () => {
+test("el ejecutable usa Bun y conserva el recorrido de transcribir y guardar", async () => {
+  const state = structuredClone(snapshot);
+  state.recipes[0] = {
+    id: "default", name: "Bun", kind: "code", values: {},
+    bundle: `var __recipe={async flujo(audio,api){const p=await import('node:process');if(!p.versions.bun)throw Error('El ejecutable no usa Bun');await(await api.transcribir(audio)).guardar()}}`,
+  };
+  const host = supervisor(state);
+  try {
+    await host.ready;
+    await host.run("processRecording", { recordingId: "r" }).result;
+    assert.equal(state.recordings[0].versions.length, 1);
+    assert.equal(state.recordings[0].status, "done");
+  } finally {
+    host.close();
+  }
+});
+
+test("las recetas pueden comparar texto con Intl dentro del sandbox", async () => {
+  const state = structuredClone(snapshot);
+  state.recipes[0] = {
+    id: "default", name: "Orden", kind: "code", values: {},
+    bundle: `var __recipe={async flujo(audio,api){
+      const palabras=['zeta','ábaco'].sort((a,b)=>a.localeCompare(b,'es'));
+      if(palabras[0]!=='ábaco')throw Error('Orden incorrecto');
+      await(await api.transcribir(audio)).guardar();
+    }}`,
+  };
+  const host = supervisor(state);
+  try {
+    await host.ready;
+    await host.run("processRecording", { recordingId: "r" }).result;
+    assert.equal(state.recordings[0].versions.length, 1);
+  } finally {
+    host.close();
+  }
+});
+
+test("el sandbox impide leer y escribir archivos y mantiene separado el canal de capacidades", async () => {
   const canary = join(directory, "canary.txt");
   await writeFile(canary, "private-fixture");
   const state = structuredClone(snapshot);
@@ -313,7 +362,15 @@ test("proceso receta no puede leer ficheros/red ni falsificar capacidades del pr
     name: "Sandbox",
     kind: "code",
     values: {},
-    bundle: `var __recipe={async flujo(audio,api){let blocked=0;try{await Deno.readTextFile(${JSON.stringify(canary)})}catch{blocked++}try{await Deno.connect({hostname:'127.0.0.1',port:9})}catch{blocked++}if(blocked!==2)throw Error('sandbox abierto');await(await api.transcribir(audio)).guardar()}}`,
+    bundle: `var __recipe={async flujo(audio,api){
+      const fs=await import('node:fs/promises');
+      for(const attempt of [()=>fs.readFile(${JSON.stringify(canary)}),()=>Bun.file(${JSON.stringify(canary)}).text(),()=>fs.writeFile(${JSON.stringify(canary)},'overwrite')]){
+        let denied=false;
+        try{await attempt()}catch(error){denied=['EPERM','EACCES'].includes(error.code)}
+        if(!denied)throw Error('sandbox de archivos abierto');
+      }
+      await(await api.transcribir(audio)).guardar();
+    }}`,
   };
   const host = supervisor(state);
   try {
@@ -329,6 +386,37 @@ test("proceso receta no puede leer ficheros/red ni falsificar capacidades del pr
     await host.run("getRecipeSchema", { recipeId: "default" }).result;
   } finally {
     host.close();
+  }
+});
+
+test("el sandbox rechaza conexiones a un servidor local que sí está escuchando", async () => {
+  let connections = 0;
+  const server = createServer((socket) => { connections++; socket.end(); });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  assert.ok(address && typeof address !== "string");
+  await new Promise<void>((resolve, reject) => {
+    const socket = connect(address.port, "127.0.0.1", () => { socket.destroy(); resolve(); });
+    socket.on("error", reject);
+  });
+  const state = structuredClone(snapshot);
+  state.recipes[0] = {
+    id: "default", name: "Red", kind: "code", values: {},
+    bundle: `var __recipe={async flujo(audio,api){
+      const net=await import('node:net');let denied=false;
+      try{await new Promise((resolve,reject)=>{const socket=net.connect(${address.port},'127.0.0.1',()=>{socket.destroy();resolve()});socket.on('error',reject)})}catch(error){denied=['EPERM','EACCES','ECONNREFUSED'].includes(error.code)}
+      if(!denied)throw Error('sandbox de red abierto');
+      await(await api.transcribir(audio)).guardar();
+    }}`,
+  };
+  const host = supervisor(state);
+  try {
+    await host.ready;
+    await host.run("processRecording", { recordingId: "r" }).result;
+    assert.equal(connections, 1);
+  } finally {
+    host.close();
+    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
   }
 });
 
@@ -349,26 +437,52 @@ test("cancelar inferencia sin respuesta libera cola para la siguiente grabación
     host.close();
   }
 });
-test("heap de receta queda limitado y una fuga no termina el controlador", async () => {
+test("el sandbox impide crear procesos y relanzar el propio ejecutable", async () => {
   const state = structuredClone(snapshot);
   state.recipes[0] = {
-    id: "default",
-    name: "Fuga",
-    kind: "code",
-    values: {},
-    bundle:
-      'var __recipe={flujo(){globalThis.leak=[];while(true)globalThis.leak.push(new Array(100000).fill("memory"))}}',
+    id: "default", name: "Procesos", kind: "code", values: {},
+    bundle: `var __recipe={async flujo(audio,api){
+      const cp=await import('node:child_process');
+      const p=await import('node:process');
+      for(const path of ['/usr/bin/true',p.execPath]){
+        const result=cp.spawnSync(path,['--worker'],{timeout:100});
+        if(!['EPERM','EACCES'].includes(result.error?.code))throw Error('subproceso permitido: '+result.error?.code);
+        let denied=false;
+        try{Bun.spawnSync([path,'--worker'],{timeout:100})}catch(error){denied=['EPERM','EACCES'].includes(error.code)}
+        if(!denied)throw Error('subproceso Bun permitido');
+      }
+      await(await api.transcribir(audio)).guardar();
+    }}`,
   };
   const host = supervisor(state);
   try {
     await host.ready;
-    await assert.rejects(
-      host.run("processRecording", { recordingId: "r" }).result,
-      /worker terminó/,
-    );
-    state.recipes[0] = structuredClone(snapshot.recipes[0]);
-    await host.run("getRecipeSchema", { recipeId: "default" }).result;
+    await host.run("processRecording", { recordingId: "r" }).result;
+    assert.equal(state.recordings[0].versions.length, 1);
   } finally {
     host.close();
   }
-}, 15000);
+});
+
+test("las dependencias empaquetadas usan módulos nativos de Bun sin acceder al disco", async () => {
+  const state = structuredClone(snapshot);
+  state.recipes[0] = {
+    id: "default", name: "Módulos nativos", kind: "code", values: {},
+    bundle: `var __recipe=(()=>{const module={exports:{}};const exports=module.exports;
+      const path=require('node:path');const crypto=require('node:crypto');
+      exports.flujo=async(audio,api)=>{
+        if(path.basename('/a/nota.m4a')!=='nota.m4a'||crypto.createHash('sha256').update('synthetic').digest('hex').length!==64)throw Error('API nativa incorrecta');
+        let denied=false;try{require('unbundled-package')}catch{denied=true}
+        if(!denied)throw Error('Se cargó una dependencia externa');
+        await(await api.transcribir(audio)).guardar();
+      };return module.exports;})()`,
+  };
+  const host = supervisor(state);
+  try {
+    await host.ready;
+    await host.run("processRecording", { recordingId: "r" }).result;
+    assert.equal(state.recordings[0].versions.length, 1);
+  } finally {
+    host.close();
+  }
+});

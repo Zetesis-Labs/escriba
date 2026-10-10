@@ -43,9 +43,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
-      - uses: denoland/setup-deno@v2
+      - uses: oven-sh/setup-bun@v2
         with:
-          deno-version: v2.6.9
+          bun-version-file: apps/tauri/runtime-host/bun-version
       - name: Aplicación Tauri, runtime aislado y SurrealDB
         run: |
           ./scripts/build-tauri.sh

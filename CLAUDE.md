@@ -64,15 +64,20 @@ conectores como plugins wasm se exploraron y se archivaron el 2026-10-06
 
 ## Desarrollo de Tauri
 
+- Excepción expresa a la paridad con Swift (Rubén, 2026-10-10): proyecto de
+  recetas TypeScript con dependencias npm y `dist/` como contrato de carga;
+  herramientas incluidas de instalación, tipos, pruebas y construcción, más
+  playground interno CodeMirror. Bun construye y ejecuta; TypeScript 7 nativo
+  en Go comprueba tipos. Las decisiones anteriores sobre JSC/esbuild WASM y
+  editor externo siguen describiendo los targets Swift. Véase
+  `docs/proyecto-recetas-tauri.md`.
 - La WebView solo muestra estado y envía acciones; Rust conserva y ejecuta los
   trabajos aunque se recargue o desaparezca la ventana.
 - SurrealDB guarda entidades, versiones, recibos y trabajos transaccionalmente.
   `library.json` y SQLite solo son entradas de migración, nunca almacenamiento
   de la aplicación nueva. La importación no altera el origen ni lee secretos.
-- Los programas TypeScript se ejecutan en procesos aislados. Hoy con Deno y
-  sus permisos denegados; Rubén decidió el 2026-10-09 pasarlos a **Bun** con un
-  perfil de sandbox de macOS por proceso (`docs/pendiente-tauri.md`, apartado
-  8). El controlador y cada receta tienen tuberías distintas; tokens, rutas y
+- Los programas TypeScript se ejecutan con **Bun** y un perfil de sandbox de
+  macOS por proceso (`apps/tauri/runtime-host/sandbox.sb`). El controlador y cada receta tienen tuberías distintas; tokens, rutas y
   bytes de audio permanecen en Rust.
 - El proceso nativo Swift expone inferencia y capacidades Apple concretas;
   las reglas de procesamiento y persistencia pertenecen a TypeScript/Rust.

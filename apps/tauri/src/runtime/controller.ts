@@ -159,6 +159,7 @@ export function createRuntime(
     options.builtinProgram,
   );
   let queue: Promise<unknown> = Promise.resolve();
+  let projectQueue: Promise<void> = Promise.resolve();
   let nativeOwner: { id: string } | undefined;
   let nativeCancellation: Promise<unknown> = Promise.resolve();
   function cancelNative(id: string) {
@@ -802,95 +803,99 @@ export function createRuntime(
       };
     },
     getRecipeSchema,
-    async rebuildProject() {
-      const snapshot = await readContext(host);
-      const built = object(await host.call("project_build"));
-      if (!Array.isArray(built.recipes))
-        throw Error("El proyecto no devolvió recetas");
-      const recipes: Recipe[] = built.recipes.map((raw) => {
-        const entry = object(raw);
-        const id = text(entry.id, "ID de receta");
-        return {
-          id,
-          name: text(entry.name, "nombre de receta"),
-          kind: "code",
-          values: snapshot.recipes.find((r) => r.id === id)?.values || {},
-          entry: text(entry.entry, "archivo de receta"),
-          bundle: text(entry.bundle, "programa de receta"),
-        };
-      });
-      const inspection = {
-        timeoutMs: 10000,
-        call: async () => {
-          throw Error("La inspección no tiene capacidades");
-        },
-      };
-      let destinations: Destination[] = [];
-      if (typeof built.connectorProgram === "string") {
-        const program = built.connectorProgram;
-        const inspected = object(
-          await runner.run(
-            { kind: "connector-inspect", program, payload: {} },
-            inspection,
-          ),
-        );
-        if (!Array.isArray(inspected.destinations))
-          throw Error("El proyecto no devolvió destinos");
-        destinations = inspected.destinations.map((raw) => {
-          const d = object(raw);
-          if (d.provider !== "notion" && d.provider !== "okf")
-            throw Error("Proveedor desconocido");
-          const id = text(d.id, "ID de destino");
-          const account = text(d.account, "cuenta del destino");
-          if (
-            !snapshot.accounts.some(
-              (a) => a.id === account && a.provider === d.provider,
-            )
-          )
-            throw Error(`Cuenta incompatible o inexistente: ${account}`);
+    rebuildProject(options: { loadOnly?: boolean } = {}) {
+      const rebuilding = projectQueue.then(async () => {
+        const snapshot = await readContext(host);
+        const built = object(await host.call(options.loadOnly ? "project_load" : "project_build"));
+        if (!Array.isArray(built.recipes))
+          throw Error("El proyecto no devolvió recetas");
+        const recipes: Recipe[] = built.recipes.map((raw) => {
+          const entry = object(raw);
+          const id = text(entry.id, "ID de receta");
           return {
             id,
-            name: text(d.name, "nombre del destino"),
-            provider: d.provider,
-            account,
-            enabled:
-              snapshot.destinations.find((previous) => previous.id === id)
-                ?.enabled ?? true,
-            configuration: jsonObject(d.configuration),
-            inputSchema: jsonObject(d.inputSchema || {}),
-            ...(typeof d.description === "string"
-              ? { description: d.description }
-              : {}),
-            program,
+            name: text(entry.name, "nombre de receta"),
+            kind: "code",
+            values: snapshot.recipes.find((r) => r.id === id)?.values || {},
+            entry: text(entry.entry, "archivo de receta"),
+            bundle: text(entry.bundle, "programa de receta"),
           };
         });
-      }
-      const catalog = {
-        ...snapshot,
-        recipes: [
-          ...snapshot.recipes.filter((r) => r.kind === "form"),
-          ...recipes,
-        ],
-        destinations,
-      };
-      for (const recipe of recipes) {
-        const inspected = object(
-          await runner.run(
-            {
-              kind: "recipe-inspect",
-              program: recipe.bundle,
-              payload: { lists: lists(catalog) },
-            },
-            inspection,
-          ),
-        );
-        recipe.schema = jsonObject(inspected.schema);
-        if (typeof inspected.name === "string" && inspected.name.trim())
-          recipe.name = inspected.name;
-        if (typeof inspected.description === "string")
-          recipe.description = inspected.description;
-      }
-      await host.call("project_install", { recipes, destinations });
+        const inspection = {
+          timeoutMs: 10000,
+          call: async () => {
+            throw Error("La inspección no tiene capacidades");
+          },
+        };
+        let destinations: Destination[] = [];
+        if (typeof built.connectorProgram === "string") {
+          const program = built.connectorProgram;
+          const inspected = object(
+            await runner.run(
+              { kind: "connector-inspect", program, payload: {} },
+              inspection,
+            ),
+          );
+          if (!Array.isArray(inspected.destinations))
+            throw Error("El proyecto no devolvió destinos");
+          destinations = inspected.destinations.map((raw) => {
+            const d = object(raw);
+            if (d.provider !== "notion" && d.provider !== "okf")
+              throw Error("Proveedor desconocido");
+            const id = text(d.id, "ID de destino");
+            const account = text(d.account, "cuenta del destino");
+            if (
+              !snapshot.accounts.some(
+                (a) => a.id === account && a.provider === d.provider,
+              )
+            )
+              throw Error(`Cuenta incompatible o inexistente: ${account}`);
+            return {
+              id,
+              name: text(d.name, "nombre del destino"),
+              provider: d.provider,
+              account,
+              enabled:
+                snapshot.destinations.find((previous) => previous.id === id)
+                  ?.enabled ?? true,
+              configuration: jsonObject(d.configuration),
+              inputSchema: jsonObject(d.inputSchema || {}),
+              ...(typeof d.description === "string"
+                ? { description: d.description }
+                : {}),
+              program,
+            };
+          });
+        }
+        const catalog = {
+          ...snapshot,
+          recipes: [
+            ...snapshot.recipes.filter((r) => r.kind === "form"),
+            ...recipes,
+          ],
+          destinations,
+        };
+        for (const recipe of recipes) {
+          const inspected = object(
+            await runner.run(
+              {
+                kind: "recipe-inspect",
+                program: recipe.bundle,
+                payload: { lists: lists(catalog) },
+              },
+              inspection,
+            ),
+          );
+          recipe.schema = jsonObject(inspected.schema);
+          if (typeof inspected.name === "string" && inspected.name.trim())
+            recipe.name = inspected.name;
+          if (typeof inspected.description === "string")
+            recipe.description = inspected.description;
+        }
+        await host.call("project_install", { recipes, destinations });
+      });
+      projectQueue = rebuilding.then(() => {}, () => {});
+      return rebuilding;
     },
   };
 }

@@ -66,7 +66,7 @@ Seguridad, sin excepciones:
 ```bash
 cd ~/Developer/_worktrees/escriba-tauri/apps/tauri
 npx tsc --noEmit -p .                      # tipos
-npx vitest run                             # tests TS (sidecar.test.ts falla si el Deno 2.1.9 va primero en el PATH; con el 2.6.9 de Homebrew pasa)
+npx vitest run --no-file-parallelism        # Bun de runtime-host/bun-version en PATH
 cd src-tauri && cargo test --lib && cargo clippy --all-targets && cargo fmt --check
 cd ~/Developer/_worktrees/escriba-tauri && ./scripts/build-tauri.sh --release
 export TOOLCHAINS=org.swift.640202609131a && swift test --filter EscribaNativeHostTests   # host nativo
@@ -507,7 +507,7 @@ conversión de publicaciones sobre lápidas y dos preparaciones de pruebas
 obsoletas. Las revisiones de requisitos y estándares quedaron sin hallazgos
 pendientes. Release instalada y abierta el 2026-10-10, firma estricta verificada
 y 983 archivos idénticos por SHA256 al bundle construido. Apartado pendiente de
-validación de Rubén; no se inicia el 8 todavía.
+validación de Rubén. El 2026-10-10 autorizó continuar con Bun (apartado 8).
 
 Rubén pidió quitar las asignaciones antiguas de Tauri, cuya procedencia no
 quedó registrada. Se eliminan una sola vez al actualizar, sin alterar qué
@@ -530,6 +530,35 @@ después de actualizar se conservan en los siguientes reinicios.
   ejemplo `notification_permission` y los ajustes `theme`, `language` y
   `autoProcess` como opciones de usuario), después de comprobar con `grep` que
   nada los llama.
+
+Ampliación expresa de Rubén el 2026-10-10: las recetas deben ser un proyecto
+TypeScript completo, con `package.json`, `node_modules` y un `dist/` autocontenido
+que sea lo que carga Escriba. La app debe incluir las herramientas de desarrollo
+necesarias: crear el proyecto, instalar dependencias, comprobar tipos, ejecutar
+pruebas y construir ese mismo `dist/` con su Bun incluido. Se admite construir
+fuera de Escriba; el contrato del artefacto es el mismo. Esta ampliación permite
+retirar el ejecutable esbuild del recorrido Tauri sin
+cambiar los targets Swift. La ejecución de recetas conserva el sandbox y las
+capacidades de Escriba. Rubén pidió además un editor interno tipo playground y
+eligió CodeMirror; el comprobador incluido será TypeScript 7 nativo en Go,
+siempre que no complique el flujo. Estas herramientas son una ampliación
+expresa a la paridad con Swift.
+
+Implementado y comprobado, pendiente de instalar y probar con Rubén: Bun 1.4.2 con sandbox por
+proceso, entorno limpio y supervisión de memoria residente; construcción y
+carga de `dist/`, herramientas incluidas, TypeScript 7.0.2 y editor CodeMirror.
+La protección de memoria observa 512 MiB cada 50 ms y puede sobrepasarlos entre
+muestras; no es una cuota estricta del heap. Las recetas y conectores siguen
+usando capacidades de Escriba. Contrato y límites en
+`docs/proyecto-recetas-tauri.md`. La limpieza general de Rust queda para el
+siguiente bloque, después de probar esta instalación.
+
+Verificación del 2026-10-10: 192 pruebas TypeScript y 197 Rust correctas, una
+inferencia real omitida; tipos, Clippy y formato correctos. Release construida
+y firmada; comprobados Bun y TypeScript desde el bundle. Instalación npm real
+probada dentro del perfil de desarrollo. Editor revisado en navegador con datos
+sintéticos y tamaño mínimo 960×640, incluido ⌘S; el control automatizado de
+ventanas nativas sigue fallando y no sustituye la prueba manual de Rubén.
 
 ## 9. Puertas 5 y 6: tamaño, empaquetado y documentación
 

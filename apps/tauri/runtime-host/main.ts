@@ -1,4 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
+import process from "node:process";
+import { createRequire, isBuiltin } from "node:module";
+import { buildProject } from "./project";
 import { createRuntime } from "../src/runtime/controller";
 import {
   createWorkerRunner,
@@ -16,18 +19,16 @@ function send(value: unknown) {
   const data = encoder.encode(`${JSON.stringify(value)}\n`);
   if (data.length - 1 > MAX_FRAME)
     return Promise.reject(Error("Trama de salida demasiado grande (límite 32 MiB)"));
-  writing = writing.then(async () => {
-    let offset = 0;
-    while (offset < data.length)
-      offset += await Deno.stdout.write(data.subarray(offset));
-  });
+  writing = writing.then(() => new Promise<void>((resolve, reject) => {
+    process.stdout.write(data, (error) => error ? reject(error) : resolve());
+  }));
   return writing;
 }
 async function* frames() {
   const decoder = new TextDecoder("utf-8", { fatal: true });
   let parts: Uint8Array[] = [];
   let size = 0;
-  for await (const bytes of Deno.stdin.readable) {
+  for await (const bytes of process.stdin) {
     let start = 0;
     for (let index = 0; index < bytes.length; index++) {
       if (bytes[index] !== 10) continue;
@@ -69,6 +70,15 @@ function identifier(value: unknown): ID {
   throw Error("ID de protocolo inválido");
 }
 async function workerProcess() {
+  const require = createRequire(import.meta.url);
+  Object.defineProperty(globalThis, "__escribaRequire", {
+    value: (specifier: string) => {
+      if (!isBuiltin(specifier)) throw Error(`Módulo no incluido en el paquete: ${specifier}`);
+      return require(specifier);
+    },
+    writable: false,
+    configurable: false,
+  });
   Object.defineProperty(globalThis, "postMessage", {
     value: (value: unknown) => {
       void send(value).catch(async (error) => {
@@ -213,7 +223,7 @@ async function main() {
       case "getRecipeSchema":
         return runtime.getRecipeSchema(text(args.recipeId, "receta"));
       case "rebuildProject":
-        return runtime.rebuildProject();
+        return runtime.rebuildProject({ loadOnly: args.loadOnly === true });
       default:
         throw Error(`Operación no permitida: ${operation}`);
     }
@@ -307,9 +317,15 @@ async function main() {
   await writing;
 }
 try {
-  if (Deno.args.includes("--worker")) await workerProcess();
+  const projectBuild = process.argv.indexOf("--project-build");
+  if (projectBuild >= 0) {
+    const root = process.argv[projectBuild + 1];
+    const vendor = process.argv[projectBuild + 2];
+    if (!root || !vendor) throw Error("Falta el proyecto o las dependencias incluidas");
+    await buildProject(root, vendor);
+  } else if (process.argv.includes("--worker")) await workerProcess();
   else await main();
 } catch (error) {
-  await Deno.stderr.write(encoder.encode(`${message(error)}\n`));
-  Deno.exitCode = 1;
+  process.stderr.write(`${message(error)}\n`);
+  process.exitCode = 1;
 }
