@@ -649,6 +649,23 @@ fn dispatch<'a>(
                     .map_err(|e| e.to_string())?
             }
             "project_list" => project::list(&project_path(state)?),
+            "project_open_vscode" => {
+                let path = project_path(state)?
+                    .canonicalize()
+                    .map_err(|_| "La carpeta del proyecto no existe o no se puede abrir")?;
+                if !path.is_dir() {
+                    return Err("La ruta del proyecto no es una carpeta".into());
+                }
+                let status = std::process::Command::new("/usr/bin/open")
+                    .args(["-b", "com.microsoft.VSCode"])
+                    .arg(path)
+                    .status()
+                    .map_err(|e| format!("No se pudo abrir VS Code: {e}"))?;
+                if !status.success() {
+                    return Err("No se pudo abrir VS Code. Comprueba que esté instalado".into());
+                }
+                Ok(Value::Null)
+            }
             "project_tool" => {
                 let _project_guard = state.project_lock.lock().await;
                 let path = project_path(state)?;

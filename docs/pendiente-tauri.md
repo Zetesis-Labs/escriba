@@ -582,6 +582,13 @@ formato y release correctos. App reinstalada con firma estricta y 1607 archivos
 verificados por SHA256. En la app instalada, `EscribaRecipes` aparece en el
 catálogo con su receta de código y «Construir» termina correctamente.
 
+Ajuste de interfaz pedido por Rubén: herramientas del playground encima del
+código y botón «Abrir en VS Code» para la carpeta completa. Conserva la consola
+al abrir el editor externo. Verificados el tamaño mínimo 960×640, tipos, 196
+pruebas TypeScript, Clippy y formato. Release instalada con firma y 1607 archivos
+verificados por SHA256; comprobados «Construir» y la apertura de `EscribaRecipes`
+en VS Code desde la app.
+
 ## 9. Puertas 5 y 6: tamaño, empaquetado y documentación
 
 - Perfil de release con `strip`, `lto` y `codegen-units = 1`, midiendo tamaño y
