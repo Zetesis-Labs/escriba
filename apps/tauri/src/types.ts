@@ -143,10 +143,8 @@ export interface Settings {
   watchedFolders: WatchedFolder[];
   language: string;
   whisperModel: string;
-  autoProcess: boolean;
   notifyEveryNote?: boolean;
   launchAtLogin: boolean;
-  theme: "system" | "light" | "dark";
 }
 export interface LogEntry {
   id: string;
@@ -204,6 +202,7 @@ export interface RuntimeHistory extends JobState {
   attempt: number;
   createdAt: number;
   error?: string | null;
+  errorCode?: string | null;
   nextAttemptAt?: number;
   args?: JSONObject;
 }
@@ -215,6 +214,7 @@ export interface RecipeTrace {
   startedAt: string;
   finishedAt: string;
   error?: string | null;
+  errorCode?: string | null;
   steps: {
     capability: string;
     origin?: string;

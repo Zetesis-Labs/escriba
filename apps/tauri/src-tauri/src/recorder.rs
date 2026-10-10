@@ -39,7 +39,9 @@ pub async fn start(
     let (path, recipe_name) = {
         let store = state.store()?;
         let name = recipe_id.as_deref().and_then(|id| {
-            store.data["recipes"]
+            store
+                .data
+                .recipes
                 .as_array()?
                 .iter()
                 .find(|recipe| recipe["id"] == id)
@@ -99,7 +101,9 @@ pub async fn cancel(app: &AppHandle, state: &Arc<Runtime>) -> Result<Value, Stri
             .map_err(|e| format!("No se pudo borrar la grabación descartada: {e}"))?;
     }
     changed(app, state);
-    cancelled.map(|_| Value::Null)
+    cancelled
+        .map(|_| Value::Null)
+        .map_err(|error| error.to_string())
 }
 
 pub fn dismiss(app: &AppHandle, state: &Runtime) {
@@ -108,7 +112,11 @@ pub fn dismiss(app: &AppHandle, state: &Runtime) {
 }
 
 async fn save(state: &Runtime, session: &Session) -> Result<Value, String> {
-    let reply = state.recorder.call("recordingStop", json!({})).await?;
+    let reply = state
+        .recorder
+        .call("recordingStop", json!({}))
+        .await
+        .map_err(|error| error.to_string())?;
     let path = PathBuf::from(text(&reply, "audioPath")?);
     let updated = {
         let mut store = state.store()?;

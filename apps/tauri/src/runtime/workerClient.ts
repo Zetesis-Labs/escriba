@@ -2,6 +2,8 @@ import {
   aborted,
   message,
   object,
+  errorCode,
+  protocolError,
   type RuntimeRunner,
   type WorkerTask,
   type WorkerContext,
@@ -69,7 +71,7 @@ export function createWorkerRunner(
               return;
             }
             if (value.type === "error") {
-              finish(Error(String(value.message)));
+              finish(protocolError(value));
               return;
             }
             if (
@@ -103,6 +105,7 @@ export function createWorkerRunner(
                   type: "reject",
                   id: value.id,
                   message: message(error),
+                  code: errorCode(error),
                 });
             } finally {
               pending.delete(value.id);

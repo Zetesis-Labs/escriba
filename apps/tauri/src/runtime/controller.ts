@@ -18,6 +18,8 @@ import {
   json,
   jsonObject,
   message,
+  errorCode,
+  RuntimeError,
   object,
   readContext,
   type RuntimeContext,
@@ -94,9 +96,7 @@ function recipeProgram(
 ): string | undefined {
   if (recipe.kind === "code") {
     if (!recipe.bundle)
-      throw Error(
-        `RECIPE_UNAVAILABLE: La receta ${recipe.name} no tiene un paquete válido`,
-      );
+      throw new RuntimeError(`La receta ${recipe.name} no tiene un paquete válido`, "recipe_unavailable");
     return recipe.bundle;
   }
   if (recipe.base) {
@@ -104,13 +104,9 @@ function recipeProgram(
       (r) => r.id === recipe.base || r.name === recipe.base,
     );
     if (!base)
-      throw Error(
-        `RECIPE_UNAVAILABLE: La receta base ${recipe.base} no está disponible`,
-      );
+      throw new RuntimeError(`La receta base ${recipe.base} no está disponible`, "recipe_unavailable");
     if (!base.bundle)
-      throw Error(
-        `RECIPE_UNAVAILABLE: La receta base ${base.name} no tiene un paquete válido`,
-      );
+      throw new RuntimeError(`La receta base ${base.name} no tiene un paquete válido`, "recipe_unavailable");
     return base.bundle;
   }
   return undefined;
@@ -237,9 +233,7 @@ export function createRuntime(
             recipe.id === requestedRecipe || recipe.name === requestedRecipe,
         )
       )
-        throw Error(
-          `RECIPE_UNAVAILABLE: La receta ${requestedRecipe} no está disponible`,
-        );
+        throw new RuntimeError(`La receta ${requestedRecipe} no está disponible`, "recipe_unavailable");
       const chosen = lookup(snapshot.recipes, requestedRecipe, "Receta");
       const fresh = processOptions.force ?? true;
       const renewed = new Set<string>();
@@ -254,6 +248,7 @@ export function createRuntime(
         error?: string;
       }[] = [];
       let traceError: string | undefined;
+      let traceErrorCode: ReturnType<typeof errorCode> | undefined;
       const warn = async (error: unknown, recipeId?: string) => {
         const value = message(error);
         warnings.push(value);
@@ -660,6 +655,7 @@ export function createRuntime(
         return { versionId: current.id };
       } catch (error) {
         traceError = message(error);
+        traceErrorCode = errorCode(error);
         if (!processOptions.dryRun)
           await host.call("recording_update", {
             id,
@@ -678,6 +674,7 @@ export function createRuntime(
             finishedAt: new Date().toISOString(),
             steps: traceSteps,
             error: traceError || null,
+            errorCode: traceErrorCode || null,
             result: current
               ? {
                   transcript: current.transcript,
@@ -688,9 +685,7 @@ export function createRuntime(
           });
         } catch (error) {
           if (traceError)
-            throw Error(
-              `${traceError} · No se pudo guardar la traza: ${message(error)}`,
-            );
+            throw new RuntimeError(`${traceError} · No se pudo guardar la traza: ${message(error)}`, traceErrorCode ?? "failed");
           throw error;
         }
       }

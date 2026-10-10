@@ -45,9 +45,9 @@ rechazo legible y conserva la sesión para el siguiente trabajo. Los errores al
 leer el protocolo conservan su causa en el error del trabajo.
 
 - Rust → host: `run {id,operation,args}`, `cancel {id}`.
-- Host → Rust: `result {id,value}`, `error {id,message}`.
+- Host → Rust: `result {id,value}`, `error {id,message,code}`.
 - Host → Rust: `call {id,method,params,taskId}`; respuestas `resolve {id,value}`
-  o `reject {id,message}`. `taskId` conserva el ID de ejecución incluso al
+  o `reject {id,message,code}`. `taskId` conserva el ID de ejecución incluso al
   responder capacidades de una receta.
 - Host → Rust: `event {event:"jobs",value:JobState[]}`.
 - Host → Rust: `worker_create {id,taskId}`, `worker_send {id,value}`,
@@ -61,6 +61,12 @@ sus mensajes al controlador, que valida cada operación en el contexto de la
 nota y cuenta autorizadas. Máximo ocho workers simultáneos. Rust debe terminar
 sus procesos al cerrar/reiniciar el host y aplicar el límite total del trabajo.
 El tiempo de espera de capacidades no consume el presupuesto CPU del adaptador.
+
+Los códigos `backend_unavailable`, `recipe_unavailable` y `runtime_unavailable`
+permiten reintentar; `microphone_denied` y `failed` conservan un fallo terminal.
+Un mensaje de error sin código conocido se trata como `failed`, aunque su texto
+contenga un marcador antiguo. Los rechazos de capacidades y de workers conservan
+el código hasta la cola duradera.
 
 El controlador consulta `runtime_context({recordingId?})`: catálogos, ajustes de
 procesamiento y únicamente la grabación solicitada con sus versiones y recibos.

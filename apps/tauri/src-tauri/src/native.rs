@@ -1,3 +1,4 @@
+use crate::error::{AppError, ErrorCode};
 use serde_json::{json, Value};
 use std::{
     path::{Path, PathBuf},
@@ -17,7 +18,7 @@ async fn exchange(
     method: &str,
     params: Value,
     on_progress: &mut impl FnMut(f64),
-) -> Result<Result<Value, String>, String> {
+) -> Result<Result<Value, AppError>, String> {
     let request_id = crate::store::id();
     let mut request = serde_json::to_vec(&json!({"id":request_id,"method":method,"params":params}))
         .map_err(|e| e.to_string())?;
@@ -61,13 +62,12 @@ async fn exchange(
             let message = error["message"]
                 .as_str()
                 .unwrap_or("Error del motor nativo");
-            return Ok(Err(if error["code"] == "backend_unavailable" {
-                format!("BACKEND_UNAVAILABLE: {message}")
-            } else if error["code"] == "microphone_denied" {
-                format!("MICROPHONE_DENIED: {message}")
-            } else {
-                message.to_owned()
-            }));
+            let code = match error["code"].as_str() {
+                Some("backend_unavailable") => ErrorCode::BackendUnavailable,
+                Some("microphone_denied") => ErrorCode::MicrophoneDenied,
+                _ => ErrorCode::Failed,
+            };
+            return Ok(Err(AppError::new(code, message)));
         }
         return Ok(Ok(response
             .get("result")
@@ -110,13 +110,13 @@ impl Native {
         audio: &Path,
         model: Value,
         mut params: Value,
-    ) -> Result<Value, String> {
+    ) -> Result<Value, AppError> {
         params["audioPath"] = json!(audio);
         params["model"] = model;
         self.call("transcribe", params).await
     }
 
-    pub async fn call(&self, method: &str, params: Value) -> Result<Value, String> {
+    pub async fn call(&self, method: &str, params: Value) -> Result<Value, AppError> {
         self.call_with_progress(method, params, |_| {}).await
     }
 
@@ -125,13 +125,13 @@ impl Native {
         method: &str,
         params: Value,
         mut on_progress: impl FnMut(f64) + Send,
-    ) -> Result<Value, String> {
+    ) -> Result<Value, AppError> {
         let mut slot = self.session.lock().await;
         if let Some(session) = slot.as_mut() {
             if session
                 .child
                 .try_wait()
-                .map_err(|e| e.to_string())?
+                .map_err(|e| AppError::new(ErrorCode::RuntimeUnavailable, e.to_string()))?
                 .is_some()
             {
                 *slot = None;
@@ -146,9 +146,12 @@ impl Native {
                 .kill_on_drop(true)
                 .spawn()
                 .map_err(|e| {
-                    format!(
-                        "No se pudo abrir el motor nativo ({}): {e}",
-                        self.path.display()
+                    AppError::new(
+                        ErrorCode::RuntimeUnavailable,
+                        format!(
+                            "No se pudo abrir el motor nativo ({}): {e}",
+                            self.path.display()
+                        ),
                     )
                 })?;
             self.pid.store(child.id().unwrap_or(0), Ordering::SeqCst);
@@ -172,9 +175,10 @@ impl Native {
             if !compatible {
                 let _ = session.child.kill().await;
                 self.pid.store(0, Ordering::SeqCst);
-                return Err(
-                    "Versión de protocolo nativo incompatible o motor no disponible".into(),
-                );
+                return Err(AppError::new(
+                    ErrorCode::RuntimeUnavailable,
+                    "Versión de protocolo nativo incompatible o motor no disponible",
+                ));
             }
             *slot = Some(session);
         }
@@ -196,8 +200,11 @@ impl Native {
                 }
                 self.pid.store(0, Ordering::SeqCst);
                 match other {
-                    Ok(Err(error)) => Err(error),
-                    Err(_) => Err(format!("El método nativo {method} superó su tiempo límite")),
+                    Ok(Err(error)) => Err(AppError::new(ErrorCode::RuntimeUnavailable, error)),
+                    Err(_) => Err(AppError::new(
+                        ErrorCode::RuntimeUnavailable,
+                        format!("El método nativo {method} superó su tiempo límite"),
+                    )),
                     _ => unreachable!(),
                 }
             }
@@ -311,7 +318,10 @@ done
         fs::set_permissions(&executable, fs::Permissions::from_mode(0o700)).unwrap();
         let native = Native::new(executable);
         let error = native.call("unknown", json!({})).await.unwrap_err();
-        assert!(error.contains("protocolo nativo incompatible"), "{error}");
+        assert!(
+            error.message.contains("protocolo nativo incompatible"),
+            "{error}"
+        );
     }
 
     #[tokio::test]
@@ -364,7 +374,7 @@ done
         );
         assert_eq!(
             native.call("unavailable", json!({})).await.unwrap_err(),
-            "BACKEND_UNAVAILABLE: modelo ausente"
+            AppError::new(ErrorCode::BackendUnavailable, "modelo ausente")
         );
     }
 

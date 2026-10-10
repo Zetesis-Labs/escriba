@@ -35,18 +35,14 @@ impl Status {
 }
 
 pub fn status(jobs: &[Value], unreadable: bool) -> Status {
-    let waiting = |marker: &str| {
-        jobs.iter().any(|job| {
-            job["state"] == "retry"
-                && job["error"]
-                    .as_str()
-                    .is_some_and(|error| error.contains(marker))
-        })
+    let waiting = |code: &str| {
+        jobs.iter()
+            .any(|job| job["state"] == "retry" && job["errorCode"] == code)
     };
-    if waiting("BACKEND_UNAVAILABLE:") {
+    if waiting("backend_unavailable") {
         return Status::Problem("el motor de transcripción no responde".into());
     }
-    if waiting("RECIPE_UNAVAILABLE:") {
+    if waiting("recipe_unavailable") {
         return Status::Problem("la receta por defecto no está disponible".into());
     }
     if unreadable {
@@ -102,7 +98,7 @@ fn current(state: &Runtime, previous: Option<&View>) -> Option<View> {
     let (jobs, count) = match state.store.try_lock() {
         Ok(store) => (
             store.jobs().unwrap_or_default(),
-            store.data["recordings"].as_array().map(Vec::len),
+            Some(store.data.recordings.len()),
         ),
         Err(_) => return previous.cloned(),
     };
@@ -406,8 +402,10 @@ mod tests {
     fn el_estado_sale_de_los_trabajos_y_las_carpetas() {
         let running = json!({"state":"running"});
         let queued = json!({"state":"queued"});
-        let engine = json!({"state":"retry","error":"BACKEND_UNAVAILABLE: modelo ausente"});
-        let recipe = json!({"state":"retry","error":"RECIPE_UNAVAILABLE: sin paquete"});
+        let engine =
+            json!({"state":"retry","error":"modelo ausente","errorCode":"backend_unavailable"});
+        let recipe =
+            json!({"state":"retry","error":"sin paquete","errorCode":"recipe_unavailable"});
         let done = json!({"state":"succeeded"});
         assert_eq!(status(&[], false), Status::Watching);
         assert_eq!(status(&[done], false), Status::Watching);

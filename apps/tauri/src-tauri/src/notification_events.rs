@@ -1,3 +1,4 @@
+use crate::error::{AppError, ErrorCode};
 use crate::notifications::{self, Notification, Problem};
 use serde::Deserialize;
 use serde_json::Value;
@@ -43,24 +44,29 @@ pub fn settings_changed(method: &str, params: &Value) -> bool {
 pub fn finished(
     job: &Value,
     recording: &Value,
-    result: Result<&Value, &str>,
+    result: Result<&Value, &AppError>,
     settings: &Value,
 ) -> Option<Notification> {
     if job["operation"] != "processRecording"
         || job["automatic"] != true
         || job["args"]["options"]["dryRun"] == true
-        || result == Err("Proceso cancelado")
+        || result
+            .as_ref()
+            .is_err_and(|error| error.message == "Proceso cancelado")
     {
         return None;
     }
     let key = job["recordingId"].as_str().unwrap_or("");
     if let Err(error) = result {
-        let problem = if let Some(reason) = error.strip_prefix("BACKEND_UNAVAILABLE:") {
-            Problem::BackendUnavailable(reason.trim_start())
-        } else if let Some(reason) = error.strip_prefix("RECIPE_UNAVAILABLE:") {
-            Problem::RecipeUnavailable(reason.trim_start())
+        let problem = if error.code == ErrorCode::BackendUnavailable {
+            Problem::BackendUnavailable(&error.message)
+        } else if error.code == ErrorCode::RecipeUnavailable {
+            Problem::RecipeUnavailable(&error.message)
         } else {
-            Problem::Failed { key, reason: error }
+            Problem::Failed {
+                key,
+                reason: &error.message,
+            }
         };
         return Some(notifications::notification(problem));
     }
@@ -112,17 +118,17 @@ mod tests {
         let job = json!({"operation":"processRecording","automatic":true,"recordingId":"nota","attempt":3});
         for (error, title, body) in [
             (
-                "BACKEND_UNAVAILABLE: Sin conexión",
+                AppError::new(ErrorCode::BackendUnavailable, "Sin conexión"),
                 "El motor de transcripción no responde",
                 "Sin conexión",
             ),
             (
-                "RECIPE_UNAVAILABLE: Falta el paquete",
+                AppError::new(ErrorCode::RecipeUnavailable, "Falta el paquete"),
                 "La receta por defecto no está disponible",
                 "Falta el paquete",
             ),
             (
-                "Audio ilegible",
+                AppError::new(ErrorCode::Failed, "Audio ilegible"),
                 "Fallo al transcribir nota",
                 "Audio ilegible",
             ),
@@ -130,7 +136,7 @@ mod tests {
             let notice = finished(
                 &job,
                 &json!({}),
-                Err(error),
+                Err(&error),
                 &json!({"notifyEveryNote":false}),
             )
             .unwrap();
@@ -159,7 +165,10 @@ mod tests {
             assert!(finished(
                 &job,
                 &recording,
-                Err("Sin conexión"),
+                Err(&AppError::new(
+                    ErrorCode::BackendUnavailable,
+                    "Sin conexión"
+                )),
                 &json!({"notifyEveryNote":false})
             )
             .is_none());
@@ -168,7 +177,7 @@ mod tests {
         assert!(finished(
             &automatic,
             &recording,
-            Err("Proceso cancelado"),
+            Err(&AppError::new(ErrorCode::Failed, "Proceso cancelado")),
             &json!({"notifyEveryNote":true})
         )
         .is_none());

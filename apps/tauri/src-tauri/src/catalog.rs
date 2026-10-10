@@ -9,7 +9,7 @@ pub fn install(store: &mut Store, package: &Value) -> Result<(), String> {
     let destinations = package["destinations"]
         .as_array()
         .ok_or("Destinos compilados inválidos")?;
-    let mut next = store.data.clone();
+    let mut next = store.data_json();
     let previous = next["recipes"]
         .as_array()
         .ok_or("Recetas inválidas")?
@@ -76,7 +76,9 @@ pub fn install(store: &mut Store, package: &Value) -> Result<(), String> {
         }
     }
     next["recipes"] = json!(recipes);
-    let mut destinations = store.data["destinations"]
+    let mut destinations = store
+        .data
+        .destinations
         .as_array()
         .ok_or("Destinos inválidos")?
         .iter()
@@ -85,7 +87,9 @@ pub fn install(store: &mut Store, package: &Value) -> Result<(), String> {
         .chain(destinations.iter().cloned())
         .collect::<Vec<_>>();
     for destination in &mut destinations {
-        if let Some(old) = store.data["destinations"]
+        if let Some(old) = store
+            .data
+            .destinations
             .as_array()
             .and_then(|items| items.iter().find(|r| r["id"] == destination["id"]))
         {
@@ -169,7 +173,7 @@ mod tests {
             "en"
         );
         assert_eq!(store.item("recipes", "custom").unwrap()["base"], "meeting");
-        assert_eq!(store.data["settings"]["defaultRecipeId"], "meeting");
+        assert_eq!(store.settings_json()["defaultRecipeId"], "meeting");
         assert!(store.item("recipes", "code:recetas:meeting").is_err());
         drop(store);
         let restored = Store::open(temp.path().into()).unwrap();
@@ -211,7 +215,7 @@ mod tests {
             store.item("destinations", "code").unwrap()["program"],
             "new"
         );
-        assert_eq!(store.data["destinations"].as_array().unwrap().len(), 2);
+        assert_eq!(store.data.destinations.as_array().unwrap().len(), 2);
     }
 
     #[test]

@@ -7,7 +7,7 @@ import {
   createWorkerRunner,
   type WorkerPort,
 } from "../src/runtime/workerClient";
-import { object, text, message } from "../src/runtime/contracts";
+import { object, text, message, errorCode, protocolError } from "../src/runtime/contracts";
 import type { NativeStatus, ProcessOptions } from "../src/types";
 declare const __WORKER_SOURCE__: string;
 declare const __BUILTIN_PROGRAM__: string;
@@ -239,7 +239,7 @@ async function main() {
         if (!waiter) continue;
         pending.delete(String(id));
         if (frame.type === "resolve") waiter.resolve(frame.value);
-        else waiter.reject(Error(String(frame.message)));
+        else waiter.reject(protocolError(frame));
         continue;
       }
       if (frame.type === "worker_message" || frame.type === "worker_error") {
@@ -289,7 +289,7 @@ async function main() {
           const result = await execute(operation, args);
           if (!closing) await send({ type: "result", id, value: result ?? null });
         } catch (error) {
-          if (!closing) await send({ type: "error", id, message: message(error) });
+          if (!closing) await send({ type: "error", id, message: message(error), code: errorCode(error) });
         } finally {
           running.delete(id);
         }
@@ -300,7 +300,7 @@ async function main() {
     closing = Error(`Canal de protocolo: ${message(error)}`);
     await Promise.all(
       [...running.keys()].map((id) =>
-        send({ type: "error", id, message: closing!.message }),
+        send({ type: "error", id, message: closing!.message, code: "runtime_unavailable" }),
       ),
     );
     throw error;

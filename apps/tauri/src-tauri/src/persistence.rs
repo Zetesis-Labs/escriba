@@ -303,22 +303,17 @@ impl Persistence {
     pub fn load(&self) -> Result<Option<Value>, String> {
         self.request(Command::Load)
     }
-    pub fn save(&self, before: &Value, after: &Value) -> Result<(), String> {
-        self.request(|reply| Command::Save(before.clone(), after.clone(), reply))
+    pub fn save(&self, before: Value, after: Value) -> Result<(), String> {
+        self.request(|reply| Command::Save(before, after, reply))
     }
     pub fn save_with_audio_deletions(
         &self,
-        before: &Value,
-        after: &Value,
+        before: Value,
+        after: Value,
         deletions: &[AudioDeletion],
     ) -> Result<(), String> {
         self.request(|reply| {
-            Command::SaveWithAudioDeletions(
-                before.clone(),
-                after.clone(),
-                deletions.to_vec(),
-                reply,
-            )
+            Command::SaveWithAudioDeletions(before, after, deletions.to_vec(), reply)
         })
     }
     pub fn pending_audio_deletions(&self) -> Result<Vec<AudioDeletion>, String> {
@@ -379,16 +374,16 @@ impl Persistence {
     }
     pub fn save_version(
         &self,
-        before: &Value,
-        after: &Value,
+        before: Value,
+        after: Value,
         id: &str,
         voices: &[SpeakerVoice],
         teaching: Option<Teaching>,
     ) -> Result<bool, String> {
         self.request(|reply| {
             Command::SaveVersion(
-                before.clone(),
-                after.clone(),
+                before,
+                after,
                 id.to_owned(),
                 voices.to_vec(),
                 teaching,
@@ -731,17 +726,18 @@ fn flatten(data: &Value) -> Result<BTreeMap<(String, String), Row>, String> {
             .enumerate()
         {
             let key = item["id"].as_str().ok_or(format!("{field} sin ID"))?;
-            let mut payload = item.clone();
-            if table == "recording" {
-                payload
-                    .as_object_mut()
-                    .ok_or("Grabación inválida")?
-                    .remove("versions");
-                payload
-                    .as_object_mut()
-                    .ok_or("Grabación inválida")?
-                    .remove("publications");
-            }
+            let payload = if table == "recording" {
+                Value::Object(
+                    item.as_object()
+                        .ok_or("Grabación inválida")?
+                        .iter()
+                        .filter(|(key, _)| !["versions", "publications"].contains(&key.as_str()))
+                        .map(|(key, value)| (key.clone(), value.clone()))
+                        .collect(),
+                )
+            } else {
+                item.clone()
+            };
             insert(
                 &mut output,
                 table,
