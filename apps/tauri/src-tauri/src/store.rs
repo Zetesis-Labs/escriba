@@ -30,6 +30,18 @@ pub fn text<'a>(v: &'a Value, key: &str) -> Result<&'a str, String> {
         .filter(|s| !s.is_empty())
         .ok_or_else(|| format!("Falta {key}"))
 }
+fn migrate_recipe_assignments(mut data: Value) -> Result<Value, String> {
+    if data["settings"]["recipeSelectionMigrated"] == true {
+        return Ok(data);
+    }
+    for record in data["recordings"].as_array_mut().ok_or("Biblioteca incompleta")? {
+        if record["status"] != "discarded" {
+            record["recipeId"] = Value::Null;
+        }
+    }
+    data["settings"]["recipeSelectionMigrated"] = json!(true);
+    Ok(data)
+}
 pub fn safe_id(s: &str) -> Result<&str, String> {
     if !s.is_empty()
         && s.len() < 200
@@ -269,6 +281,7 @@ impl Store {
         if data["schemaVersion"] != 1 {
             return Err("Versión de biblioteca incompatible".into());
         }
+        data = migrate_recipe_assignments(data)?;
         for record in data["recordings"]
             .as_array_mut()
             .ok_or("Biblioteca incompleta")?
@@ -3932,6 +3945,31 @@ mod tests {
         assert!(saved.exists());
         assert_eq!(store.audio(key).unwrap(), saved);
     }
+    #[test]
+    fn actualizar_olvida_recetas_antiguas_una_vez_y_conserva_elecciones_nuevas() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("library");
+        fs::create_dir_all(&root).unwrap();
+        let mut legacy = defaults();
+        legacy["recordings"] = json!([{
+            "id":"anterior", "source":"/synthetic/old.wav", "status":"done",
+            "recipeId":"receta-antigua", "publications":[],
+            "versions":[{"id":"version-anterior","recipeId":"receta-ejecutada","transcript":{"text":"ejemplo","segments":[]}}]
+        }]);
+        fs::write(root.join("library.json"), serde_json::to_vec(&legacy).unwrap()).unwrap();
+        let mut store = Store::open(root.clone()).unwrap();
+        let previous = store.recording("anterior").unwrap();
+        assert_eq!(previous["recipeId"], Value::Null);
+        assert_eq!(previous["versions"][0]["recipeId"], "receta-ejecutada");
+        let audio = dir.path().join("nueva.wav");
+        fs::write(&audio, b"eleccion nueva sintetica").unwrap();
+        let added = store.import(&audio, Some("elegida-despues")).unwrap();
+        drop(store);
+        let reopened = Store::open(root).unwrap();
+        assert_eq!(reopened.recording("anterior").unwrap()["recipeId"], Value::Null);
+        assert_eq!(reopened.recording(added["id"].as_str().unwrap()).unwrap()["recipeId"], "elegida-despues");
+    }
+
     #[test]
     fn rejects_second_instance_without_replacing_data() {
         let dir = tempfile::tempdir().unwrap();
