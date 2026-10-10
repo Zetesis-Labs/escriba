@@ -127,7 +127,9 @@
 .playground-tools {
   flex-wrap: wrap;
   padding-block: 6px;
-  border-top: 0.5px solid var(--separator);
+}
+.playground-external-editor {
+  margin-left: auto;
 }
 .playground-console {
   min-height: 100px;
@@ -135,6 +137,7 @@
   flex: 0 0 140px;
   overflow-y: auto;
   padding: 8px 12px;
+  border-top: 0.5px solid var(--separator);
   background: var(--fill);
   font-size: 12px;
 }

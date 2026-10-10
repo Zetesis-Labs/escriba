@@ -7,7 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { call } from "../api";
 import { dirtyProjectDrafts, projectCreateArgs, projectDraft, projectDrafts, projectFileTree, projectFileVisible, projectSaveArgs, unsavedProjectFiles, updateProjectDrafts, type ProjectFileNode, type ProjectDrafts } from "../core/projectDrafts";
 import { Button, ContentUnavailable, Spinner, TextField } from "../mac/controls";
-import { confirmDestructive, errorText } from "../mac/native";
+import { alertMessage, confirmDestructive, errorText } from "../mac/native";
 import "./playground.css";
 
 type Tool = "install" | "check" | "test";
@@ -238,6 +238,19 @@ export function Playground({ path, onClose, onBuilt }: {
       setWorking(null);
     }
   };
+  const openInVSCode = async () => {
+    if (busy.current) return;
+    busy.current = true;
+    setWorking("Abriendo VS Code");
+    try {
+      await call("project_open_vscode");
+    } catch (error) {
+      await alertMessage("No se pudo abrir VS Code", errorText(error));
+    } finally {
+      busy.current = false;
+      setWorking(null);
+    }
+  };
   const tree = useMemo(() => projectFileTree(files ?? []), [files]);
   const draft = selected ? projectDraft(drafts, selected) : undefined;
   const dirty = draft && draft.source !== draft.saved;
@@ -267,14 +280,17 @@ export function Playground({ path, onClose, onBuilt }: {
           <Button small onClick={() => selected && void reloadFile(selected)} disabled={!selected || !draft || Boolean(working)}>Recargar</Button>
           <Button small onClick={() => selected && void saveFile(selected)} disabled={!selected || !dirty || Boolean(working)}>Guardar</Button>
         </div>
-        <div className="playground-source">
-          {selected && draft && working !== "Recargando" ? <SourceEditor key={selected} entry={selected} source={draft.source} onChange={(source) => apply({ type: "edited", entry: selected, source })} onSave={() => void saveFile(selected)} /> : <ContentUnavailable title={selected ? "Cargando archivo" : "Elige un archivo"} icon={FileCode2} description="Los cambios se guardan con ⌘S o con Guardar." />}
-        </div>
-        <div className="playground-tools">
+        <div className="playground-tools" role="group" aria-label="Herramientas del proyecto">
           <Button small onClick={() => void runTool("install")} disabled={Boolean(working)}>Dependencias</Button>
           <Button small onClick={() => void runTool("check")} disabled={Boolean(working)}>Comprobar tipos</Button>
           <Button small onClick={() => void runTool("test")} disabled={Boolean(working)}>Pruebas</Button>
           <Button small prominent onClick={() => void runTool("build")} disabled={Boolean(working)}>Construir</Button>
+          <div className="playground-external-editor">
+            <Button small onClick={() => void openInVSCode()} disabled={Boolean(working)} title="Abre la carpeta del proyecto en Visual Studio Code">Abrir en VS Code</Button>
+          </div>
+        </div>
+        <div className="playground-source">
+          {selected && draft && working !== "Recargando" ? <SourceEditor key={selected} entry={selected} source={draft.source} onChange={(source) => apply({ type: "edited", entry: selected, source })} onSave={() => void saveFile(selected)} /> : <ContentUnavailable title={selected ? "Cargando archivo" : "Elige un archivo"} icon={FileCode2} description="Los cambios se guardan con ⌘S o con Guardar." />}
         </div>
         <div className="playground-console" aria-live="polite">
           <div className="font-caption secondary">Consola</div>

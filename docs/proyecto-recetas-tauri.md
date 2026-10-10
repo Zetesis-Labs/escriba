@@ -23,6 +23,11 @@ El playground incluye estas acciones:
 - **Construir:** Bun empaqueta las recetas y conectores en `dist/`; después Escriba
   inspecciona los programas y actualiza su catálogo.
 
+Las herramientas están encima del código. **Abrir en VS Code** abre la carpeta
+completa del proyecto en Visual Studio Code, si está instalado en el Mac; no
+requiere instalar el comando `code` en el terminal. La consola permanece debajo
+del editor.
+
 El editor ofrece sintaxis TypeScript y completado básico de CodeMirror. Los errores
 del comprobador aparecen en la consola; no se integra un servidor de lenguaje.
 No hace falta instalar Node, Bun, npm ni Go en el equipo. Go solo es el lenguaje
