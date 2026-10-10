@@ -74,6 +74,46 @@ test("reprocesado manual crea versión, automático reutiliza, cambio de idioma 
   assert.equal(m.calls.filter((c) => c.method === "transcribe").length, 2);
 });
 
+test("una nota sin receta propia usa el valor por defecto vigente en cada ejecución", async () => {
+  const m = memory();
+  m.state.recipes.push({ id: "new-default", name: "Nueva receta", kind: "form", values: {} });
+  const runtime = createRuntime(m.host, {
+    run: async (_, context) => {
+      await context.call("transcribe", {});
+      await context.call("save", {});
+      return null;
+    },
+  });
+
+  await runtime.processRecording("r");
+  m.state.settings.defaultRecipeId = "new-default";
+  await runtime.processRecording("r");
+
+  assert.equal(m.state.recordings[0].recipeId, undefined);
+  assert.deepEqual(m.state.recordings[0].versions.map((version) => version.recipeId), ["default", "new-default"]);
+  assert.deepEqual(m.calls.filter((call) => call.method === "trace_save").map((call) => call.params.recipeId), ["default", "new-default"]);
+});
+
+test("reprocesar con otra receta no cambia la elección de la nota", async () => {
+  const m = memory();
+  m.state.recipes.push({ id: "manual", name: "Manual", kind: "form", values: {} });
+  m.state.recipes.push({ id: "incorporada", name: "Incorporada", kind: "form", values: {} });
+  m.state.recordings[0].recipeId = "incorporada";
+  const runtime = createRuntime(m.host, {
+    run: async (_, context) => {
+      await context.call("transcribe", {});
+      await context.call("save", {});
+      return null;
+    },
+  });
+
+  await runtime.processRecording("r", { recipeId: "manual" });
+  await runtime.processRecording("r");
+
+  assert.equal(m.state.recordings[0].recipeId, "incorporada");
+  assert.deepEqual(m.state.recordings[0].versions.map((version) => version.recipeId), ["manual", "incorporada"]);
+});
+
 test.each(["form", "code"] as const)("los valores puntuales de una receta %s no pasan a la que llama con procesar", async (kind) => {
   const m = memory();
   m.state.recipes = [
