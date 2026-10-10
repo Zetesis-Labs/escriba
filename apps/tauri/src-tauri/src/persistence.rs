@@ -98,9 +98,36 @@ pub struct ImportedVoices {
     pub person_voices: Vec<ImportedPersonVoice>,
 }
 
+#[derive(Clone, Deserialize, Serialize)]
+pub struct AudioDeletion {
+    pub id: String,
+    pub path: String,
+    pub device: u64,
+    pub inode: u64,
+}
+
+impl AudioDeletion {
+    pub fn new(path: String, device: u64, inode: u64) -> Self {
+        Self {
+            id: Uuid::new_v4().to_string(),
+            path,
+            device,
+            inode,
+        }
+    }
+}
+
 enum Command {
     Load(mpsc::Sender<Result<Option<Value>, String>>),
     Save(Value, Value, mpsc::Sender<Result<(), String>>),
+    SaveWithAudioDeletions(
+        Value,
+        Value,
+        Vec<AudioDeletion>,
+        mpsc::Sender<Result<(), String>>,
+    ),
+    PendingAudioDeletions(mpsc::Sender<Result<Vec<AudioDeletion>, String>>),
+    CompleteAudioDeletion(String, mpsc::Sender<Result<(), String>>),
     Import(
         Value,
         Value,
@@ -182,6 +209,26 @@ impl Persistence {
                         }
                         Command::Save(before, after, reply) => {
                             let _ = reply.send(save(&db, &before, &after).await);
+                        }
+                        Command::SaveWithAudioDeletions(before, after, deletions, reply) => {
+                            let _ = reply.send(
+                                save_with_aux(
+                                    &db,
+                                    &before,
+                                    &after,
+                                    SaveExtras {
+                                        audio_deletions: &deletions,
+                                        ..SaveExtras::default()
+                                    },
+                                )
+                                .await,
+                            );
+                        }
+                        Command::PendingAudioDeletions(reply) => {
+                            let _ = reply.send(pending_audio_deletions(&db).await);
+                        }
+                        Command::CompleteAudioDeletion(id, reply) => {
+                            let _ = reply.send(complete_audio_deletion(&db, &id).await);
                         }
                         Command::Import(before, after, memories, traces, imported, reply) => {
                             let _ = reply.send(
@@ -318,6 +365,27 @@ impl Persistence {
     }
     pub fn save(&self, before: &Value, after: &Value) -> Result<(), String> {
         self.request(|reply| Command::Save(before.clone(), after.clone(), reply))
+    }
+    pub fn save_with_audio_deletions(
+        &self,
+        before: &Value,
+        after: &Value,
+        deletions: &[AudioDeletion],
+    ) -> Result<(), String> {
+        self.request(|reply| {
+            Command::SaveWithAudioDeletions(
+                before.clone(),
+                after.clone(),
+                deletions.to_vec(),
+                reply,
+            )
+        })
+    }
+    pub fn pending_audio_deletions(&self) -> Result<Vec<AudioDeletion>, String> {
+        self.request(Command::PendingAudioDeletions)
+    }
+    pub fn complete_audio_deletion(&self, id: &str) -> Result<(), String> {
+        self.request(|reply| Command::CompleteAudioDeletion(id.to_owned(), reply))
     }
     pub fn import(
         &self,
@@ -456,6 +524,7 @@ async fn connect(path: &Path) -> Result<Surreal<Db>, String> {
         "person",
         "person_voice",
         "voice",
+        "audio_deletion",
     ] {
         db.query(format!("DEFINE TABLE IF NOT EXISTS {table} SCHEMALESS"))
             .await
@@ -505,6 +574,7 @@ async fn connect(path: &Path) -> Result<Surreal<Db>, String> {
         "person",
         "person_voice",
         "voice",
+        "audio_deletion",
     ] {
         db.query(format!(
             "DEFINE FIELD OVERWRITE payload ON TABLE {table} TYPE object"
@@ -764,12 +834,12 @@ fn flatten(data: &Value) -> Result<BTreeMap<(String, String), Row>, String> {
                     ("version", "versions", "id"),
                     ("publication", "publications", "destinationId"),
                 ] {
-                    for (child_position, child) in item[field]
-                        .as_array()
-                        .ok_or(format!("{field} inválido"))?
-                        .iter()
-                        .enumerate()
-                    {
+                    let children = match item[field].as_array() {
+                        Some(children) => children.as_slice(),
+                        None if item["status"] == "discarded" => &[],
+                        None => return Err(format!("{field} inválido")),
+                    };
+                    for (child_position, child) in children.iter().enumerate() {
                         let id = child[id_field]
                             .as_str()
                             .ok_or(format!("{field} sin {id_field}"))?;
@@ -827,6 +897,7 @@ async fn save(db: &Surreal<Db>, before: &Value, after: &Value) -> Result<(), Str
 struct SaveExtras<'a> {
     memories: &'a [Value],
     traces: &'a [Value],
+    audio_deletions: &'a [AudioDeletion],
     version_voices: Option<(&'a str, &'a [SpeakerVoice])>,
     teaching: Option<&'a TeachingPlan>,
     imported: Option<&'a ImportedVoices>,
@@ -925,6 +996,13 @@ async fn save_with_aux(
                 .bind(("state", row.payload["state"].clone())).bind(("recordingId", row.payload["recordingId"].clone()))
                 .await.map_err(|e| e.to_string())?
                 .check().map_err(|e| e.to_string())?;
+            if table == "recording" && row.payload["status"] == "discarded" {
+                for child in ["memory", "trace", "job"] {
+                    tx.query("DELETE type::table($table) WHERE parent = $parent")
+                        .bind(("table", child)).bind(("parent", key.as_str()))
+                        .await.map_err(|e| e.to_string())?.check().map_err(|e| e.to_string())?;
+                }
+            }
         }
         for (table, key) in old.keys() {
             if new.contains_key(&(table.clone(), key.clone())) { continue; }
@@ -939,8 +1017,11 @@ async fn save_with_aux(
                 }
             }
             if table == "version" {
+                let version_id = old.get(&(table.clone(), key.clone()))
+                    .and_then(|row| row.payload["id"].as_str())
+                    .ok_or("Versión sin ID")?;
                 tx.query("DELETE type::table('voice') WHERE parent = $parent")
-                    .bind(("parent", key.as_str())).await.map_err(|e| e.to_string())?.check().map_err(|e| e.to_string())?;
+                    .bind(("parent", version_id)).await.map_err(|e| e.to_string())?.check().map_err(|e| e.to_string())?;
             }
         }
         if let Some((version_id, voices)) = extras.version_voices {
@@ -1016,6 +1097,15 @@ async fn save_with_aux(
                 .bind(("key", key)).bind(("parent", parent)).bind(("payload", payload))
                 .await.map_err(|e| e.to_string())?.check().map_err(|e| e.to_string())?;
         }
+        for deletion in extras.audio_deletions {
+            tx.query("UPSERT type::record('audio_deletion', $key) SET key = $key, parent = '', position = 0, payload = $payload")
+                .bind(("key", deletion.id.as_str()))
+                .bind(("payload", serde_json::to_value(deletion).map_err(|e| e.to_string())?))
+                .await
+                .map_err(|e| e.to_string())?
+                .check()
+                .map_err(|e| e.to_string())?;
+        }
         tx.query("UPSERT meta:initialized SET key = 'initialized', parent = '', position = 0, payload = '1'")
             .await.map_err(|e| e.to_string())?.check().map_err(|e| e.to_string())?;
         tx.query("UPSERT meta:schema SET key = 'schema', parent = '', position = 0, payload = '2'")
@@ -1032,6 +1122,31 @@ async fn save_with_aux(
             Err(error)
         }
     }
+}
+
+async fn pending_audio_deletions(db: &Surreal<Db>) -> Result<Vec<AudioDeletion>, String> {
+    rows(db, "audio_deletion")
+        .await?
+        .into_iter()
+        .map(|row| {
+            let deletion: AudioDeletion =
+                serde_json::from_value(row.payload).map_err(|e| e.to_string())?;
+            if deletion.id != row.key {
+                return Err("Cola de borrado de audio incoherente".into());
+            }
+            Ok(deletion)
+        })
+        .collect()
+}
+
+async fn complete_audio_deletion(db: &Surreal<Db>, id: &str) -> Result<(), String> {
+    db.query("DELETE type::record('audio_deletion', $key)")
+        .bind(("key", id))
+        .await
+        .map_err(|e| e.to_string())?
+        .check()
+        .map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 async fn jobs(db: &Surreal<Db>) -> Result<Vec<Value>, String> {

@@ -1,5 +1,5 @@
 use crate::migration;
-use crate::persistence::{Persistence, Teaching};
+use crate::persistence::{AudioDeletion, Persistence, Teaching};
 use crate::voices::{recognize, KnownVoice, SpeakerVoice};
 use chrono::Utc;
 use fs2::FileExt;
@@ -9,7 +9,7 @@ use std::{
     collections::HashMap,
     fs::{self, File, OpenOptions},
     io::{Read, Write},
-    os::unix::fs::{OpenOptionsExt, PermissionsExt},
+    os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt},
     path::{Path, PathBuf},
     time::SystemTime,
 };
@@ -30,11 +30,101 @@ pub fn text<'a>(v: &'a Value, key: &str) -> Result<&'a str, String> {
         .filter(|s| !s.is_empty())
         .ok_or_else(|| format!("Falta {key}"))
 }
+pub(crate) fn discarded_record(record: &Value) -> Result<Value, String> {
+    Ok(json!({
+        "id": text(record, "id")?,
+        "source": record["source"],
+        "sourceKey": record["sourceKey"],
+        "legacyKey": record["legacyKey"],
+        "status": "discarded",
+    }))
+}
+
+fn audio_copy_root(root: &Path) -> Result<PathBuf, String> {
+    let path = root.join("audio");
+    if !fs::symlink_metadata(&path)
+        .map_err(|e| e.to_string())?
+        .file_type()
+        .is_dir()
+    {
+        return Err("Carpeta de copias de audio inválida".into());
+    }
+    path.canonicalize().map_err(|e| e.to_string())
+}
+
+fn references_audio(data: &Value, copy: &Path) -> Result<bool, String> {
+    for record in data["recordings"]
+        .as_array()
+        .ok_or("Biblioteca incompleta")?
+    {
+        let paths = [
+            record["source"].as_str(),
+            (record["status"] != "discarded")
+                .then(|| record["audioPath"].as_str())
+                .flatten(),
+        ];
+        for path in paths.into_iter().flatten().filter(|path| !path.is_empty()) {
+            if Path::new(path) == copy {
+                return Ok(true);
+            }
+            match Path::new(path).canonicalize() {
+                Ok(real) if real == copy => return Ok(true),
+                Ok(_) => {}
+                Err(error)
+                    if copy
+                        .parent()
+                        .is_some_and(|root| Path::new(path).starts_with(root)) =>
+                {
+                    return Err(format!(
+                        "No se puede comprobar una referencia de audio: {error}"
+                    ));
+                }
+                Err(_) => {}
+            }
+        }
+    }
+    Ok(false)
+}
+
+fn audio_copy_to_delete(
+    root: &Path,
+    data: &Value,
+    path: &Path,
+) -> Result<Option<AudioDeletion>, String> {
+    let metadata = match fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(format!("No se puede comprobar el audio: {error}")),
+    };
+    if !metadata.file_type().is_file() {
+        return Err("La copia de audio no es un archivo normal".into());
+    }
+    let canonical = path
+        .canonicalize()
+        .map_err(|error| format!("No se puede comprobar el audio: {error}"))?;
+    if !canonical.starts_with(audio_copy_root(root)?) {
+        return Err("Audio fuera de la biblioteca".into());
+    }
+    if references_audio(data, &canonical)? {
+        return Ok(None);
+    }
+    Ok(Some(AudioDeletion::new(
+        canonical
+            .to_str()
+            .ok_or("Ruta de audio no UTF-8")?
+            .to_owned(),
+        metadata.dev(),
+        metadata.ino(),
+    )))
+}
 fn migrate_recipe_assignments(mut data: Value) -> Result<Value, String> {
     if data["settings"]["recipeSelectionMigrated"] == true {
         return Ok(data);
     }
-    for record in data["recordings"].as_array_mut().ok_or("Biblioteca incompleta")? {
+    for record in data["recordings"]
+        .as_array_mut()
+        .ok_or("Biblioteca incompleta")?
+    {
         if record["status"] != "discarded" {
             record["recipeId"] = Value::Null;
         }
@@ -137,6 +227,7 @@ pub struct Store {
     pub data: Value,
     database: Persistence,
     pending_voices: HashMap<String, Vec<SpeakerVoice>>,
+    audio_cleanup_enabled: bool,
     _lock: File,
 }
 
@@ -249,6 +340,9 @@ impl Store {
     }
 
     pub fn open(root: PathBuf) -> Result<Self, String> {
+        Self::open_with_audio_cleanup(root, true)
+    }
+    fn open_with_audio_cleanup(root: PathBuf, audio_cleanup_enabled: bool) -> Result<Self, String> {
         fs::create_dir_all(&root).map_err(|e| e.to_string())?;
         fs::set_permissions(&root, fs::Permissions::from_mode(0o700))
             .map_err(|e| format!("No se pudo proteger la biblioteca: {e}"))?;
@@ -282,11 +376,17 @@ impl Store {
             return Err("Versión de biblioteca incompatible".into());
         }
         data = migrate_recipe_assignments(data)?;
+        let mut discarded_audio = Vec::new();
         for record in data["recordings"]
             .as_array_mut()
             .ok_or("Biblioteca incompleta")?
         {
-            if record["status"] == "processing" {
+            if record["status"] == "discarded" {
+                if let Some(path) = record["audioPath"].as_str().filter(|path| !path.is_empty()) {
+                    discarded_audio.push(PathBuf::from(path));
+                }
+                *record = discarded_record(record)?;
+            } else if record["status"] == "processing" {
                 record["status"] = json!("pending");
                 record["error"] =
                     json!("El procesamiento se interrumpió al cerrar la app; se puede reanudar.");
@@ -298,16 +398,66 @@ impl Store {
             fs::set_permissions(&path, fs::Permissions::from_mode(0o700))
                 .map_err(|e| format!("No se pudo proteger {}: {e}", path.display()))?;
         }
+        let discarded_audio = discarded_audio
+            .iter()
+            .map(|path| audio_copy_to_delete(&root, &data, path))
+            .collect::<Result<Vec<_>, _>>()?
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>();
         let previous = stored.unwrap_or_else(|| json!({"schemaVersion":1,"recordings":[],"accounts":[],"resolvers":[],"recipes":[],"destinations":[],"logs":[],"settings":{}}));
-        database.save(&previous, &data)?;
+        database.save_with_audio_deletions(&previous, &data, &discarded_audio)?;
         let store = Self {
             root,
             data,
             database,
             pending_voices: HashMap::new(),
+            audio_cleanup_enabled,
             _lock: lock,
         };
+        store.drain_audio_deletions()?;
         Ok(store)
+    }
+    fn drain_audio_deletions(&self) -> Result<(), String> {
+        if !self.audio_cleanup_enabled {
+            return Ok(());
+        }
+        let audio_root = audio_copy_root(&self.root)?;
+        for deletion in self.database.pending_audio_deletions()? {
+            let path = Path::new(&deletion.path);
+            let metadata = match fs::symlink_metadata(path) {
+                Ok(metadata) => metadata,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    self.database.complete_audio_deletion(&deletion.id)?;
+                    continue;
+                }
+                Err(error) => {
+                    return Err(format!("No se puede comprobar el audio pendiente: {error}"))
+                }
+            };
+            if !metadata.file_type().is_file() {
+                return Err("La copia pendiente no es un archivo normal".into());
+            }
+            if metadata.dev() != deletion.device || metadata.ino() != deletion.inode {
+                return Err("La copia de audio pendiente cambió desde el descarte".into());
+            }
+            let canonical = path
+                .canonicalize()
+                .map_err(|error| format!("No se puede comprobar el audio pendiente: {error}"))?;
+            if canonical != path || !canonical.starts_with(&audio_root) {
+                return Err("La copia pendiente está fuera de la biblioteca".into());
+            }
+            if references_audio(&self.data, &canonical)? {
+                return Err("Otra grabación conserva la copia de audio pendiente".into());
+            }
+            match fs::remove_file(path) {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => return Err(format!("No se pudo borrar el audio local: {error}")),
+            }
+            self.database.complete_audio_deletion(&deletion.id)?;
+        }
+        Ok(())
     }
     fn persist(&self, data: &Value) -> Result<(), String> {
         self.database.save(&self.data, data)
@@ -324,6 +474,7 @@ impl Store {
         self.database.jobs()
     }
     pub fn job_save(&mut self, job: &Value) -> Result<(), String> {
+        self.recording_for_write(text(job, "recordingId")?)?;
         self.database.save_job(job)
     }
     #[cfg(test)]
@@ -339,7 +490,7 @@ impl Store {
         if fingerprint.is_empty() {
             return Err("Falta la huella de memoria".into());
         }
-        let record = self.recording(recording_id)?;
+        let record = self.recording_for_write(recording_id)?;
         if !record["versions"]
             .as_array()
             .is_some_and(|versions| versions.iter().any(|version| version["id"] == version_id))
@@ -371,7 +522,7 @@ impl Store {
         )
     }
     pub fn trace_save(&mut self, trace: &Value) -> Result<(), String> {
-        self.recording(text(trace, "recordingId")?)?;
+        self.recording_for_write(text(trace, "recordingId")?)?;
         let mut trace = trace.clone();
         if trace["id"].as_str().is_none_or(str::is_empty) {
             trace["id"] = json!(id());
@@ -413,7 +564,7 @@ impl Store {
         recording_id: &str,
         mut transcript: Value,
     ) -> Result<Value, String> {
-        self.recording(recording_id)?;
+        self.recording_for_write(recording_id)?;
         self.pending_voices.remove(recording_id);
         let raw_voices = transcript
             .as_object_mut()
@@ -835,6 +986,14 @@ impl Store {
             .cloned()
             .ok_or_else(|| "Grabación no encontrada".into())
     }
+    fn recording_for_write(&self, record_id: &str) -> Result<Value, String> {
+        let record = self.recording(record_id)?;
+        if record["status"] == "discarded" {
+            Err("La grabación está descartada".into())
+        } else {
+            Ok(record)
+        }
+    }
     pub fn item(&self, collection: &str, item_id: &str) -> Result<Value, String> {
         self.data[collection]
             .as_array()
@@ -1117,11 +1276,24 @@ impl Store {
                                 && record["source"] == source_text.as_ref()
                         })
                     })
+                    .or_else(|| {
+                        records.iter().find(|record| {
+                            record["status"] == "discarded"
+                                && record["source"] == source_text.as_ref()
+                        })
+                    })
                     .cloned()
             })
         } else {
             None
         };
+        if let Some(discarded) = prior
+            .as_ref()
+            .filter(|record| record["status"] == "discarded")
+        {
+            fs::remove_file(&temp).map_err(|e| e.to_string())?;
+            return Ok(discarded.clone());
+        }
         let abandoned = self.data["recordings"].as_array().and_then(|records| {
             records
                 .iter()
@@ -1289,8 +1461,18 @@ impl Store {
         Ok(record)
     }
     pub fn mutate(&mut self, method: &str, p: &Value) -> Result<Value, String> {
+        let guarded = match method {
+            "recording_update" | "recording_remove_audio" => Some(text(p, "id")?),
+            "version_save" | "version_select" | "version_update" | "publication_save"
+            | "publication_remove" => Some(text(p, "recordingId")?),
+            _ => None,
+        };
+        if let Some(recording_id) = guarded {
+            self.recording_for_write(recording_id)?;
+        }
         let mut next = self.data.clone();
         let mut delete_after_commit: Option<PathBuf> = None;
+        let mut audio_to_delete = Vec::new();
         let mut voice_save: Option<(String, String, Vec<SpeakerVoice>, Option<Teaching>)> = None;
         let mut result = match method {
             "recording_update" => {
@@ -1336,11 +1518,25 @@ impl Store {
                     record
                 }
             }
-            "recording_discard" | "recording_restore" => {
+            "recording_discard" => {
+                let key = text(p, "id")?;
+                let prior = self.recording(key)?;
+                let r = record_mut(&mut next, key)?;
+                *r = discarded_record(r)?;
+                let result = r.clone();
+                if let Some(path) = prior["audioPath"].as_str().filter(|path| !path.is_empty()) {
+                    if let Some(copy) = audio_copy_to_delete(&self.root, &next, Path::new(path))? {
+                        audio_to_delete.push(copy);
+                    }
+                }
+                result
+            }
+            "recording_restore" => {
                 let r = record_mut(&mut next, text(p, "id")?)?;
-                r["status"] = json!(if method == "recording_discard" {
-                    "discarded"
-                } else if r["versions"].as_array().is_some_and(|a| !a.is_empty()) {
+                if r["status"] == "discarded" {
+                    return Err("La grabación descartada ya no tiene audio".into());
+                }
+                r["status"] = json!(if r["versions"].as_array().is_some_and(|a| !a.is_empty()) {
                     "done"
                 } else {
                     "pending"
@@ -1651,8 +1847,16 @@ impl Store {
             if report_learning {
                 result["learnedVoice"] = json!(learned);
             }
+        } else if method == "recording_discard" {
+            self.database
+                .save_with_audio_deletions(&self.data, &next, &audio_to_delete)?;
+            self.data = next;
         } else {
             self.replace(next)?;
+        }
+        if method == "recording_discard" {
+            self.pending_voices.remove(text(p, "id")?);
+            self.drain_audio_deletions()?;
         }
         if let Some(path) = delete_after_commit {
             match fs::remove_file(path) {
@@ -2866,6 +3070,452 @@ mod tests {
         assert_eq!(again["status"], "discarded");
         assert_eq!(store.snapshot()["recordings"].as_array().unwrap().len(), 1);
     }
+
+    #[test]
+    fn borrar_de_biblioteca_deja_solo_identidad_y_borra_contenido_y_copia() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("library");
+        let source = dir.path().join("captura.wav");
+        fs::write(&source, b"audio sintetico privado").unwrap();
+        let mut store = Store::open(root.clone()).unwrap();
+        let record = store.import(&source, None).unwrap();
+        let key = record["id"].as_str().unwrap().to_owned();
+        let copy = store.audio(&key).unwrap();
+        store
+            .mutate(
+                "version_save",
+                &json!({
+                    "recordingId":key,
+                    "transcript":{"text":"transcripción privada","segments":[]},
+                    "digest":{"title":"título privado","summary":"resumen privado"},
+                    "data":{"detalle":"dato privado"}
+                }),
+            )
+            .unwrap();
+
+        let discarded = store
+            .mutate("recording_discard", &json!({"id":key}))
+            .unwrap();
+        let tombstone = json!({
+            "id":key,"source":source,"sourceKey":null,"legacyKey":null,"status":"discarded"
+        });
+        assert_eq!(discarded, tombstone);
+        assert!(!copy.exists());
+        assert!(source.exists());
+        drop(store);
+
+        let reopened = Store::open(root).unwrap();
+        assert_eq!(reopened.recording(&key).unwrap(), tombstone);
+    }
+
+    #[test]
+    fn descartar_guarda_borrado_pendiente_y_reintenta_tras_caida() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("library");
+        let source = dir.path().join("original.wav");
+        fs::write(&source, b"audio sintetico").unwrap();
+        let mut store = Store::open_with_audio_cleanup(root.clone(), false).unwrap();
+        let record = store.import(&source, None).unwrap();
+        let id = record["id"].as_str().unwrap();
+        let copy = store.audio(id).unwrap();
+        store
+            .mutate("recording_discard", &json!({"id":id}))
+            .unwrap();
+        assert_eq!(
+            store.recording(id).unwrap(),
+            discarded_record(&record).unwrap()
+        );
+        assert!(copy.exists());
+        assert_eq!(store.database.pending_audio_deletions().unwrap().len(), 1);
+        assert!(!store
+            .snapshot()
+            .to_string()
+            .contains(copy.to_str().unwrap()));
+        drop(store);
+        let reopened = Store::open(root).unwrap();
+        assert!(!copy.exists());
+        assert!(source.exists());
+        assert!(reopened
+            .database
+            .pending_audio_deletions()
+            .unwrap()
+            .is_empty());
+        assert_eq!(
+            reopened.recording(id).unwrap(),
+            discarded_record(&record).unwrap()
+        );
+    }
+
+    #[test]
+    fn arranque_guarda_el_borrado_de_audio_antes_de_limpiar_lapida_antigua() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("library");
+        let source = dir.path().join("original.wav");
+        fs::write(&source, b"audio sintetico").unwrap();
+        let mut store = Store::open(root.clone()).unwrap();
+        let record = store.import(&source, None).unwrap();
+        let id = record["id"].as_str().unwrap();
+        let copy = store.audio(id).unwrap();
+        let mut legacy = store.data.clone();
+        legacy["recordings"][0]["status"] = json!("discarded");
+        store.replace(legacy).unwrap();
+        drop(store);
+        let interrupted = Store::open_with_audio_cleanup(root.clone(), false).unwrap();
+        assert_eq!(
+            interrupted.recording(id).unwrap(),
+            discarded_record(&record).unwrap()
+        );
+        assert!(copy.exists());
+        assert_eq!(
+            interrupted
+                .database
+                .pending_audio_deletions()
+                .unwrap()
+                .len(),
+            1
+        );
+        drop(interrupted);
+        let reopened = Store::open(root).unwrap();
+        assert!(!copy.exists());
+        assert!(source.exists());
+        assert!(reopened
+            .database
+            .pending_audio_deletions()
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn borrado_pendiente_ausente_se_da_por_completado_al_abrir() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("library");
+        let source = dir.path().join("original.wav");
+        fs::write(&source, b"audio sintetico").unwrap();
+        let mut store = Store::open_with_audio_cleanup(root.clone(), false).unwrap();
+        let record = store.import(&source, None).unwrap();
+        let copy = store.audio(record["id"].as_str().unwrap()).unwrap();
+        store
+            .mutate("recording_discard", &json!({"id":record["id"]}))
+            .unwrap();
+        fs::remove_file(&copy).unwrap();
+        drop(store);
+        let reopened = Store::open(root).unwrap();
+        assert!(reopened
+            .database
+            .pending_audio_deletions()
+            .unwrap()
+            .is_empty());
+        assert!(source.exists());
+    }
+
+    #[test]
+    fn borrado_pendiente_no_sigue_enlace_a_original_fuera_de_audio() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("library");
+        let source = dir.path().join("original.wav");
+        fs::write(&source, b"audio sintetico").unwrap();
+        let mut store = Store::open_with_audio_cleanup(root.clone(), false).unwrap();
+        let record = store.import(&source, None).unwrap();
+        let copy = store.audio(record["id"].as_str().unwrap()).unwrap();
+        store
+            .mutate("recording_discard", &json!({"id":record["id"]}))
+            .unwrap();
+        fs::remove_file(&copy).unwrap();
+        std::os::unix::fs::symlink(&source, &copy).unwrap();
+        drop(store);
+        assert!(Store::open(root.clone()).is_err());
+        assert!(Store::open(root.clone()).is_err());
+        assert_eq!(fs::read(&source).unwrap(), b"audio sintetico");
+        fs::remove_file(copy).unwrap();
+        let reopened = Store::open(root).unwrap();
+        assert!(reopened
+            .database
+            .pending_audio_deletions()
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn borrado_pendiente_no_borra_otro_archivo_que_ocupa_la_misma_ruta() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("library");
+        let source = dir.path().join("original.wav");
+        fs::write(&source, b"audio sintetico").unwrap();
+        let mut store = Store::open_with_audio_cleanup(root.clone(), false).unwrap();
+        let record = store.import(&source, None).unwrap();
+        let copy = store.audio(record["id"].as_str().unwrap()).unwrap();
+        store
+            .mutate("recording_discard", &json!({"id":record["id"]}))
+            .unwrap();
+        fs::remove_file(&copy).unwrap();
+        fs::write(&copy, b"otro audio sintetico").unwrap();
+        drop(store);
+        assert!(Store::open(root.clone()).is_err());
+        assert_eq!(fs::read(&copy).unwrap(), b"otro audio sintetico");
+        fs::remove_file(copy).unwrap();
+        let reopened = Store::open(root).unwrap();
+        assert!(reopened
+            .database
+            .pending_audio_deletions()
+            .unwrap()
+            .is_empty());
+        assert!(source.exists());
+    }
+
+    #[test]
+    fn origen_externo_no_comprobable_no_bloquea_borrado_de_copia_local() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("library");
+        let source = dir.path().join("original.wav");
+        let other = dir.path().join("other.wav");
+        let not_a_directory = dir.path().join("archivo");
+        fs::write(&source, b"audio uno").unwrap();
+        fs::write(&other, b"audio dos").unwrap();
+        fs::write(&not_a_directory, b"no es carpeta").unwrap();
+        let mut store = Store::open(root).unwrap();
+        let first = store.import(&source, None).unwrap();
+        let second = store.import(&other, None).unwrap();
+        let copy = store.audio(first["id"].as_str().unwrap()).unwrap();
+        let mut changed = store.data.clone();
+        let records = changed["recordings"].as_array_mut().unwrap();
+        records
+            .iter_mut()
+            .find(|record| record["id"] == second["id"])
+            .unwrap()["source"] = json!(not_a_directory.join("child.wav"));
+        store.replace(changed).unwrap();
+        store
+            .mutate("recording_discard", &json!({"id":first["id"]}))
+            .unwrap();
+        assert!(!copy.exists());
+        assert!(source.exists());
+        assert!(other.exists());
+    }
+
+    #[test]
+    fn descarte_no_borra_original_ajeno_ni_copia_compartida_activa() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("library");
+        let source = dir.path().join("original.wav");
+        let other = dir.path().join("other.wav");
+        fs::write(&source, b"audio uno").unwrap();
+        fs::write(&other, b"audio dos").unwrap();
+        let mut store = Store::open(root).unwrap();
+        let first = store.import(&source, None).unwrap();
+        let second = store.import(&other, None).unwrap();
+        let copy = store.audio(first["id"].as_str().unwrap()).unwrap();
+        let mut changed = store.data.clone();
+        let records = changed["recordings"].as_array_mut().unwrap();
+        records
+            .iter_mut()
+            .find(|record| record["id"] == second["id"])
+            .unwrap()["audioPath"] = json!(copy);
+        store.replace(changed).unwrap();
+        store
+            .mutate("recording_discard", &json!({"id":first["id"]}))
+            .unwrap();
+        assert!(copy.exists());
+        assert!(store.database.pending_audio_deletions().unwrap().is_empty());
+
+        let mut changed = store.data.clone();
+        let records = changed["recordings"].as_array_mut().unwrap();
+        records
+            .iter_mut()
+            .find(|record| record["id"] == second["id"])
+            .unwrap()["audioPath"] = json!(source);
+        store.replace(changed).unwrap();
+        assert!(store
+            .mutate("recording_discard", &json!({"id":second["id"]}))
+            .is_err());
+        assert!(source.exists());
+        assert_eq!(
+            store.recording(second["id"].as_str().unwrap()).unwrap()["status"],
+            "pending"
+        );
+    }
+
+    #[test]
+    fn arranque_normaliza_descartados_antiguos_y_retira_su_copia_de_audio() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("library");
+        let source = dir.path().join("captura.wav");
+        fs::write(&source, b"audio sintetico privado").unwrap();
+        let mut store = Store::open(root.clone()).unwrap();
+        let first = store.import(&source, None).unwrap();
+        let key = first["id"].as_str().unwrap().to_owned();
+        let copy = store.audio(&key).unwrap();
+        let mut legacy = store.data.clone();
+        legacy["recordings"][0]["status"] = json!("discarded");
+        store.replace(legacy).unwrap();
+        drop(store);
+
+        let reopened = Store::open(root).unwrap();
+
+        assert_eq!(
+            reopened.recording(&key).unwrap(),
+            discarded_record(&first).unwrap()
+        );
+        assert!(!copy.exists());
+        assert!(source.exists());
+    }
+
+    #[test]
+    fn borrar_limpia_memoria_traza_trabajo_y_huella_de_version_sin_olvidar_persona() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("captura.wav");
+        fs::write(&source, b"audio sintetico").unwrap();
+        let mut store = Store::open(dir.path().join("library")).unwrap();
+        let key = store.import(&source, None).unwrap()["id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let voice = SpeakerVoice {
+            speaker: "Hablante".into(),
+            model: "modelo-sintetico".into(),
+            embedding: vec![1.0, 0.0],
+        };
+        let transcript = store.recognize_transcription(&key, json!({
+            "text":"texto privado","segments":[],"voices":[{"speaker":"Hablante","model":"modelo-sintetico","embedding":[1.0,0.0]}]
+        })).unwrap();
+        let version = store
+            .mutate(
+                "version_save",
+                &json!({"recordingId":key,"transcript":transcript}),
+            )
+            .unwrap();
+        let version_id = version["id"].as_str().unwrap();
+        assert_eq!(store.version_voices(version_id).unwrap().len(), 1);
+        store
+            .memory_keep(
+                &key,
+                version_id,
+                "huella-sintetica",
+                &json!({"value":"recuerdo privado"}),
+            )
+            .unwrap();
+        let memory_key = json!([key, version_id, "huella-sintetica"]).to_string();
+        store.trace_save(&json!({"id":"traza","recordingId":key,"startedAt":"2026-10-10","detail":"privado"})).unwrap();
+        store
+            .job_save(&json!({"id":"trabajo","recordingId":key,"state":"cancelled"}))
+            .unwrap();
+        store.add_person_voice("Persona", &voice, &key).unwrap();
+
+        store
+            .mutate("recording_discard", &json!({"id":key}))
+            .unwrap();
+
+        assert!(store.version_voices(version_id).unwrap().is_empty());
+        assert!(store.database.recall(&memory_key).unwrap().is_none());
+        assert!(store.trace_list(Some(&key)).unwrap().is_empty());
+        assert!(store.jobs().unwrap().is_empty());
+        assert_eq!(store.people().unwrap()[0]["name"], "Persona");
+    }
+
+    #[test]
+    fn vigilancia_no_resucita_una_lapida_aunque_cambie_el_audio() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("nota.m4a");
+        fs::write(&source, b"primera version sintetica").unwrap();
+        let mut store = Store::open(dir.path().join("library")).unwrap();
+        let first = store
+            .import_with_metadata(
+                &source,
+                None,
+                "Nota",
+                SystemTime::now(),
+                "voiceMemos:folder/42",
+            )
+            .unwrap();
+        let key = first["id"].as_str().unwrap();
+        let tombstone = store
+            .mutate("recording_discard", &json!({"id":key}))
+            .unwrap();
+
+        fs::write(&source, b"segunda version sintetica").unwrap();
+        let scanned = store
+            .import_with_metadata(
+                &source,
+                None,
+                "Título posterior",
+                SystemTime::now(),
+                "voiceMemos:folder/42",
+            )
+            .unwrap();
+
+        assert_eq!(scanned, tombstone);
+        assert_eq!(store.recording(key).unwrap(), tombstone);
+        assert!(store.jobs().unwrap().is_empty());
+    }
+
+    #[test]
+    fn vigilancia_reconoce_por_origen_la_lapida_de_una_importacion_manual() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("nota.m4a");
+        fs::write(&source, b"audio sintetico").unwrap();
+        let mut store = Store::open(dir.path().join("library")).unwrap();
+        let first = store.import(&source, None).unwrap();
+        let tombstone = store
+            .mutate("recording_discard", &json!({"id":first["id"]}))
+            .unwrap();
+
+        let watched = store
+            .import_with_metadata(
+                &source,
+                None,
+                "Nota vigilada",
+                SystemTime::now(),
+                "voiceMemos:folder/42",
+            )
+            .unwrap();
+
+        assert_eq!(watched, tombstone);
+        assert_eq!(store.data["recordings"].as_array().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn respuestas_tardias_no_escriben_sobre_una_grabacion_descartada() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("nota.wav");
+        fs::write(&source, b"audio sintetico").unwrap();
+        let mut store = Store::open(dir.path().join("library")).unwrap();
+        let key = store.import(&source, None).unwrap()["id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let tombstone = store
+            .mutate("recording_discard", &json!({"id":key}))
+            .unwrap();
+
+        assert!(store
+            .mutate("recording_update", &json!({"id":key,"status":"done"}))
+            .is_err());
+        assert!(store
+            .mutate(
+                "version_save",
+                &json!({"recordingId":key,"transcript":{"text":"tarde","segments":[]}})
+            )
+            .is_err());
+        assert!(store
+            .mutate(
+                "publication_save",
+                &json!({"recordingId":key,"destinationId":"d","receipt":{}})
+            )
+            .is_err());
+        assert!(store
+            .trace_save(&json!({"recordingId":key,"detail":"tarde"}))
+            .is_err());
+        assert!(store
+            .job_save(&json!({"id":"tarde","recordingId":key,"state":"queued"}))
+            .is_err());
+        assert!(store
+            .recognize_transcription(&key, json!({"text":"tarde","segments":[],"voices":[]}))
+            .is_err());
+        assert!(store
+            .mutate("recording_restore", &json!({"id":key}))
+            .is_err());
+        assert_eq!(store.recording(&key).unwrap(), tombstone);
+        assert!(store.jobs().unwrap().is_empty());
+        assert!(store.trace_list(Some(&key)).unwrap().is_empty());
+    }
     #[test]
     fn watched_voice_memo_rename_and_revision_keep_identity_and_versions() {
         let dir = tempfile::tempdir().unwrap();
@@ -3640,11 +4290,14 @@ mod tests {
         );
     }
     #[test]
-    fn jobs_survive_restart_independently_of_snapshot_changes() {
+    fn trabajos_sobreviven_al_reinicio_y_a_cambios_de_la_biblioteca() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().join("library");
         let mut store = Store::open(root.clone()).unwrap();
-        let job = json!({"id":"job-1","recordingId":"recording-1","state":"queued","stage":"Transcribiendo","attempt":2});
+        let audio = dir.path().join("sample.wav");
+        fs::write(&audio, b"synthetic audio").unwrap();
+        let recording = store.import(&audio, None).unwrap();
+        let job = json!({"id":"job-1","recordingId":recording["id"],"state":"queued","stage":"Transcribiendo","attempt":2});
         store.job_save(&job).unwrap();
         store
             .mutate("log", &json!({"message":"other change"}))
@@ -3956,7 +4609,11 @@ mod tests {
             "recipeId":"receta-antigua", "publications":[],
             "versions":[{"id":"version-anterior","recipeId":"receta-ejecutada","transcript":{"text":"ejemplo","segments":[]}}]
         }]);
-        fs::write(root.join("library.json"), serde_json::to_vec(&legacy).unwrap()).unwrap();
+        fs::write(
+            root.join("library.json"),
+            serde_json::to_vec(&legacy).unwrap(),
+        )
+        .unwrap();
         let mut store = Store::open(root.clone()).unwrap();
         let previous = store.recording("anterior").unwrap();
         assert_eq!(previous["recipeId"], Value::Null);
@@ -3966,8 +4623,14 @@ mod tests {
         let added = store.import(&audio, Some("elegida-despues")).unwrap();
         drop(store);
         let reopened = Store::open(root).unwrap();
-        assert_eq!(reopened.recording("anterior").unwrap()["recipeId"], Value::Null);
-        assert_eq!(reopened.recording(added["id"].as_str().unwrap()).unwrap()["recipeId"], "elegida-despues");
+        assert_eq!(
+            reopened.recording("anterior").unwrap()["recipeId"],
+            Value::Null
+        );
+        assert_eq!(
+            reopened.recording(added["id"].as_str().unwrap()).unwrap()["recipeId"],
+            "elegida-despues"
+        );
     }
 
     #[test]
