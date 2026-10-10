@@ -34,6 +34,7 @@ import { reusableTranscription, transcriptionCriteriaKey } from "../core/transcr
 import { notificationProblems } from "../core/notificationProblems";
 import { recipeWithValues } from "../core/recipeValues";
 import { processingRecipeId } from "../core/recordingRecipe";
+import { manualSummaryReading, manualSummaryResolver } from "../core/manualSummary";
 function lookup<T extends { id: string; name: string }>(
   values: T[],
   id: string,
@@ -700,20 +701,23 @@ export function createRuntime(
       const recording = snapshot.recordings.find((r) => r.id === id);
       if (!recording) throw Error("Grabación no encontrada");
       const version = currentVersion(recording);
-      const resolver = selected(snapshot, "llm", llm);
+      const reading = manualSummaryReading(snapshot.settings.defaultRecipeId, snapshot.recipes);
+      const resolver = manualSummaryResolver(snapshot.resolvers, llm ?? reading.llm);
+      if (!resolver) throw Error("No hay resolutor llm disponible");
       stage(id, "Resumiendo");
       const owner = { id };
       nativeOwner = owner;
       let digest: Digest;
       try {
         digest = await summarizeText(
-          summaryMemory(host, id, version.id, { resolver }, signal),
+          host,
           version.transcript.text,
           resolver.id,
           {
             signal,
             capacity: resolver.local ? 3500 : 6000,
-            language: snapshot.settings.language,
+            language: reading.language,
+            prompt: reading.prompt,
           },
         );
       } finally {

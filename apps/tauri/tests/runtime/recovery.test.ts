@@ -528,6 +528,109 @@ test("resumen local de 4000 caracteres se trocea antes de reducir a un resumen f
   assert.ok(prompts[0].length <= 3500);
   assert.match(prompts[2], /Integra estos resúmenes/);
 });
+
+test("Rehacer pide un resumen nuevo y lee el formulario por defecto vigente", async () => {
+  const m = memory();
+  m.state.recordings[0].versions.push({
+    id: "v1", createdAt: "now", backend: "local-stt", transcript: { text: "Una nota", segments: [] },
+  });
+  m.state.resolvers.push({ id: "remote-llm", name: "Remoto", role: "llm", local: false, enabled: true });
+  m.state.recipes[0].values = { llm: "remote-llm", idioma: "en", prompt: "Tres frases" };
+  m.state.recipes.push({ id: "code", name: "Código", kind: "code", values: { llm: "remote-llm", idioma: "en", prompt: "Ignorar" } });
+  const requests: Record<string, unknown>[] = [];
+  const runtime = createRuntime({
+    call: async (method, params = {}) => {
+      if (method === "memory_recall") throw Error("Rehacer no debe leer el resumen memorizado");
+      if (method === "summarize") {
+        requests.push(params);
+        return { title: "Nota", summary: `Resumen ${requests.length}`, tags: [] };
+      }
+      return m.host.call(method, params);
+    },
+  }, { run: async () => null });
+
+  await runtime.summarizeRecording("r");
+  await runtime.summarizeRecording("r");
+  m.state.settings.defaultRecipeId = "code";
+  await runtime.summarizeRecording("r");
+
+  assert.deepEqual(requests.map((request) => request.resolverId), ["remote-llm", "remote-llm", "local-llm"]);
+  assert.match(String(requests[0].instructions), /Tres frases\nIdioma de la respuesta: en/);
+  assert.match(String(requests[2].instructions), /Resume la grabación con fidelidad/);
+  assert.match(String(requests[2].instructions), /Idioma de la respuesta: es/);
+  assert.equal(m.state.recordings[0].versions[0].digest?.summary, "Resumen 3");
+});
+
+test("un LLM guardado que ya no existe vuelve al local para el resumen manual", async () => {
+  const m = memory();
+  m.state.recordings[0].versions.push({
+    id: "v1", createdAt: "now", backend: "local-stt", transcript: { text: "Una nota", segments: [] },
+  });
+  m.state.recipes[0].values = { llm: "borrado" };
+  const requests: string[] = [];
+  const runtime = createRuntime({
+    call: async (method, params = {}) => {
+      if (method === "summarize") {
+        requests.push(String(params.resolverId));
+        return { title: "Nota", summary: "Resumen", tags: [] };
+      }
+      return m.host.call(method, params);
+    },
+  }, { run: async () => null });
+
+  await runtime.summarizeRecording("r");
+  assert.deepEqual(requests, ["local-llm"]);
+});
+
+test("Rehacer conserva la versión inicial si se elige otra mientras resume", async () => {
+  const m = memory();
+  const recording = m.state.recordings[0];
+  recording.versions.push(
+    { id: "v1", createdAt: "antes", backend: "local-stt", transcript: { text: "Primera", segments: [] } },
+    { id: "v2", createdAt: "después", backend: "local-stt", transcript: { text: "Segunda", segments: [] } },
+  );
+  recording.currentVersionId = "v1";
+  const runtime = createRuntime({
+    call: async (method, params = {}) => {
+      if (method === "summarize") {
+        recording.currentVersionId = "v2";
+        return { title: "Primera", summary: "Resumen nuevo", tags: [] };
+      }
+      return m.host.call(method, params);
+    },
+  }, { run: async () => null });
+
+  await runtime.summarizeRecording("r");
+  assert.equal(recording.currentVersionId, "v2");
+  assert.equal(recording.versions[0].digest?.summary, "Resumen nuevo");
+  assert.equal(recording.versions[1].digest, undefined);
+  assert.deepEqual(m.calls.filter((call) => call.method === "version_update").map((call) => call.params.versionId), ["v1"]);
+});
+
+test("un fallo del LLM elegido no recurre al local ni reemplaza el resumen anterior", async () => {
+  const m = memory();
+  m.state.recordings[0].versions.push({
+    id: "v1", createdAt: "now", backend: "local-stt", transcript: { text: "Una nota", segments: [] },
+    digest: { title: "Anterior", summary: "Conservar", tags: [] },
+  });
+  m.state.resolvers.push({ id: "remote-llm", name: "Remoto", role: "llm", local: false, enabled: true });
+  m.state.recipes[0].values = { llm: "remote-llm" };
+  const requests: string[] = [];
+  const runtime = createRuntime({
+    call: async (method, params = {}) => {
+      if (method === "summarize") {
+        requests.push(String(params.resolverId));
+        throw Error("LLM no disponible");
+      }
+      return m.host.call(method, params);
+    },
+  }, { run: async () => null });
+
+  await assert.rejects(runtime.summarizeRecording("r"), /LLM no disponible/);
+  assert.deepEqual(requests, ["remote-llm"]);
+  assert.equal(m.state.recordings[0].versions[0].digest?.summary, "Conservar");
+  assert.equal(m.calls.filter((call) => call.method === "version_update").length, 0);
+});
 test("recuperación recuerda preguntas y resumen ya calculados sin repetir peticiones al modelo", async () => {
   const m = memory();
   const cache = new Map<string, unknown>();
