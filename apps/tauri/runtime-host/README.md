@@ -12,13 +12,27 @@ node apps/tauri/runtime-host/build.mjs \
   aarch64-apple-darwin
 ```
 
-Requiere dependencias npm ya instaladas y Deno en el entorno de desarrollo.
-`buildRuntime({output,deno,target})` también se exporta para el preparador de la
-app. Esbuild incluye el SDK, Zod, el controlador, el adaptador y el programa de
-conectores. Deno compila un único ejecutable con permisos read/write/net/env/run/
-ffi/sys/import denegados, sin configuración, npm ni módulos remotos. La primera
-compilación puede descargar `denort`; la aplicación resultante no necesita Deno,
-Node, npm ni descargas de código.
+Requiere dependencias npm instaladas y la versión de Bun fijada en
+`bun-version`. `buildRuntime({output,bun,target})` incluye el SDK, Zod, el
+controlador y los programas de workers/conectores en un ejecutable autónomo.
+Desactiva la carga de `.env` y `bunfig.toml` y la instalación automática de
+imports. El binario se firma antes de probarlo y se vuelve a firmar al
+empaquetar la app. El usuario final no necesita instalar Bun, Node ni npm.
+
+La construcción de la app usa esbuild como dependencia de desarrollo. El
+ejecutable distribuido construye los proyectos de recetas con `Bun.build` y
+produce `dist/escriba.json` y los paquetes JavaScript. No se distribuye otro
+ejecutable de esbuild. El cargador solo lee `dist/`: las fuentes y
+`node_modules` son necesarios para construirlo, no para ejecutarlo.
+
+El modo `--project-build` tiene un sandbox de desarrollo separado: puede leer
+el proyecto y las dependencias incluidas, y escribir dentro del proyecto.
+`project_tool` expone instalación sin scripts de ciclo de vida, comprobación
+con TypeScript 7.0.2 nativo en Go y pruebas con Bun. Solo la instalación permite
+red. Esos procesos no reciben capacidades de notas ni credenciales. El editor
+CodeMirror llama a estas operaciones; no ejecuta código en la WebView.
+El [contrato del proyecto](../../../docs/proyecto-recetas-tauri.md) describe
+el artefacto, las herramientas y sus límites.
 
 ## Protocolo v1
 
@@ -65,24 +79,26 @@ lo aplica a la receta elegida: las recetas llamadas con `procesar` usan sus
 propios valores. `getRecipeSchema` devuelve `null` cuando una receta de código
 no exporta `buildRecipeForm`.
 
-## Investigación y decisión
+## Aislamiento
 
-Los permisos de Deno se incorporan al binario durante `compile`; no se conceden
-permisos en producción. [Documentación oficial de compilación](https://docs.deno.com/runtime/reference/cli/compile/).
+Rust inicia el controlador y cada worker mediante `/usr/bin/sandbox-exec`, con
+el perfil incluido en `sandbox.sb`, entorno vacío y directorio `/`. El perfil
+parte de `deny default`; permite leer el propio ejecutable y las bibliotecas de
+macOS y sus datos ICU de `/usr/share/icu`, pero deniega archivos del usuario,
+escritura, red y nuevos procesos.
+Las APIs de Bun/Node siguen existiendo: la restricción la impone macOS.
 
-Deno permite reducir permisos de Web Workers, pero esto no separa sus canales
-estándar del proceso. [API oficial de Workers](https://docs.deno.com/examples/web_workers/).
-La prueba local con Deno **2.6.9** y todos los permisos denegados confirmó que un
-Worker puede usar `Deno.stdin/stdout` y `import('node:process').stdout`. Ocultar
-el objeto global no elimina esa segunda vía. Por ello las recetas usan procesos
-separados: nunca comparten el canal de capacidades del controlador. La misma
-prueba comprobó que Workers `blob:` no cargaban en el binario 2.6.9; no dependemos
-de ese mecanismo.
+Cada receta tiene sus propias tuberías. Escribir una trama falsa en stdout no
+permite acceder al canal privilegiado del controlador: este valida los mensajes
+del worker y Rust valida las capacidades y la vigencia del trabajo. Los errores
+de arranque conservan hasta 2 KiB de diagnóstico; stderr de las recetas se drena
+sin publicarlo ni guardarlo.
 
-Los permisos niegan acceso a archivos, red, variables, subprocesos y bibliotecas
-nativas. [Modelo de seguridad oficial](https://docs.deno.com/runtime/fundamentals/security/).
-El aislamiento de procesos añade separación de canales; los límites de memoria
-y la duración total corresponden al supervisor Rust.
+El perfil se ha probado en macOS 26 con Bun 1.4.2. `sandbox-exec` está obsoleto en
+los manuales de Apple y requiere repetir las pruebas al cambiar de macOS/Bun.
+Un fallo del sandbox impide el arranque, sin ejecución alternativa desprotegida.
+Fuentes y pruebas de compatibilidad en
+[la investigación de Bun](../../../docs/investigacion-bun-sandbox.md).
 
 ## Evidencia
 
@@ -90,10 +106,14 @@ y la duración total corresponden al supervisor Rust.
 falso por tuberías: guarda antes de resumir, reinicia sin repetir transcripción,
 cancela una receta CPU, comprueba denegación de archivos/red y rechaza una
 capacidad falsificada mediante stdout del proceso de receta. Usa solo fixtures,
-archivos temporales y ningún servicio real.
+archivos temporales y un servidor local sintético. Comprueba también que
+`node:child_process` y `Bun.spawnSync` no pueden relanzar el propio ejecutable.
 
 Las pruebas Rust de `scripts` ejercitan el ejecutable compilado con una
 biblioteca sintética mayor de 32 MiB y comprueban que puede procesar una nota.
+Otra prueba compila un proyecto con una dependencia local de `node_modules`
+y ejecuta su receta hasta guardar una versión. La prueba de memoria usa el
+supervisor Rust real; el arnés TypeScript no simula ese supervisor.
 `Store::runtime_context` se valida con SurrealKV, conservando versiones y recibos
 de la nota elegida y excluyendo datos ajenos.
 
@@ -124,13 +144,16 @@ AVFoundation siguen en el proceso nativo.
 
 ## Límites verificados
 
-El compilador incorpora `--v8-flags=--max-old-space-size=512`, opción reconocida
-por la ayuda de Deno 2.6.9 y la
-[referencia oficial de compile](https://docs.deno.com/runtime/reference/cli/compile/).
-Una prueba con una receta que retiene arrays hasta agotar el heap confirma que
-termina solo el proceso de receta y que el controlador sigue respondiendo.
-El límite de old-space no equivale a un límite de RSS: buffers externos y el
-propio runtime pueden ocupar memoria adicional.
+Rust mide la memoria residente de cada worker cada 50 ms mediante
+`proc_pidinfo` y termina el proceso si observa más de 512 MiB. Comprueba su
+identidad para evitar actuar sobre un PID reutilizado; si no puede vigilarlo,
+la ejecución falla. La prueba sintética retiene memoria hasta superar el límite
+y verifica que el controlador sigue respondiendo.
+
+Es un límite operativo: puede haber exceso entre muestras. No equivale al
+antiguo límite de old-space de V8 ni a una cuota estricta del heap. Las opciones
+de heap de Bun 1.4.2 no impusieron un tope en las pruebas; no se usan como
+protección.
 
 Recetas y conectores tienen diez segundos acumulados de ejecución entre
 capacidades, igual que el límite predeterminado de JavaScriptCore anterior.
@@ -139,26 +162,6 @@ terminar las capacidades pendientes. La inferencia lenta no consume ese
 presupuesto; dividir el trabajo en varios RPC tampoco lo reinicia. El
 supervisor aplica además el límite total y termina todos los procesos hijos.
 
-## Revisión de entrega
-
-Revisado el trabajo frente a `b106d0c4bdd3730160710247729264b0aab3bcf7`, `CLAUDE.md`,
-`RecipeSession`, `NoteMemory` y las instrucciones de migración autorizadas.
-
-- Estándares: sin `as any`, sin nuevos permisos o servicios implícitos; UI,
-  controlador, transporte y almacenamiento mantienen interfaces independientes.
-- Especificación: corregidos límites demasiado amplios, memoria compatible y
-  liberación de RPC pendientes al cancelar. Los waits de capacidades y el
-  presupuesto activo acumulado tienen pruebas públicas.
-- Fallos silenciosos: los diálogos de importación ahora usan la misma ruta de
-  errores visible; fallar al guardar la traza conserva el error original; un
-  fallo de cancelación no envenena permanentemente la cola. Los catches vacíos
-  de cola liberan el turno después de entregar el error al llamador; el catch de
-  logs del worker aplaza la propagación hasta `Promise.all(logs)`.
-- Pruebas críticas: permisos y falsificación de canal, recibos y recuperación,
-  reuso compatible y validación antes de cachear, cancelación sin respuesta,
-  agotamiento de heap y continuidad del controlador. La presentación visual
-  y las notificaciones nativas corresponden a la comprobación de app integrada.
-
 ## Comprobación de tipos del host
 
 ```sh
@@ -166,15 +169,7 @@ cd apps/tauri
 npm run typecheck:runtime
 ```
 
-Este gate comprueba `runtime-host/main.ts` y sus imports TypeScript originales,
-no el JavaScript de esbuild. `typecheck.mjs` obtiene las declaraciones oficiales
-mediante `deno types`, las guarda temporalmente bajo `.build/typecheck` y ejecuta
-el TypeScript instalado por el proyecto con una configuración separada. Hereda
-los aliases existentes y los tipos Node instalados para `AsyncLocalStorage`.
-No agrega dependencias, no instala paquetes y no necesita acceso a la red.
-Las declaraciones corresponden al mismo ejecutable Deno usado al compilar.
-
-Se usa este gate separado porque `deno check` 2.6.9 en modo npm manual no resuelve
-`npm:@types/node` desde esta configuración anidada aunque los tipos ya estén
-instalados en `apps/tauri/node_modules`. `deno compile --no-check` sigue siendo
-solo el empaquetador: CI debe ejecutar este gate antes de compilar/publicar.
+Comprueba `runtime-host/main.ts` y sus imports originales con el TypeScript y
+los tipos Node ya instalados en el proyecto. La configuración temporal hereda
+los aliases de la app. Es independiente del empaquetado de Bun; no instala
+paquetes ni necesita red.

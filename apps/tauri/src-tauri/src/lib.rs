@@ -55,7 +55,8 @@ struct Runtime {
     menubar: Mutex<menubar::Bar>,
     quitting: AtomicBool,
     vendor: PathBuf,
-    compiler: PathBuf,
+    project_runtime: PathBuf,
+    project_lock: tokio::sync::Mutex<()>,
     startup: Mutex<Startup>,
 }
 
@@ -618,31 +619,64 @@ fn dispatch<'a>(
                 )
             }
             "project_init" => {
+                let _project_guard = state.project_lock.lock().await;
                 let path = PathBuf::from(text(&p, "path")?);
                 let accounts = {
                     let store = state.store()?;
                     project_accounts(&store.data["accounts"], &store.data["destinations"])?
                 };
-                project::initialize(&path, &accounts, &state.vendor)?;
+                let has_dist =
+                    project::initialize(&path, &accounts, &state.vendor, &state.project_runtime)?;
                 state
                     .store()?
                     .mutate("settings_save", &json!({"settings":{"projectPath":path}}))?;
-                Ok(Value::Null)
+                Ok(json!({"hasDist":has_dist}))
             }
             "project_build" => {
+                let _project_guard = state.project_lock.lock().await;
                 let path = project_path(state)?;
-                let compiler = state.compiler.clone();
+                let runtime = state.project_runtime.clone();
                 let vendor = state.vendor.clone();
-                tokio::task::spawn_blocking(move || project::build(&path, &compiler, &vendor))
+                tokio::task::spawn_blocking(move || project::build(&path, &runtime, &vendor))
+                    .await
+                    .map_err(|e| e.to_string())?
+            }
+            "project_load" => {
+                let _project_guard = state.project_lock.lock().await;
+                let path = project_path(state)?;
+                tokio::task::spawn_blocking(move || project::load(&path))
+                    .await
+                    .map_err(|e| e.to_string())?
+            }
+            "project_list" => project::list(&project_path(state)?),
+            "project_tool" => {
+                let _project_guard = state.project_lock.lock().await;
+                let path = project_path(state)?;
+                let runtime = state.project_runtime.clone();
+                let vendor = state.vendor.clone();
+                let tool = text(&p, "tool")?.to_owned();
+                tokio::task::spawn_blocking(move || project::tool(&path, &runtime, &vendor, &tool))
                     .await
                     .map_err(|e| e.to_string())?
             }
             "project_read" => project::read(&project_path(state)?, text(&p, "entry")?),
             "project_write" => {
-                project::write(
+                let _project_guard = state.project_lock.lock().await;
+                let expected = p
+                    .get("expectedSource")
+                    .map(|value| value.as_str().ok_or("expectedSource debe ser texto"))
+                    .transpose()?;
+                let create_new = p
+                    .get("createNew")
+                    .map(|value| value.as_bool().ok_or("createNew debe ser booleano"))
+                    .transpose()?
+                    .unwrap_or(false);
+                project::write_checked(
                     &project_path(state)?,
                     text(&p, "entry")?,
                     p["source"].as_str().ok_or("Falta el código")?,
+                    expected,
+                    create_new,
                 )?;
                 Ok(Value::Null)
             }
@@ -1309,7 +1343,8 @@ fn start_jobs(app: tauri::AppHandle, state: Arc<Runtime>) {
 }
 fn start_project_watcher(app: tauri::AppHandle, state: Arc<Runtime>) {
     tauri::async_runtime::spawn(async move {
-        let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel::<()>();
+        let (sender, mut receiver) =
+            tokio::sync::mpsc::unbounded_channel::<project_watch::Change>();
         let mut watching: Option<(String, notify::RecommendedWatcher)> = None;
         loop {
             let path = state.store().ok().and_then(|store| {
@@ -1320,7 +1355,15 @@ fn start_project_watcher(app: tauri::AppHandle, state: Arc<Runtime>) {
             if watching.as_ref().map(|(current, _)| current) != path.as_ref() {
                 watching = match path {
                     Some(path) => match project_watch::watch(&path, sender.clone()) {
-                        Ok(watcher) => Some((path, watcher)),
+                        Ok(watcher) => {
+                            let action = if Path::new(&path).join("dist/escriba.json").is_file() {
+                                project_watch::Change::Load
+                            } else {
+                                project_watch::Change::Build
+                            };
+                            let _ = sender.send(action);
+                            Some((path, watcher))
+                        }
                         Err(error) => {
                             log_error(
                                 &state,
@@ -1333,11 +1376,15 @@ fn start_project_watcher(app: tauri::AppHandle, state: Arc<Runtime>) {
                 };
             }
             tokio::select! {
-                Some(()) = receiver.recv() => {
+                Some(mut action) = receiver.recv() => {
                     tokio::time::sleep(Duration::from_millis(800)).await;
-                    while receiver.try_recv().is_ok() {}
+                    while let Ok(next) = receiver.try_recv() {
+                        if next == project_watch::Change::Build {
+                            action = next;
+                        }
+                    }
                     let _ = app.emit("escriba://project", json!({"phase": "building"}));
-                    let result = script_call(&app, &state, &store::id(), "rebuildProject", json!({})).await;
+                    let result = script_call(&app, &state, &store::id(), "rebuildProject", json!({"loadOnly":action == project_watch::Change::Load})).await;
                     let phase = match &result {
                         Ok(_) => json!({"phase": "ready"}),
                         Err(error) => json!({"phase": "failed", "message": error}),
@@ -1504,7 +1551,9 @@ pub fn run() {
                     menubar: Mutex::new(menubar::Bar::default()),
                     quitting: AtomicBool::new(false),
                     vendor,
-                    compiler: native::binary("escriba-esbuild").map_err(std::io::Error::other)?,
+                    project_runtime: native::binary("escriba-runtime")
+                        .map_err(std::io::Error::other)?,
+                    project_lock: tokio::sync::Mutex::new(()),
                     startup: Mutex::new(Startup {
                         snapshot: opening,
                         error: None,

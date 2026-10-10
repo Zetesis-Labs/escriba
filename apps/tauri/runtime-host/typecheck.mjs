@@ -5,16 +5,7 @@ import { fileURLToPath } from "node:url";
 const host = dirname(fileURLToPath(import.meta.url));
 const app = resolve(host, "..");
 const generated = resolve(host, ".build/typecheck");
-const deno = spawnSync("deno", ["types"], {
-  encoding: "utf8",
-  maxBuffer: 16 * 1024 * 1024,
-});
-if (deno.error) throw deno.error;
-if (deno.status !== 0)
-  throw Error(`No se pudieron obtener los tipos Deno: ${deno.stderr}`);
 await mkdir(generated, { recursive: true });
-const declarations = resolve(generated, "deno.d.ts");
-await writeFile(declarations, deno.stdout);
 const config = resolve(generated, "tsconfig.json");
 await writeFile(
   config,
@@ -22,7 +13,7 @@ await writeFile(
     {
       extends: resolve(app, "tsconfig.json"),
       compilerOptions: { noEmit: true, types: ["node"] },
-      include: [resolve(host, "main.ts"), declarations],
+      include: [resolve(host, "main.ts")],
     },
     null,
     2,

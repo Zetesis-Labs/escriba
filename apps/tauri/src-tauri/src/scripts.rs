@@ -2,18 +2,18 @@ use serde_json::{json, Value};
 use std::{
     collections::HashMap,
     future::Future,
-    path::PathBuf,
+    path::{Path, PathBuf},
     pin::Pin,
     process::Stdio,
     sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
+        atomic::{AtomicBool, AtomicU8, Ordering},
+        Arc, Mutex as StdMutex,
     },
     time::Duration,
 };
 use tokio::{
     io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWriteExt, BufReader},
-    process::{Child, ChildStdin, Command},
+    process::{Child, ChildStderr, ChildStdin, Command},
     sync::{oneshot, Mutex},
 };
 
@@ -52,20 +52,87 @@ struct PendingTask {
 type Pending = Arc<Mutex<HashMap<String, PendingTask>>>;
 type Input = Arc<Mutex<ChildStdin>>;
 const MAX_FRAME: u64 = 32 * 1024 * 1024;
+const MAX_WORKER_RSS: u64 = 512 * 1024 * 1024;
+const MAX_STARTUP_STDERR: usize = 2048;
+const SANDBOX: &str = include_str!("../../runtime-host/sandbox.sb");
+
+struct StderrCapture {
+    bytes: Arc<StdMutex<Vec<u8>>>,
+    recording: Arc<AtomicBool>,
+    reader: tokio::task::JoinHandle<()>,
+}
+impl StderrCapture {
+    fn new(mut stderr: ChildStderr, capture: bool) -> Self {
+        let bytes = Arc::new(StdMutex::new(Vec::new()));
+        let recording = Arc::new(AtomicBool::new(capture));
+        let saved = bytes.clone();
+        let active = recording.clone();
+        let reader = tokio::spawn(async move {
+            let mut buffer = [0; 4096];
+            loop {
+                match stderr.read(&mut buffer).await {
+                    Ok(0) | Err(_) => break,
+                    Ok(count) if active.load(Ordering::SeqCst) => {
+                        let Ok(mut bytes) = saved.lock() else { break };
+                        let remaining = MAX_STARTUP_STDERR.saturating_sub(bytes.len());
+                        bytes.extend_from_slice(&buffer[..count.min(remaining)]);
+                    }
+                    Ok(_) => {}
+                }
+            }
+        });
+        Self {
+            bytes,
+            recording,
+            reader,
+        }
+    }
+    fn stop_capture(&self) {
+        self.recording.store(false, Ordering::SeqCst);
+        if let Ok(mut bytes) = self.bytes.lock() {
+            bytes.clear();
+        }
+    }
+    async fn startup_error(&mut self, error: String) -> String {
+        let _ = tokio::time::timeout(Duration::from_millis(100), &mut self.reader).await;
+        let Ok(bytes) = self.bytes.lock() else {
+            return error;
+        };
+        let detail = String::from_utf8_lossy(&bytes);
+        let detail = detail.trim().replace('\n', " ");
+        if detail.is_empty() {
+            error
+        } else {
+            format!("{error}: {detail}")
+        }
+    }
+}
+impl Drop for StderrCapture {
+    fn drop(&mut self) {
+        self.reader.abort();
+    }
+}
 
 struct Worker {
-    _child: Child,
+    child: Arc<StdMutex<Child>>,
+    _stderr: StderrCapture,
     input: Input,
     reader: tokio::task::JoinHandle<()>,
+    monitor: tokio::task::JoinHandle<()>,
     task: String,
 }
 impl Drop for Worker {
     fn drop(&mut self) {
         self.reader.abort();
+        self.monitor.abort();
+        if let Ok(mut child) = self.child.lock() {
+            let _ = child.start_kill();
+        }
     }
 }
 struct Session {
     _child: Child,
+    _stderr: StderrCapture,
     input: Input,
     pending: Pending,
     workers: Arc<Mutex<HashMap<String, Worker>>>,
@@ -110,19 +177,141 @@ async fn send(input: &Input, value: &Value) -> Result<(), String> {
         .map_err(|e| format!("No se pudo escribir al motor TypeScript: {e}"))?;
     input.flush().await.map_err(|e| e.to_string())
 }
-fn spawn(path: &PathBuf, worker: bool) -> Result<Child, String> {
-    let mut command = Command::new(path);
+fn spawn(path: &Path, worker: bool) -> Result<(Child, StderrCapture), String> {
+    let executable = path
+        .canonicalize()
+        .map_err(|e| format!("No se pudo localizar el motor TypeScript: {e}"))?;
+    if !executable.is_file() {
+        return Err("El motor TypeScript no es un archivo".into());
+    }
+    let mut command = Command::new("/usr/bin/sandbox-exec");
+    command
+        .arg("-p")
+        .arg(SANDBOX)
+        .arg("-D")
+        .arg(format!("EXECUTABLE={}", executable.display()))
+        .arg(executable);
     if worker {
         command.arg("--worker");
     }
-    command
+    let mut child = command
         .env_clear()
+        .current_dir("/")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::inherit())
+        .stderr(Stdio::piped())
         .kill_on_drop(true)
         .spawn()
-        .map_err(|e| format!("No se pudo iniciar TypeScript: {e}"))
+        .map_err(|e| format!("No se pudo iniciar TypeScript: {e}"))?;
+    let stderr = child.stderr.take().ok_or("TypeScript sin canal de error")?;
+    Ok((child, StderrCapture::new(stderr, !worker)))
+}
+fn resident_bytes(pid: i32) -> Option<u64> {
+    let mut info = std::mem::MaybeUninit::<libc::proc_taskinfo>::uninit();
+    let size = std::mem::size_of::<libc::proc_taskinfo>();
+    let returned = unsafe {
+        libc::proc_pidinfo(
+            pid,
+            libc::PROC_PIDTASKINFO,
+            0,
+            info.as_mut_ptr().cast(),
+            size as i32,
+        )
+    };
+    if returned == size as i32 {
+        Some(unsafe { info.assume_init().pti_resident_size })
+    } else {
+        None
+    }
+}
+fn process_identity(pid: i32) -> Option<(u64, u64)> {
+    let mut info = std::mem::MaybeUninit::<libc::proc_bsdinfo>::uninit();
+    let size = std::mem::size_of::<libc::proc_bsdinfo>();
+    let returned = unsafe {
+        libc::proc_pidinfo(
+            pid,
+            libc::PROC_PIDTBSDINFO,
+            0,
+            info.as_mut_ptr().cast(),
+            size as i32,
+        )
+    };
+    if returned == size as i32 {
+        let info = unsafe { info.assume_init() };
+        Some((info.pbi_start_tvsec, info.pbi_start_tvusec))
+    } else {
+        None
+    }
+}
+fn terminate_locked(child: &mut Child, reason: &AtomicU8, code: u8) -> bool {
+    if matches!(child.try_wait(), Ok(Some(_))) {
+        return false;
+    }
+    reason.store(code, Ordering::SeqCst);
+    child.start_kill().is_ok()
+}
+#[cfg(test)]
+fn terminate_worker(child: &Arc<StdMutex<Child>>, reason: &AtomicU8, code: u8) -> bool {
+    let Ok(mut child) = child.lock() else {
+        return false;
+    };
+    terminate_locked(&mut child, reason, code)
+}
+fn inspect_worker(
+    child: &Arc<StdMutex<Child>>,
+    pid: i32,
+    expected: Option<(u64, u64)>,
+    reason: &AtomicU8,
+) -> Option<(u64, u64)> {
+    let Ok(mut child) = child.lock() else {
+        return None;
+    };
+    match child.try_wait() {
+        Ok(Some(_)) => return None,
+        Err(_) => {
+            terminate_locked(&mut child, reason, 2);
+            return None;
+        }
+        Ok(None) => {}
+    }
+    let Some(identity) = process_identity(pid) else {
+        terminate_locked(&mut child, reason, 2);
+        return None;
+    };
+    if expected.is_some_and(|expected| expected != identity) {
+        terminate_locked(&mut child, reason, 2);
+        return None;
+    }
+    match resident_bytes(pid) {
+        Some(bytes) if bytes <= MAX_WORKER_RSS => Some(identity),
+        Some(_) => {
+            terminate_locked(&mut child, reason, 1);
+            None
+        }
+        None => {
+            terminate_locked(&mut child, reason, 2);
+            None
+        }
+    }
+}
+fn monitor_worker(
+    child: Arc<StdMutex<Child>>,
+    pid: u32,
+    reason: Arc<AtomicU8>,
+) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        let mut ticks = tokio::time::interval(Duration::from_millis(50));
+        ticks.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        let Some(identity) = inspect_worker(&child, pid as i32, None, &reason) else {
+            return;
+        };
+        loop {
+            ticks.tick().await;
+            if inspect_worker(&child, pid as i32, Some(identity), &reason).is_none() {
+                break;
+            }
+        }
+    })
 }
 fn allowed(method: &str) -> bool {
     matches!(
@@ -138,6 +327,7 @@ fn allowed(method: &str) -> bool {
             | "ask"
             | "native_cancel"
             | "project_build"
+            | "project_load"
             | "project_install"
             | "connector_http"
             | "connector_files"
@@ -166,17 +356,24 @@ impl Scripts {
             return Ok(session.clone());
         }
         *slot = None;
-        let mut child = spawn(&self.path, false)?;
+        let (mut child, mut stderr) = spawn(&self.path, false)?;
         let input = Arc::new(Mutex::new(
             child.stdin.take().ok_or("TypeScript sin entrada")?,
         ));
         let mut output = BufReader::new(child.stdout.take().ok_or("TypeScript sin salida")?);
-        let hello = tokio::time::timeout(Duration::from_secs(30), frame(&mut output))
-            .await
-            .map_err(|_| "TypeScript no arrancó a tiempo")??;
+        let hello = match tokio::time::timeout(Duration::from_secs(30), frame(&mut output)).await {
+            Ok(Ok(value)) => value,
+            Ok(Err(error)) => return Err(stderr.startup_error(error).await),
+            Err(_) => {
+                return Err(stderr
+                    .startup_error("TypeScript no arrancó a tiempo".into())
+                    .await)
+            }
+        };
         if hello["type"] != "ready" || hello["protocolVersion"] != 1 {
             return Err("Versión de protocolo TypeScript incompatible".into());
         }
+        stderr.stop_capture();
         let pending: Pending = Arc::new(Mutex::new(HashMap::new()));
         let workers: Arc<Mutex<HashMap<String, Worker>>> = Arc::new(Mutex::new(HashMap::new()));
         let alive = Arc::new(AtomicBool::new(true));
@@ -276,18 +473,22 @@ impl Scripts {
                             continue;
                         }
                         let result = (|| {
-                            let mut child = spawn(&path, true)?;
+                            let (mut child, stderr) = spawn(&path, true)?;
+                            let pid = child.id().ok_or("Receta sin proceso")?;
                             let input = Arc::new(Mutex::new(
                                 child.stdin.take().ok_or("Receta sin entrada")?,
                             ));
                             let output =
                                 BufReader::new(child.stdout.take().ok_or("Receta sin salida")?);
-                            Ok::<_, String>((child, input, output))
+                            Ok::<_, String>((child, stderr, input, output, pid))
                         })();
                         match result {
-                            Ok((child, worker_input, mut worker_output)) => {
+                            Ok((child, stderr, worker_input, mut worker_output, pid)) => {
+                                let child = Arc::new(StdMutex::new(child));
                                 let destination = reader_input.clone();
                                 let worker_key = key.clone();
+                                let monitor_reason = Arc::new(AtomicU8::new(0));
+                                let reader_reason = monitor_reason.clone();
                                 let reader = tokio::spawn(async move {
                                     loop {
                                         let response = match frame(&mut worker_output).await {
@@ -295,6 +496,11 @@ impl Scripts {
                                                 json!({"type":"worker_message","id":worker_key,"value":value})
                                             }
                                             Err(message) => {
+                                                let message = match reader_reason.load(Ordering::SeqCst) {
+                                                    1 => "El worker de receta superó 512 MiB de memoria".into(),
+                                                    2 => "No se pudo vigilar memoria del worker".into(),
+                                                    _ => message,
+                                                };
                                                 let _ = send(&destination, &json!({"type":"worker_error","id":worker_key,"message":message})).await;
                                                 break;
                                             }
@@ -307,9 +513,11 @@ impl Scripts {
                                 slots.insert(
                                     key,
                                     Worker {
-                                        _child: child,
+                                        child: child.clone(),
+                                        _stderr: stderr,
                                         input: worker_input,
                                         reader,
+                                        monitor: monitor_worker(child, pid, monitor_reason),
                                         task,
                                     },
                                 );
@@ -354,6 +562,7 @@ impl Scripts {
         });
         let session = Arc::new(Session {
             _child: child,
+            _stderr: stderr,
             input,
             pending,
             workers,
@@ -428,6 +637,37 @@ impl Scripts {
 mod tests {
     use super::*;
     use std::sync::Mutex as StdMutex;
+
+    #[tokio::test]
+    async fn supervisor_no_envia_senal_a_proceso_terminado() {
+        let mut process = Command::new("/usr/bin/true").spawn().unwrap();
+        process.wait().await.unwrap();
+        let child = Arc::new(StdMutex::new(process));
+        let reason = Arc::new(AtomicU8::new(0));
+        assert!(!terminate_worker(&child, &reason, 2));
+        assert_eq!(reason.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn supervisor_termina_su_propio_proceso_si_falla_la_inspeccion() {
+        let process = Command::new("/bin/sleep").arg("5").spawn().unwrap();
+        let child = Arc::new(StdMutex::new(process));
+        let reason = Arc::new(AtomicU8::new(0));
+        assert!(terminate_worker(&child, &reason, 2));
+        assert_eq!(reason.load(Ordering::SeqCst), 2);
+        let status = tokio::time::timeout(Duration::from_secs(1), async {
+            loop {
+                let finished = { child.lock().unwrap().try_wait().unwrap() };
+                if let Some(status) = finished {
+                    return status;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+        assert!(status.code().is_none());
+    }
 
     async fn wait_until(mut condition: impl AsyncFnMut() -> bool) {
         tokio::time::timeout(Duration::from_secs(5), async {
@@ -821,6 +1061,137 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn receta_compilada_con_paquete_local_se_ejecuta_en_bun() {
+        let directory = tempfile::tempdir().unwrap();
+        let recipe = directory.path().join("recetas/paquete");
+        let dependency = directory.path().join("node_modules/demo-package");
+        std::fs::create_dir_all(&recipe).unwrap();
+        std::fs::create_dir_all(&dependency).unwrap();
+        std::fs::write(
+            dependency.join("package.json"),
+            r#"{"name":"demo-package","version":"1.0.0","main":"index.js"}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            dependency.join("index.js"),
+            "export const marker = 'paquete-del-usuario';",
+        )
+        .unwrap();
+        std::fs::write(
+            recipe.join("receta.ts"),
+            "import { marker } from 'demo-package'; export const receta={nombre:marker}; export async function flujo(audio,api){if(marker!=='paquete-del-usuario')throw Error('Paquete incorrecto');await(await api.transcribir(audio)).guardar()}",
+        )
+        .unwrap();
+        let vendor = Path::new(env!("CARGO_MANIFEST_DIR")).join("vendor");
+        let runtime = crate::native::binary("escriba-runtime").unwrap();
+        let catalog = crate::project::build(directory.path(), &runtime, &vendor).unwrap();
+        let mut data = fixture();
+        data["recipes"] = catalog["recipes"].clone();
+        data["settings"]["defaultRecipeId"] = json!("paquete");
+        let state = Arc::new(StdMutex::new(data));
+        let scripts = Scripts::new(crate::native::binary("escriba-runtime").unwrap());
+        scripts
+            .call(
+                "external-package",
+                "processRecording",
+                json!({"recordingId":"r"}),
+                fake_host(state.clone()),
+                Arc::new(|_| {}),
+            )
+            .await
+            .unwrap();
+        assert_eq!(state.lock().unwrap()["recordings"][0]["status"], "done");
+    }
+
+    #[tokio::test]
+    async fn receta_no_puede_leer_un_archivo_fuera_del_runtime() {
+        let directory = tempfile::tempdir().unwrap();
+        let canary = directory.path().join("canary");
+        std::fs::write(&canary, b"synthetic").unwrap();
+        let path = serde_json::to_string(&canary.to_string_lossy()).unwrap();
+        let program = format!(
+            "var __recipe={{async flujo(audio,api){{let denied=false;try{{await(await import('node:fs/promises')).readFile({path})}}catch(error){{denied=error.code==='EPERM'||error.code==='EACCES'}}if(!denied)throw Error('La receta leyó un archivo');await(await api.transcribir(audio)).guardar()}}}}"
+        );
+        let mut data = fixture();
+        data["recipes"][0] =
+            json!({"id":"default","name":"Prueba","kind":"code","values":{},"bundle":program});
+        let state = Arc::new(StdMutex::new(data));
+        let scripts = Scripts::new(crate::native::binary("escriba-runtime").unwrap());
+        tokio::time::timeout(
+            Duration::from_secs(20),
+            scripts.call(
+                "sandbox-file",
+                "processRecording",
+                json!({"recordingId":"r"}),
+                fake_host(state.clone()),
+                Arc::new(|_| {}),
+            ),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(state.lock().unwrap()["recordings"][0]["status"], "done");
+    }
+
+    #[tokio::test]
+    async fn fuga_de_memoria_termina_worker_y_conserva_controlador() {
+        let scripts = Scripts::new(crate::native::binary("escriba-runtime").unwrap());
+        let mut data = fixture();
+        data["recipes"][0] = json!({
+            "id":"default","name":"Fuga","kind":"code","values":{},
+            "bundle":"var __recipe={async flujo(){globalThis.leak=[];for(let i=0;i<600;i++)globalThis.leak.push(new Array(131072).fill(i));await new Promise(()=>{})}}"
+        });
+        let state = Arc::new(StdMutex::new(data));
+        let capability = fake_host(state.clone());
+        let events: Events = Arc::new(|_| {});
+        let error = tokio::time::timeout(
+            Duration::from_secs(8),
+            scripts.call(
+                "memory",
+                "processRecording",
+                json!({"recordingId":"r"}),
+                capability.clone(),
+                events.clone(),
+            ),
+        )
+        .await
+        .expect("La fuga no terminó a tiempo")
+        .unwrap_err();
+        assert!(error.contains("512 MiB"), "{error}");
+        state.lock().unwrap()["recipes"][0] =
+            json!({"id":"default","name":"Por defecto","kind":"form","values":{"resumir":false}});
+        scripts
+            .call(
+                "schema-after-memory",
+                "getRecipeSchema",
+                json!({"recipeId":"default"}),
+                capability,
+                events,
+            )
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn fallo_al_arrancar_muestra_diagnostico_del_sandbox() {
+        let directory = tempfile::tempdir().unwrap();
+        let executable = directory.path().join("runtime-no-ejecutable");
+        std::fs::write(&executable, b"synthetic").unwrap();
+        let scripts = Scripts::new(executable);
+        let error = scripts
+            .call(
+                "startup-error",
+                "getRecipeSchema",
+                json!({"recipeId":"default"}),
+                fake_host(Arc::new(StdMutex::new(fixture()))),
+                Arc::new(|_| {}),
+            )
+            .await
+            .unwrap_err();
+        assert!(error.contains("sandbox-exec"), "{error}");
+    }
+
+    #[tokio::test]
     async fn cancelacion_cierra_worker_cpu_y_deja_sidecar_usable() {
         let path = crate::native::binary("escriba-runtime").unwrap();
         let scripts = Arc::new(Scripts::new(path));
@@ -980,7 +1351,7 @@ mod tests {
 
     async fn protocol_error_reaches_running_job(invalid: &[u8], expected: &str) {
         let path = crate::native::binary("escriba-runtime").unwrap();
-        let mut child = spawn(&path, false).unwrap();
+        let (mut child, _stderr) = spawn(&path, false).unwrap();
         let mut input = child.stdin.take().unwrap();
         let mut output = BufReader::new(child.stdout.take().unwrap());
         assert_eq!(frame(&mut output).await.unwrap()["type"], "ready");

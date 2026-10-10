@@ -3,6 +3,7 @@ import { run as builtinConnector } from "@escriba/conectores";
 import { defaultRecipeForm, type Lists } from "./defaultRecipe";
 import { object, message } from "./contracts";
 import type { WorkerTask } from "./contracts";
+declare const __escribaRequire: (specifier: string) => unknown;
 const send = globalThis.postMessage.bind(globalThis);
 let sequence = 0;
 const pending = new Map<
@@ -60,8 +61,9 @@ function load(
   globalName: "__recipe" | "__conectores",
 ): Record<string, unknown> {
   const result = new Function(
+    "require",
     `${source}\n;return typeof ${globalName} !== 'undefined' ? ${globalName} : undefined;`,
-  )();
+  )(typeof __escribaRequire === "function" ? __escribaRequire : undefined);
   return object(result);
 }
 function schemaJSON(schema: unknown): unknown {
