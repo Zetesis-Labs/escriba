@@ -571,6 +571,17 @@ acceso. Regresión comprobada renderizando el componente real: 196 pruebas
 TypeScript correctas. Release reconstruida, instalada y abierta, con firma y
 1607 archivos comprobados por SHA256.
 
+Corrección posterior del catálogo de recetas: «Construir» generaba `dist/`,
+pero la instalación fallaba con «Versiones inválidas» si la biblioteca contenía
+notas descartadas. Al actualizar las referencias a recetas se omiten esas
+lápidas, que no tienen versiones. Las pruebas cubren la instalación, la
+conservación del descarte al reabrir y una biblioteca mixta donde las notas
+activas mantienen sus transcripciones y actualizan las referencias de receta.
+Verificación: 198 pruebas Rust correctas, una inferencia real omitida; Clippy,
+formato y release correctos. App reinstalada con firma estricta y 1607 archivos
+verificados por SHA256. En la app instalada, `EscribaRecipes` aparece en el
+catálogo con su receta de código y «Construir» termina correctamente.
+
 ## 9. Puertas 5 y 6: tamaño, empaquetado y documentación
 
 - Perfil de release con `strip`, `lto` y `codegen-units = 1`, midiendo tamaño y

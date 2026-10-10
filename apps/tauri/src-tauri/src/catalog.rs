@@ -64,6 +64,8 @@ pub fn install(store: &mut Store, package: &Value) -> Result<(), String> {
     for record in next["recordings"]
         .as_array_mut()
         .ok_or("Biblioteca inválida")?
+        .iter_mut()
+        .filter(|record| record["status"] != "discarded")
     {
         remap(&mut record["recipeId"]);
         for version in record["versions"]
@@ -107,6 +109,39 @@ pub fn install(store: &mut Store, package: &Value) -> Result<(), String> {
 mod tests {
     use super::*;
     #[test]
+    fn instalar_recetas_con_notas_descartadas_conserva_el_descarte() {
+        let temp = tempfile::tempdir().unwrap();
+        let audio = temp.path().join("prueba.wav");
+        std::fs::write(&audio, b"audio sintetico").unwrap();
+        let root = temp.path().join("library");
+        let mut store = Store::open(root.clone()).unwrap();
+        let record = store.import(&audio, None).unwrap();
+        let discarded = store
+            .mutate("recording_discard", &json!({"id":record["id"]}))
+            .unwrap();
+        install(
+            &mut store,
+            &json!({"recipes":[{"id":"ejemplo","kind":"code","name":"Ejemplo","values":{},"bundle":"compiled"}],"destinations":[]}),
+        )
+        .unwrap();
+        assert_eq!(
+            store.item("recipes", "ejemplo").unwrap()["bundle"],
+            "compiled"
+        );
+        assert_eq!(
+            store.recording(record["id"].as_str().unwrap()).unwrap(),
+            discarded
+        );
+        drop(store);
+        let mut restored = Store::open(root).unwrap();
+        assert_eq!(
+            restored.item("recipes", "ejemplo").unwrap()["bundle"],
+            "compiled"
+        );
+        assert_eq!(restored.import(&audio, None).unwrap(), discarded);
+    }
+
+    #[test]
     fn compiling_legacy_layout_preserves_values_default_and_form_base() {
         let temp = tempfile::tempdir().unwrap();
         let mut store = Store::open(temp.path().into()).unwrap();
@@ -118,6 +153,16 @@ mod tests {
                 &json!({"settings":{"defaultRecipeId":"code:recetas:meeting"}}),
             )
             .unwrap();
+        let audio = temp.path().join("activa.wav");
+        std::fs::write(&audio, b"audio activo sintetico").unwrap();
+        let active = store.import(&audio, Some("code:recetas:meeting")).unwrap();
+        let version = store.mutate("version_save", &json!({"recordingId":active["id"],"recipeId":"code:recetas:meeting","transcript":{"text":"contenido sintetico","segments":[]}})).unwrap();
+        let discarded_audio = temp.path().join("descartada.wav");
+        std::fs::write(&discarded_audio, b"audio descartado sintetico").unwrap();
+        let discarded = store.import(&discarded_audio, None).unwrap();
+        let tombstone = store
+            .mutate("recording_discard", &json!({"id":discarded["id"]}))
+            .unwrap();
         install(&mut store, &json!({"recipes":[{"id":"meeting","kind":"code","entry":"recetas/meeting/receta.js","name":"Meeting","values":{},"bundle":"new"}],"destinations":[]})).unwrap();
         assert_eq!(
             store.item("recipes", "meeting").unwrap()["values"]["idioma"],
@@ -126,6 +171,19 @@ mod tests {
         assert_eq!(store.item("recipes", "custom").unwrap()["base"], "meeting");
         assert_eq!(store.data["settings"]["defaultRecipeId"], "meeting");
         assert!(store.item("recipes", "code:recetas:meeting").is_err());
+        drop(store);
+        let restored = Store::open(temp.path().into()).unwrap();
+        let active = restored.recording(active["id"].as_str().unwrap()).unwrap();
+        assert_eq!(active["recipeId"], "meeting");
+        assert_eq!(active["currentVersionId"], version["id"]);
+        assert_eq!(active["versions"][0]["recipeId"], "meeting");
+        assert_eq!(active["versions"][0]["transcript"], version["transcript"]);
+        assert_eq!(
+            restored
+                .recording(discarded["id"].as_str().unwrap())
+                .unwrap(),
+            tombstone
+        );
     }
     #[test]
     fn missing_code_keeps_its_parameters_but_cannot_execute_a_stale_program() {
