@@ -544,7 +544,7 @@ eligió CodeMirror; el comprobador incluido será TypeScript 7 nativo en Go,
 siempre que no complique el flujo. Estas herramientas son una ampliación
 expresa a la paridad con Swift.
 
-Implementado y comprobado, pendiente de instalar y probar con Rubén: Bun 1.4.2 con sandbox por
+Implementado e instalado el 2026-10-10, pendiente de probar con Rubén: Bun 1.4.2 con sandbox por
 proceso, entorno limpio y supervisión de memoria residente; construcción y
 carga de `dist/`, herramientas incluidas, TypeScript 7.0.2 y editor CodeMirror.
 La protección de memoria observa 512 MiB cada 50 ms y puede sobrepasarlos entre
@@ -559,6 +559,10 @@ y firmada; comprobados Bun y TypeScript desde el bundle. Instalación npm real
 probada dentro del perfil de desarrollo. Editor revisado en navegador con datos
 sintéticos y tamaño mínimo 960×640, incluido ⌘S; el control automatizado de
 ventanas nativas sigue fallando y no sustituye la prueba manual de Rubén.
+Instalación de `abbc6e8` en `/Applications/Escriba Tauri.app`: firma estricta
+verificada y 1607 archivos idénticos por SHA256 al bundle construido,
+245422598 bytes (234,05 MiB lógicos). App, host nativo y Bun arrancados;
+versión anterior conservada en `.build/Escriba Tauri-anterior.app`.
 
 ## 9. Puertas 5 y 6: tamaño, empaquetado y documentación
 
