@@ -1,6 +1,6 @@
-# Persistencia de Escriba Tauri
+# Persistencia de Escriba
 
-Escriba Tauri guarda la biblioteca en SurrealDB 3.3 embebida con SurrealKV, bajo `library.surrealkv` dentro de su carpeta de Application Support. Un bloqueo de instancia impide abrir la misma biblioteca dos veces. La interfaz y el runtime TypeScript acceden mediante comandos Rust; no abren la base directamente. [SurrealDB documenta la conexión embebida y el bloqueo de la carpeta](https://surrealdb.com/docs/reference/rust/embedding).
+Escriba guarda la biblioteca en SurrealDB 3.3 embebida con SurrealKV, bajo `library.surrealkv` dentro de su carpeta de Application Support. Un bloqueo de instancia impide abrir la misma biblioteca dos veces. La interfaz y el runtime TypeScript acceden mediante comandos Rust; no abren la base directamente. [SurrealDB documenta la conexión embebida y el bloqueo de la carpeta](https://surrealdb.com/docs/reference/rust/embedding).
 
 ## Esquema
 
@@ -10,9 +10,9 @@ La caché en memoria de `Store` conserva el contrato del frontend, pero cada sus
 
 Descartar deja una lápida con solo `id`, `source`, `sourceKey`, `legacyKey` y `status: discarded`; no conserva título, transcripciones, versiones, resúmenes, datos, recibos ni la ruta de la copia. La biblioteca visible omite esas lápidas y la vigilancia las usa para no reincorporar el origen. La cola `audio_deletion`, separada del registro y de las respuestas a JavaScript, conserva la ruta de la copia y su identidad de dispositivo e inodo. Tras confirmar la transacción y al abrir la biblioteca, Rust comprueba que sigue siendo un archivo normal dentro de `audio`, con la misma identidad y sin referencias de otra grabación, antes de borrarlo y retirar la petición. Si el borrado falla, queda pendiente para otro arranque; el archivo de origen, las publicaciones externas y las huellas ya aprendidas por Personas permanecen intactos.
 
-`Store::open` convierte automáticamente el `library.json` de la primera versión Tauri cuando aún no hay datos en SurrealDB. Ese fichero solo se lee y queda intacto. Si encuentra filas SurrealDB del esquema `1`, convierte sus cadenas JSON a objetos nativos en una transacción y actualiza la marca a `2`. Un error de esquema o una fila corrupta detienen la apertura con un error visible; no se arranca con una biblioteca vacía.
+`Store::open` convierte automáticamente el `library.json` de la primera versión cuando aún no hay datos en SurrealDB. Ese fichero solo se lee y queda intacto. Si encuentra filas SurrealDB del esquema `1`, convierte sus cadenas JSON a objetos nativos en una transacción y actualiza la marca a `2`. Un error de esquema o una fila corrupta detienen la apertura con un error visible; no se arranca con una biblioteca vacía.
 
-Al actualizar, `Store::open` retira una sola vez las asignaciones de receta guardadas en grabaciones Tauri anteriores, cuya procedencia no constaba. La elección explícita hecha al incorporar una nota nueva se conserva; sin ella, el runtime consulta la receta por defecto vigente al procesarla. Cada versión y traza mantienen la receta que se ejecutó.
+Al actualizar, `Store::open` retira una sola vez las asignaciones de receta guardadas en grabaciones anteriores, cuya procedencia no constaba. La elección explícita hecha al incorporar una nota nueva se conserva; sin ella, el runtime consulta la receta por defecto vigente al procesarla. Cada versión y traza mantienen la receta que se ejecutó.
 
 Los trabajos conservan `automatic`, que distingue lo incorporado por el pipeline
 de las acciones manuales incluso tras reintentos o reinicios. Un proceso
@@ -34,22 +34,12 @@ Al transcribir, Rust extrae las huellas del resultado nativo, reconoce por la hu
 
 Además del micrófono, se puede elegir un archivo de audio. Rust copia el archivo a `voice-samples`, extrae la huella con la misma validación y elimina esa copia al terminar o fallar. El archivo elegido permanece intacto y el audio no se publica ni se incorpora a la biblioteca.
 
-## Importar la biblioteca SwiftUI
+## Archivos locales
 
-En **Ajustes → Importar biblioteca SwiftUI**, elegir una copia o carpeta de la biblioteca anterior; opcionalmente elegir el plist de preferencias. La importación es explícita. El lector copia `library.sqlite` y su WAL, si existe, a una carpeta temporal privada dentro de la biblioteca Tauri y abre esa copia en modo de solo lectura. Comprueba identidad, tamaño, tiempos y hash de ambos ficheros antes y después de copiarlos; si cambian, pide cerrar SwiftUI y repetir. Comprueba la integridad de SQLite, verifica que los audios proceden de la carpeta `audio` elegida, copia y comprueba sus hashes, y retira la copia temporal. Para obtener una instantánea coherente, cerrar Escriba SwiftUI antes de copiar o importar su biblioteca. Solo al importar la biblioteca SwiftUI por defecto se copia también a un temporal privado su `ledger.db` y WAL para incorporar como lápidas los descartes que ya no figuran en `library.sqlite`; una carpeta elegida a mano no se cruza con ese ledger.
-
-Se trasladan grabaciones, versiones, segmentos, resúmenes, datos y esquemas de datos, recibos, respuestas guardadas y ejecuciones de recetas. Si se proporciona el plist, también se trasladan idioma, carpeta de proyecto, carpetas vigiladas y su estilo, recetas de formulario, resolutores, cuentas y destinos. Las cuentas, resolutores remotos y destinos importados quedan desactivados hasta su revisión. No se copian ficheros de credenciales; también se eliminan claves de credenciales anidadas de configuraciones y valores de recetas. El resultado informa de grabaciones, audios ausentes, respuestas y ejecuciones importadas. El origen no se modifica.
-
-El plist conserva también las claves y valores de recetas de código referenciadas por la receta predeterminada, un formulario o `book.values`. Se muestran como pendientes de **Compilar** desde el proyecto elegido, sin ejecutar ni copiar el catálogo `recetas-instaladas.json` de SwiftUI, que queda fuera de la biblioteca seleccionada. Los valores guardados quedan asociados a la clave de cada receta para su compilación posterior.
-
-Los audios ausentes quedan señalados en el resultado; no se inventan copias. Las claves SwiftUI que no son ID locales seguros, como `YYYY-MM-DD/HH-MM-SS` de Just Press Record, reciben un ID derivado de un hash estable. `legacyKey` y `sourceKey` conservan la clave original, y respuestas y trazas apuntan al nuevo ID. La huella `audioHash` se calcula sobre la copia comprobada; los criterios conocidos de WhisperKit se traducen al resolutor y modelo locales de Tauri, con número de hablantes nulo si no hubo diarización. Una importación repetida conserva las grabaciones existentes y repara esos criterios en versiones Swift anteriores cuando la copia aún coincide con el origen, sin reemplazar versiones corregidas ni recuperar audio retirado. Un error de base cancela la transacción y elimina las copias nuevas de audio; si la limpieza del audio falla, el error lo indica. Los archivos y la base son recursos distintos: una terminación forzada entre copiar audio y confirmar la transacción puede dejar una copia huérfana, sin incorporar una grabación incompleta a la base.
-
-La importación traslada también `voice`, `person` y `personVoice` a las tablas privadas, y los metadatos de `recognition` a las versiones. Reimportar incorpora las huellas que faltan en versiones ya existentes sin duplicarlas; todo se confirma con el resto de la importación. Los vectores se leen y escriben exclusivamente en Rust.
-
-La raíz de Application Support, SurrealKV y las carpetas de audio y credenciales tienen permisos `0700`; las copias de audio importadas, `0600`. Esto restringe el acceso de otros usuarios locales del equipo, sin cifrar la biblioteca.
+La raíz de Application Support, SurrealKV y las carpetas de audio y credenciales tienen permisos `0700`; las copias de audio, `0600`. Esto restringe el acceso de otros usuarios locales del equipo, sin cifrar la biblioteca.
 
 Para carpetas vigiladas, `sourceKey` incluye la carpeta y la identidad estable del archivo. Una nota de voz renombrada conserva la misma grabación y versiones; si cambian sus bytes se guarda una nueva copia de audio y se marca pendiente. Una nota inicialmente vacía se puede recuperar por esa identidad aun después de renombrarse. La importación manual conserva su deduplicación por hash de contenido.
 
 ## Comprobaciones
 
-`cargo test --lib store::tests` ejercita datos sintéticos: reinicio, versiones, recibos, ajustes, jobs, memorias, trazas, consulta de campos nativos, conversión del esquema anterior, importación SQLite/plist sin tocar el origen ni copiar tokens, rollback ante una restricción real de SurrealDB, borrado transaccional, identidad estable de una nota de voz renombrada y recuperación tras matar el proceso inmediatamente después de un commit. No usa bibliotecas ni credenciales reales.
+`cargo test --lib store::tests` ejercita datos sintéticos: reinicio, versiones, recibos, ajustes, jobs, memorias, trazas, consulta de campos nativos, conversión del esquema anterior, rollback ante una restricción real de SurrealDB, borrado transaccional, identidad estable de una nota de voz renombrada y recuperación tras matar el proceso inmediatamente después de un commit. No usa bibliotecas ni credenciales reales.

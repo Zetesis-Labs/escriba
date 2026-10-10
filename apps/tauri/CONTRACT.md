@@ -1,10 +1,9 @@
-# Escriba Tauri — contrato de integración
+# Escriba — contrato de integración
 
-Migración en estabilización (ADR-0004), con dos instalaciones durante la transición. Tauri usa identificador
-dev.zetesis.escriba.tauri y biblioteca propia. Al arrancar con la biblioteca vacía
-incorpora una vez la biblioteca SwiftUI local sin modificarla ni leer credenciales.
-El procesamiento queda pausado. Las bibliotecas de prueba con ESCRIBA_TAURI_DATA
-no buscan datos de la app estable. No pruebas contra Notion ni tokens reales.
+Una aplicación: **Escriba.app** (ADR-0005). El identificador técnico
+`dev.zetesis.escriba.tauri` mantiene la ubicación de datos y los permisos.
+`ESCRIBA_TAURI_DATA` selecciona una biblioteca aislada para pruebas.
+No pruebas contra Notion ni tokens reales.
 
 TypeScript: UI React, formularios Zod, recetas, conectores npm y orquestación en un proceso propio.
 Rust: SurrealDB, cola duradera, biblioteca y versiones, configuración, cuentas/secretos 0600, transporte
@@ -59,7 +58,6 @@ Errores rechazan la promesa con texto legible; nunca éxitos vacíos.
 - runtime_jobs -> JobState[] (pendientes, activos y en espera de reintento).
 - runtime_history -> trabajos duraderos, resultado y error.
 - runtime_cancel {recordingId} -> void; revoca capacidades y termina la receta.
-- library_import {path,settingsPath?} -> informe de importación explícita de SwiftUI.
 - recording_status -> {active,paused,audioPath,duration} del proceso de captura.
 - recording_delete {id} -> void; borra biblioteca/copia propia, conserva fuente y servicios externos.
 - notification_permission -> envía una notificación de comprobación desde una acción explícita.
@@ -72,16 +70,7 @@ controlador de `runtime-host` incluso sin ventana. Véase el protocolo del
 [proceso TypeScript](runtime-host/README.md). La UI escucha `escriba://changed`
 y `escriba://jobs`; el sondeo de respaldo es de 15 s, o 2 s durante captura.
 Las consultas de estado y de formularios no emiten `escriba://changed`, para que
-un refresco no se realimente. Durante la importación inicial la UI recibe un
-snapshot de apertura; los trabajos y vigilantes empiezan después de terminarla.
-`settings.startupMigration` expone `importing`, `imported` con informe o `error`
-con mensaje. La copia se hace en segundo plano, fuera del ciclo de la ventana.
-
-`settings.watchMigration` informa de la recuperación de carpetas vigiladas de
-SwiftUI (`adopted`, `preserved` o `error`). Se aplica una sola vez tras importar
-la biblioteca, también en instalaciones que ya la habían importado. Las
-configuraciones Tauri existentes se conservan; adoptar carpetas pausa la creación
-automática de trabajos hasta que el usuario reanude el procesamiento.
+un refresco no se realimente. Los trabajos y vigilantes empiezan después de abrir la biblioteca local.
 
 `watchIssues` contiene los errores del último escaneo de las carpetas habilitadas
 (`folderId`, `path`, `message`, `permissionDenied`). La UI mantiene un aviso

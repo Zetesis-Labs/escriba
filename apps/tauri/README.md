@@ -1,9 +1,9 @@
-# Escriba para macOS con Tauri
+# Escriba para macOS
 
 Aplicación macOS 26 con interfaz React/TypeScript, host Rust, SurrealDB embebida
-y adaptadores Apple en Swift. Es el destino de la migración decidido por Rubén.
-Se instala como **Escriba Tauri.app**, identificador `dev.zetesis.escriba.tauri`,
-para conservar la instalación SwiftUI durante la transición.
+y adaptadores Apple en Swift. Se instala como **Escriba.app**. El identificador
+técnico `dev.zetesis.escriba.tauri` se mantiene para conservar biblioteca,
+configuración y permisos al actualizar.
 
 ## Construir e instalar
 
@@ -11,9 +11,9 @@ Requiere Rust estable, Node 22.12 o posterior, Bun en la versión de `runtime-ho
 SDK macOS 26 más el toolchain Swift del repositorio. Desde la raíz:
 
 ```sh
-./scripts/build-tauri.sh --dev
-./scripts/build-tauri.sh --release
-./scripts/install-tauri.sh --release
+./scripts/build-app.sh --dev
+./scripts/build-app.sh --release
+./scripts/install-app.sh --release
 ```
 
 El script prepara dependencias fijadas por lockfile, compila los adaptadores,
@@ -21,28 +21,12 @@ el runtime TypeScript y la app, y verifica su firma. La aplicación instalada
 incluye los ejecutables; no necesita Node, Bun ni npm en el Mac del usuario.
 `ESCRIBA_SWIFT_SCRATCH` permite reutilizar una caché de SwiftPM.
 
-## Datos y migración
+## Datos
 
 La biblioteca vive en Application Support bajo el identificador de la app.
 `ESCRIBA_TAURI_DATA` permite elegir otra ubicación para pruebas aisladas.
 SurrealDB/SurrealKV guarda entidades, versiones, publicaciones, ajustes, memoria,
 trazas y trabajos. No se escribe una biblioteca JSON ni SQLite.
-
-Al abrir una biblioteca Tauri vacía se incorpora automáticamente la biblioteca
-de Escriba situada en `~/Library/Application Support/escriba/library`. Se muestra
-el progreso de apertura, se conserva el origen y el procesamiento automático
-queda pausado para revisar el resultado. La importación se realiza una sola vez;
-borrar después las notas no hace que reaparezcan. Los errores se muestran en la
-ventana y permiten reintentar. `ESCRIBA_TAURI_DATA` desactiva esta detección para
-que las pruebas aisladas no accedan a datos de la instalación normal.
-
-También se recuperan una vez las carpetas vigiladas de las preferencias SwiftUI
-si no hay carpetas configuradas en Tauri. Esto repara instalaciones que ya habían
-importado la biblioteca sin sus fuentes. Los audios conocidos se enlazan con las
-notas importadas y conservan sus versiones y estado, incluidas las descartadas.
-La vigilancia incorpora los nuevos audios; **Reanudar procesamiento** en el aviso
-de la biblioteca activa la ejecución de las recetas. Si Tauri ya tiene carpetas,
-se conserva esa configuración. No se leen credenciales al recuperar las fuentes.
 
 ### Autorizar carpetas: opción recomendada
 
@@ -57,8 +41,7 @@ acceso; no se pide otra vez por faltar un bookmark si macOS ya deja leer la carp
 
 **Acceso total al disco** sigue disponible como alternativa opcional si macOS
 impide el acceso por carpeta. El botón abre Ajustes del Sistema: ve a
-**Privacidad y seguridad → Acceso total al disco**, añade o activa **Escriba
-Tauri.app** y reiníciala. El permiso de la edición Swift no se traslada a Tauri.
+**Privacidad y seguridad → Acceso total al disco**, añade o activa **Escriba.app** y reiníciala.
 [Guía de Apple sobre Privacidad y seguridad](https://support.apple.com/es-es/guide/mac-help/mchl211c911f/27/mac/27).
 
 Notas de Voz guarda sus audios en un contenedor protegido. Apple demuestra el
@@ -79,22 +62,17 @@ Las notificaciones usan el centro nativo de macOS y solicitan permiso para
 alertas y sonido al arrancar. «Nota transcrita» muestra hasta 80 caracteres del
 texto, sin sonido, si está activo «Notificar cada transcripción». Los problemas
 se avisan siempre y con el sonido del sistema; el cuerpo se limita a 240
-caracteres. Como Swift, estos avisos de transcripción corresponden al pipeline
+caracteres. Estos avisos de transcripción corresponden al pipeline
 automático, no a reprocesar, resumir o publicar a mano.
 
-Si Tauri ya tiene grabaciones o se quiere elegir otra biblioteca, está
-**Ajustes → Importar biblioteca SwiftUI**, con un plist de preferencias opcional.
-La importación abre SQLite en modo de lectura y copia los audios. Incluye versiones, datos,
-publicaciones, memoria de respuestas y trazas. Las cuentas importadas requieren
-revisar su configuración y volver a introducir credenciales; el importador nunca
-lee tokens ni el Llavero. La biblioteca JSON del primer experimento se migra
-al abrirla, conservando ese archivo de origen.
+Las actualizaciones conservan la biblioteca existente. La biblioteca JSON de la
+primera versión se convierte al abrirla, conservando ese archivo de origen.
 
 Los tokens introducidos en la app se guardan en archivos privados 0600 y se leen
 solo en Rust. Los pesos Whisper instalados se reutilizan desde
 `~/Library/Application Support/escriba/models`; las descargas son explícitas y
 muestran «Descargando…» con una barra de progreso en STT.
-Detalles del esquema y la importación: [persistencia](../../docs/tauri-persistence.md).
+Detalles del esquema: [persistencia](../../docs/tauri-persistence.md).
 
 ## Responsabilidades
 
@@ -120,7 +98,7 @@ cinco minutos de inactividad. Véase [runtime](runtime-host/README.md) y
 ## Funciones
 
 - **Biblioteca:** importación y arrastre, grabación con pausa, reproducción y
-  velocidad, búsqueda, segmentos, hablantes, versiones, correcciones, resúmenes,
+  segmentos, hablantes, versiones, correcciones, resúmenes,
   datos, exportación TXT/Markdown/SRT/JSON, descarte y borrado local.
 - **Procesamiento:** motores locales Apple y resolutores remotos compatibles
   con OpenAI, diarización local, cancelación, reprocesamiento manual con nueva
@@ -136,7 +114,7 @@ cinco minutos de inactividad. Véase [runtime](runtime-host/README.md) y
   validación, descubrimiento, vista previa, publicación, regeneración y retirada.
   El recibo conserva la cuenta, configuración y programa usados al publicar.
 - **Registro:** errores, etapas de trabajos y trazas, incluidas pruebas de recetas.
-- **Ajustes:** tema, idioma, modelo, inicio de sesión, notificaciones, migración y
+- **Ajustes:** tema, idioma, modelo, inicio de sesión, notificaciones y
   carpetas Just Press Record, Notas de Voz o cualquier carpeta de audio.
 - **macOS:** barra de menús, diálogos nativos, vigilancia FSEvents con reconciliación,
   asentamiento de archivos y materialización de contenido descargable de iCloud.
@@ -159,20 +137,17 @@ cargo test --lib
 cargo clippy --all-targets -- -D warnings
 ```
 
-Preparar los ejecutables con `build-tauri.sh` antes del primer test Rust. Las
+Preparar los ejecutables con `build-app.sh` antes del primer test Rust. Las
 pruebas usan SurrealKV real, procesos TypeScript compilados, reinicios y
-cancelaciones, SQLite sintético, servidores locales y audios sintéticos. Los
+cancelaciones, servidores locales y audios sintéticos. Los
 tests Swift del adaptador están en `EscribaNativeHostTests`.
 
 La inferencia local se ha comprobado con el proceso incluido en el bundle:
 Whisper transcribió audio sintético con tiempos y Apple Intelligence produjo
 un resumen. Las cifras y resultados de entrega se registran en el PR.
 
-La herramienta de acceso a las apps locales sigue impidiendo la inspección visual
-nativa. El playground se ha revisado en navegador, con sus componentes reales y
-un proyecto simulado, también a 960×640: edición, indicador de cambios, guardado
-con ⌘S y bloqueo de herramientas con borradores pendientes. Esto no sustituye la
-prueba dentro de Tauri. Micrófono y notificaciones requieren comprobación
-interactiva de macOS.
+El playground también se ha comprobado en la app instalada, con herramientas
+encima del editor y apertura de la carpeta en VS Code, a tamaño de ventana mínimo.
+Las validaciones manuales pendientes siguen en `docs/pendiente-tauri.md`.
 No se han usado Notion real, tokens reales ni servicios STT/LLM externos. Estos
 límites de validación no se sustituyen por los datos de muestra (`?demo=1`).

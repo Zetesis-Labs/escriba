@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Escriba Tauri",
+  "productName": "Escriba",
   "version": "0.1.0",
   "identifier": "dev.zetesis.escriba.tauri",
   "build": {
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Escriba Tauri",
+        "title": "Escriba",
         "width": 1260,
         "height": 820,
         "minWidth": 960,

@@ -11,7 +11,6 @@ pub const STATUS_TRAY: &str = "status";
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Status {
-    Starting,
     Watching,
     Working(usize),
     Problem(String),
@@ -20,7 +19,6 @@ pub enum Status {
 impl Status {
     pub fn label(&self) -> String {
         match self {
-            Status::Starting => "Arrancando".into(),
             Status::Watching => "Vigilando".into(),
             Status::Working(pending) => format!("Transcribiendo ({pending} en cola)"),
             Status::Problem(detail) => format!("Problema: {detail}"),
@@ -29,25 +27,14 @@ impl Status {
 
     pub fn symbol(&self) -> &'static str {
         match self {
-            Status::Starting | Status::Watching => "waveform",
+            Status::Watching => "waveform",
             Status::Working(_) => "waveform.badge.mic",
             Status::Problem(_) => "waveform.badge.exclamationmark",
         }
     }
 }
 
-pub fn status(
-    startup_error: Option<&str>,
-    importing: bool,
-    jobs: &[Value],
-    unreadable: bool,
-) -> Status {
-    if let Some(error) = startup_error {
-        return Status::Problem(error.to_owned());
-    }
-    if importing {
-        return Status::Starting;
-    }
+pub fn status(jobs: &[Value], unreadable: bool) -> Status {
     let waiting = |marker: &str| {
         jobs.iter().any(|job| {
             job["state"] == "retry"
@@ -102,11 +89,6 @@ pub struct Bar {
 }
 
 fn current(state: &Runtime, previous: Option<&View>) -> Option<View> {
-    let (startup_error, importing) = state
-        .startup
-        .lock()
-        .map(|startup| (startup.error.clone(), startup.snapshot.is_some()))
-        .ok()?;
     let unreadable = state
         .watch_health
         .lock()
@@ -117,16 +99,12 @@ fn current(state: &Runtime, previous: Option<&View>) -> Option<View> {
                 .is_some_and(|issues| !issues.is_empty())
         })
         .unwrap_or(false);
-    let (jobs, count) = if importing {
-        (Vec::new(), None)
-    } else {
-        match state.store.try_lock() {
-            Ok(store) => (
-                store.jobs().unwrap_or_default(),
-                store.data["recordings"].as_array().map(Vec::len),
-            ),
-            Err(_) => return previous.cloned(),
-        }
+    let (jobs, count) = match state.store.try_lock() {
+        Ok(store) => (
+            store.jobs().unwrap_or_default(),
+            store.data["recordings"].as_array().map(Vec::len),
+        ),
+        Err(_) => return previous.cloned(),
     };
     let problem = state
         .recording_problem
@@ -134,7 +112,7 @@ fn current(state: &Runtime, previous: Option<&View>) -> Option<View> {
         .ok()
         .and_then(|problem| problem.as_ref().map(|p| p.message.clone()));
     Some(View {
-        status: status(startup_error.as_deref(), importing, &jobs, unreadable),
+        status: status(&jobs, unreadable),
         count,
         recording: recorder::is_recording(state),
         problem,
@@ -415,7 +393,6 @@ mod tests {
     #[test]
     fn el_estado_se_dice_como_en_swift() {
         assert_eq!(Status::Watching.label(), "Vigilando");
-        assert_eq!(Status::Starting.label(), "Arrancando");
         assert_eq!(Status::Working(3).label(), "Transcribiendo (3 en cola)");
         assert_eq!(Status::Problem("x".into()).label(), "Problema: x");
         assert_eq!(Status::Working(1).symbol(), "waveform.badge.mic");
@@ -432,28 +409,23 @@ mod tests {
         let engine = json!({"state":"retry","error":"BACKEND_UNAVAILABLE: modelo ausente"});
         let recipe = json!({"state":"retry","error":"RECIPE_UNAVAILABLE: sin paquete"});
         let done = json!({"state":"succeeded"});
-        assert_eq!(status(None, false, &[], false), Status::Watching);
-        assert_eq!(status(None, false, &[done], false), Status::Watching);
+        assert_eq!(status(&[], false), Status::Watching);
+        assert_eq!(status(&[done], false), Status::Watching);
         assert_eq!(
-            status(None, false, &[running.clone(), queued], false),
+            status(&[running.clone(), queued], false),
             Status::Working(2)
         );
         assert_eq!(
-            status(None, false, &[running.clone(), engine], false),
+            status(&[running.clone(), engine], false),
             Status::Problem("el motor de transcripción no responde".into())
         );
         assert_eq!(
-            status(None, false, &[recipe], false),
+            status(&[recipe], false),
             Status::Problem("la receta por defecto no está disponible".into())
         );
         assert_eq!(
-            status(None, false, &[running], true),
+            status(&[running], true),
             Status::Problem("no puedo leer la carpeta".into())
-        );
-        assert_eq!(status(None, true, &[], false), Status::Starting);
-        assert_eq!(
-            status(Some("sin base"), true, &[], false),
-            Status::Problem("sin base".into())
         );
     }
 

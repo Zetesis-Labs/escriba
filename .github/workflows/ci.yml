@@ -12,21 +12,21 @@ env:
 
 jobs:
   macos:
-    name: macOS · build, tests y app con Swift 6.4
+    name: macOS · Escriba y adaptador Swift 6.4
     runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
-      - name: La receta por defecto y la plantilla de recetas coinciden con su fuente
+      - name: La plantilla de recetas coincide con su fuente
         run: |
           ./scripts/build-recetas.sh
-          git diff --exit-code -- Sources/EscribaJSC/DefaultRecipe.swift Sources/EscribaCore/RecipeTemplate.swift
+          git diff --exit-code -- Sources/EscribaCore/RecipeTemplate.swift
       - uses: actions/setup-node@v4
         with:
           node-version: 22
       - name: Conectores TypeScript y SDK npm
         run: |
           ./scripts/build-conectores.sh
-          git diff --exit-code -- packages/conectores/dist Sources/EscribaJSC/Resources/conectores
+          git diff --exit-code -- packages/conectores/dist packages/conectores/bundle
       - name: Toolchain de swift.org
         run: |
           curl -fsSL -o swift.pkg "https://download.swift.org/swift-${SWIFT_VERSION}-release/xcode/swift-${SWIFT_VERSION}-RELEASE/swift-${SWIFT_VERSION}-RELEASE-osx.pkg"
@@ -35,20 +35,16 @@ jobs:
           echo "TOOLCHAINS=$(plutil -extract CFBundleIdentifier raw "$TOOLCHAIN/Info.plist")" >> "$GITHUB_ENV"
       - run: swift --version
       - run: swift build
-      - name: esbuild para los tests de compilación de recetas
-        run: ./scripts/descargar-esbuild.sh
       - run: swift test
-      - name: Empaquetar la app
-        run: ./scripts/build-app.sh
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: apps/tauri/runtime-host/bun-version
-      - name: Aplicación Tauri, runtime aislado y SurrealDB
+      - name: Aplicación Escriba, runtime aislado y SurrealDB
         run: |
-          ./scripts/build-tauri.sh
+          ./scripts/build-app.sh
           npm test --prefix apps/tauri
           cargo test --manifest-path apps/tauri/src-tauri/Cargo.toml --lib
           cargo clippy --manifest-path apps/tauri/src-tauri/Cargo.toml --all-targets -- -D warnings
@@ -62,7 +58,7 @@ jobs:
       - run: apt-get update -qq && apt-get install -y -qq libsqlite3-dev
       - name: Compilar lo que corre en un pod
         run: |
-          for target in EscribaCore EscribaEngine EscribaSystemKit EscribaOpenAI EscribaStore EscribaIntelligence; do
+          for target in EscribaCore EscribaEngine EscribaSystemKit EscribaStore EscribaIntelligence; do
             swift build --target "$target"
           done
 

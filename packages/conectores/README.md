@@ -68,8 +68,8 @@ HTTP del host; este paquete nunca recibe tokens.
 
 El script instala desde el lockfile sin ejecutar scripts npm, verifica las
 pruebas con transporte y carpeta en memoria, y genera tipos, módulos ESM y
-`dist/conectores.js` (`globalThis.__conectores` en JavaScriptCore). Node y esbuild
-solo se usan durante el desarrollo; la app ejecuta el bundle con JavaScriptCore.
+`dist/conectores.js` (`globalThis.__conectores`). La app ejecuta los programas
+con el Bun incluido, en procesos aislados y con capacidades del host Rust.
 
 Las pruebas no llaman a servicios reales. La validación contra Notion real con
 datos sintéticos sigue pendiente de la autorización de esa fase.

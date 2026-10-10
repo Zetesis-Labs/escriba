@@ -46,6 +46,14 @@ struct ManifestRecipe {
     file: String,
 }
 
+pub fn load_with_tools(path: &Path, runtime: &Path, vendor: &Path) -> Result<Value, String> {
+    let catalog = load(path)?;
+    let root = project_root(path)?;
+    ensure_safe_project_root(&root)?;
+    refresh_launcher(&root, runtime, vendor, false)?;
+    Ok(catalog)
+}
+
 pub fn load(path: &Path) -> Result<Value, String> {
     let root = project_root(path)?;
     let dist = root.join("dist");
@@ -1247,6 +1255,35 @@ mod tests {
             fs::read_to_string(folder.path().join("src/otra.ts")).unwrap(),
             "primera"
         );
+    }
+
+    #[test]
+    fn cargar_proyecto_actualiza_lanzador_administrado_y_conserva_el_del_usuario() {
+        let folder = tempfile::tempdir().unwrap();
+        let tools = tempfile::tempdir().unwrap();
+        let runtime = tools.path().join("bun");
+        let vendor = tools.path().join("vendor");
+        fs::create_dir_all(vendor.join("node_modules/typescript/lib")).unwrap();
+        fs::write(&runtime, "runtime").unwrap();
+        fs::write(vendor.join("node_modules/typescript/lib/tsc"), "checker").unwrap();
+        fs::create_dir(folder.path().join("dist")).unwrap();
+        fs::write(
+            folder.path().join("dist/escriba.json"),
+            r#"{"version":1,"recipes":[]}"#,
+        )
+        .unwrap();
+        let launcher = folder.path().join("escriba");
+        fs::write(&launcher, format!("{LAUNCHER_MARKER}old bundle path")).unwrap();
+        load_with_tools(folder.path(), &runtime, &vendor).unwrap();
+        let updated = fs::read_to_string(&launcher).unwrap();
+        assert!(!updated.contains("old bundle path"));
+        assert!(updated.contains(runtime.to_str().unwrap()));
+        fs::write(&launcher, "user launcher").unwrap();
+        load_with_tools(folder.path(), &runtime, &vendor).unwrap();
+        assert_eq!(fs::read_to_string(&launcher).unwrap(), "user launcher");
+        fs::remove_file(&launcher).unwrap();
+        load_with_tools(folder.path(), &runtime, &vendor).unwrap();
+        assert!(!launcher.exists());
     }
 
     #[test]

@@ -9,30 +9,28 @@ de Just Press Record, Notas de Voz o cualquier colección de audio.
 
 La aplicación de escritorio utiliza **Tauri, TypeScript y Rust**, con
 **SurrealDB embebida** para datos y trabajos duraderos. Swift adapta las APIs
-nativas de Apple. La implementación SwiftUI se conserva durante la transición.
+nativas de Apple. Se distribuye una sola aplicación: **Escriba.app**.
 
 ## Empezar
 
 ```sh
-./scripts/build-tauri.sh --release
-./scripts/install-tauri.sh --release
+./scripts/build-app.sh --release
+./scripts/install-app.sh --release
 ```
 
-Se instala como **Escriba Tauri.app**. Al abrirla con la biblioteca vacía incorpora
-las grabaciones de Escriba sin modificar el origen ni leer sus credenciales.
-En Ajustes también se puede importar otra biblioteca. La app mantiene los trabajos
+Se instala como **Escriba.app**. La biblioteca y la configuración existentes se
+conservan al actualizar. La app mantiene los trabajos
 al cerrar la ventana y recupera el procesamiento interrumpido tras reiniciar.
 
 - [Aplicación, requisitos, funciones y validación](apps/tauri/README.md)
-- [Persistencia SurrealDB e importación](docs/tauri-persistence.md)
+- [Persistencia SurrealDB](docs/tauri-persistence.md)
 - [Runtime TypeScript aislado y paquetes npm](apps/tauri/runtime-host/README.md)
 - [Protocolo del adaptador Apple](docs/tauri-native-protocol.md)
 - [Decisión de migración](docs/adr/0003-migracion-tauri-surrealdb.md)
-- [CLI y referencia de los targets Swift anteriores](docs/legacy-swiftui.md)
+- [Identidad única de la aplicación](docs/adr/0005-escriba-unica-app.md)
 
-Los conectores Notion y OKF viven en `packages/conectores`, compartidos por ambas
-aplicaciones. Las recetas se editan en una carpeta elegida por el usuario y se
-construyen con el Bun incluido en Tauri. El playground CodeMirror incorpora
+Los conectores Notion y OKF viven en `packages/conectores`. Las recetas se editan en una carpeta elegida por el usuario y se
+construyen con el Bun incluido en Escriba. El playground CodeMirror incorpora
 instalación de dependencias, comprobación de tipos con TypeScript 7 y pruebas;
 la app carga el `dist/` resultante. Véase [proyectos de recetas](docs/proyecto-recetas-tauri.md).
 Los secretos y el audio se manejan mediante capacidades
@@ -41,12 +39,12 @@ nativas; las recetas no reciben los tokens.
 ## Desarrollo
 
 ```sh
-./scripts/build-tauri.sh --dev
+./scripts/build-app.sh --dev
 npm test --prefix apps/tauri
 cargo test --manifest-path apps/tauri/src-tauri/Cargo.toml --lib
 ```
 
-El repositorio conserva las suites Swift, Linux y WASI del núcleo anterior.
+El adaptador nativo y el CLI mantienen sus suites Swift, Linux y WASI.
 La aplicación macOS se compila con el SDK de Apple, fuera del devcontainer de
 otros proyectos. Las instrucciones completas están en [CLAUDE.md](CLAUDE.md).
 

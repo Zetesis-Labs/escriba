@@ -8,7 +8,7 @@ export async function call<T = unknown>(
 ): Promise<T> {
   if (!desktop)
     throw new Error(
-      "Abre Escriba Tauri para usar el motor y la biblioteca locales.",
+      "Abre Escriba para usar el motor y la biblioteca locales.",
     );
   return invoke<T>("app_command", { method, params });
 }

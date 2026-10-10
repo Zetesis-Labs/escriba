@@ -1,6 +1,6 @@
 {
   "identifier": "main",
-  "description": "Interfaz local de Escriba Tauri",
+  "description": "Interfaz local de Escriba",
   "windows": [
     "main",
     "recording"

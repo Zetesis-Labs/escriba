@@ -1,8 +1,7 @@
-# Proyectos de recetas en Tauri
+# Proyectos de recetas en Escriba
 
 Ampliación pedida por Rubén el 2026-10-10: proyecto TypeScript normal, herramientas
-incluidas en la app y editor interno CodeMirror. Se aplica a Tauri; SwiftUI
-conserva su compilador y runtime anteriores.
+incluidas en la app y editor interno CodeMirror.
 
 ## Editar y construir
 
@@ -67,8 +66,8 @@ como `baseUrl`, debe actualizar su `tsconfig.json`; el comprobador informa el er
 
 La app genera también el lanzador `./escriba`, con los comandos `install`,
 `check`, `test` y `build`. Usa los mismos ejecutables y perfiles que el editor.
-Si se mueve la aplicación, hay que volver a elegir el proyecto para actualizar
-sus rutas. Los proyectos existentes conservan sus propios archivos.
+Al cargar el proyecto, Escriba actualiza las rutas de su lanzador administrado
+si la aplicación ha cambiado de ubicación. Los proyectos existentes conservan sus propios archivos.
 
 ## Contrato de distribución
 

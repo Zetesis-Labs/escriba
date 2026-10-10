@@ -29,7 +29,6 @@ walkdir = "2"
 libc = "0.2"
 fs2 = "0.4"
 notify = "8"
-rusqlite = "0.32"
 plist = "1"
 surrealdb = { version = "3.3", default-features = false, features = ["kv-surrealkv"] }
 unicode-segmentation = "1"
