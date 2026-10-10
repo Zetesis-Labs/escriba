@@ -71,7 +71,6 @@ export const removeAudio = (recording: Recording) => call("recording_remove_audi
 
 export async function forget(recording: Recording) {
   await call("recording_discard", { id: recording.id });
-  if (recording.audioPath) await call("recording_remove_audio", { id: recording.id });
 }
 
 export const cancel = (recording: Recording) => cancelProcessing(recording.id);

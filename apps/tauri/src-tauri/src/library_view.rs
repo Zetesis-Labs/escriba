@@ -115,7 +115,13 @@ pub fn light_library(data: &Value) -> Value {
     );
     let recordings = data["recordings"]
         .as_array()
-        .map(|recordings| recordings.iter().map(light_recording).collect())
+        .map(|recordings| {
+            recordings
+                .iter()
+                .filter(|recording| recording["status"] != "discarded")
+                .map(light_recording)
+                .collect()
+        })
         .unwrap_or_default();
     light.insert("recordings".into(), Value::Array(recordings));
     Value::Object(light)
@@ -159,6 +165,22 @@ mod tests {
             data["recordings"][0]["publications"]
         );
         assert_eq!(light["settings"], data["settings"]);
+    }
+
+    #[test]
+    fn la_biblioteca_visible_omite_lapidas_sin_fecha_ni_versiones() {
+        let data = json!({
+            "recipes":[],"destinations":[],
+            "recordings":[
+                {"id":"descartada","source":"/origen.m4a","sourceKey":null,"legacyKey":null,"status":"discarded"},
+                {"id":"visible","title":"Nota","createdAt":"2026-10-10T00:00:00Z","status":"pending","versions":[],"publications":[]}
+            ]
+        });
+
+        let light = light_library(&data);
+
+        assert_eq!(light["recordings"].as_array().unwrap().len(), 1);
+        assert_eq!(light["recordings"][0]["id"], "visible");
     }
 
     #[test]
