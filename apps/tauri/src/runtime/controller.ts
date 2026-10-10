@@ -30,7 +30,7 @@ import { createConnectorService, currentVersion } from "./connectors";
 import { summarizeText } from "./summary";
 import { remember, summaryMemory } from "./memory";
 import type { Lists } from "./defaultRecipe";
-import { reusableTranscription, transcriptionCriteriaKey } from "../core/transcriptionMemory";
+import { normalizeTranscriptionInputs, reusableTranscription, transcriptionCriteriaKey } from "../core/transcriptionMemory";
 import { notificationProblems } from "../core/notificationProblems";
 import { recipeWithValues } from "../core/recipeValues";
 import { processingRecipeId } from "../core/recordingRecipe";
@@ -386,7 +386,7 @@ export function createRuntime(
                       throw Error(
                         "La diarización solo está disponible con Whisper local",
                       );
-                    const inputs: JSONObject = {
+                    const inputs: JSONObject = normalizeTranscriptionInputs({
                       audioHash: recording.audioHash || recording.id,
                       backend: backend.id,
                       model: backend.local
@@ -405,7 +405,7 @@ export function createRuntime(
                         typeof speakers.cuantos === "number"
                           ? speakers.cuantos
                           : null,
-                    };
+                    });
                     const key = transcriptionCriteriaKey(inputs);
                     const remembered = [...recording.versions]
                       .reverse()

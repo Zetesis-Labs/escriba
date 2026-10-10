@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { reusableTranscription } from "../../src/core/transcriptionMemory";
+import { normalizeTranscriptionInputs, reusableTranscription, transcriptionCriteriaKey } from "../../src/core/transcriptionMemory";
 
 test("una transcripción diarizada solo se recupera cuando conserva sus huellas", () => {
   const inputs = { backend: "local-stt", diarize: true, model: "whisper" };
@@ -28,4 +28,14 @@ test("una versión Swift traducida coincide con los criterios actuales solo si c
   const diarized = { ...inputs, diarize: true, speakers: 2 };
   expect(reusableTranscription({ inputs: diarized, hasVoices: false }, diarized)).toBe(false);
   expect(reusableTranscription({ inputs: diarized, hasVoices: true }, diarized)).toBe(true);
+});
+
+test("sin diarización el número guardado no cambia los criterios ni el audio solicitado", () => {
+  const saved = { audioHash: "hash", backend: "local-stt", diarize: false, speakers: 2 };
+  const normalized = normalizeTranscriptionInputs(saved);
+  expect(normalized).toEqual({ ...saved, speakers: null });
+  expect(saved.speakers).toBe(2);
+  expect(transcriptionCriteriaKey(saved)).toBe(transcriptionCriteriaKey({ ...saved, speakers: null }));
+  expect(reusableTranscription({ inputs: saved }, { ...saved, speakers: null })).toBe(true);
+  expect(normalizeTranscriptionInputs({ ...saved, diarize: true })).toEqual({ ...saved, diarize: true });
 });

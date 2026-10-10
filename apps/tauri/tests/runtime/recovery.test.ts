@@ -74,6 +74,62 @@ test("reprocesado manual crea versión, automático reutiliza, cambio de idioma 
   assert.equal(m.calls.filter((c) => c.method === "transcribe").length, 2);
 });
 
+test("una versión Swift sin diarización se clona aunque la receta conserve un número de hablantes", async () => {
+  const m = memory();
+  const recording = m.state.recordings[0];
+  recording.audioHash = "hash-de-copia";
+  m.state.settings.whisperModel = "openai_whisper-large-v3-v20240930";
+  recording.versions.push({
+    id: "swift:1:7",
+    createdAt: "antes",
+    backend: "WhisperKit",
+    transcript: { text: "Texto Swift", segments: [] },
+    inputs: {
+      audioHash: "hash-de-copia",
+      backend: "local-stt",
+      model: "openai_whisper-large-v3-v20240930",
+      language: "es",
+      diarize: false,
+      speakers: null,
+    },
+  });
+  m.state.recipes[0].values = { idioma: "es", hablantes: { detectar: false, cuantos: 2 } };
+  const runtime = createRuntime(m.host, {
+    run: async (task, context) => {
+      const values = task.payload.values as { idioma: string; hablantes: { detectar: boolean; cuantos: number } };
+      await context.call("transcribe", { idioma: values.idioma, hablantes: values.hablantes });
+      await context.call("save", {});
+      return null;
+    },
+  });
+
+  await runtime.processRecording("r");
+
+  assert.equal(m.calls.filter((call) => call.method === "transcribe").length, 0);
+  assert.equal(recording.versions.length, 2);
+  assert.equal(m.calls.find((call) => call.method === "version_save")?.params.sourceVersionId, "swift:1:7");
+  assert.deepEqual(recording.versions[1].transcript, recording.versions[0].transcript);
+  assert.equal(recording.versions[1].inputs?.speakers, null);
+});
+
+test("al transcribir sin diarización no se envía ni se persiste un número de hablantes", async () => {
+  const m = memory();
+  m.state.recipes[0].values = { hablantes: { detectar: false, cuantos: 2 } };
+  const runtime = createRuntime(m.host, {
+    run: async (task, context) => {
+      const values = task.payload.values as { hablantes: { detectar: boolean; cuantos: number } };
+      await context.call("transcribe", { hablantes: values.hablantes });
+      await context.call("save", {});
+      return null;
+    },
+  });
+
+  await runtime.processRecording("r");
+
+  assert.equal(m.calls.find((call) => call.method === "transcribe")?.params.speakers, null);
+  assert.equal(m.state.recordings[0].versions[0].inputs?.speakers, null);
+});
+
 test("una nota sin receta propia usa el valor por defecto vigente en cada ejecución", async () => {
   const m = memory();
   m.state.recipes.push({ id: "new-default", name: "Nueva receta", kind: "form", values: {} });
