@@ -41,3 +41,8 @@ block2 = "0.6"
 
 [dev-dependencies]
 tempfile = "3"
+
+[profile.release]
+strip = "symbols"
+lto = "thin"
+codegen-units = 1
