@@ -2,7 +2,7 @@ import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import { AlertTriangle, BadgeCheck, Braces, ChevronRight, Minus, Plus, SlidersHorizontal, Clock, CheckCircle2 } from "lucide-react";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { call, desktop } from "../api";
+import { call } from "../api";
 import { Pane } from "../app/Pane";
 import { recordingWhen } from "../core/presentation";
 import { projectRevealPath } from "../core/projectDrafts";
@@ -16,9 +16,7 @@ import type { JSONObject, JSONValue, Recipe, RecipeTrace, Recording, Snapshot } 
 import { RecipeFormSections } from "./RecipeFormSections";
 import "./recipes.css";
 import { OntologiesPanel } from "../knowledge/OntologiesPanel";
-import { demoKnowledgeHost } from "../knowledge/demo";
 
-const demoKnowledge = demoKnowledgeHost("demo");
 
 const Playground = lazy(() => import("./Playground").then(({ Playground }) => ({ default: Playground })));
 
@@ -29,7 +27,6 @@ const home = (path: string) => path.replace(/^\/Users\/[^/]+/, "~");
 function useProjectPhase() {
   const [phase, setPhase] = useState<Phase>({ phase: "idle" });
   useEffect(() => {
-    if (!desktop) return;
     let stop: (() => void) | undefined;
     void listen<Phase>("escriba://project", (event) => setPhase(event.payload)).then((unlisten) => {
       stop = unlisten;
@@ -138,7 +135,7 @@ export function RecipesPane({ data, refresh }: { data: Snapshot; refresh: () => 
     </div>
   );
 
-  if (ontologiesOpen) return <Pane title="Ontologías" toolbar={<Button small onClick={() => setOntologiesOpen(false)}>Volver a recetas</Button>}><OntologiesPanel key={data.settings.projectPath} host={desktop ? undefined : demoKnowledge} /></Pane>;
+  if (ontologiesOpen) return <Pane title="Ontologías" toolbar={<Button small onClick={() => setOntologiesOpen(false)}>Volver a recetas</Button>}><OntologiesPanel key={data.settings.projectPath} /></Pane>;
 
   return (
     <Pane title="Recetas">
@@ -221,7 +218,6 @@ function ProjectFooter({ path, phase, onChoose, onEditor }: { path: string | nul
 function useRecipeForm(recipe: Recipe, names: string) {
   const [load, setLoad] = useState<RecipeFormLoad | null>(null);
   useEffect(() => {
-    if (!desktop) return setLoad({ kind: "noForm" });
     let current = true;
     setLoad(null);
     void getRecipeSchema(recipe.id)
@@ -467,7 +463,6 @@ function RecipeRunsSection({ recipe, recordings }: { recipe: Recipe; recordings:
   const [traces, setTraces] = useState<RecipeTrace[] | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   useEffect(() => {
-    if (!desktop) return setTraces([]);
     let current = true;
     void call<RecipeTrace[]>("trace_list", {})
       .then((all) => current && setTraces(all))

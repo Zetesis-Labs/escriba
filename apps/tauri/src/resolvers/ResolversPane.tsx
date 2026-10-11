@@ -1,7 +1,7 @@
 import { AlertTriangle, CheckCircle2, Globe, Laptop, Minus, Plus, Sparkles, AudioWaveform } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { call, desktop, native } from "../api";
+import { call, native } from "../api";
 import { Pane } from "../app/Pane";
 import { progressForModel } from "../core/downloadProgress";
 import {
@@ -30,7 +30,6 @@ type NativeStatus = { whisper?: { available?: boolean; model?: string }; llm?: {
 function useNativeStatus(model: string) {
   const [status, setStatus] = useState<NativeStatus | null>(null);
   const reload = useCallback(() => {
-    if (!desktop) return;
     void native<NativeStatus>("status", { model })
       .then(setStatus)
       .catch(() => setStatus(null));
@@ -351,7 +350,6 @@ function WhisperModelSection({ model, onChange }: { model: string; onChange: () 
     };
   }, []);
   const load = useCallback(() => {
-    if (!desktop) return;
     void call<{ model: string; available: boolean; bytes: number }>("whisper_model", { action: "info" })
       .then(setInfo)
       .catch((error) => setFailure(errorText(error)));

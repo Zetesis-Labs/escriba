@@ -1,12 +1,11 @@
 import { invoke, isTauri, convertFileSrc } from "@tauri-apps/api/core";
 import type { JSONValue, Recording, Snapshot } from "./types";
 
-export const desktop = isTauri();
 export async function call<T = unknown>(
   method: string,
   params: Record<string, unknown> = {},
 ): Promise<T> {
-  if (!desktop)
+  if (!isTauri())
     throw new Error(
       "Abre Escriba para usar el motor y la biblioteca locales.",
     );

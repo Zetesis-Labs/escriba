@@ -52,8 +52,8 @@ Fuera:
 - [ ] Estado de trabajos en la barra lateral y el botón «Actualizar».
 - [ ] Ruta de almacenamiento visible en Ajustes.
 
-El modo `?demo=1` se queda solo como herramienta de desarrollo para capturas;
-la app instalada nunca lo muestra.
+El modo `?demo=1` se retiró el 2026-10-12: la interfaz solo corre dentro de
+Escriba. Las capturas usan una biblioteca aislada con `ESCRIBA_TAURI_DATA`.
 
 ## Lo que hay que construir, por sección
 

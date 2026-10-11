@@ -1,9 +1,7 @@
 import { useEffect, useMemo, useSyncExternalStore } from "react";
-import { call, desktop } from "../api";
-import { demoSnapshot } from "../app/demo";
+import { call } from "../api";
 import { alertMessage } from "../mac/native";
-import type { NoteDraft, NoteDraftCommit, Recording, Snapshot } from "../types";
-import { createDemoDraftHost } from "./demoDraftHost";
+import type { NoteDraft, NoteDraftCommit, Recording } from "../types";
 import { createNoteDraftSession, type NoteDraftHost } from "./noteDraftSession";
 
 const tauriHost: NoteDraftHost = {
@@ -30,18 +28,6 @@ interface Entry {
 }
 
 const sessions = new Map<string, Entry>();
-const isDemo = !desktop && typeof window !== "undefined" && new URLSearchParams(window.location.search).get("demo") === "1";
-
-function publishDemo(recording: Recording) {
-  const browser = window as Window & { escribaDemo?: Snapshot };
-  const source = browser.escribaDemo ?? demoSnapshot;
-  browser.escribaDemo = {
-    ...source,
-    recordings: source.recordings.map((item) => item.id === recording.id ? recording : item),
-  };
-  window.dispatchEvent(new Event("escriba:demo-changed"));
-}
-
 function entryFor(recording: Recording): Entry {
   const existing = sessions.get(recording.id);
   if (existing) {
@@ -49,16 +35,7 @@ function entryFor(recording: Recording): Entry {
     return existing;
   }
   let entry: Entry;
-  const host = isDemo
-    ? createDemoDraftHost(() => {
-        const browser = window as Window & { escribaDemo?: Snapshot };
-        return browser.escribaDemo?.recordings.find((item) => item.id === recording.id) ?? entry.recording;
-      }, (updated) => {
-        entry.recording = updated;
-        publishDemo(updated);
-      })
-    : tauriHost;
-  const session = createNoteDraftSession(recording.id, host);
+  const session = createNoteDraftSession(recording.id, tauriHost);
   const alertHiddenError = () => {
     const state = session.getState();
     if (entry.visible || !state.draft || !state.error) return;
@@ -66,8 +43,7 @@ function entryFor(recording: Recording): Entry {
     if (entry.alertedErrors.has(key)) return;
     entry.alertedErrors.add(key);
     const text = `El borrador de «${entry.recording.title}» tiene un error: ${state.error} Tus correcciones siguen abiertas. Vuelve a la nota para reintentar.`;
-    if (desktop) void alertMessage("Borrador sin conservar", text).catch(() => {});
-    else if (typeof window !== "undefined") void Promise.resolve().then(() => window.alert(text)).catch(() => {});
+    void alertMessage("Borrador sin conservar", text).catch(() => {});
   };
   const release = () => {
     if (entry.subscribers > 0 || !entry.loaded || entry.releasing || session.getState().loading) return;

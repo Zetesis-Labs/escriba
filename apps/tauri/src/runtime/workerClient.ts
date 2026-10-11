@@ -15,10 +15,7 @@ export interface WorkerPort {
   onerror: ((event: ErrorEvent) => void) | null;
   onmessageerror: ((event: MessageEvent) => void) | null;
 }
-export function createWorkerRunner(
-  factory: () => WorkerPort = () =>
-    new Worker(new URL("./worker.ts", import.meta.url), { type: "module" }),
-): RuntimeRunner {
+export function createWorkerRunner(factory: () => WorkerPort): RuntimeRunner {
   return {
     run(task: WorkerTask, context: WorkerContext) {
       aborted(context.signal);

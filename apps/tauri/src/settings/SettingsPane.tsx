@@ -1,7 +1,7 @@
 import { homeDir } from "@tauri-apps/api/path";
 import { FolderPlus, Settings, Trash2, type LucideIcon } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
-import { call, desktop } from "../api";
+import { call } from "../api";
 import { Pane } from "../app/Pane";
 import { abbreviatedPath } from "../core/settings";
 import { folderDisplayName } from "../library/model";
@@ -25,7 +25,7 @@ function Block({ title, icon: Icon, children }: { title: string; icon: LucideIco
 function useHome() {
   const [home, setHome] = useState<string | null>(null);
   useEffect(() => {
-    if (desktop) void homeDir().then(setHome).catch(() => undefined);
+    void homeDir().then(setHome).catch(() => undefined);
   }, []);
   return home;
 }

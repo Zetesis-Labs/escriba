@@ -1,20 +1,16 @@
 import { listen } from "@tauri-apps/api/event";
 import { useCallback, useEffect, useState } from "react";
-import { desktop, library } from "../api";
-import { demoSnapshot } from "./demo";
+import { library } from "../api";
 import { errorText } from "../mac/native";
 import { getJobs, subscribeJobs } from "../runtime";
 import type { JobState, Snapshot } from "../types";
 
-export const demo = !desktop && new URLSearchParams(window.location.search).get("demo") === "1";
-
 export function useAppData() {
-  const [data, setData] = useState<Snapshot | null>(demo ? ((window as { escribaDemo?: Snapshot }).escribaDemo ?? demoSnapshot) : null);
+  const [data, setData] = useState<Snapshot | null>(null);
   const [jobs, setJobs] = useState<JobState[]>([]);
   const [problem, setProblem] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
-    if (!desktop) return;
     try {
       setData(await library());
       setProblem(null);
@@ -24,14 +20,6 @@ export function useAppData() {
   }, []);
 
   useEffect(() => {
-    if (!demo) return;
-    const updated = () => setData((window as { escribaDemo?: Snapshot }).escribaDemo ?? demoSnapshot);
-    window.addEventListener("escriba:demo-changed", updated);
-    return () => window.removeEventListener("escriba:demo-changed", updated);
-  }, []);
-
-  useEffect(() => {
-    if (!desktop) return;
     void refresh();
     let unlisten: (() => void) | undefined;
     void listen("escriba://changed", () => void refresh()).then((stop) => {

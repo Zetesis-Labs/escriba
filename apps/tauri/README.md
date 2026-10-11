@@ -150,4 +150,4 @@ El playground también se ha comprobado en la app instalada, con herramientas
 encima del editor y apertura de la carpeta en VS Code, a tamaño de ventana mínimo.
 Las validaciones manuales pendientes siguen en `docs/pendiente-tauri.md`.
 No se han usado Notion real, tokens reales ni servicios STT/LLM externos. Estos
-límites de validación no se sustituyen por los datos de muestra (`?demo=1`).
+límites de validación no se sustituyen por una biblioteca aislada de desarrollo.
