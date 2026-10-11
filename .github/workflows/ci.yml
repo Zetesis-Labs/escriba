@@ -31,7 +31,7 @@ jobs:
         run: |
           curl -fsSL -o swift.pkg "https://download.swift.org/swift-${SWIFT_VERSION}-release/xcode/swift-${SWIFT_VERSION}-RELEASE/swift-${SWIFT_VERSION}-RELEASE-osx.pkg"
           sudo installer -pkg swift.pkg -target /
-          TOOLCHAIN=$(ls -d /Library/Developer/Toolchains/swift-${SWIFT_VERSION}-RELEASE.xctoolchain)
+          TOOLCHAIN=$(ls -d "/Library/Developer/Toolchains/swift-${SWIFT_VERSION}-RELEASE.xctoolchain")
           echo "TOOLCHAINS=$(plutil -extract CFBundleIdentifier raw "$TOOLCHAIN/Info.plist")" >> "$GITHUB_ENV"
       - run: swift --version
       - run: swift build
@@ -39,9 +39,15 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
+      - name: Leer la versión de Bun del runtime
+        id: bun
+        run: |
+          version=$(cat apps/tauri/runtime-host/bun-version)
+          test -n "$version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version-file: apps/tauri/runtime-host/bun-version
+          bun-version: ${{ steps.bun.outputs.version }}
       - name: Aplicación Escriba, runtime aislado y SurrealDB
         run: |
           ./scripts/build-app.sh
