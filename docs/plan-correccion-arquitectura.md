@@ -343,12 +343,21 @@ borrado y tipado y pueden ir en paralelo con ramas separadas una vez cerrada B.
   SurrealQL de filtros en transacción descartada. **Se mantiene** la
   fijación `=3.3.2` de `surrealdb-core`/`surrealdb-expr`: el validador sigue
   siendo útil y la transacción descartada ya no depende de él.
+- **Fase F** (2026-10-12), adelantada a C porque el modo demo usaba campos
+  que el contrato tipado elimina. La interfaz solo corre dentro de Escriba:
+  fuera el modo `?demo=1` con sus datos y anfitriones simulados, la bandera
+  `desktop`, la ejecución de conectores en la WebView y el `Worker` de
+  navegador por defecto (el cliente exige su fábrica de proceso). Las
+  capturas usan una biblioteca aislada con `ESCRIBA_TAURI_DATA`. El test
+  `surrealVersions` fija SDK 2.1.1, servidor emulado 3.3.2 y los crates de
+  Rust `=3.3.2`, y falla si cambia uno solo.
 
 ## Estado para retomar
 
 Ramas apiladas en `_worktrees/escriba-arquitectura`, sin push:
 `refactor/persistencia-por-entidad` (plan + A) → `refactor/cerrojos-y-colas`
-(B) → `refactor/grafo-incremental` (G). Cada siguiente fase sale de la última.
+(B) → `refactor/grafo-incremental` (G) → `refactor/topologia-procesos` (F).
+Cada siguiente fase sale de la última.
 El worktree reutiliza la caché de `escriba-tauri`: `apps/tauri/src-tauri/target`
 es un enlace a la suya, Bun 1.4.2 está en su `.build/bun` y SwiftPM usa
 `ESCRIBA_SWIFT_SCRATCH` apuntando a su `.build`. Node 22.12+ desde nvm.
@@ -356,8 +365,9 @@ Tras cambiar TypeScript del runtime, `node apps/tauri/scripts/prepare.mjs`
 recompila el binario antes de los tests de Rust.
 
 Pendiente, en este orden: C (contrato con enum y tipos generados, empezando
-por `knowledge`), D (una sola receta por defecto), F (Worker de navegador y
-modo demo fuera; test de versiones del SDK), E (retirar la pila de recetas
-Swift y los jobs Linux/WASI), H (ADR-0003, ADR-0007, CLAUDE.md). Al final:
+por `knowledge`), D (una sola receta por defecto), E (retirar la pila de
+recetas Swift y los jobs Linux/WASI), H (ADR-0003, ADR-0007, CLAUDE.md).
+Las pruebas de runtime necesitan el Bun fijado en el `PATH`
+(`.build/bun/1.4.2/bun-darwin-aarch64`). Al final:
 prueba de compatibilidad con una copia privada de la biblioteca (pedir a Rubén
 que cierre la app), release, instalación y validación en pantalla por Rubén.

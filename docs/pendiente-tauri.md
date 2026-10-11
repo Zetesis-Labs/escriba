@@ -98,9 +98,9 @@ El instalador verifica el bundle antes de sustituirlo y conserva la copia
 anterior. La primera actualización también retira el nombre de instalación
 anterior, manteniendo la misma identidad de datos y permisos.
 
-Capturas sin tocar la app de Rubén: `npx vite --port 5199` y abrir
-`http://127.0.0.1:5199/?demo=1` (datos de `src/app/demo.ts`). El panel de
-grabación se ve en `?panel=recording&demo=1`.
+Capturas sin tocar la app de Rubén: arrancar la app de desarrollo con
+`ESCRIBA_TAURI_DATA` apuntando a un directorio temporal e importar audio
+sintético. El modo `?demo=1` se retiró el 2026-10-12.
 
 ### Aplicación única (2026-10-10)
 

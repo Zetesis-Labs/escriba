@@ -1,7 +1,7 @@
 import { homeDir } from "@tauri-apps/api/path";
 import { Circle, Minus, Plus, Share } from "lucide-react";
 import { useEffect, useState } from "react";
-import { call, desktop } from "../api";
+import { call } from "../api";
 import { Pane } from "../app/Pane";
 import { availableProviders } from "../core/connectorFields";
 import { isAppConnector, nextConnectorName } from "../core/connectors";
@@ -19,7 +19,7 @@ export function ConnectorsPane({ data, refresh }: { data: Snapshot; refresh: () 
   const [home, setHome] = useState<string | null>(null);
   const [subtitles, setSubtitles] = useState<Record<string, string>>({});
   useEffect(() => {
-    if (desktop) void homeDir().then(setHome).catch(() => undefined);
+    void homeDir().then(setHome).catch(() => undefined);
   }, []);
   useEffect(() => {
     if (!selected && destinations.length) setSelected(destinations[0].id);

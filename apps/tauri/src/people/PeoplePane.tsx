@@ -2,9 +2,8 @@ import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import { AudioLines, Mic, Minus, Plus, Trash2, Users, CircleDot, TriangleAlert } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
-import { call, desktop } from "../api";
+import { call } from "../api";
 import { Pane } from "../app/Pane";
-import { currentDemoPeople, setDemoPeople } from "../app/demo";
 import { audioExtensions } from "../core/inbox";
 import { canBeginVoiceSample, personName, voiceCount, personColor } from "../core/people";
 import { Button, ContentUnavailable, FormSection, ListBar, ListBarButton, Sheet, Spinner } from "../mac/controls";
@@ -17,7 +16,7 @@ const sampleSource = "muestra de voz";
 const voiceDate = new Intl.DateTimeFormat("es-ES", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
 
 export function PeoplePane({ active }: { active: boolean }) {
-  const [people, setPeople] = useState<Person[]>(desktop ? [] : currentDemoPeople());
+  const [people, setPeople] = useState<Person[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [registering, setRegistering] = useState<string | null>(null);
   const [sample, setSample] = useState<VoiceRegistration>(idle);
@@ -28,16 +27,15 @@ export function PeoplePane({ active }: { active: boolean }) {
   const registeringRef = useRef<string | null>(null);
 
   const reload = useCallback(async () => {
-    if (desktop) setPeople(await call<Person[]>("people_list"));
+    setPeople(await call<Person[]>("people_list"));
   }, []);
 
   useEffect(() => {
-    if (!active || !desktop) return;
+    if (!active) return;
     void reload().catch((failure) => void alertMessage("No se pudo", errorText(failure)));
   }, [active, reload]);
 
   useEffect(() => {
-    if (!desktop) return;
     let alive = true;
     let unlisten: (() => void) | undefined;
     void listen<VoiceRegistration>("escriba://voice-registration", (event) => {
@@ -59,27 +57,14 @@ export function PeoplePane({ active }: { active: boolean }) {
     const newName = personName(raw, name);
     if (!newName) return;
     void run(async () => {
-      if (desktop) {
-        await call("people_rename", { name, newName });
-        await reload();
-      } else setPeople((list) => {
-        const joining = list.find((person) => person.name === newName);
-        return joining
-          ? list.filter((person) => person.name !== name).map((person) => person.name === newName ? { ...person, voices: [...person.voices, ...(list.find((entry) => entry.name === name)?.voices ?? [])] } : person)
-          : list.map((person) => person.name === name ? { ...person, name: newName } : person);
-      });
+      await call("people_rename", { name, newName });
+      await reload();
       setSelected(newName);
     });
   };
   const changeColor = (name: string, color: string) => void run(async () => {
-    if (desktop) {
-      await call("people_set_color", { name, color });
-      await reload();
-    } else {
-      const updated = people.map((person) => person.name === name ? { ...person, color } : person);
-      setDemoPeople(updated);
-      setPeople(updated);
-    }
+    await call("people_set_color", { name, color });
+    await reload();
   });
   const remove = async () => {
     if (!selected) return;
@@ -88,13 +73,13 @@ export function PeoplePane({ active }: { active: boolean }) {
     const name = selected;
     setSelected(null);
     void run(async () => {
-      if (desktop) { await call("people_remove", { name }); await reload(); }
-      else setPeople((list) => list.filter((person) => person.name !== name));
+      await call("people_remove", { name });
+      await reload();
     });
   };
   const removeVoice = (id: string) => void run(async () => {
-    if (desktop) { await call("people_remove_voice", { id }); await reload(); }
-    else setPeople((list) => list.map((person) => ({ ...person, voices: person.voices.filter((voice) => voice.id !== id) })));
+    await call("people_remove_voice", { id });
+    await reload();
   });
   const openSample = (name: string) => {
     const epoch = ++sampleEpoch.current;
@@ -102,7 +87,7 @@ export function PeoplePane({ active }: { active: boolean }) {
     setChoosingAudio(false);
     registeringRef.current = name;
     setRegistering(name);
-    if (desktop) void call<VoiceRegistration>("voice_registration_status").then((state) => {
+    void call<VoiceRegistration>("voice_registration_status").then((state) => {
       if (sampleEpoch.current === epoch) setSample(state);
     }).catch((failure) => void alertMessage("No se pudo", errorText(failure)));
   };
@@ -115,10 +100,8 @@ export function PeoplePane({ active }: { active: boolean }) {
     setRegistering(null);
     setSample(idle);
     try {
-      if (desktop) {
-        await call<VoiceRegistration>("voice_registration_cancel");
-        await call<VoiceRegistration>("voice_registration_dismiss");
-      }
+      await call<VoiceRegistration>("voice_registration_cancel");
+      await call<VoiceRegistration>("voice_registration_dismiss");
     } catch (failure) { await alertMessage("No se pudo", errorText(failure)); }
   };
   const startSample = async (name: string) => {

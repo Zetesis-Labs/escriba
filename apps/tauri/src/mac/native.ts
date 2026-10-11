@@ -7,7 +7,6 @@ import {
   Submenu,
 } from "@tauri-apps/api/menu";
 import { ask, message, open } from "@tauri-apps/plugin-dialog";
-import { desktop } from "../api";
 
 export type MenuEntry =
   | { kind: "item"; text: string; action: () => void; enabled?: boolean; checked?: boolean }
@@ -50,10 +49,6 @@ async function build(entry: MenuEntry): Promise<MenuItem | CheckMenuItem | Subme
 export async function popupMenu(entries: MenuEntry[], anchor?: Element | { x: number; y: number }) {
   const visible = trimSeparators(entries);
   if (!visible.length) return;
-  if (!desktop) {
-    console.info("Menú (vista de muestra):", visible.map((entry) => ("text" in entry ? entry.text : "—")).join(" | "));
-    return;
-  }
   const menu = await Menu.new({ items: await Promise.all(visible.map(build)) });
   if (anchor instanceof Element) {
     const box = anchor.getBoundingClientRect();
@@ -66,20 +61,14 @@ export async function popupMenu(entries: MenuEntry[], anchor?: Element | { x: nu
 }
 
 export async function confirmDestructive(title: string, text: string, confirmLabel: string) {
-  if (!desktop) return false;
   return ask(text, { title, kind: "warning", okLabel: confirmLabel, cancelLabel: "Cancelar" });
 }
 
 export async function alertMessage(title: string, text: string) {
-  if (!desktop) {
-    console.warn(`${title}: ${text}`);
-    return;
-  }
   await message(text, { title, kind: "warning", buttons: { ok: "Vale" } });
 }
 
 export async function chooseFiles(extensions: string[]) {
-  if (!desktop) return [];
   const chosen = await open({ multiple: true, directory: false, filters: [{ name: "Audio", extensions }] });
   return Array.isArray(chosen) ? chosen : chosen ? [chosen] : [];
 }

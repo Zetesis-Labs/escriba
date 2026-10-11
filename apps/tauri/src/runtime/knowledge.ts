@@ -31,6 +31,8 @@ function decodeBase64(value: string): unknown {
   return CborCodec.DEFAULT.decode(bytes);
 }
 
+export const EMULATED_SURREAL_VERSION = "3.3.2";
+
 class GraphEngine extends RpcEngine implements SurrealEngine {
   readonly features = new Set<never>();
   readonly #events = new Publisher<EngineEvents>();
@@ -73,7 +75,7 @@ class GraphEngine extends RpcEngine implements SurrealEngine {
     request: RpcRequest<Method, Params>,
     _options?: RequestOptions,
   ): Promise<Result> {
-    if (request.method === "version") return "3.3.2" as Result;
+    if (request.method === "version") return EMULATED_SURREAL_VERSION as Result;
     if (request.method === "health") return undefined as Result;
     if (request.method === "use") {
       const [namespace, database] = request.params ?? [];

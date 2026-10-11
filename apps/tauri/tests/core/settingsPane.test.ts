@@ -1,7 +1,7 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { expect, test } from "vitest";
-import { demoSnapshot } from "../../src/app/demo";
+import { snapshot as demoSnapshot } from "../runtime/fixture";
 import { SettingsPane } from "../../src/settings/SettingsPane";
 import type { Snapshot } from "../../src/types";
 

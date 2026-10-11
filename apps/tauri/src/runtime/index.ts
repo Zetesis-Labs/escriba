@@ -1,8 +1,7 @@
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { call, desktop } from "../api";
+import { call } from "../api";
 import type { JSONObject, JobState, ProcessOptions } from "../types";
 import type { ConnectorEditorRequest, ConnectorEditorResult } from "@escriba/conectores";
-import { builtinProviders, run as runBuiltinConnector } from "@escriba/conectores";
 let jobs: JobState[] = [];
 let revision = 0;
 const failures = new Set<(message: string) => void>();
@@ -14,7 +13,7 @@ function update(value: JobState[]) {
   for (const listener of subscribers) listener();
 }
 function observe() {
-  if (!desktop || listening) return;
+  if (listening) return;
   listening = listen<JobState[]>("escriba://jobs", (event) =>
     update(event.payload),
   );
@@ -60,13 +59,8 @@ export const validateDestination = (destinationId: string) =>
 export const getRecipeSchema = (recipeId: string) =>
   run<JSONObject | null>("getRecipeSchema", { recipeId });
 export const rebuildProject = () => run("rebuildProject", {});
-export const connectorEditor = async (operation: "describe" | "action" | "validate", request: ConnectorEditorRequest): Promise<ConnectorEditorResult> => {
-  if (desktop) return run<ConnectorEditorResult>("connectorEditor", { operation, request });
-  if (operation === "action" || !builtinProviders.some((provider) => provider.id === request.providerId))
-    throw Error("Esta acción sólo está disponible en Escriba.");
-  const result = await runBuiltinConnector({ operation, provider: request.providerId, config: request.configuration, state: request.state });
-  return result as ConnectorEditorResult;
-};
+export const connectorEditor = (operation: "describe" | "action" | "validate", request: ConnectorEditorRequest) =>
+  run<ConnectorEditorResult>("connectorEditor", { operation, request });
 export function cancelProcessing(recordingId: string) {
   return call<void>("runtime_cancel", { recordingId });
 }

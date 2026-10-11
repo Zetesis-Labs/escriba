@@ -1,7 +1,7 @@
 import { listen } from "@tauri-apps/api/event";
 import { ScrollText } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { call, desktop } from "../api";
+import { call } from "../api";
 import { Pane } from "../app/Pane";
 import { displayTitle } from "../library/RecordingRow";
 import { traceOutcome, traceText } from "../library/TraceCard";
@@ -42,7 +42,6 @@ function RunsLog({ data }: { data: Snapshot }) {
   const [outcome, setOutcome] = useState<Outcome>("all");
   const [text, setText] = useState("");
   useEffect(() => {
-    if (!desktop) return setTraces([]);
     let current = true;
     void call<RecipeTrace[]>("trace_list", {})
       .then((all) => current && setTraces(all))
@@ -113,7 +112,6 @@ function useAppLog() {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [problem, setProblem] = useState<string | null>(null);
   useEffect(() => {
-    if (!desktop) return;
     let current = true;
     let pending: Promise<unknown> = Promise.resolve();
     const load = () => {

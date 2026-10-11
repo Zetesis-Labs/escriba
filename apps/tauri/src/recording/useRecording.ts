@@ -1,6 +1,6 @@
 import { listen } from "@tauri-apps/api/event";
 import { useEffect, useState } from "react";
-import { call, desktop } from "../api";
+import { call } from "../api";
 
 export type RecorderProblem = { message: string; denied: boolean };
 export type RecordingState = {
@@ -16,7 +16,6 @@ export const idleRecording: RecordingState = { active: false, clock: "00:00", re
 
 function useRecordingEvents(apply: (state: RecordingState) => void) {
   useEffect(() => {
-    if (!desktop) return;
     let alive = true;
     let stop: (() => void) | undefined;
     void call<RecordingState>("recording_status").then((state) => alive && apply(state));
@@ -31,16 +30,8 @@ function useRecordingEvents(apply: (state: RecordingState) => void) {
   }, [apply]);
 }
 
-const demoRecording: RecordingState = {
-  active: true,
-  clock: "01:23",
-  recipeName: "Reuniones de equipo",
-  levels: Array.from({ length: 48 }, (_, index) => 0.25 + 0.6 * Math.abs(Math.sin(index / 3.1)) * (index % 7 ? 1 : 0.4)),
-  problem: null,
-};
-
 export function useRecording() {
-  const [state, setState] = useState(() => (!desktop && new URLSearchParams(window.location.search).has("demo") ? demoRecording : idleRecording));
+  const [state, setState] = useState(idleRecording);
   useRecordingEvents(setState);
   return state;
 }

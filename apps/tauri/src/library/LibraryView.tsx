@@ -1,7 +1,7 @@
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { AlertTriangle, AudioLines, CircleStop, Ellipsis, FolderPlus, History, ListFilter, Mic, Users, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState, type KeyboardEvent, type MouseEvent } from "react";
-import { call, desktop, native, recordingDetail } from "../api";
+import { call, native, recordingDetail } from "../api";
 import { Pane } from "../app/Pane";
 import { audioExtensions, fileName, importNotice, importPlan } from "../core/inbox";
 import { librarySummary, rowActionText, speakers } from "../core/presentation";
@@ -33,10 +33,6 @@ function useRecordingDetail(recording: Recording | null, active: boolean) {
   useEffect(() => {
     if (!recording || !active) {
       setLoaded(null);
-      return;
-    }
-    if (!desktop) {
-      setLoaded({ key, detail: recording, error: null });
       return;
     }
     let current = true;
@@ -136,7 +132,7 @@ export function LibraryView({
   );
 
   useEffect(() => {
-    if (!desktop || !active) return;
+    if (!active) return;
     let stop: (() => void) | undefined;
     void getCurrentWebview()
       .onDragDropEvent((event) => {
@@ -407,8 +403,7 @@ function ReprocessSheet({ data, onCancel, onRun }: { data: Snapshot; onCancel: (
     const loaded = (load: ReturnType<typeof recipeFormLoad>) => {
       if (current) setDraft((previous) => reprocessTransition(previous, { type: "loaded", recipeId: draft.recipeId, load, saved: recipe?.values ?? {} }));
     };
-    if (!desktop) loaded(recipeFormLoad(recipe?.schema ?? null));
-    else void getRecipeSchema(draft.recipeId)
+    void getRecipeSchema(draft.recipeId)
       .then((schema) => loaded(recipeFormLoad(schema)))
       .catch((failure) => loaded({ kind: "problem", problem: errorText(failure) }));
     return () => { current = false; };

@@ -2,7 +2,7 @@ import { Filter, Users } from "lucide-react";
 import { Fragment, useEffect, useState, type KeyboardEvent } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { ask } from "@tauri-apps/plugin-dialog";
-import { call, desktop } from "../api";
+import { call } from "../api";
 import { LibraryView } from "../library/LibraryView";
 import { useLibraryFilters } from "../library/useLibraryFilters";
 import { ResolversPane } from "../resolvers/ResolversPane";
@@ -36,7 +36,6 @@ function useWindowActive() {
 
 function useSystemAccent() {
   useEffect(() => {
-    if (!desktop) return;
     const apply = () =>
       void call<{ accent: string | null }>("system_appearance")
         .then(({ accent }) => accent && document.documentElement.style.setProperty("--accent", accent))
@@ -49,7 +48,6 @@ function useSystemAccent() {
 
 function useNavigation(go: (section: MainSection) => void) {
   useEffect(() => {
-    if (!desktop) return;
     let alive = true;
     let stop: (() => void) | undefined;
     void listen<string>("escriba://navigate", (event) => {

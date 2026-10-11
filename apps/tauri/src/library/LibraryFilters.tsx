@@ -1,10 +1,9 @@
 import { Plus, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { call, desktop } from "../api";
+import { call } from "../api";
 import { conditionText, conditionValue, defaultCondition, filterFields, filterOperators, filterRecordLabel, type FilterCondition, type FilterOperator, type LibraryFilter, type SavedLibraryFilter } from "../core/libraryFilters";
 import { isRecordPage, type KnowledgeCollection, type OntologyDefinition } from "../knowledge/model";
 import type { GraphPage } from "../knowledge/graphTypes";
-import { demoFilterCommand } from "./demoFilters";
 import { Button, Segmented, Sheet, Spinner } from "../mac/controls";
 import { errorText } from "../mac/native";
 import type { LibraryFiltersController } from "./useLibraryFilters";
@@ -154,8 +153,7 @@ function RecordChoice({ field, condition, collection, ontology, catalog, onChang
     const request = generation.current;
     setLoading(true); setProblem(null);
     try {
-      const host = desktop ? call : demoFilterCommand;
-      const result: unknown = await host("knowledge_graph_roots", { ontologyId: targetOntology.id, table: targetTable, page: nextPage });
+      const result: unknown = await call("knowledge_graph_roots", { ontologyId: targetOntology.id, table: targetTable, page: nextPage });
       if (!isGraphPage(result)) throw new Error("La página de registros no es válida.");
       if (generation.current !== request) return;
       setRecords((current) => dedupeChoices([...current, ...pageChoices(result, Boolean(target?.relation))]));
@@ -168,8 +166,7 @@ function RecordChoice({ field, condition, collection, ontology, catalog, onChang
     const request = ++generation.current;
     setRecords([]); setPage(0); setMore(false); setLoading(true); setProblem(null);
     if (!targetOntology || !targetTable) { setLoading(false); return; }
-    const host = desktop ? call : demoFilterCommand;
-    void host<unknown>("knowledge_graph_roots", { ontologyId: targetOntology.id, table: targetTable, page: 0 }).then((result) => {
+    void call<unknown>("knowledge_graph_roots", { ontologyId: targetOntology.id, table: targetTable, page: 0 }).then((result) => {
       if (!alive || generation.current !== request) return;
       if (!isGraphPage(result)) throw new Error("La página de registros no es válida.");
       setRecords(pageChoices(result, Boolean(target?.relation))); setMore(result.hasMore); setPage(result.page);
@@ -180,9 +177,8 @@ function RecordChoice({ field, condition, collection, ontology, catalog, onChang
     if (!selectedId || selectedOnPage || loading || !targetOntology || !target) { setSelectedPreview(null); return; }
     let alive = true;
     setSelectedPreview({ id: selectedId, loading: true });
-    const host = desktop ? call : demoFilterCommand;
     const detail = async (recordId: string): Promise<Record<string, unknown>> => {
-      const result: unknown = await host("knowledge_graph_detail", { ontologyId: targetOntology.id, recordId });
+      const result: unknown = await call("knowledge_graph_detail", { ontologyId: targetOntology.id, recordId });
       if (!isRecordPage({ records: [result], page: 0, hasMore: false })) throw new Error("La vista del registro no es válida.");
       return (result as { values: Record<string, unknown> }).values;
     };

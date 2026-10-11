@@ -1,7 +1,6 @@
 import { AlertTriangle, Clock, FileText, ListTree, Pencil, Sparkles, Tag, VolumeX, Workflow } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { audioURL, call, desktop } from "../api";
-import { currentDemoPeople } from "../app/demo";
+import { audioURL, call } from "../api";
 import { clockStamp, longDate, playbackPosition, speakers } from "../core/presentation";
 import { forgottenRecognition, personColors } from "../core/people";
 import { assignSelectedSpeaker, changeSegmentText, renameSpeaker, transcriptWithSegments } from "../core/transcriptEditing";
@@ -20,7 +19,6 @@ import { useNoteDraft } from "./useNoteDraft";
 import { republish } from "./operations";
 import "./noteDetail.css";
 import { KnowledgeCard } from "../knowledge/KnowledgeCard";
-import { demoKnowledgeHost } from "../knowledge/demo";
 
 export type NoteEditRequest = { serial: number; kind: "speaker" | "forgetSpeaker" | "removeSummary"; speaker?: string };
 
@@ -28,7 +26,6 @@ export function useLatestTrace(recording: Recording, revision: string) {
   const [trace, setTrace] = useState<RecipeTrace | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
-    if (!desktop) return;
     let current = true;
     setError(null);
     void call<RecipeTrace[]>("trace_list", { recordingId: recording.id })
@@ -84,7 +81,7 @@ export function TranscriptDetail({ recording, origin, job, recipes, canSummarize
     if (!active) return;
     let current = true;
     setPeopleError(null);
-    const request = desktop ? call<Person[]>("people_list") : Promise.resolve(currentDemoPeople());
+    const request = call<Person[]>("people_list");
     void request.then((result) => { if (current) setPeople(result); }).catch((error) => { if (current) setPeopleError(`No se pudieron cargar las personas: ${errorText(error)}`); });
     return () => { current = false; };
   }, [active, !!picker]);
@@ -135,7 +132,7 @@ export function TranscriptDetail({ recording, origin, job, recipes, canSummarize
     if (tagInput.trim()) addTags();
     const result = await session.commit();
     await onRefresh();
-    if (result.created && desktop) {
+    if (result.created) {
       try { await republish(recording); setPublicationFailed(false); }
       catch (error) { setPublicationFailed(true); throw error; }
     }
@@ -155,7 +152,6 @@ export function TranscriptDetail({ recording, origin, job, recipes, canSummarize
   };
   const error = actionError ?? state.error;
   const data = content ? content.data : version?.data;
-  const graphDemo = useMemo(() => demoKnowledgeHost(recording.id), [recording.id]);
 
   return <div className="transcript-detail">
     {recording.audioPath ? <PlayerBar player={player} /> : <div className="audio-missing font-caption secondary"><VolumeX size={13} /> Solo queda la transcripción: el audio ya no existe</div>}
@@ -181,7 +177,7 @@ export function TranscriptDetail({ recording, origin, job, recipes, canSummarize
             <TranscriptEditor transcript={transcript} editing={editing} disabled={disabled} position={playbackPosition(transcript, player.currentTime)} onSeek={seek} onText={(index, text) => update({ transcript: changeSegmentText(transcript, index, text) })} onAssign={openPicker} onError={setActionError} speakerColors={speakerColors} />
           </section>
           {traceError && <p className="warning font-callout" role="alert">No se pudo cargar la ejecución: {traceError}</p>}
-          {version && active && !loading && !editing && !job && <KnowledgeCard key={`${recording.id}-${version.id}`} recordingId={recording.id} versionId={version.id} host={desktop ? undefined : graphDemo} />}
+          {version && active && !loading && !editing && !job && <KnowledgeCard key={`${recording.id}-${version.id}`} recordingId={recording.id} versionId={version.id} />}
           {trace && <section className="detail-section"><h2 className="note-section-title"><Workflow size={15} />Cómo se procesó</h2><TraceCard trace={trace} recipeName={recipeName} /></section>}
         </> : <StatusPlaceholder recording={recording} job={job} onReprocess={onReprocess} trace={trace} recipeName={recipeName} />}
       </form>
