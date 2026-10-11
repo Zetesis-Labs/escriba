@@ -94,9 +94,21 @@ incierto y se ofrece reintentar, sin inferir el resultado del texto del error.
 - knowledge_query {recipeId,recordingId,ontologyId,dependency,expectedVersion,sql,bindings} -> string; `bindings` y el resultado son CBOR en base64, con tipos nativos de SurrealDB.
 - knowledge_link {recipeId,recordingId,ontologyId,dependency,expectedVersion,versionId,recordId} -> void; vincula la versión de la nota al registro.
 - knowledge_records {id,table,page?,recordingId?,versionId?} -> {records,page,hasMore}; página de 50 registros declarados.
+- knowledge_graph_roots {ontologyId,table,page?} -> {nodes,edges,page,hasMore}; página de 40 registros declarados con etiquetas ligeras, sin propiedades completas.
+- knowledge_graph_expand {ontologyId,recordId,page?} -> {nodes,edges,page,hasMore,root}; página de 40 conexiones incidentes declaradas, referencias entre extensiones y base y vínculos de procedencia. Las relaciones conservan identidad, dirección y extremos; los destinos ausentes se marcan `missing`. Los nodos usan la pareja ontología/RecordId canónico como clave.
+- knowledge_graph_detail {ontologyId,recordId} -> {id,ontologyId,table,values,rev,truncatedFields}; vista de lectura de los campos declarados. `rev` vacío no habilita edición. Texto o JSON de más de 2000 caracteres se recorta como vista previa y su campo se incluye en `truncatedFields`; los valores breves conservan su tipo. Máximo 128 campos por detalle.
 - knowledge_save {id,expectedVersion,table,recordId?,expectedRev?,values,recordingId?,versionId?} -> registro; formulario JSON con control de revisión y procedencia opcional.
 - knowledge_delete {id,expectedVersion,table,recordId,expectedRev} -> void; knowledge_unlink {id,expectedVersion,recordId,recordingId} -> void.
 - knowledge_attach {id,expectedVersion,recordId,recordingId,versionId} -> void; vínculo de una nota con un registro ya existente desde la UI.
+
+Los comandos `knowledge_graph_*` sincronizan la proyección base mediante su
+journal antes de consultar. No ejecutan recetas ni SQL aportado por la WebView.
+La expansión admite hasta 128 extensiones instaladas y 512 fuentes de conexiones
+declaradas; si se excede, devuelve un error visible. La interfaz acumula como
+máximo 160 nodos y 240 conexiones por recorrido y permite centrar otro recorrido
+en una entidad. Una relación con referencias o procedencia puede aparecer como
+nodo de anclaje además de su arista dirigida. Tablas raw no declaradas y
+referencias arbitrarias en JSON quedan fuera de este visor.
 - account_effect_begin / account_effect_finish {recordingId} -> void; marcador duradero de escrituras arbitrarias de SDK. Solo se retira al iniciar otro reprocesado manual explícito.
 - memory_recall / memory_keep {recordingId,versionId,fingerprint,value?} -> JSON / void.
 - trace_save {recordingId,...} -> void; trace_list {recordingId?} -> trazas.

@@ -59,7 +59,17 @@ de sus tablas, sin DDL, `USE` ni autenticación administrable. No hay servidor,
 socket, segunda base en el worker, red o scripting JavaScript. Los lotes SQL
 `BEGIN`/`COMMIT` son posibles, pero las transacciones interactivas y `live` del
 SDK quedan fuera del contrato. Tampoco se crean cruces automáticos entre
-ontologías, embeddings gestionados ni un canvas.
+ontologías ni embeddings gestionados.
+
+Ampliación encargada por Rubén el 2026-10-11: Ontologías incorpora un mapa de
+estructura y un explorador de datos con inspector, conservando la gestión de
+instalaciones. El visor reutiliza algoritmos de colocación de GraphMarks;
+las relaciones dirigidas, paralelas y los bucles conservan identidad propia.
+Rust entrega páginas de colecciones y vecindades declaradas, incluidas las
+referencias a la base y la procedencia. La WebView no recibe la base completa
+ni ejecuta SurrealQL. Esta vista de lectura no añade relaciones implícitas ni
+descubre tablas raw ajenas al manifiesto. Alcance y criterios en
+`specs/escriba/mapas-conocimiento/functional-specs.md`.
 
 Un registro puede vincularse a varias versiones de nota. La UI puede editarlo
 mediante formularios declarados con control de revisión; el host protege esas

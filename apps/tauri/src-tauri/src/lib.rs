@@ -309,9 +309,19 @@ fn dispatch<'a>(
                 .as_ref()
                 .cloned()
                 .unwrap_or_default())),
-            "knowledge_list" | "knowledge_install" | "knowledge_open" | "knowledge_query"
-            | "knowledge_link" | "knowledge_records" | "knowledge_save" | "knowledge_delete"
-            | "knowledge_unlink" | "knowledge_attach" => {
+            "knowledge_list"
+            | "knowledge_install"
+            | "knowledge_open"
+            | "knowledge_query"
+            | "knowledge_link"
+            | "knowledge_records"
+            | "knowledge_save"
+            | "knowledge_delete"
+            | "knowledge_graph_roots"
+            | "knowledge_graph_expand"
+            | "knowledge_graph_detail"
+            | "knowledge_unlink"
+            | "knowledge_attach" => {
                 if method == "knowledge_list"
                     && state.knowledge.get().is_none()
                     && !state

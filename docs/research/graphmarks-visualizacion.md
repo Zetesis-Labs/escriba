@@ -1,0 +1,22 @@
+# GraphMarks como referencia para visualizar ontologías en Escriba
+
+Investigación previa al encargo del visor. El 2026-10-11 Rubén aprobó incorporarlo;
+el ADR-0006 y `specs/escriba/mapas-conocimiento/functional-specs.md` recogen el
+alcance posterior. La exclusión del canvas citada abajo corresponde a la decisión
+anterior.
+
+**Conclusión.** GraphMarks ofrece algoritmos de colocación y patrones de interacción aprovechables, pero su grafo completo no se puede trasladar a Escriba como módulo. Su interfaz está modelada alrededor de marcadores, carpetas, pestañas y un estado global mutable. Además, el [ADR de conocimiento de Escriba](/Users/ruben/Developer/_worktrees/escriba-tauri/docs/adr/0006-conocimiento-instalado-por-ontologia.md:14) prevé hoy una vista de esquemas en Ontologías y excluye expresamente un canvas; incorporarlo sería una decisión de producto posterior, no una pieza ya pendiente de conectar.
+
+## Lo que merece reutilizarse
+
+- Los layouts deterministas reciben nodos pequeños (`id`, `title`, `parentId`, `groupId`, radio y anchura aproximada de etiqueta) y devuelven posiciones, sin DOM ni navegador. El árbol ordena de forma estable, acepta bosques y corta ciclos defensivamente. Puede servir para **jerarquías elegidas** de clases o registros; el radial y el agrupado son candidatos para subgrafos acotados. [Contrato](/Users/ruben/Developer/graphacker/src/lib/layouts/types.ts:9), [árbol](/Users/ruben/Developer/graphacker/src/lib/layouts/tree.ts:54).
+- La cáscara de layout traduce nodos de producto a ese contrato, aplica posiciones fijadas, anima, respeta movimiento reducido y encuadra. Esa **separación** es útil para una vista React: React gestionaría controles y paneles; una capa imperativa poseería canvas, D3 y posiciones calientes. La cáscara concreta importa `S`, almacenamiento, mensajes y `window`, por lo que requiere adaptación. [Runtime](/Users/ruben/Developer/graphacker/src/graph/layouts/runtime.ts:1).
+- D3 aporta fuerzas, colisión y objetivos animados; el zoom se aplica al canvas y el hit test consulta la simulación. Son referencias de comportamiento, no módulos listos para importar: fuerzas y gestos usan tipos de carpeta, `S`, buses y refs del DOM. [Simulación](/Users/ruben/Developer/graphacker/src/graph/simulation.ts:69), [zoom](/Users/ruben/Developer/graphacker/src/interactions/zoom-pan.ts:11).
+
+## Desajustes con un grafo de conocimiento
+
+`GraphLink` carece de ID, etiqueta y propiedades; sus cuatro clases son `tree`, `host`, `history` y `equivalent`. La vecindad usa `Set` simétricos, que pierde multiplicidad y orientación para selección o exploración. En canvas, los enlaces ordinarios comparten una curva entre los mismos extremos; el árbol agrupa todas las ramas por origen, y solo `history` dibuja flecha. Dos relaciones distintas entre los mismos registros quedarían superpuestas y sin nombre. [Modelo](/Users/ruben/Developer/graphacker/src/types.ts:125), [construcción](/Users/ruben/Developer/graphacker/src/graph/build.ts:57), [trazado](/Users/ruben/Developer/graphacker/src/render/links.ts:34).
+
+El árbol depende de un único `parentId`; una ontología con relaciones arbitrarias, ciclos o varios padres exige seleccionar primero un **árbol de expansión** y pintar las demás relaciones como enlaces cruzados. Para el **esquema** (tablas, campos y extremos de relaciones), conviene empezar con la lista desplegable prevista por el ADR. Si se aprueba un diagrama, definir un layout específico de esquema; el árbol de carpetas no determina qué relación ontológica debe ser «padre». Para **instancias**, un mapa de fuerzas puede explorar una consulta limitada, con carga por vecindad y sin volcar `knowledge.surrealkv` en la WebView. El host Rust debe seguir siendo dueño de las consultas y permisos por ontología. [ADR](/Users/ruben/Developer/_worktrees/escriba-tauri/docs/adr/0006-conocimiento-instalado-por-ontologia.md:54), [simulación](/Users/ruben/Developer/graphacker/src/graph/simulation.ts:81).
+
+**Seam recomendado:** una proyección de lectura desde Rust que entregue nodos y aristas estables (`ontologyId`, tabla, ID de registro; ID y tipo de relación; origen y destino dirigidos), seguida de un módulo de visualización independiente en React/canvas. Probar primero una maqueta con datos sintéticos que incluya ciclos, aristas paralelas y nombres largos. Extraer solo funciones puras de layout, encuadre o navegación que demuestren utilidad; rehacer el trazado de aristas y la semántica de selección para Escriba.

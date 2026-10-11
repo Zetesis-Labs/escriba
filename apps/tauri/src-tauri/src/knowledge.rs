@@ -77,6 +77,9 @@ pub enum FieldType {
 mod base;
 mod base_query;
 pub use base::{base_definition, base_listing};
+mod graph;
+#[cfg(test)]
+mod graph_tests;
 mod migrations;
 mod records;
 pub use records::{SaveRecord, Source};
