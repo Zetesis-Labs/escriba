@@ -1,3 +1,4 @@
+import { buildDefaultRecipe } from "../../runtime-host/defaultRecipe.mjs";
 import { beforeAll, test } from "vitest";
 import assert from "node:assert/strict";
 import { Worker } from "node:worker_threads";
@@ -12,6 +13,7 @@ let workerCode = "";
 beforeAll(async () => {
   const built = await build({
     entryPoints: [`${root}apps/tauri/src/runtime/worker.ts`],
+    define: { __DEFAULT_RECIPE__: JSON.stringify(await buildDefaultRecipe()) },
     bundle: true,
     write: false,
     platform: "browser",
@@ -134,6 +136,38 @@ test("Worker real valida Zod, pregunta y guarda datos sin acceso a red", async (
     },
   );
   assert.deepEqual(calls, ["transcribe", "ask", "save"]);
+});
+test("sin programa de proyecto el worker ejecuta la receta por defecto compilada", async () => {
+  const calls: Array<{ operation: string; args: Record<string, unknown> }> = [];
+  const note = { handle: "v1", clave: "r", version: 1, texto: "Texto", segmentos: [], datos: null };
+  await runner().run(
+    { kind: "recipe", payload: { ...payload, lists: { ...lists, conectores: [{ clave: "okf", nombre: "Archivo", activo: true }, { clave: "notion", nombre: "Notion", activo: true }] }, values: { conectores: ["okf", "notion"] } } },
+    {
+      call: async (operation, args) => {
+        calls.push({ operation, args: args as Record<string, unknown> });
+        if (operation === "transcribe" || operation === "save") return note;
+        if (operation === "summarize") throw Error("motor ocupado");
+        if (operation === "publish" && (args as { destinationId: string }).destinationId === "okf") throw Error("carpeta ausente");
+        return null;
+      },
+    },
+  );
+  assert.deepEqual(calls.filter((call) => call.operation !== "log").map((call) => call.operation), ["transcribe", "summarize", "save", "publish", "publish"]);
+  assert.deepEqual(calls[0].args, { stt: "local-stt", idioma: "es", hablantes: { detectar: false, cuantos: null } });
+  assert.deepEqual(calls.filter((call) => call.operation === "publish").map((call) => call.args.destinationId), ["okf", "notion"]);
+  const warnings = calls.filter((call) => call.operation === "log").map((call) => call.args);
+  assert.ok(warnings.every((entry) => entry.level === "warn"), JSON.stringify(warnings));
+  assert.match(String(warnings[0].message), /resumir.*motor ocupado/);
+  assert.match(String(warnings[1].message), /okf.*carpeta ausente/);
+});
+test("el formulario por defecto sale del programa compilado con el idioma de los ajustes", async () => {
+  const schema = (await runner().run(
+    { kind: "recipe-schema", payload: { lists, defaultLanguage: "en" } },
+    { call: async () => null },
+  )) as { properties: Record<string, { default?: unknown }> };
+  assert.equal(schema.properties.idioma.default, "en");
+  assert.equal(schema.properties.resumir.default, true);
+  assert.deepEqual(Object.keys(schema.properties), ["stt", "idioma", "hablantes", "resumir", "llm", "prompt", "conectores"]);
 });
 test("una receta de código sin formulario comunica que no tiene parámetros", async () => {
   const schema = await runner().run(

@@ -5,12 +5,14 @@ import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 import { CborCodec, DateTime, Decimal, RecordId } from "surrealdb";
 import { createWorkerRunner, type WorkerPort } from "../../src/runtime/workerClient";
+import { buildDefaultRecipe } from "../../runtime-host/defaultRecipe.mjs";
 
 const root = fileURLToPath(new URL("../../../../", import.meta.url));
 let workerCode = "";
 beforeAll(async () => {
   const built = await build({
     entryPoints: [`${root}apps/tauri/src/runtime/worker.ts`],
+    define: { __DEFAULT_RECIPE__: JSON.stringify(await buildDefaultRecipe()) },
     bundle: true,
     write: false,
     platform: "browser",

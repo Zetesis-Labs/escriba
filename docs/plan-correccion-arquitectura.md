@@ -364,13 +364,21 @@ borrado y tipado y pueden ir en paralelo con ramas separadas una vez cerrada B.
   `checkedGraphPage` se queda porque comprueba invariantes, no forma. Queda
   tipar los parámetros de `AppCommand` por módulos y llevar `Store::mutate`
   a esas variantes; `Field<T>` no apareció en la parte tipada.
+- **Fase D** (2026-10-12). El worker ejecuta siempre un programa compilado:
+  sin proyecto, `__DEFAULT_RECIPE__`, compilado de `recetas/por-defecto/receta.ts`
+  por `runtime-host/defaultRecipe.mjs` con Zod compartido. Se borra el flujo
+  en línea de `worker.ts`; `defaultRecipe.ts` solo ajusta el idioma del
+  formulario y ya no importa la receta desde fuera de la app. La receta avisa
+  como advertencia también cuando falla una publicación, como hacía el flujo
+  en línea. Un test comprueba que Rust incrusta el mismo fichero que compila
+  el runtime. `RecipeTemplate.swift` y `build-recetas.sh` se van con la E.
 
 ## Estado para retomar
 
 Ramas apiladas en `_worktrees/escriba-arquitectura`, sin push:
 `refactor/persistencia-por-entidad` (plan + A) → `refactor/cerrojos-y-colas`
 (B) → `refactor/grafo-incremental` (G) → `refactor/topologia-procesos` (F)
-→ `refactor/contrato-tipado` (C).
+→ `refactor/contrato-tipado` (C) → `refactor/receta-unica` (D).
 Cada siguiente fase sale de la última.
 El worktree reutiliza la caché de `escriba-tauri`: `apps/tauri/src-tauri/target`
 es un enlace a la suya, Bun 1.4.2 está en su `.build/bun` y SwiftPM usa
@@ -378,9 +386,8 @@ es un enlace a la suya, Bun 1.4.2 está en su `.build/bun` y SwiftPM usa
 Tras cambiar TypeScript del runtime, `node apps/tauri/scripts/prepare.mjs`
 recompila el binario antes de los tests de Rust.
 
-Pendiente, en este orden: D (una sola receta por defecto), E (retirar la
-pila de recetas Swift y los jobs Linux/WASI), H (ADR-0003, ADR-0007,
-CLAUDE.md).
+Pendiente, en este orden: E (retirar la pila de recetas Swift y los jobs
+Linux/WASI), H (ADR-0003, ADR-0007, CLAUDE.md).
 Las pruebas de runtime necesitan el Bun fijado en el `PATH`
 (`.build/bun/1.4.2/bun-darwin-aarch64`). Al final:
 prueba de compatibilidad con una copia privada de la biblioteca (pedir a Rubén

@@ -1,21 +1,17 @@
 /// <reference path="../../../../recetas/escriba-recetas.d.ts" />
-import { buildRecipeForm } from "../../../../recetas/por-defecto/receta";
+import type { z } from "zod";
 export type Lists = ListasDeEscriba;
-export function defaultRecipeForm(
-  lists: Lists,
-  defaultLanguage: unknown = "es",
-) {
-  const form = buildRecipeForm(lists);
+export function withDefaultLanguage(form: unknown, defaultLanguage: unknown = "es"): unknown {
+  const schema = form as z.ZodObject<z.ZodRawShape>;
+  const idioma = schema.shape?.idioma as z.ZodDefault<z.ZodType> | undefined;
+  if (!idioma) return form;
   const language =
     defaultLanguage === null || defaultLanguage === "auto"
       ? null
       : defaultLanguage === "en"
         ? "en"
         : "es";
-  return form.extend({
-    idioma: form.shape.idioma
-      .unwrap()
-      .default(language)
-      .meta(form.shape.idioma.meta() || {}),
+  return schema.extend({
+    idioma: idioma.unwrap().default(language).meta(idioma.meta() || {}),
   });
 }

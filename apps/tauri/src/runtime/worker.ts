@@ -1,10 +1,12 @@
 import { z } from "zod";
+import * as zod from "zod";
 import { run as builtinConnector } from "@escriba/conectores";
-import { defaultRecipeForm, type Lists } from "./defaultRecipe";
+import { withDefaultLanguage, type Lists } from "./defaultRecipe";
 import { graphVersion, openGraph } from "./knowledge";
 import { object, message, errorCode, protocolError } from "./contracts";
 import type { WorkerTask } from "./contracts";
 declare const __escribaRequire: (specifier: string) => unknown;
+declare const __DEFAULT_RECIPE__: string;
 const send = globalThis.postMessage.bind(globalThis);
 let sequence = 0;
 const pending = new Map<
@@ -60,12 +62,19 @@ Object.defineProperty(globalThis, "console", {
 function load(
   source: string,
   globalName: "__recipe" | "__conectores" | "__ontologias",
+  require: ((specifier: string) => unknown) | undefined = typeof __escribaRequire === "function" ? __escribaRequire : undefined,
 ): Record<string, unknown> {
   const result = new Function(
     "require",
     `${source}\n;return typeof ${globalName} !== 'undefined' ? ${globalName} : undefined;`,
-  )(typeof __escribaRequire === "function" ? __escribaRequire : undefined);
+  )(require);
   return object(result);
+}
+function defaultRecipe(): Record<string, unknown> {
+  return load(__DEFAULT_RECIPE__, "__recipe", (specifier) => {
+    if (specifier === "zod") return zod;
+    throw Error(`La receta por defecto no incluye ${specifier}`);
+  });
 }
 function schemaJSON(schema: unknown): unknown {
   return z.toJSONSchema(schema as z.ZodType);
@@ -136,20 +145,20 @@ function noteObject(
 async function recipe(task: WorkerTask) {
   const p = task.payload;
   const lists = p.lists as Lists;
-  const module = task.program ? load(task.program, "__recipe") : {};
+  const module = task.program ? load(task.program, "__recipe") : defaultRecipe();
   const form =
-    typeof module.buildRecipeForm === "function"
-      ? module.buildRecipeForm(lists)
+    typeof module.buildRecipeForm !== "function"
+      ? z.object({}).passthrough()
       : task.program
-        ? z.object({}).passthrough()
-        : defaultRecipeForm(lists, p.defaultLanguage);
+        ? module.buildRecipeForm(lists)
+        : withDefaultLanguage(module.buildRecipeForm(lists), p.defaultLanguage);
   if (task.kind === "recipe-schema")
     return task.program && typeof module.buildRecipeForm !== "function"
       ? null
       : schemaJSON(form);
   if (task.kind === "recipe-inspect") {
     const meta = module.receta ? object(module.receta) : {};
-    if (task.program && typeof module.flujo !== "function")
+    if (typeof module.flujo !== "function")
       throw Error("La receta no exporta flujo");
     return {
       schema: schemaJSON(form),
@@ -248,34 +257,8 @@ async function recipe(task: WorkerTask) {
       writeLog("info", [text]);
     },
   });
-  if (typeof module.flujo === "function") await module.flujo(audio, api);
-  else if (task.program) throw Error("La receta no exporta flujo");
-  else {
-    const settings = object(parameters);
-    const note = await api.transcribir(audio, {
-      stt: settings.stt,
-      idioma: settings.idioma,
-      hablantes: settings.hablantes,
-    });
-    if (settings.resumir) {
-      try {
-        await (note.resumir as (options: unknown) => Promise<unknown>)({
-          llm: settings.llm,
-          prompt: settings.prompt,
-        });
-      } catch (error) {
-        writeLog("warn", [`No se pudo resumir: ${message(error)}`]);
-      }
-    }
-    await (note.guardar as () => Promise<unknown>)();
-    for (const id of settings.conectores as string[]) {
-      try {
-        await api.conector(id).publicar(note);
-      } catch (error) {
-        writeLog("warn", [`No se pudo publicar en ${id}: ${message(error)}`]);
-      }
-    }
-  }
+  if (typeof module.flujo !== "function") throw Error("La receta no exporta flujo");
+  await module.flujo(audio, api);
   await Promise.all(logs);
   return null;
 }

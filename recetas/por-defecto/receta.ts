@@ -82,7 +82,7 @@ export async function flujo(audio: Audio, escriba: Escriba<Parametros>): Promise
     try {
       await escriba.conector(clave).publicar(nota)
     } catch (error) {
-      escriba.log(`no se pudo publicar en ${clave}: ${error}`)
+      console.warn(`no se pudo publicar en ${clave}: ${error}`)
     }
   }
 }

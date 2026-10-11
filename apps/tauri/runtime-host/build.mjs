@@ -3,6 +3,7 @@ import { readFile, mkdir, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { resolve, dirname } from "node:path";
 import { spawnSync } from "node:child_process";
+import { buildDefaultRecipe } from "./defaultRecipe.mjs";
 const app = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const root = resolve(app, "../..");
 export async function buildRuntime({
@@ -34,6 +35,7 @@ export async function buildRuntime({
     entryPoints: [resolve(app, "src/runtime/worker.ts")],
     platform: "browser",
     format: "iife",
+    define: { __DEFAULT_RECIPE__: JSON.stringify(await buildDefaultRecipe()) },
   });
   const builtin = await readFile(
     resolve(root, "packages/conectores/dist/conectores.js"),
