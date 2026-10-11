@@ -13,6 +13,7 @@ import { fileURLToPath } from "node:url";
 import { createInterface } from "node:readline";
 import { connect, createServer } from "node:net";
 import { build } from "esbuild";
+import { CborCodec, RecordId } from "surrealdb";
 import { snapshot, runtimeContext } from "./fixture";
 import type { Snapshot, Version } from "../../src/types";
 let directory = "";
@@ -430,6 +431,58 @@ test("las recetas pueden comparar texto con Intl dentro del sandbox", async () =
   try {
     await host.ready;
     await host.run("processRecording", { recordingId: "r" }).result;
+    assert.equal(state.recordings[0].versions.length, 1);
+  } finally {
+    host.close();
+  }
+});
+
+test("una receta usa el SDK SurrealDB dentro del worker Bun aislado", async () => {
+  const built = await build({
+    stdin: {
+      contents: `import { RecordId } from 'surrealdb';
+        export const ontologias = [{ id: 'personas', minVersion: 2, maxVersion: 3 }];
+        export async function flujo(audio, api) {
+          const db = await api.grafo('personas');
+          const id = new RecordId('persona', 'ada');
+          const [people] = await db.query('SELECT * FROM persona WHERE id = $id', { id });
+          if (!(people[0].id instanceof RecordId)) throw Error('RecordId perdido');
+          await (await api.transcribir(audio)).guardar();
+        }`,
+      resolveDir: fileURLToPath(new URL("../../", import.meta.url)),
+    },
+    bundle: true,
+    write: false,
+    platform: "browser",
+    format: "iife",
+    globalName: "__recipe",
+    nodePaths: [fileURLToPath(new URL("../../node_modules", import.meta.url))],
+  });
+  const state = structuredClone(snapshot);
+  state.recipes[0] = {
+    id: "default", name: "Grafo", kind: "code", values: {},
+    ontologies: [{ id: "personas", minVersion: 2, maxVersion: 3 }],
+    bundle: built.outputFiles[0].text,
+  };
+  const methods: string[] = [];
+  const host = supervisor(state, false, (method) => methods.push(method), async (method, params) => {
+    if (method === "knowledge_open") return { version: 3 };
+    if (method === "account_effect_begin") return null;
+    if (method === "knowledge_query") {
+      assert.equal(params.ontologyId, "personas");
+      assert.equal(params.expectedVersion, 3);
+      const bindings = CborCodec.DEFAULT.decode<Record<string, unknown>>(
+        Buffer.from(String(params.bindings), "base64"),
+      );
+      assert.ok(bindings.id instanceof RecordId);
+      return Buffer.from(CborCodec.DEFAULT.encode([[{ id: bindings.id }]])).toString("base64");
+    }
+    throw Error(`Capacidad inesperada: ${method}`);
+  });
+  try {
+    await host.ready;
+    await host.run("processRecording", { recordingId: "r" }).result;
+    assert.ok(methods.includes("knowledge_query"));
     assert.equal(state.recordings[0].versions.length, 1);
   } finally {
     host.close();

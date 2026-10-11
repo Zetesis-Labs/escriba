@@ -15,6 +15,10 @@ import { getRecipeSchema, processRecording } from "../runtime";
 import type { JSONObject, JSONValue, Recipe, RecipeTrace, Recording, Snapshot } from "../types";
 import { RecipeFormSections } from "./RecipeFormSections";
 import "./recipes.css";
+import { OntologiesPanel } from "../knowledge/OntologiesPanel";
+import { demoKnowledgeHost } from "../knowledge/demo";
+
+const demoKnowledge = demoKnowledgeHost("demo");
 
 const Playground = lazy(() => import("./Playground").then(({ Playground }) => ({ default: Playground })));
 
@@ -41,6 +45,7 @@ export function RecipesPane({ data, refresh }: { data: Snapshot; refresh: () => 
   const defaultId = data.settings.defaultRecipeId;
   const [chosen, setChosen] = useState<string>(defaultId);
   const [editorOpen, setEditorOpen] = useState(false);
+  const [ontologiesOpen, setOntologiesOpen] = useState(false);
   const selected = data.recipes.find((recipe) => recipe.id === chosen) ?? data.recipes.find((recipe) => recipe.id === defaultId) ?? null;
   const [phase, setPhase] = useProjectPhase();
 
@@ -111,9 +116,9 @@ export function RecipesPane({ data, refresh }: { data: Snapshot; refresh: () => 
     <div
       key={recipe.id}
       role="option"
-      aria-selected={recipe.id === selected?.id}
-      className={`list-row recipe-row ${recipe.id === selected?.id ? "selected" : ""}`}
-      onMouseDown={() => setChosen(recipe.id)}
+      aria-selected={!ontologiesOpen && recipe.id === selected?.id}
+      className={`list-row recipe-row ${!ontologiesOpen && recipe.id === selected?.id ? "selected" : ""}`}
+      onMouseDown={() => { setChosen(recipe.id); setOntologiesOpen(false); }}
       onContextMenu={(event) => {
         event.preventDefault();
         setChosen(recipe.id);
@@ -154,6 +159,7 @@ export function RecipesPane({ data, refresh }: { data: Snapshot; refresh: () => 
             <div className="list-section font-caption secondary">De código</div>
             {codes.map((recipe) => row(recipe, `Código · ${recipe.id}`, () => [item("Guardar como receta de formulario", () => void saveAsForm(recipe))]))}
             <ProjectFooter path={data.settings.projectPath} phase={phase} onChoose={() => void chooseProject()} onEditor={() => setEditorOpen(true)} />
+            <div className="project-footer"><div className="project-actions"><Button small onClick={() => setOntologiesOpen(true)}>Ontologías…</Button></div></div>
           </div>
           {missing && (
             <div className="font-caption warning missing-default">
@@ -167,7 +173,7 @@ export function RecipesPane({ data, refresh }: { data: Snapshot; refresh: () => 
         </div>
         <div className="list-detail-divider" />
         <div className="detail-column">
-          {selected ? (
+          {ontologiesOpen ? <OntologiesPanel key={data.settings.projectPath} host={desktop ? undefined : demoKnowledge} /> : selected ? (
             <RecipeDetail
               key={selected.id}
               recipe={selected}

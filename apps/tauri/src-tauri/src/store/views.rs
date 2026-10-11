@@ -4,6 +4,9 @@ impl Store {
     pub fn library(&self) -> Value {
         let mut value = crate::library_view::typed_library(&self.data);
         value["settings"] = redacted_settings(&value["settings"]);
+        if let Some(settings) = value["settings"].as_object_mut() {
+            settings.remove("projectOntologies");
+        }
         value["dataPath"] = json!(self.root);
         self.mark_credentials(&mut value);
         value

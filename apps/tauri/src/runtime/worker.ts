@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { run as builtinConnector } from "@escriba/conectores";
 import { defaultRecipeForm, type Lists } from "./defaultRecipe";
+import { graphVersion, openGraph } from "./knowledge";
 import { object, message, errorCode, protocolError } from "./contracts";
 import type { WorkerTask } from "./contracts";
 declare const __escribaRequire: (specifier: string) => unknown;
@@ -58,7 +59,7 @@ Object.defineProperty(globalThis, "console", {
 });
 function load(
   source: string,
-  globalName: "__recipe" | "__conectores",
+  globalName: "__recipe" | "__conectores" | "__ontologias",
 ): Record<string, unknown> {
   const result = new Function(
     "require",
@@ -119,6 +120,14 @@ function noteObject(
       current = object(await rpc("save", { handle: current.handle, data }));
       return note;
     },
+    async vincular(ontologyId: string, recordId: string) {
+      if (typeof ontologyId !== "string" || !ontologyId.trim())
+        throw Error("Falta el identificador de la ontología");
+      if (typeof recordId !== "string" || !recordId.trim())
+        throw Error("Falta el identificador del registro");
+      const expectedVersion = await graphVersion(ontologyId, rpc);
+      await rpc("graph.link", { noteId: current.handle, ontologyId, recordId, expectedVersion });
+    },
   };
   return note;
 }
@@ -146,6 +155,7 @@ async function recipe(task: WorkerTask) {
       ...(typeof meta.descripcion === "string"
         ? { description: meta.descripcion }
         : {}),
+      ...(module.ontologias !== undefined ? { ontologias: module.ontologias } : {}),
     };
   }
   const parameters =
@@ -184,6 +194,9 @@ async function recipe(task: WorkerTask) {
         nombre: account.nombre,
         fetch: authenticatedFetch("account.http", { accountId: account.clave }),
       });
+    },
+    grafo(ontologyId: string) {
+      return openGraph(ontologyId, rpc);
     },
     async transcribir(target: unknown, options: unknown = {}) {
       if (target !== audio)
@@ -263,6 +276,10 @@ async function recipe(task: WorkerTask) {
   }
   await Promise.all(logs);
   return null;
+}
+function ontology(task: WorkerTask) {
+  const module = task.program ? load(task.program, "__ontologias") : {};
+  return { ontologies: module.ontologias };
 }
 const attachments = new WeakMap<Blob, { start: number; end: number }>();
 class Multipart {
@@ -397,7 +414,11 @@ globalThis.onmessage = (event) => {
     const task = data.task as WorkerTask;
     Promise.resolve()
       .then(() =>
-        task.kind.startsWith("recipe") ? recipe(task) : connector(task),
+        task.kind.startsWith("recipe")
+          ? recipe(task)
+          : task.kind === "ontology-inspect"
+            ? ontology(task)
+            : connector(task),
       )
       .then(
         (value) => send({ type: "result", value }),

@@ -12,6 +12,9 @@ const capabilityNames: Record<string, string> = {
   ask: "Consultar",
   publish: "Publicar",
   "account.http": "Consultar cuenta",
+  "graph.open": "Abrir conocimiento",
+  "graph.query": "Consultar o guardar conocimiento",
+  "graph.link": "Vincular conocimiento con la nota",
   process: "Ejecutar otra receta",
   log: "Registro",
 };

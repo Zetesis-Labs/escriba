@@ -3,6 +3,10 @@ use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 
 pub fn install(store: &mut Store, package: &Value) -> Result<(), String> {
+    let ontologies: Vec<crate::knowledge::Ontology> =
+        serde_json::from_value(package.get("ontologies").cloned().unwrap_or(json!([])))
+            .map_err(|_| "Ontologías del proyecto inválidas")?;
+    crate::knowledge::validate_catalog(&ontologies)?;
     let compiled = package["recipes"]
         .as_array()
         .ok_or("Recetas compiladas inválidas")?;
@@ -15,6 +19,7 @@ pub fn install(store: &mut Store, package: &Value) -> Result<(), String> {
         Some(value) => value.as_array().ok_or("Proveedores compilados inválidos")?,
     };
     let mut next = store.index_json();
+    next["settings"]["projectOntologies"] = json!(ontologies);
     let previous = next["recipes"]
         .as_array()
         .ok_or("Recetas inválidas")?
@@ -27,6 +32,7 @@ pub fn install(store: &mut Store, package: &Value) -> Result<(), String> {
     let mut aliases = HashMap::<String, String>::new();
     let mut installed = HashSet::new();
     for built in compiled {
+        crate::knowledge_commands::dependencies(built.get("ontologies"))?;
         let id = text(built, "id")?;
         if built["kind"] != "code" || !built["bundle"].is_string() {
             return Err("Paquete de receta inválido".into());
@@ -164,6 +170,36 @@ pub fn install(store: &mut Store, package: &Value) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn las_ontologias_del_catalogo_se_validan_y_persisten_sin_inflar_la_lista() {
+        let temp = tempfile::tempdir().unwrap();
+        let mut store = Store::open(temp.path().into()).unwrap();
+        let ontology = json!({"id":"example","name":"Ejemplo","version":1,"migrations":[{"version":1,"sql":"DEFINE TABLE topic PERMISSIONS FULL;"}],"collections":[]});
+        let package = json!({"recipes":[],"destinations":[],"ontologies":[ontology]});
+        install(&mut store, &package).unwrap();
+        assert!(store.library()["settings"]
+            .get("projectOntologies")
+            .is_none());
+        drop(store);
+        let mut store = Store::open(temp.path().into()).unwrap();
+        assert_eq!(
+            json!(store.data.settings.project_ontologies.as_ref()),
+            package["ontologies"]
+        );
+        let mut invalid = package.clone();
+        invalid["ontologies"][0]["version"] = json!(2);
+        assert!(install(&mut store, &invalid).is_err());
+        assert_eq!(
+            json!(store.data.settings.project_ontologies.as_ref()),
+            package["ontologies"]
+        );
+        install(&mut store, &json!({"recipes":[],"destinations":[]})).unwrap();
+        assert_eq!(
+            json!(store.data.settings.project_ontologies.as_ref()),
+            json!([])
+        );
+    }
+
     #[test]
     fn proveedor_del_proyecto_sobrevive_reapertura_y_retirada_sin_perder_cuenta() {
         let temp = tempfile::tempdir().unwrap();

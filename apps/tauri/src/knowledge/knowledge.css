@@ -1,0 +1,40 @@
+.knowledge-ontologies { padding: 24px 30px; overflow: auto; max-width: 820px; width: 100%; margin: 0 auto; box-sizing: border-box; }
+.knowledge-heading { display: flex; align-items: start; justify-content: space-between; gap: 16px; margin-bottom: 25px; }
+.knowledge-heading h2 { margin: 0 0 5px; font-size: 19px; font-weight: 650; }
+.knowledge-heading p { margin: 0; line-height: 1.5; }
+.knowledge-section { margin: 0 0 24px; }
+.knowledge-section h3 { margin: 0 0 8px; color: var(--secondary); font-size: 11px; text-transform: uppercase; letter-spacing: .025em; }
+.knowledge-section > p { margin: 9px 0; line-height: 1.5; }
+.knowledge-ontology-row { display: flex; align-items: center; gap: 11px; min-height: 48px; padding: 8px 12px; border-top: .5px solid var(--separator); box-sizing: border-box; }
+.knowledge-ontology-row:last-of-type { border-bottom: .5px solid var(--separator); }
+.knowledge-ontology-row > svg { color: var(--secondary); flex: none; }
+.knowledge-ontology-row > div { display: flex; flex-direction: column; gap: 3px; flex: 1; min-width: 0; }
+.knowledge-ontology-row strong { font-size: 13px; font-weight: 550; }
+.knowledge-ontology-row span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.knowledge-error { color: var(--red); background: color-mix(in srgb, var(--red) 7%, transparent); border-radius: 6px; padding: 9px 11px; margin-bottom: 14px; font-size: 12px; user-select: text; }
+.knowledge-loading { display: flex; align-items: center; gap: 7px; color: var(--secondary); font-size: 12px; }
+.knowledge-card { display: flex; flex-direction: column; gap: 11px; border-top: .5px solid var(--separator); padding-top: 19px; }
+.knowledge-card-head { display: flex; align-items: center; gap: 8px; }
+.knowledge-card-head h2 { margin: 0; flex: 1; }
+.knowledge-card-empty { margin: 0; color: var(--secondary); font-size: 12px; line-height: 1.5; }
+.knowledge-group { border: .5px solid var(--separator); border-radius: 8px; overflow: hidden; }
+.knowledge-group-title { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 9px 12px; background: var(--fill); font-size: 11px; color: var(--secondary); }
+.knowledge-group-title strong { color: var(--label); font-size: 12px; font-weight: 600; }
+.knowledge-group-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 5px; }
+.knowledge-record-row { display: flex; align-items: center; gap: 8px; padding: 9px 12px; border-top: .5px solid var(--separator); font-size: 12px; }
+.knowledge-record-row span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.knowledge-row-action { border: 0; background: transparent; color: var(--accent); font-size: 11px; padding: 3px; }
+.knowledge-row-action:hover { text-decoration: underline; }
+.knowledge-sheet { display: flex; flex-direction: column; gap: 14px; min-width: min(420px, 80vw); max-height: 80vh; overflow: auto; }
+.knowledge-sheet h3 { margin: 0; font-size: 16px; }
+.knowledge-field { display: flex; flex-direction: column; gap: 5px; font-size: 11px; color: var(--secondary); }
+.knowledge-field input, .knowledge-field textarea, .knowledge-field select { width: 100%; box-sizing: border-box; color: var(--label); background: var(--content); border: 1px solid var(--separator); border-radius: 5px; padding: 6px 8px; font: inherit; font-size: 12px; }
+.knowledge-field input:focus, .knowledge-field textarea:focus, .knowledge-field select:focus { outline: 1px solid var(--accent); }
+.knowledge-field input[type="checkbox"] { width: auto; }
+.knowledge-field-boolean { flex-direction: row; align-items: center; }
+.knowledge-field textarea { min-height: 70px; resize: vertical; }
+.knowledge-endpoint { display: flex; flex-direction: column; align-items: start; gap: 5px; }
+.knowledge-endpoint .knowledge-field { width: 100%; }
+.knowledge-shared-note { margin: -5px 0 0; line-height: 1.45; }
+.knowledge-actions { display: flex; align-items: center; justify-content: flex-end; gap: 7px; }
+.knowledge-actions .destructive { margin-right: auto; color: var(--red); }

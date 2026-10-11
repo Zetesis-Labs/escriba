@@ -9,6 +9,10 @@ para SDK desde recetas. El contrato está implementado en la rama de trabajo;
 la validación instalada por Rubén sigue pendiente. Véase
 [el objetivo y sus criterios de aceptación](objetivo-extensibilidad-recetas.md).
 
+La misma rama incorpora ontologías de conocimiento propuestas por el proyecto.
+La persona usuaria las instala o actualiza explícitamente desde Recetas; construir
+o elegir otro proyecto no modifica las ontologías ya instaladas.
+
 ## Editar y construir
 
 En Recetas, elegir una carpeta vacía crea el proyecto y sus tipos. Abrir editor
@@ -47,6 +51,7 @@ mi-proyecto/
   escriba-recetas.d.ts
   src/
     conectores.ts
+    ontologias.ts
     recetas/ejemplo/receta.ts
   node_modules/
   .escriba/                 # dependencias administradas, caché y temporales
@@ -54,6 +59,7 @@ mi-proyecto/
     escriba.json
     receta-0.js
     conectores.js
+    ontologias.js
 ```
 
 Las recetas también pueden estar en la estructura anterior `recetas/<id>/receta.ts`
@@ -63,7 +69,7 @@ prefijo `code:`. `receta.ts` prevalece sobre `receta.js` en la misma carpeta.
 
 El proyecto puede importar paquetes ESM, CommonJS y JSON de su `node_modules`.
 Su versión de Zod prevalece; si falta, el constructor usa la incluida. Zod y
-`@escriba/conectores` tienen una copia administrada y están declarados como
+`@escriba/conectores` y `surrealdb` 2.1.1 tienen una copia administrada y están declarados como
 dependencias `file:` en el proyecto nuevo, que se puede preparar sin descargar
 paquetes. Se pueden cambiar por las versiones npm que necesite el proyecto.
 La app actualiza sus copias administradas en `.escriba/deps` al cargar o preparar
@@ -95,14 +101,15 @@ El manifiesto de versión 1 tiene esta forma:
       "file": "receta-0.js"
     }
   ],
-  "connectors": "conectores.js"
+  "connectors": "conectores.js",
+  "ontologies": "ontologias.js"
 }
 ```
 
-`connectors` es opcional. `entry` identifica la fuente para el editor, pero no tiene
+`connectors` y `ontologies` son opcionales. `entry` identifica la fuente para el editor, pero no tiene
 que existir al cargar. Las rutas de `file` y `connectors` son relativas a `dist`;
 no se permiten enlaces ni escapes. Cada paquete registra sus exports en
-`globalThis.__recipe` o `globalThis.__conectores`. El constructor incluido genera
+`globalThis.__recipe`, `globalThis.__conectores` o `globalThis.__ontologias`. El constructor incluido genera
 CommonJS empaquetado y lo envuelve para ese contrato. El runtime aporta `require`
 solo para módulos integrados de Node; las dependencias npm deben ir empaquetadas.
 
@@ -116,6 +123,70 @@ Los cambios de fuentes guardadas disparan una construcción. Los cambios de
 `dist` solo lo recargan. `.escriba`, `.git` y `node_modules` no disparan builds.
 Las construcciones y la instalación de su catálogo se atienden en orden para
 que el watcher y el botón Construir no se adelanten entre sí.
+
+## Ontologías y grafo
+
+`src/ontologias.ts` exporta `ontologias` como una lista de `Ontologia`. Cada
+definición tiene `id` estable, `name`, `version`, `migrations` y `collections`.
+Una colección declara su tabla, etiqueta, campo de título y campos de formulario;
+una colección de relación indica además las tablas `from` y `to`. El formulario
+de Escriba usa tipos `text`, `number`, `boolean`, `date` y `json`, pero no limita
+el esquema SurrealQL a esos cinco tipos. La definición aparece como candidata
+al construir o cargar el proyecto. **Instalar** o **Actualizar** aplica sus
+migraciones; ejecutar una receta nunca migra el esquema. Las ontologías instaladas
+son de la biblioteca y permanecen al cambiar de proyecto.
+
+Las migraciones empiezan en `version: 1`, avanzan sin saltos hasta la versión de
+la ontología y conservan intacto el prefijo ya instalado. Cambiar una definición
+sin aumentar versión, bajar versión o reescribir una migración aplicada falla.
+Cada actualización ejecuta las migraciones pendientes y guarda la nueva
+definición en una transacción: un error deja la versión anterior. Pueden definir
+tablas, campos, índices, funciones, analizadores, secuencias y parámetros, con
+el espacio `_escriba_` reservado al host. No se admiten `EVENT`, vistas
+`TABLE AS SELECT`, acciones `REFERENCE ON DELETE THEN`, autenticación ni
+comandos de sesión: en SurrealDB 3.3.2 esos callbacks podrían ejecutarse con
+privilegios superiores a los de la receta. Tampoco hay acceso de red o scripting
+JavaScript desde la base.
+
+Cada receta que utiliza el grafo exporta sus propias dependencias, por ejemplo:
+
+```ts
+export const ontologias = [
+  { id: "ejemplo.reuniones", minVersion: 1, maxVersion: 2 },
+] satisfies readonly DependenciaDeOntologia[];
+```
+
+El intervalo inclusivo se comprueba frente a la versión instalada al abrir el
+grafo y en cada operación. La receta no puede declarar una dependencia distinta
+durante la ejecución; cambiar la versión instalada invalida la conexión abierta.
+La llamada `const db = await api.grafo("ejemplo.reuniones")` devuelve el SDK oficial
+de SurrealDB 2.1.1, con la conexión y autenticación fijadas por Escriba. Permite
+`query`, `select`, `create`, `update`, `delete` y `relate` del SDK según los
+permisos de las tablas. El transporte usa CBOR: `RecordId`, `DateTime` y
+`Decimal` conservan sus tipos. No abre un servidor ni un socket para las recetas.
+Una consulta SurrealQL puede contener un lote transaccional `BEGIN`/`COMMIT`;
+las transacciones interactivas del SDK y las consultas `live` no están disponibles.
+La sesión de receta tiene permisos de registro (`RECORD`), sin DDL, `USE` ni
+administración de autenticación. No hay cruces automáticos entre bases de
+ontologías; la receta abre cada ontología declarada por separado.
+
+`await nota.vincular(ontologiaId, recordId)` asocia un registro existente con
+la versión activa de la nota. La asociación conserva la grabación, versión y
+receta de origen; un registro puede compartirse entre notas. Solo se pueden
+vincular registros de tablas enumeradas en `collections`; una
+consulta raw de la receta sí puede usar otras tablas propias de la ontología
+según sus permisos SurrealQL. En Biblioteca se
+pueden consultar las colecciones instaladas, añadir registros, vincular uno
+existente o desvincularlo. Escriba usa formularios JSON para esas ediciones,
+independientes de la representación CBOR del SDK; un guardado comprueba la
+revisión previa y las correcciones manuales quedan protegidas de escrituras
+posteriores de una receta. Véase el [ejemplo completo](../examples/conocimiento/).
+
+La prueba de receta (`dryRun`) deniega el grafo, incluso las consultas de solo
+lectura. Como SurrealQL puede mezclar lecturas y escrituras, iniciar cualquier
+consulta marca la grabación para evitar un reintento automático incierto; un
+reprocesado manual puede iniciar otra ejecución. No se incluyen embeddings,
+búsqueda vectorial gestionada ni un canvas de grafos.
 
 ## Proveedores, cuentas y operaciones
 

@@ -84,6 +84,38 @@ marca; un trabajo automático, recuperado o reintentado se bloquea. Los SDK pued
 tener sus propios reintentos: la receta debe desactivarlos o asegurar la
 idempotencia cuando modifique recursos.
 
+`api.grafo(id)` abre de forma asíncrona el SDK oficial `surrealdb` 2.1.1 mediante
+un `RpcEngine` sobre las llamadas existentes del worker. `graph.open` obtiene la
+versión instalada después de contrastar la dependencia declarada por la receta;
+`graph.query` envía SQL y parámetros en CBOR/base64 a `knowledge_query`. La
+respuesta vuelve en CBOR/base64 como lista de resultados de sentencia. El
+puente conserva tipos SurrealDB como `RecordId`, `DateTime` y `Decimal` y no
+requiere servidor, socket ni una segunda instancia de base en el worker. La
+identidad de la base y la autenticación quedan fijadas por Rust; ni la receta
+ni el SDK pueden elegirlas. `nota.vincular(ontologiaId, recordId)` llama a
+`graph.link` con el identificador de la versión activa de la nota y solo acepta
+registros de tablas declaradas en `collections`. Una consulta raw sí puede usar
+otras tablas de esa base si sus permisos SurrealQL lo permiten.
+
+Rust verifica en cada operación el ID, el intervalo de versiones persistido en
+el catálogo de la receta y la versión exacta devuelta al abrir la conexión. La
+consulta se ejecuta como `RECORD` en una sola base lógica de ontología, con
+permisos de datos definidos por sus tablas, sin DDL, `USE` ni administración de
+autenticación. El SDK permite sus métodos de datos y `query`, incluidos lotes
+SurrealQL con `BEGIN`/`COMMIT`. No ofrece transacciones interactivas ni `live`.
+La instalación y las migraciones usan otra identidad fuera del worker. La base
+deniega red y scripting JavaScript; las migraciones de usuario no pueden crear
+`EVENT` ni vistas `TABLE AS SELECT` porque en SurrealDB 3.3.2 ejecutarían código
+con privilegios del migrador.
+También excluyen acciones `REFERENCE ON DELETE THEN` por el mismo motivo.
+
+En `dryRun` se deniegan todas las llamadas al grafo. Antes de cualquier
+`graph.query`, el controlador confirma el marcador duradero
+`accountEffectPending`: el SQL raw puede escribir y no es seguro repetirlo tras
+un cierre incierto. Un nuevo reprocesado manual puede iniciar otra ejecución.
+El RPC JSONL transporta las cadenas base64 dentro del límite general de 32 MiB;
+Rust limita además SQL y parámetros a 1 MiB y resultados CBOR a 8 MiB.
+
 El controlador consulta `runtime_context({recordingId?})`: catálogos, ajustes de
 procesamiento y únicamente la grabación solicitada con sus versiones y recibos.
 Sin `recordingId` obtiene solo configuración. No recibe registros, otras notas,

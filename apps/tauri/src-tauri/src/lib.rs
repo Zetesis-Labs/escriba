@@ -6,6 +6,10 @@ mod catalog;
 mod error;
 mod folder_access;
 mod jobs;
+mod knowledge;
+mod knowledge_commands;
+#[cfg(test)]
+mod knowledge_integration_tests;
 mod library_view;
 mod login;
 mod menubar;
@@ -39,6 +43,8 @@ use store::{text, Store};
 use tauri::{Emitter, Manager};
 
 struct Runtime {
+    knowledge: tokio::sync::OnceCell<knowledge::Knowledge>,
+    knowledge_path: PathBuf,
     store: Arc<Mutex<Store>>,
     jobs: Arc<jobs::Queue>,
     scripts: scripts::Scripts,
@@ -216,6 +222,11 @@ fn refreshes_library(method: &str, params: &Value) -> bool {
         | "publication_remove"
         | "project_init"
         | "project_install"
+        | "knowledge_install"
+        | "knowledge_save"
+        | "knowledge_delete"
+        | "knowledge_unlink"
+        | "knowledge_attach"
         | "project_write"
         | "log"
         | "trace_save"
@@ -288,6 +299,32 @@ fn dispatch<'a>(
 ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Value, String>> + Send + 'a>> {
     Box::pin(async move {
         match method {
+            "knowledge_candidates" => Ok(json!(state
+                .store()?
+                .data
+                .settings
+                .project_ontologies
+                .as_ref()
+                .cloned()
+                .unwrap_or_default())),
+            "knowledge_list" | "knowledge_install" | "knowledge_open" | "knowledge_query"
+            | "knowledge_link" | "knowledge_records" | "knowledge_save" | "knowledge_delete"
+            | "knowledge_unlink" | "knowledge_attach" => {
+                if method == "knowledge_list"
+                    && state.knowledge.get().is_none()
+                    && !state
+                        .knowledge_path
+                        .try_exists()
+                        .map_err(|error| format!("No se pudo acceder al conocimiento: {error}"))?
+                {
+                    return Ok(json!([]));
+                }
+                let knowledge = state
+                    .knowledge
+                    .get_or_try_init(|| knowledge::Knowledge::open(&state.knowledge_path))
+                    .await?;
+                knowledge_commands::dispatch(knowledge, &state.store, method, p).await
+            }
             "snapshot" => state.snapshot(),
             "library" => state.library(),
             "recording_detail" => state.store()?.recording(text(&p, "id")?),
@@ -1506,6 +1543,8 @@ pub fn run() {
                     Arc::new(jobs::Queue::new(store.clone()).map_err(std::io::Error::other)?);
                 let (watch_wake, wake) = tokio::sync::mpsc::channel(1);
                 let state = Arc::new(Runtime {
+                    knowledge: tokio::sync::OnceCell::new(),
+                    knowledge_path: root.join("knowledge.surrealkv"),
                     store,
                     jobs,
                     scripts: scripts::Scripts::new(

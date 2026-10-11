@@ -24,6 +24,7 @@
     "lucide-react": "^0.468.0",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
+    "surrealdb": "2.1.1",
     "zod": "4.6.5"
   },
   "devDependencies": {

@@ -1,6 +1,7 @@
 import { cp, mkdir, rm } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
+import { prepareSurrealdb } from "./prepare-surrealdb.mjs";
 const app = fileURLToPath(new URL("..", import.meta.url));
 const root = fileURLToPath(new URL("../../..", import.meta.url));
 const vendor = join(app, "src-tauri/vendor/node_modules");
@@ -24,6 +25,7 @@ for (const dependency of ["@types/bun", "bun-types", "@types/node", "undici-type
   await rm(target, { recursive: true, force: true });
   await cp(join(app, "runtime-host/toolchain/node_modules", dependency), target, { recursive: true, dereference: true });
 }
+await prepareSurrealdb(app, vendor);
 const triple =
   process.arch === "arm64" ? "aarch64-apple-darwin" : "x86_64-apple-darwin";
 await mkdir(join(app, "src-tauri/binaries"), { recursive: true });

@@ -37,6 +37,24 @@ function build(root: string) {
   );
 }
 
+test("empaqueta la ontología con dist y permite reconstruir sin borrar el artefacto anterior", async () => {
+  const root = await project();
+  await mkdir(join(root, "src"));
+  await writeFile(join(root, "src/ontologias.ts"), 'export const ontologias = [{ id: "ejemplo.temas", name: "Temas", version: 1, migrations: [{ version: 1, sql: "DEFINE TABLE tema SCHEMAFULL;" }], collections: [] }];');
+  const first = build(root);
+  assert.equal(first.status, 0, first.stderr);
+  const manifest = JSON.parse(await readFile(join(root, "dist/escriba.json"), "utf8"));
+  assert.equal(manifest.ontologies, "ontologias.js");
+  const program = await readFile(join(root, "dist/ontologias.js"), "utf8");
+  const module = runInNewContext(`${program}\n;__ontologias`, { require: requireBuiltin });
+  assert.equal(module.ontologias[0].id, "ejemplo.temas");
+  assert.equal(build(root).status, 0);
+  const rebuilt = await readFile(join(root, "dist/ontologias.js"), "utf8");
+  await writeFile(join(root, "src/ontologias.ts"), 'import "./ausente.ts";');
+  assert.notEqual(build(root).status, 0);
+  assert.equal(await readFile(join(root, "dist/ontologias.js"), "utf8"), rebuilt);
+});
+
 test("construye un proyecto con dependencia local y deja paquetes autónomos", async () => {
   const root = await project();
   await mkdir(join(root, "src/recetas/sintetica"), { recursive: true });

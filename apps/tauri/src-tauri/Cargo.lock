@@ -1642,6 +1642,7 @@ dependencies = [
 name = "escriba-tauri"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "block2",
  "chrono",
  "fs2",
@@ -1658,6 +1659,8 @@ dependencies = [
  "serde_json",
  "sha2",
  "surrealdb",
+ "surrealdb-core",
+ "surrealdb-expr",
  "tauri",
  "tauri-build",
  "tauri-plugin-autostart",

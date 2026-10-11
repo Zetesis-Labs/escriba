@@ -7,6 +7,7 @@ export interface WorkerTask {
     | "recipe"
     | "recipe-schema"
     | "recipe-inspect"
+    | "ontology-inspect"
     | "connector"
     | "connector-inspect";
   program?: string;
