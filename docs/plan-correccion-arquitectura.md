@@ -383,6 +383,10 @@ borrado y tipado y pueden ir en paralelo con ramas separadas una vez cerrada B.
   trazas y el plan no toca la biblioteca del CLI. `Ledger` solo cambia su
   import de SQLite. La comprobación de tipos de `receta.ts` pasa al
   `tsconfig` de la app, que antes la cubría por la importación retirada en D.
+- **Fase H** (2026-10-12). Nota Deno → Bun en ADR-0003, ADR-0007 con las
+  cinco decisiones y `CLAUDE.md` sin Linux ni WASI y con el procedimiento para
+  añadir un comando. `CONTRACT.md` conserva su lista: describe semántica que
+  el tipo no expresa y un test la mantiene completa.
 
 ## Estado para retomar
 
@@ -390,16 +394,18 @@ Ramas apiladas en `_worktrees/escriba-arquitectura`, sin push:
 `refactor/persistencia-por-entidad` (plan + A) → `refactor/cerrojos-y-colas`
 (B) → `refactor/grafo-incremental` (G) → `refactor/topologia-procesos` (F)
 → `refactor/contrato-tipado` (C) → `refactor/receta-unica` (D) →
-`refactor/swift-sin-recetas` (E).
+`refactor/swift-sin-recetas` (E) → `refactor/decisiones` (H).
 Cada siguiente fase sale de la última.
 El worktree reutiliza la caché de `escriba-tauri`: `apps/tauri/src-tauri/target`
-es un enlace a la suya, Bun 1.4.2 está en su `.build/bun` y SwiftPM usa
-`ESCRIBA_SWIFT_SCRATCH` apuntando a su `.build`. Node 22.12+ desde nvm.
+es un enlace a la suya y Bun 1.4.2 está en su `.build/bun`. Node 22.12+ desde
+nvm.
 Tras cambiar TypeScript del runtime, `node apps/tauri/scripts/prepare.mjs`
 recompila el binario antes de los tests de Rust.
 
-Pendiente: H (ADR-0003, ADR-0007, CLAUDE.md).
 Las pruebas de runtime necesitan el Bun fijado en el `PATH`
-(`.build/bun/1.4.2/bun-darwin-aarch64`). Al final:
-prueba de compatibilidad con una copia privada de la biblioteca (pedir a Rubén
-que cierre la app), release, instalación y validación en pantalla por Rubén.
+(`.build/bun/1.4.2/bun-darwin-aarch64`). `swift build` y `swift test` usan el
+`.build` propio de este worktree, creado en la fase E.
+
+Pendiente: prueba de compatibilidad con una copia privada de la biblioteca
+(pedir a Rubén que cierre la app), release, instalación y validación en
+pantalla por Rubén.

@@ -137,10 +137,12 @@ revierte la sustitución si falla. La firma estable del Llavero que contiene
 ## Swift nativo y CLI
 
 `EscribaCore` contiene modelo y decisiones puras; `EscribaEngine`, puertos de
-funciones y orquestación portable. Compilan en Linux y WASI. El componente WASM
-en Kubernetes está descartado; no reabrirlo sin encargo. `EscribaSystemKit`
-aporta sistema, vigilancia y ledger del CLI; `EscribaStore`, su biblioteca GRDB.
-Whisper e Intelligence encapsulan las dependencias de inferencia.
+funciones y orquestación. Swift compila solo en macOS desde el 2026-10-12
+(ADR-0007): sin jobs de Linux ni WASI y sin recetas en Swift; las recetas solo
+corren en el runtime Bun. `EscribaSystemKit` aporta sistema, vigilancia y
+ledger del CLI; `EscribaStore`, su biblioteca GRDB, que conserva el modelo de
+trazas de recetas para leer lo ya guardado. Whisper e Intelligence encapsulan
+las dependencias de inferencia.
 
 - Puertos como structs de funciones, sin protocolos ni herencia. Core y Engine
   no importan dependencias externas ni APIs de I/O; éstas van al host.
@@ -163,6 +165,10 @@ Whisper e Intelligence encapsulan las dependencias de inferencia.
 - Bandejas, menús y `NSStatusItem`, incluida su destrucción, en el hilo principal.
 - Declarar cada ventana en `capabilities/main.json` para habilitar IPC/eventos.
 - `settings_save` sólo acepta claves de `SETTABLE` en `store/settings.rs`.
+- Un comando nuevo es una variante de `command.rs` con su política (refresca,
+  recetas) y su línea en `CONTRACT.md`. `apps/tauri/src/generated` sale de Rust:
+  regenerar con `ESCRIBA_WRITE_BINDINGS=1 cargo test --lib los_tipos_generados`,
+  nunca editar a mano.
 - La lista de biblioteca omite segmentos y paquetes completos; el detalle usa
   `recording_detail`. Guardar configuración conserva `bundle` y `program` si el
   cliente no los envía.
