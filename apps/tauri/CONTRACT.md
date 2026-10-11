@@ -48,7 +48,7 @@ Errores rechazan la promesa con texto legible; nunca éxitos vacíos.
 - reveal {path} -> void; open_url {url} -> void (http/https).
 - open_privacy_settings -> void (abre Ajustes del Sistema, destino fijo; no disponible para recetas).
 - project_init {path} -> {hasDist:boolean} (crea ausentes; si ya existe el artefacto no añade fuentes).
-- project_build -> {recipes:Recipe[],connectorProgram?:string} (Bun aislado construye `dist/` y el cargador lo lee; conserva el artefacto anterior si falla la construcción).
+- project_build -> {recipes:Recipe[],connectorProgram?:string,ontologyProgram?:string} (Bun aislado construye `dist/` y el cargador lo lee; conserva el artefacto anterior si falla la construcción).
 - project_load -> el mismo resultado que project_build, leyendo solo `dist/escriba.json` y sus paquetes JavaScript.
 - project_list -> {files:string[]} (fuentes y JSON/Markdown; excluye dist, node_modules, .git, .escriba y enlaces).
 - project_read {entry} -> {source:string}; project_write {entry,source,expectedSource?,createNew?} -> void (confinado al proyecto, escritura atómica; rechaza una versión externa distinta o un archivo existente al crear).
@@ -87,7 +87,16 @@ incierto y se ofrece reintentar, sin inferir el resultado del texto del error.
 - runtime_history -> trabajos duraderos, resultado y error.
 - runtime_cancel {recordingId} -> void; revoca capacidades y termina la receta.
 - recording_status -> {active,clock,recipeName,levels,problem} del panel de captura.
-- project_install {recipes,destinations,providers} -> void; actualización transaccional de catálogo, sin conceder acceso a cuentas.
+- project_install {recipes,destinations,providers,ontologies?} -> void; actualización transaccional del catálogo y de las ontologías candidatas, sin instalar ontologías ni conceder acceso a cuentas.
+- knowledge_candidates -> Ontologia[] propuestas por el proyecto vigente; knowledge_list -> Ontologia[] instaladas en la biblioteca.
+- knowledge_install {definition} -> Ontologia; exige una candidata idéntica del proyecto vigente y aplica las migraciones pendientes de forma atómica.
+- knowledge_open {recipeId,recordingId,ontologyId,dependency} -> {version:number}; contrasta la dependencia declarada por la receta instalada con el intervalo permitido.
+- knowledge_query {recipeId,recordingId,ontologyId,dependency,expectedVersion,sql,bindings} -> string; `bindings` y el resultado son CBOR en base64, con tipos nativos de SurrealDB.
+- knowledge_link {recipeId,recordingId,ontologyId,dependency,expectedVersion,versionId,recordId} -> void; vincula la versión de la nota al registro.
+- knowledge_records {id,table,page?,recordingId?,versionId?} -> {records,page,hasMore}; página de 50 registros declarados.
+- knowledge_save {id,expectedVersion,table,recordId?,expectedRev?,values,recordingId?,versionId?} -> registro; formulario JSON con control de revisión y procedencia opcional.
+- knowledge_delete {id,expectedVersion,table,recordId,expectedRev} -> void; knowledge_unlink {id,expectedVersion,recordId,recordingId} -> void.
+- knowledge_attach {id,expectedVersion,recordId,recordingId,versionId} -> void; vínculo de una nota con un registro ya existente desde la UI.
 - account_effect_begin / account_effect_finish {recordingId} -> void; marcador duradero de escrituras arbitrarias de SDK. Solo se retira al iniciar otro reprocesado manual explícito.
 - memory_recall / memory_keep {recordingId,versionId,fingerprint,value?} -> JSON / void.
 - trace_save {recordingId,...} -> void; trace_list {recordingId?} -> trazas.
@@ -127,6 +136,41 @@ SDK arbitraria no genera un recibo de publicación. Antes de enviar una escritur
 el controlador confirma `accountEffectPending`; la cola bloquea su repetición
 automática o recuperada hasta una ejecución manual explícita. Se conserva el
 marcador al terminar para cubrir un cierre antes de confirmar el trabajo.
+
+## Grafo de conocimiento
+
+El proyecto puede declarar `src/ontologias.ts` y una receta puede exportar
+`ontologias: {id,minVersion,maxVersion}[]`. Son contratos distintos: el primero
+propone una definición, el segundo exige una versión instalada compatible. El
+catálogo de candidatas se actualiza al construir/cargar un proyecto; las
+ontologías instaladas pertenecen a la biblioteca y sobreviven al cambio de
+proyecto. `knowledge_install` es una acción explícita de la UI. El esquema y los
+datos del grafo residen en `knowledge.surrealkv`, separados de
+`library.surrealkv`, con una base lógica por ID de ontología.
+`knowledge_link` y `knowledge_attach` aceptan registros existentes solo de
+tablas enumeradas en `collections`; las consultas raw pueden acceder a otras
+tablas de esa base según sus permisos SurrealQL.
+
+En el worker, `api.grafo(id)` abre de forma asíncrona una conexión del SDK oficial
+SurrealDB 2.1.1 con transporte CBOR por `graph.open`/`graph.query`. Rust autentica
+una sesión `RECORD` limitada a la base de esa ontología; no entrega conexión,
+contraseña ni permisos de migración al worker. Se admiten operaciones de datos
+y lotes SurrealQL transaccionales; no se admiten DDL, `USE`, operaciones de
+autenticación, transacciones interactivas ni consultas `live`. `nota.vincular(id,
+recordId)` pasa por `graph.link` y exige una versión activa de nota. Cada llamada
+comprueba la dependencia guardada y la versión exacta abierta, por lo que una
+actualización de ontología exige volver a abrir el grafo.
+
+El `dryRun` deniega `graph.open`, `graph.query` y `graph.link`. El controlador
+confirma `accountEffectPending` antes de toda consulta raw, aunque pueda ser
+solo lectura, pues un lote SurrealQL también puede escribir; esto bloquea el
+reintento automático ante un resultado incierto. Los formularios de la UI usan
+JSON y control de revisión; la protección de correcciones manuales impide que
+una receta sobrescriba un registro editado allí. No hay cruces automáticos entre
+bases de ontologías, red, scripting JavaScript, embeddings ni canvas.
+La instalación excluye `EVENT`, vistas `TABLE AS SELECT` y acciones
+`REFERENCE ON DELETE THEN` porque sus callbacks pueden ejecutarse con
+privilegios del migrador en SurrealDB 3.3.2.
 
 `watchIssues` contiene los errores del último escaneo de las carpetas habilitadas
 (`folderId`, `path`, `message`, `permissionDenied`). La UI mantiene un aviso

@@ -19,8 +19,10 @@ use std::{
 use walkdir::WalkDir;
 
 const TYPES: &str = include_str!("../../../../recetas/escriba-recetas.d.ts");
-const PREVIOUS_TYPES_SHA256: &str =
-    "1ddebd218cbb5a0b4f3b6a40120dadec5c8c5912eeb93a6d1d3fdd824b7146d1";
+const PREVIOUS_TYPES_SHA256: &[&str] = &[
+    "1ddebd218cbb5a0b4f3b6a40120dadec5c8c5912eeb93a6d1d3fdd824b7146d1",
+    "976e7e95fa41cffb8273cc14a72ec4fa091e89c9d9d147824f542ff971e3cebe",
+];
 const EXAMPLE: &str = include_str!("../../../../recetas/por-defecto/receta.ts");
 const SOURCE_LIMIT: usize = 8 * 1024 * 1024;
 const BUNDLE_LIMIT: usize = 32 * 1024 * 1024;
@@ -38,6 +40,7 @@ struct Manifest {
     version: u32,
     recipes: Vec<ManifestRecipe>,
     connectors: Option<String>,
+    ontologies: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -96,7 +99,16 @@ pub fn load(path: &Path) -> Result<Value, String> {
             load_bundle(&dist, &file, &mut total)
         })
         .transpose()?;
-    let catalog = json!({"recipes":recipes,"destinations":[],"connectorProgram":connector_program});
+    let ontology_program = manifest
+        .ontologies
+        .map(|file| {
+            if !files.insert(file.clone()) {
+                return Err("Archivo repetido en el manifiesto".into());
+            }
+            load_bundle(&dist, &file, &mut total)
+        })
+        .transpose()?;
+    let catalog = json!({"recipes":recipes,"destinations":[],"connectorProgram":connector_program,"ontologyProgram":ontology_program});
     check_catalog_size(&catalog, CATALOG_LIMIT)?;
     Ok(catalog)
 }
@@ -497,6 +509,7 @@ pub fn initialize(
     for (package, name, runtime) in [
         ("@escriba/conectores", "conectores", true),
         ("zod", "zod", true),
+        ("surrealdb", "surrealdb", true),
         ("@types/bun", "types-bun", false),
         ("bun-types", "bun-types", false),
         ("@types/node", "types-node", false),
@@ -512,7 +525,8 @@ pub fn initialize(
   "type": "module",
   "dependencies": {
     "@escriba/conectores": "file:.escriba/deps/conectores",
-    "zod": "file:.escriba/deps/zod"
+    "zod": "file:.escriba/deps/zod",
+    "surrealdb": "file:.escriba/deps/surrealdb"
   },
   "devDependencies": {
     "@types/bun": "file:.escriba/deps/types-bun",
@@ -528,6 +542,7 @@ pub fn initialize(
 }
 "#,
     )?;
+    ensure_sdk_dependency(&root)?;
     write_new(
         &root.join("tsconfig.json"),
         r#"{
@@ -799,7 +814,7 @@ fn refresh_generated_types(root: &Path) -> Result<(), String> {
         return Ok(());
     }
     let digest = Sha256::digest(&existing);
-    if format!("{digest:x}") != PREVIOUS_TYPES_SHA256 {
+    if !PREVIOUS_TYPES_SHA256.contains(&format!("{digest:x}").as_str()) {
         return Ok(());
     }
     let temporary = root.join(format!(".escriba-recetas-types-{}", uuid::Uuid::new_v4()));
@@ -852,7 +867,73 @@ fn refresh_existing_managed_dependencies(root: &Path, vendor: &Path) -> Result<(
             Err(_) => return Err("No se pudo inspeccionar la dependencia administrada".into()),
         }
     }
+    if vendor_modules(vendor).join("surrealdb").is_dir() {
+        install_managed_dependency(root, vendor, "surrealdb", "surrealdb", true)?;
+        ensure_sdk_dependency(root)?;
+    }
     Ok(())
+}
+
+fn ensure_sdk_dependency(root: &Path) -> Result<(), String> {
+    let path = root.join("package.json");
+    let metadata = match fs::symlink_metadata(&path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(_) => return Err("No se pudo inspeccionar package.json".into()),
+    };
+    if !metadata.is_file()
+        || metadata.file_type().is_symlink()
+        || metadata.len() > SOURCE_LIMIT as u64
+    {
+        return Err("package.json inválido".into());
+    }
+    let content = fs::read(&path).map_err(|_| "No se pudo leer package.json")?;
+    let mut manifest: Value =
+        serde_json::from_slice(&content).map_err(|_| "package.json inválido")?;
+    let object = manifest.as_object_mut().ok_or("package.json inválido")?;
+    if [
+        "dependencies",
+        "devDependencies",
+        "peerDependencies",
+        "optionalDependencies",
+    ]
+    .iter()
+    .any(|section| {
+        object
+            .get(*section)
+            .and_then(Value::as_object)
+            .is_some_and(|deps| deps.contains_key("surrealdb"))
+    }) {
+        return Ok(());
+    }
+    let dependencies = object
+        .entry("dependencies")
+        .or_insert_with(|| json!({}))
+        .as_object_mut()
+        .ok_or("Las dependencias de package.json son inválidas")?;
+    dependencies.insert("surrealdb".into(), json!("file:.escriba/deps/surrealdb"));
+    let updated =
+        serde_json::to_vec_pretty(&manifest).map_err(|_| "No se pudo preparar package.json")?;
+    let temporary = root.join(format!(".escriba-package-{}", uuid::Uuid::new_v4()));
+    let result = (|| -> Result<(), String> {
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temporary)
+            .map_err(|_| "No se pudo preparar package.json")?;
+        file.write_all(&updated)
+            .and_then(|_| file.sync_all())
+            .map_err(|_| "No se pudo escribir package.json")?;
+        fs::set_permissions(&temporary, metadata.permissions())
+            .map_err(|_| "No se pudo conservar los permisos de package.json")?;
+        fs::rename(&temporary, &path).map_err(|_| "No se pudo actualizar package.json")?;
+        File::open(root)
+            .and_then(|directory| directory.sync_all())
+            .map_err(|_| "No se pudo sincronizar el proyecto")?;
+        Ok(())
+    })();
+    let _ = fs::remove_file(&temporary);
+    result
 }
 
 fn same_dependency(source: &Path, destination: &Path) -> Result<bool, String> {
@@ -1346,7 +1427,18 @@ mod tests {
     fn refresca_tipos_generados_sin_pisar_tipos_editados() {
         let folder = tempfile::tempdir().unwrap();
         let types = folder.path().join("escriba-recetas.d.ts");
-        let previous = TYPES
+        let before_graph = TYPES
+            .replace("  vincular(ontologiaId: string, registroId: string): Promise<void>\n", "")
+            .replace("  grafo(ontologiaId: string): Promise<import(\"surrealdb\").Surreal>\n", "")
+            .replace("interface DependenciaDeOntologia {\n  readonly id: string\n  readonly minVersion: number\n  readonly maxVersion: number\n}\n\ninterface CampoDeConocimiento {\n  readonly key: string\n  readonly label: string\n  readonly type: \"text\" | \"number\" | \"boolean\" | \"date\" | \"json\"\n  readonly required?: boolean\n}\n\ninterface ColeccionDeConocimiento {\n  readonly table: string\n  readonly label: string\n  readonly titleField: string\n  readonly fields: readonly CampoDeConocimiento[]\n  readonly relation?: { readonly from: string; readonly to: string }\n}\n\ninterface Ontologia {\n  readonly id: string\n  readonly name: string\n  readonly version: number\n  readonly migrations: readonly { readonly version: number; readonly sql: string }[]\n  readonly collections: readonly ColeccionDeConocimiento[]\n}\n\n", "");
+        assert_eq!(
+            format!("{:x}", Sha256::digest(before_graph.as_bytes())),
+            PREVIOUS_TYPES_SHA256[1]
+        );
+        fs::write(&types, &before_graph).unwrap();
+        refresh_generated_types(folder.path()).unwrap();
+        assert_eq!(fs::read_to_string(&types).unwrap(), TYPES);
+        let previous = before_graph
             .replace("interface InfoDeCuenta {\n  readonly clave: string\n  readonly nombre: string\n  readonly tipo: string\n  readonly activo: boolean\n  readonly origen: string | null\n}\n\ninterface Cuenta {\n  readonly clave: string\n  readonly nombre: string\n  readonly fetch: typeof fetch\n}\n\n", "")
             .replace("  readonly cuentas?: readonly InfoDeCuenta[]\n", "")
             .replace("  cuenta(claveONombre: string): Cuenta\n", "");
@@ -1359,6 +1451,28 @@ mod tests {
     }
 
     #[test]
+    fn dependency_del_sdk_conserva_la_version_propia_del_usuario() {
+        let folder = tempfile::tempdir().unwrap();
+        let package = folder.path().join("package.json");
+        let own = br#"{"name":"custom","dependencies":{"surrealdb":"3.0.0","otra":"1.0.0"}}"#;
+        fs::write(&package, own).unwrap();
+        ensure_sdk_dependency(folder.path()).unwrap();
+        assert_eq!(fs::read(&package).unwrap(), own);
+        fs::write(
+            &package,
+            br#"{"name":"custom","dependencies":{"otra":"1.0.0"}}"#,
+        )
+        .unwrap();
+        ensure_sdk_dependency(folder.path()).unwrap();
+        let updated: Value = serde_json::from_slice(&fs::read(&package).unwrap()).unwrap();
+        assert_eq!(updated["dependencies"]["otra"], "1.0.0");
+        assert_eq!(
+            updated["dependencies"]["surrealdb"],
+            "file:.escriba/deps/surrealdb"
+        );
+    }
+
+    #[test]
     fn carga_dist_autocontenido_sin_fuentes_ni_dependencias() {
         let folder = tempfile::tempdir().unwrap();
         let dist = folder.path().join("dist");
@@ -1366,14 +1480,29 @@ mod tests {
         fs::write(dist.join("receta.js"), "var __recipe={flujo(){}}").unwrap();
         fs::write(dist.join("conectores.js"), "var __conectores={}").unwrap();
         fs::write(
+            dist.join("ontologias.js"),
+            "var __ontologias={ontologias:[]}",
+        )
+        .unwrap();
+        fs::write(
             dist.join("escriba.json"),
-            r#"{"version":1,"recipes":[{"id":"mi-receta","name":"Mi receta","entry":"recetas/mi-receta/receta.ts","file":"receta.js"}],"connectors":"conectores.js"}"#,
+            r#"{"version":1,"recipes":[{"id":"mi-receta","name":"Mi receta","entry":"recetas/mi-receta/receta.ts","file":"receta.js"}],"connectors":"conectores.js","ontologies":"ontologias.js"}"#,
         )
         .unwrap();
         let catalog = load(folder.path()).unwrap();
         assert_eq!(catalog["recipes"][0]["id"], "mi-receta");
         assert_eq!(catalog["recipes"][0]["bundle"], "var __recipe={flujo(){}}");
         assert_eq!(catalog["connectorProgram"], "var __conectores={}");
+        assert_eq!(
+            catalog["ontologyProgram"],
+            "var __ontologias={ontologias:[]}"
+        );
+        fs::write(
+            dist.join("escriba.json"),
+            r#"{"version":1,"recipes":[],"ontologies":"../outside.js"}"#,
+        )
+        .unwrap();
+        assert!(load(folder.path()).is_err());
     }
 
     #[test]
@@ -1681,6 +1810,10 @@ mod tests {
         let dependency = folder.path().join(".escriba/deps/conectores");
         assert!(dependency.join("index.js").is_file());
         assert!(folder.path().join(".escriba/deps/zod/index.js").is_file());
+        assert!(folder
+            .path()
+            .join(".escriba/deps/surrealdb/index.js")
+            .is_file());
         assert!(!fs::symlink_metadata(&dependency)
             .unwrap()
             .file_type()
@@ -1694,6 +1827,11 @@ mod tests {
             serde_json::from_slice::<Value>(&fs::read(folder.path().join("package.json")).unwrap())
                 .unwrap()["dependencies"]["zod"],
             "file:.escriba/deps/zod"
+        );
+        assert_eq!(
+            serde_json::from_slice::<Value>(&fs::read(folder.path().join("package.json")).unwrap())
+                .unwrap()["dependencies"]["surrealdb"],
+            "file:.escriba/deps/surrealdb"
         );
         assert!(read(folder.path(), "../fuera.ts").is_err());
         assert!(write(folder.path(), "../fuera.ts", "mal").is_err());

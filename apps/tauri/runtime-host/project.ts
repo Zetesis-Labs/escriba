@@ -84,12 +84,12 @@ async function sourcePath(root: string, relativePath: string) {
   return path;
 }
 
-async function connectorEntry(root: string) {
-  for (const name of ["src/conectores.ts", "conectores.ts"]) {
+async function moduleEntry(root: string, filename: string) {
+  for (const name of [`src/${filename}.ts`, `${filename}.ts`]) {
     const path = join(root, name);
     try {
       const metadata = await lstat(path);
-      if (!metadata.isFile()) throw Error(`Conector inválido: ${name}`);
+      if (!metadata.isFile()) throw Error(`Módulo inválido: ${name}`);
       return name;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
@@ -103,7 +103,7 @@ async function permittedVendor(vendor: string) {
     ? join(vendor, "node_modules") : vendor;
   const real = await realpath(modules);
   const allowed = [real];
-  for (const packageName of ["zod", "@escriba/conectores"]) {
+  for (const packageName of ["zod", "@escriba/conectores", "surrealdb"]) {
     try { allowed.push(await realpath(join(real, packageName))); }
     catch { throw Error(`No está disponible ${packageName} en las dependencias incluidas`); }
   }
@@ -119,7 +119,7 @@ function vendorFallback(modules: string) {
         resolve: (args: { path: string; importer: string }) => { path: string } | undefined,
       ): void;
     }) {
-      build.onResolve({ filter: /^(zod|@escriba\/conectores)(\/.*)?$/ }, (args) => {
+      build.onResolve({ filter: /^(zod|@escriba\/conectores|surrealdb)(\/.*)?$/ }, (args) => {
         try {
           Bun.resolveSync(args.path, args.importer);
           return undefined;
@@ -139,7 +139,7 @@ function buildProblem(error: unknown): string {
 
 async function bundle(
   root: string, vendor: { modules: string; allowed: string[] },
-  entry: string, globalName: "__recipe" | "__conectores",
+  entry: string, globalName: "__recipe" | "__conectores" | "__ontologias",
 ): Promise<string> {
   const source = await sourcePath(root, entry);
   const wrapper = join(root, ".escriba", `entry-${randomUUID()}.ts`);
@@ -187,7 +187,7 @@ async function inspectOldDist(path: string) {
   try { manifest = JSON.parse(await readFile(join(path, "escriba.json"), "utf8")); }
   catch { throw Error("dist ya existe y no contiene un manifiesto de Escriba"); }
   if (!manifest || typeof manifest !== "object") throw Error("Manifiesto anterior inválido");
-  const value = manifest as { version?: unknown; recipes?: unknown; connectors?: unknown };
+  const value = manifest as { version?: unknown; recipes?: unknown; connectors?: unknown; ontologies?: unknown };
   if (value.version !== 1 || !Array.isArray(value.recipes)) throw Error("Manifiesto anterior inválido");
   const names = new Set(["escriba.json"]);
   function addFile(file: unknown) {
@@ -201,6 +201,7 @@ async function inspectOldDist(path: string) {
     addFile((recipe as { file?: unknown })?.file);
   }
   if (value.connectors !== undefined) addFile(value.connectors);
+  if (value.ontologies !== undefined) addFile(value.ontologies);
   const ancestors = new Set<string>();
   for (const name of names) {
     const parts = name.split("/");
@@ -228,7 +229,8 @@ export async function buildProject(rootPath: string, vendorPath: string): Promis
   const root = await realpath(rootPath);
   const vendor = await permittedVendor(vendorPath);
   const entries = await sources(root);
-  const connector = await connectorEntry(root);
+  const connector = await moduleEntry(root, "conectores");
+  const ontology = await moduleEntry(root, "ontologias");
   const dist = join(root, "dist");
   const hadDist = await inspectOldDist(dist);
   const managed = join(root, ".escriba");
@@ -264,8 +266,15 @@ export async function buildProject(rootPath: string, vendorPath: string): Promis
       if (totalBytes > MAX_CATALOG) throw Error("Los paquetes superan el límite total de 30 MiB");
       await writeFile(join(stage, "conectores.js"), program);
     }
+    if (ontology) {
+      const program = await bundle(root, vendor, ontology, "__ontologias");
+      totalBytes += Buffer.byteLength(JSON.stringify(program));
+      if (totalBytes > MAX_CATALOG) throw Error("Los paquetes superan el límite total de 30 MiB");
+      await writeFile(join(stage, "ontologias.js"), program);
+    }
     await writeFile(join(stage, "escriba.json"), JSON.stringify({
       version: 1, recipes, ...(connector ? { connectors: "conectores.js" } : {}),
+      ...(ontology ? { ontologies: "ontologias.js" } : {}),
     }));
     if (hadDist) {
       await rename(dist, backup);

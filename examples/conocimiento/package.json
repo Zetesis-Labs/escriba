@@ -1,0 +1,8 @@
+{
+  "name": "escriba-conocimiento-ejemplo",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "surrealdb": "file:.escriba/deps/surrealdb"
+  }
+}

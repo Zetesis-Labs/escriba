@@ -24,6 +24,21 @@ Sus parámetros permiten configurar ese flujo para el usuario o una ejecución.
 **Proyecto de recetas**: conjunto del usuario que reúne recetas, conectores y
 sus dependencias para utilizarlos en Escriba.
 
+**Ontología**: definición instalada de un dominio de conocimiento, con identidad
+estable, colecciones y una versión. Pertenece a la biblioteca y sigue disponible
+aunque se cambie o retire el proyecto de recetas que la propuso.
+
+**Colección de conocimiento**: clase de registros de una ontología, incluida una
+relación entre dos clases cuando corresponde. Su declaración describe también
+los campos que Escriba puede presentar en un formulario.
+
+**Registro de conocimiento**: entidad o relación compartida de una colección.
+Puede estar vinculada a varias notas sin duplicarse.
+
+**Vínculo de conocimiento**: asociación entre un registro de conocimiento y una
+versión de nota, con la grabación y, si procede, la receta de origen.
+_Evitar_: publicación, que se refiere a un destino externo.
+
 **Proveedor**: servicio o formato con el que se integra Escriba, como Notion
 u OKF. No representa una cuenta concreta del usuario.
 

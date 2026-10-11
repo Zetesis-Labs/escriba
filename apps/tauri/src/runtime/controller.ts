@@ -40,6 +40,7 @@ import { notificationProblems } from "../core/notificationProblems";
 import { recipeWithValues } from "../core/recipeValues";
 import { processingRecipeId } from "../core/recordingRecipe";
 import { manualSummaryReading, manualSummaryResolver } from "../core/manualSummary";
+import { ontologyDependencies, ontologyRequirement } from "../core/ontologyDependencies";
 function lookup<T extends { id: string; name: string }>(
   values: T[],
   id: string,
@@ -382,6 +383,34 @@ export function createRuntime(
               const stepStarted = performance.now();
               try {
                 switch (operation) {
+                  case "graph.open":
+                  case "graph.query":
+                  case "graph.link": {
+                    if (processOptions.dryRun)
+                      throw Error("La prueba de receta no modifica el grafo; usa una nota de prueba para ejecutar esta receta");
+                    const ontologyId = text(args.ontologyId, "ontología");
+                    const dependency = ontologyRequirement(recipe, snapshot.recipes, ontologyId);
+                    const params = { recipeId: recipe.id, recordingId: id, ontologyId, dependency };
+                    if (operation === "graph.open") return await host.call("knowledge_open", params);
+                    if (!Number.isSafeInteger(args.expectedVersion) || Number(args.expectedVersion) < 1)
+                      throw Error("Versión de ontología inválida");
+                    if (operation === "graph.link") {
+                      const version = active();
+                      if (args.noteId !== version.id) throw Error("La referencia no pertenece a la versión activa");
+                      return await host.call("knowledge_link", {
+                        ...params, expectedVersion: args.expectedVersion,
+                        versionId: version.id, recordId: text(args.recordId, "registro"),
+                      });
+                    }
+                    if (!accountMutation) {
+                      await host.call("account_effect_begin", { recordingId: id });
+                      accountMutation = true;
+                    }
+                    return await host.call("knowledge_query", {
+                      ...params, expectedVersion: args.expectedVersion,
+                      sql: text(args.sql, "SurrealQL"), bindings: text(args.bindings, "parámetros"),
+                    });
+                  }
                   case "transcribe": {
                     const backend = selected(
                       snapshot,
@@ -665,7 +694,7 @@ export function createRuntime(
       };
       try {
         if (!processOptions.dryRun && recording.accountEffectPending) {
-          if (processOptions.force === false) throw Error("Revisa la operación externa antes de reprocesar esta nota manualmente");
+          if (processOptions.force === false) throw Error("Revisa la operación externa o sobre el grafo antes de reprocesar esta nota manualmente");
           await host.call("account_effect_finish", { recordingId: id });
         }
         if (!processOptions.dryRun)
@@ -685,7 +714,7 @@ export function createRuntime(
           });
         return { versionId: current.id };
       } catch (error) {
-        if (accountMutation) error = new RuntimeError(`La receta hizo una operación externa; revisa el destino antes de reprocesar. ${message(error)}`, "failed");
+        if (accountMutation) error = new RuntimeError(`La receta hizo una operación externa o sobre el grafo; revisa el resultado antes de reprocesar. ${message(error)}`, "failed");
         traceError = message(error);
         traceErrorCode = errorCode(error);
         if (!processOptions.dryRun)
@@ -857,6 +886,14 @@ export function createRuntime(
         };
         let destinations: Destination[] = [];
         let providers: Provider[] = [];
+        let ontologies: unknown[] = [];
+        if (typeof built.ontologyProgram === "string") {
+          const inspected = object(await runner.run(
+            { kind: "ontology-inspect", program: built.ontologyProgram, payload: {} }, inspection,
+          ));
+          if (!Array.isArray(inspected.ontologies)) throw Error("El proyecto no devolvió ontologías");
+          ontologies = inspected.ontologies;
+        }
         if (typeof built.connectorProgram === "string") {
           const program = built.connectorProgram;
           const inspected = object(
@@ -931,12 +968,13 @@ export function createRuntime(
             ),
           );
           recipe.schema = jsonObject(inspected.schema);
+          recipe.ontologies = ontologyDependencies(inspected.ontologias);
           if (typeof inspected.name === "string" && inspected.name.trim())
             recipe.name = inspected.name;
           if (typeof inspected.description === "string")
             recipe.description = inspected.description;
         }
-        await host.call("project_install", { recipes, destinations, providers });
+        await host.call("project_install", { recipes, destinations, providers, ontologies });
       });
       projectQueue = rebuilding.then(() => {}, () => {});
       return rebuilding;

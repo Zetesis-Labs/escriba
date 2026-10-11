@@ -85,6 +85,57 @@ permanece tras el éxito. La cola bloquea la recuperación o el reintento autom�
 de esa operación; sólo el inicio de un nuevo reprocesado manual retira la marca.
 Esto cubre también un cierre entre el efecto externo y la confirmación del job.
 
+## Conocimiento instalado
+
+El grafo reside en `knowledge.surrealkv`, un almacén físico separado de
+`library.surrealkv`, dentro de Application Support. Usa el espacio `knowledge`
+y una base lógica distinta por ID estable de ontología. Un catálogo privado
+localiza las bases; cada una conserva su definición instalada y las tablas de
+registros, vínculos y correcciones manuales. Las ontologías candidatas del
+proyecto actual se guardan en los ajustes de la biblioteca, pero construir o
+cambiar de proyecto no instala, actualiza ni borra el grafo. Las definiciones
+instaladas y sus registros sobreviven a ese cambio.
+
+Una instalación exige versión entera positiva, migraciones consecutivas desde
+la primera versión y un prefijo idéntico al ya aplicado. La misma versión no
+puede redefinirse ni se puede volver a una anterior. Las migraciones pendientes,
+el manifiesto instalado y las protecciones del host se confirman juntos; un
+fallo revierte la actualización. Solo una instalación o actualización explícita
+ejecuta migraciones, nunca la ejecución de una receta. Se permiten DDL de tablas,
+campos, índices, funciones, analizadores, secuencias y parámetros, excepto el
+espacio reservado `_escriba_`. Se excluyen `EVENT`, `TABLE AS SELECT` y acciones
+`REFERENCE ON DELETE THEN` porque en SurrealDB 3.3.2 sus callbacks ejecutarían
+trabajo con privilegios superiores a la receta.
+La base desactiva acceso de red, scripting JavaScript y notificaciones `live`.
+
+Rust abre las consultas de receta como sesión `RECORD` de la base concreta y
+contrasta la dependencia `{id,minVersion,maxVersion}` almacenada en el catálogo
+de recetas y la versión exacta abierta. Esa sesión puede operar sobre datos según
+los permisos SurrealQL de las tablas, pero no definir esquema, cambiar de base
+con `USE` ni administrar autenticación. El SDK SurrealDB 2.1.1 viaja por el RPC
+del worker como CBOR en base64: conserva `RecordId`, fechas y decimales nativos.
+Los formularios de Biblioteca intercambian JSON, con campos y relaciones
+declarados en la definición instalada; no se convierten en el transporte del SDK.
+
+Los registros pueden tener varios vínculos con grabaciones y versiones de nota.
+Rust guarda la procedencia de cada vínculo, incluida la receta cuando lo creó
+una ejecución. Desvincular una nota no elimina el registro compartido. Las
+operaciones de vínculo aceptan solo registros de tablas declaradas en
+`collections`; una consulta raw puede trabajar con otras tablas de la misma
+ontología si sus permisos SurrealQL lo permiten. Las
+ediciones manuales de la UI comparan la huella de revisión antes de guardar o
+borrar; un conflicto conserva el estado anterior. Una protección instalada por
+el host impide que una receta sobrescriba un registro corregido manualmente.
+La lista de colecciones se pagina; no se incorpora al índice ligero de la
+biblioteca. No hay enlaces automáticos entre bases de ontologías ni proyecciones
+vectoriales gestionadas.
+
+Toda `graph.query` marca `recording.accountEffectPending` antes de enviarse,
+porque el SQL raw puede escribir incluso cuando parezca una lectura. Así se
+bloquea el reintento automático si no se conoce el resultado; `dryRun` deniega
+el grafo. Un lote `BEGIN`/`COMMIT` de SurrealQL puede ser transaccional, pero
+el puente no ofrece transacciones interactivas del SDK ni consultas `live`.
+
 ## Borradores de notas
 
 `note_draft` conserva un borrador por grabación, fuera del índice ligero, del

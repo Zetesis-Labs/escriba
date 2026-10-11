@@ -132,6 +132,8 @@ pub struct Transcript {
 #[serde(rename_all = "camelCase")]
 pub struct Settings {
     #[serde(default, skip_serializing_if = "Field::is_missing")]
+    pub project_ontologies: Field<Vec<crate::knowledge::Ontology>>,
+    #[serde(default, skip_serializing_if = "Field::is_missing")]
     pub default_recipe_id: Field<String>,
     #[serde(default, skip_serializing_if = "Field::is_missing")]
     pub project_path: Field<String>,

@@ -19,6 +19,8 @@ import { GrowingTextArea, SpeakerPicker, TranscriptEditor, type SpeakerTarget } 
 import { useNoteDraft } from "./useNoteDraft";
 import { republish } from "./operations";
 import "./noteDetail.css";
+import { KnowledgeCard } from "../knowledge/KnowledgeCard";
+import { demoKnowledgeHost } from "../knowledge/demo";
 
 export type NoteEditRequest = { serial: number; kind: "speaker" | "forgetSpeaker" | "removeSummary"; speaker?: string };
 
@@ -153,6 +155,7 @@ export function TranscriptDetail({ recording, origin, job, recipes, canSummarize
   };
   const error = actionError ?? state.error;
   const data = content ? content.data : version?.data;
+  const graphDemo = useMemo(() => demoKnowledgeHost(recording.id), [recording.id]);
 
   return <div className="transcript-detail">
     {recording.audioPath ? <PlayerBar player={player} /> : <div className="audio-missing font-caption secondary"><VolumeX size={13} /> Solo queda la transcripción: el audio ya no existe</div>}
@@ -178,6 +181,7 @@ export function TranscriptDetail({ recording, origin, job, recipes, canSummarize
             <TranscriptEditor transcript={transcript} editing={editing} disabled={disabled} position={playbackPosition(transcript, player.currentTime)} onSeek={seek} onText={(index, text) => update({ transcript: changeSegmentText(transcript, index, text) })} onAssign={openPicker} onError={setActionError} speakerColors={speakerColors} />
           </section>
           {traceError && <p className="warning font-callout" role="alert">No se pudo cargar la ejecución: {traceError}</p>}
+          {version && active && !loading && !editing && !job && <KnowledgeCard key={`${recording.id}-${version.id}`} recordingId={recording.id} versionId={version.id} host={desktop ? undefined : graphDemo} />}
           {trace && <section className="detail-section"><h2 className="note-section-title"><Workflow size={15} />Cómo se procesó</h2><TraceCard trace={trace} recipeName={recipeName} /></section>}
         </> : <StatusPlaceholder recording={recording} job={job} onReprocess={onReprocess} trace={trace} recipeName={recipeName} />}
       </form>

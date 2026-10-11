@@ -332,6 +332,9 @@ fn allowed(method: &str) -> bool {
     matches!(
         method,
         "runtime_context"
+            | "knowledge_open"
+            | "knowledge_query"
+            | "knowledge_link"
             | "account_effect_begin"
             | "account_effect_finish"
             | "recording_update"

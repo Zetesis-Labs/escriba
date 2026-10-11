@@ -246,7 +246,7 @@ impl Queue {
             && (job.automatic || job.attempt > 0 || job.args["options"]["force"] == false)
             && guard.recording(&job.recording_id)?["accountEffectPending"] == true
         {
-            let message = "Revisa la operación externa antes de reprocesar esta nota manualmente";
+            let message = "Revisa la operación externa o sobre el grafo antes de reprocesar esta nota manualmente";
             job.state = JobState::Failed;
             job.stage = "Error".into();
             job.error = Some(message.into());

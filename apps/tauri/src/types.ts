@@ -123,6 +123,7 @@ export interface Resolver {
   hasCredential?: boolean;
 }
 export interface Recipe {
+  ontologies?: import("./core/ontologyDependencies").OntologyDependency[];
   id: string;
   name: string;
   kind: "form" | "code";
