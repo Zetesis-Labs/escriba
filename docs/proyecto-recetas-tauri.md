@@ -3,6 +3,12 @@
 Ampliación pedida por Rubén el 2026-10-10: proyecto TypeScript normal, herramientas
 incluidas en la app y editor interno CodeMirror.
 
+Ampliación confirmada el 2026-10-11, aún pendiente: proveedores declarados por
+el proyecto con formularios y credenciales gestionados por la app, y transporte
+autenticado para usar SDK directamente desde las recetas. Véase
+[el objetivo y sus criterios de aceptación](objetivo-extensibilidad-recetas.md).
+El contrato descrito a continuación corresponde a lo implementado actualmente.
+
 ## Editar y construir
 
 En Recetas, elegir una carpeta vacía crea el proyecto y sus tipos. Abrir editor

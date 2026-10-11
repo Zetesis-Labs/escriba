@@ -44,10 +44,12 @@ export interface VoiceRegistration {
 export interface Digest {
   title: string;
   summary: string;
+  description?: string;
   tags: string[];
 }
 export interface Version {
   id: string;
+  revision?: string;
   createdAt: string;
   backend: string;
   recipeId?: string;

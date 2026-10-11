@@ -1,0 +1,39 @@
+# Escriba
+
+Escriba convierte grabaciones en notas mediante recetas y permite trabajar con
+ellas en servicios externos o carpetas autorizadas por el usuario.
+
+## Lenguaje
+
+**Grabación**: audio incorporado a la biblioteca, con su identidad y origen.
+Puede conservar sus transcripciones aunque ya no exista una copia del audio.
+
+**Nota**: resultado de procesar una grabación, con transcripción y, cuando
+corresponde, resumen y datos producidos por la receta.
+
+**Receta**: flujo que decide cómo procesar una grabación y qué hacer con su nota.
+Sus parámetros permiten configurar ese flujo para el usuario o una ejecución.
+
+**Proyecto de recetas**: conjunto del usuario que reúne recetas, conectores y
+sus dependencias para utilizarlos en Escriba.
+
+**Proveedor**: servicio o formato con el que se integra Escriba, como Notion
+u OKF. No representa una cuenta concreta del usuario.
+
+**Cuenta**: vínculo autorizado por el usuario con un proveedor, que conserva
+sus credenciales y el alcance concedido; en un proveedor local puede ser una
+carpeta sin credencial remota.
+_Evitar_: destino, cuando se habla únicamente de autenticación o permisos.
+
+**Conector**: integración que define cómo configurar y utilizar un proveedor.
+Se utiliza con una cuenta autorizada y puede ofrecer destinos de publicación.
+
+**Destino**: ubicación y reglas de representación elegidas para publicar notas
+con una cuenta, como una base de Notion con su mapeo de propiedades.
+_Evitar_: cuenta, cuando se habla de dónde y cómo publicar.
+
+**Publicación**: relación duradera entre una nota y un destino, con la
+información necesaria para localizar, actualizar o retirar lo publicado.
+
+**Operación de cuenta**: consulta o cambio realizado en un proveedor usando
+una cuenta autorizada. No toda operación crea una publicación de una nota.

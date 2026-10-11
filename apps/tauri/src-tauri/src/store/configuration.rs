@@ -78,7 +78,7 @@ impl Store {
                 .ok_or("Cuenta inválida")?
                 .remove(field);
         }
-        let mut next = self.data.clone();
+        let mut next = self.data.edit();
         for (collection, item) in [("accounts", account), ("destinations", destination)] {
             let items = next
                 .catalog_mut(collection)?
@@ -101,7 +101,7 @@ impl Store {
         {
             return Err("El conector de la app no coincide con su cuenta y destino".into());
         }
-        let mut next = self.data.clone();
+        let mut next = self.data.edit();
         for collection in ["accounts", "destinations"] {
             next.catalog_mut(collection)?
                 .as_array_mut()

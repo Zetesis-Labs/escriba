@@ -9,23 +9,18 @@ impl Store {
         value
     }
 
-    pub fn snapshot(&self) -> Value {
-        let mut value = self.data_json();
+    pub fn snapshot(&self) -> Result<Value, String> {
+        let mut value = self.full_data_json()?;
         value["settings"] = redacted_settings(&value["settings"]);
         value["dataPath"] = json!(self.root);
         self.mark_credentials(&mut value);
-        value
+        Ok(value)
     }
 
     pub fn runtime_context(&self, recording_id: Option<&str>) -> Result<Value, String> {
         let recordings = match recording_id {
             Some(id) => {
-                let original = self
-                    .data
-                    .recordings
-                    .iter()
-                    .find(|record| record.id == id)
-                    .ok_or("Grabación no encontrada")?;
+                let original = Recording::read(&self.recording(id)?)?;
                 let audio_path = original
                     .audio_path
                     .as_ref()

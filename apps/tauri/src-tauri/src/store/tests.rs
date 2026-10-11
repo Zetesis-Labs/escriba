@@ -1,4 +1,56 @@
 use super::*;
+
+#[test]
+fn abrir_la_lista_no_retiene_transcripciones_y_el_detalle_conserva_el_original() {
+    let dir = tempfile::tempdir().unwrap();
+    let audio = dir.path().join("sintetico.wav");
+    fs::write(&audio, b"audio de prueba").unwrap();
+    let root = dir.path().join("library");
+    let mut store = Store::open(root.clone()).unwrap();
+    let recording = store.import(&audio, None).unwrap();
+    let key = recording["id"].as_str().unwrap();
+    let transcript = json!({"text":"contenido ".repeat(1000),"segments":[{"start":0,"end":1,"text":"segmento completo","words":[{"start":0,"end":1,"text":"palabra completa"}]}],"extension":{"retain":true}});
+    let version = store
+        .mutate(
+            "version_save",
+            &json!({"recordingId":key,"transcript":transcript}),
+        )
+        .unwrap();
+    drop(store);
+    let mut reopened = Store::open(root).unwrap();
+    let cached = reopened.data.recordings[0].versions.as_ref().unwrap()[0]
+        .transcript
+        .as_ref()
+        .unwrap();
+    assert!(
+        cached.segments.is_empty(),
+        "La lista conserva segmentos completos en RAM"
+    );
+    assert!(cached.text.chars().count() <= 400);
+    assert_eq!(reopened.recording(key).unwrap()["versions"][0], version);
+    reopened
+        .mutate(
+            "settings_save",
+            &json!({"settings":{"notifyEveryNote":false}}),
+        )
+        .unwrap();
+    reopened
+        .mutate(
+            "recording_update",
+            &json!({"id":key,"title":"Título nuevo"}),
+        )
+        .unwrap();
+    assert_eq!(
+        reopened.recording(key).unwrap()["versions"][0]["transcript"],
+        transcript
+    );
+    assert!(reopened.data.recordings[0].versions.as_ref().unwrap()[0]
+        .transcript
+        .as_ref()
+        .unwrap()
+        .segments
+        .is_empty());
+}
 use crate::voices::SpeakerVoice;
 
 #[test]
@@ -63,7 +115,7 @@ fn las_personas_guardan_varias_huellas_privadas_y_solo_exponen_metadatos() {
     assert_eq!(people[0]["voices"][0]["source"], "a");
     assert!(people.to_string().find("embedding").is_none());
     assert_eq!(store.known_voices().unwrap().len(), 2);
-    assert!(!store.snapshot().to_string().contains("0.123456"));
+    assert!(!store.snapshot().unwrap().to_string().contains("0.123456"));
     drop(store);
     let reopened = Store::open(root).unwrap();
     assert_eq!(reopened.known_voices().unwrap().len(), 2);
@@ -163,7 +215,7 @@ fn transcribir_reconoce_sin_exponer_huellas_y_la_version_las_conserva() {
             .speaker,
         "Rubén"
     );
-    assert!(!store.snapshot().to_string().contains("embedding"));
+    assert!(!store.snapshot().unwrap().to_string().contains("embedding"));
     assert!(!store.library().to_string().contains("embedding"));
     assert!(!store
         .recording(key)
@@ -335,7 +387,7 @@ fn carpeta_autorizada_persiste_y_el_bookmark_no_sale_en_respuestas() {
     assert_eq!(created["authorizationSaved"], true);
     assert!(created.get("accessBookmark").is_none());
     assert_eq!(store.watched_folder_bookmarks().unwrap()[0].2, bytes);
-    let snapshot = store.snapshot();
+    let snapshot = store.snapshot().unwrap();
     assert_eq!(
         snapshot["settings"]["watchedFolders"][0]["authorizationSaved"],
         true
@@ -357,6 +409,7 @@ fn carpeta_autorizada_persiste_y_el_bookmark_no_sale_en_respuestas() {
     assert_eq!(store.watched_folder_bookmarks().unwrap()[0].2, bytes);
     assert!(!store
         .snapshot()
+        .unwrap()
         .to_string()
         .contains("synthetic-private-bookmark"));
 }
@@ -539,7 +592,11 @@ fn biblioteca_importada_conserva_transcripcion_y_descarte_al_reabrir_y_vigilar()
         )
         .unwrap();
     assert_eq!(refreshed["id"], id);
-    assert_eq!(refreshed["versions"], versions);
+    assert_eq!(store.recording(id).unwrap()["versions"], versions);
+    assert!(refreshed["versions"][0]["transcript"]["segments"]
+        .as_array()
+        .unwrap()
+        .is_empty());
     let discarded_source = dir.path().join("discarded-renamed.wav");
     fs::write(&discarded_source, b"discarded audio").unwrap();
     let discarded = store
@@ -637,7 +694,13 @@ fn deduplicates_audio_and_retains_discard_ledger() {
         .unwrap();
     let again = store.import(&audio, None).unwrap();
     assert_eq!(again["status"], "discarded");
-    assert_eq!(store.snapshot()["recordings"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        store.snapshot().unwrap()["recordings"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
 }
 
 #[test]
@@ -698,6 +761,7 @@ fn descartar_guarda_borrado_pendiente_y_reintenta_tras_caida() {
     assert_eq!(store.database.pending_audio_deletions().unwrap().len(), 1);
     assert!(!store
         .snapshot()
+        .unwrap()
         .to_string()
         .contains(copy.to_str().unwrap()));
     drop(store);
@@ -1214,7 +1278,7 @@ fn credentials_do_not_enter_snapshot() {
     store
         .save_credential("notion", "fake-local-secret")
         .unwrap();
-    let state = store.snapshot().to_string();
+    let state = store.snapshot().unwrap().to_string();
     assert!(!state.contains("fake-local-secret"));
     assert!(!state.contains("must-not-persist"));
     assert_eq!(
@@ -1251,7 +1315,7 @@ fn runtime_context_limits_a_large_library_to_the_requested_recording() {
         .save_credential("account-1", "synthetic-secret")
         .unwrap();
 
-    assert!(store.snapshot().to_string().len() > 32 * 1024 * 1024);
+    assert!(store.snapshot().unwrap().to_string().len() > 32 * 1024 * 1024);
     let context = store.runtime_context(Some("selected")).unwrap();
     let serialized = context.to_string();
     assert!(serialized.len() < 1024 * 1024);
@@ -1287,7 +1351,9 @@ fn runtime_context_limits_a_large_library_to_the_requested_recording() {
         store.runtime_context(None).unwrap()["accounts"][0]["folder"],
         folder_fingerprint
     );
-    store.data.accounts[0]["folder"] = json!("/private/changed-folder");
+    let mut changed = store.data_json();
+    changed["accounts"][0]["folder"] = json!("/private/changed-folder");
+    store.replace(changed).unwrap();
     assert_ne!(
         store.runtime_context(None).unwrap()["accounts"][0]["folder"],
         folder_fingerprint
@@ -1295,7 +1361,7 @@ fn runtime_context_limits_a_large_library_to_the_requested_recording() {
 
     let catalog = store.runtime_context(None).unwrap();
     assert!(catalog["recordings"].as_array().unwrap().is_empty());
-    assert_eq!(catalog["recipes"], store.snapshot()["recipes"]);
+    assert_eq!(catalog["recipes"], store.snapshot().unwrap()["recipes"]);
     assert_eq!(
         store.runtime_context(Some("missing")).unwrap_err(),
         "Grabación no encontrada"
@@ -1513,7 +1579,11 @@ fn memories_and_traces_survive_restart_without_entering_snapshot() {
         Some(answer.clone())
     );
     assert_eq!(store.trace_list(Some(recording_id)).unwrap().len(), 1);
-    assert!(!store.snapshot().to_string().contains("fingerprint-1"));
+    assert!(!store
+        .snapshot()
+        .unwrap()
+        .to_string()
+        .contains("fingerprint-1"));
     drop(store);
     let store = Store::open(root).unwrap();
     assert_eq!(
@@ -1822,14 +1892,14 @@ fn rejects_second_instance_without_replacing_data() {
 fn ajustes_rechazan_tipos_invalidos_sin_cambiar_la_biblioteca() {
     let dir = tempfile::tempdir().unwrap();
     let mut store = Store::open(dir.path().into()).unwrap();
-    let before = store.snapshot();
+    let before = store.snapshot().unwrap();
     assert!(store
         .mutate(
             "settings_save",
             &json!({"settings":{"notifyEveryNote":"sí"}})
         )
         .is_err());
-    assert_eq!(store.snapshot(), before);
+    assert_eq!(store.snapshot().unwrap(), before);
 }
 
 #[test]
@@ -1845,11 +1915,11 @@ fn opciones_retiradas_no_se_modifican_aunque_estuvieran_guardadas() {
 fn no_confirma_entidades_corruptas_ni_pierde_el_estado_anterior() {
     let dir = tempfile::tempdir().unwrap();
     let mut store = Store::open(dir.path().into()).unwrap();
-    let before = store.snapshot();
+    let before = store.snapshot().unwrap();
     let mut next = store.data_json();
     next["recordings"] = json!([{"id":"rota","status":"done","versions":[{"id":"v","transcript":{"text":42,"segments":[]}}]}]);
     assert!(store.replace(next).is_err());
-    assert_eq!(store.snapshot(), before);
+    assert_eq!(store.snapshot().unwrap(), before);
 }
 
 #[test]
@@ -1940,6 +2010,26 @@ fn verifica_compatibilidad_de_copia_sin_mostrar_contenido() {
             .sum::<usize>(),
         versions
     );
+    for original in before["recordings"].as_array().unwrap() {
+        let full = store.recording(original["id"].as_str().unwrap()).unwrap();
+        if original["status"] == "discarded" {
+            assert_eq!(original["versions"].as_array().map(Vec::len), Some(0));
+            assert_eq!(original["publications"].as_array().map(Vec::len), Some(0));
+            assert!(
+                full == discarded_record(original).unwrap(),
+                "La lápida cambió su identidad"
+            );
+            continue;
+        }
+        assert!(
+            full["versions"] == original["versions"],
+            "El índice alteró versiones guardadas"
+        );
+        assert!(
+            full["publications"] == original["publications"],
+            "El índice alteró recibos guardados"
+        );
+    }
     eprintln!("Compatibilidad confirmada: {recordings} grabaciones, {versions} versiones, {} trabajos; contenido no mostrado", jobs.len());
 }
 

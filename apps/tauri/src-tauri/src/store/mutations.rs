@@ -11,7 +11,20 @@ impl Store {
         if let Some(recording_id) = guarded {
             self.recording_for_write(recording_id)?;
         }
-        let mut next = self.data.clone();
+        let full_recording = match method {
+            "version_save" | "version_select" | "version_update" | "publication_save"
+            | "publication_remove" => Some(text(p, "recordingId")?),
+            _ => None,
+        };
+        let before = match full_recording {
+            Some(id) => self.recording_edit(id)?,
+            None => self.data.edit(),
+        };
+        let mut next = before.clone();
+        let scope = WriteScope {
+            full_recordings: full_recording.map(str::to_owned).into_iter().collect(),
+            ..WriteScope::default()
+        };
         let mut delete_after_commit: Option<PathBuf> = None;
         let mut audio_to_delete = Vec::new();
         let mut voice_save: Option<VersionCommit> = None;
@@ -72,29 +85,34 @@ impl Store {
             }
             _ => return Err(format!("Operación desconocida: {method}")),
         };
+        let index = LibraryIndex::from_edit(next.clone(), &scope.full_recordings)?;
         if let Some((recording_id, version_id, voices, teaching)) = voice_save {
             let report_learning = teaching.is_some();
-            let learned = self.database.save_version(
-                self.data_json(),
+            let learned = self.database.save_scoped_version(
+                json!(before),
                 json!(&next),
+                scope,
                 &version_id,
                 &voices,
                 teaching,
             )?;
-            self.data = next;
+            self.data = index;
             self.pending_voices.remove(&recording_id);
             if report_learning {
                 result["learnedVoice"] = json!(learned);
             }
         } else if method == "recording_discard" {
-            self.database.save_with_audio_deletions(
-                self.data_json(),
+            self.database.save_scoped_with_audio_deletions(
+                json!(before),
                 json!(&next),
+                scope,
                 &audio_to_delete,
             )?;
-            self.data = next;
+            self.data = index;
         } else {
-            self.commit(next)?;
+            self.database
+                .save_scoped(json!(before), json!(next), scope)?;
+            self.data = index;
         }
         if method == "recording_discard" {
             self.pending_voices.remove(text(p, "id")?);

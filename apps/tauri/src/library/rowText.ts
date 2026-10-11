@@ -9,6 +9,7 @@ export function recordingSubline(recording: Recording, job?: JobState) {
   if (job) return job.stage;
   const version = recording.versions.at(-1);
   return (
+    version?.digest?.description ||
     version?.digest?.summary ||
     version?.transcript.text ||
     recording.error ||

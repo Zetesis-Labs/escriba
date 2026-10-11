@@ -74,3 +74,76 @@ construido e instalado; conserva la versión anterior en
 con la app cerrada antes de sustituirla. Los 195 audios siguen presentes tras
 la medición. La comprobación manual de uso de esta instalación queda pendiente
 de Rubén.
+
+## Carga diferida de transcripciones (2026-10-11)
+
+El reposo estable de la release anterior no demostraba un arranque barato:
+`Store` seguía leyendo y conservando todas las transcripciones. Ahora conserva
+un índice ligero, consulta el documento completo de una nota solo al abrir su
+detalle o trabajar con ella y limita las escrituras de contenido a esa nota.
+Las proyecciones se guardan en tablas pequeñas separadas y se confirman con el
+documento completo en una misma transacción de SurrealDB. `EXPLAIN ANALYZE`
+confirmó que `parent = $parent` producía `TableScan` en SurrealDB 3.3.2; el
+literal codificado con el serializador JSON permite `IndexScan`. La regresión
+y el escape de caracteres especiales tienen pruebas sintéticas.
+
+Una sonda de `Store::open` en procesos de pruebas nuevos, sobre la misma copia
+privada de 242 grabaciones y 218 versiones, pasó de 1.241.893.216 bytes de
+`footprint` en reposo inmediato (1.184,36 MiB) a 58.049.304 (55,36 MiB), un
+95,33 % menos. La lectura nueva tardó unos 0,4 segundos; el máximo de RSS
+observado antes de cerrar el almacén fue 99,38 MiB. Es una comparación del almacén en modo debug, sin
+WebKit, vigilancia ni inferencia: no debe presentarse como consumo total de
+la aplicación instalada.
+
+La generación inicial de las proyecciones se mide aparte: recorre una versión
+cada vez y tardó unos 12 segundos en esa copia. La comparación del arranque se
+hizo en otro proceso sobre la copia ya preparada, para no atribuirle la memoria
+temporal de esa preparación. Las sondas ignoradas de `store::measurement`
+requieren `ESCRIBA_VERIFY_LIBRARY_COPY`, trabajan siempre en otra copia privada
+y solo muestran recuentos, memoria y tiempos. No consultan la biblioteca viva.
+
+El motor continúa siendo SurrealDB 3.3.2 con SurrealKV 0.21.4. No se redujo el
+arena de escritura: el código fijado de SurrealKV escribe el WAL antes de
+aplicar el lote al memtable y un lote superior a un límite reducido podría
+fallar también al recuperarlo. La optimización evita cargar el contenido en
+`Store`; no cambia límites ni durabilidad del motor.
+
+La sonda detectó además un pico de 1.078,63 MiB de `footprint` al destruir
+`Store` y cerrar SurrealDB, después de la medición de reposo. La cifra de
+55,36 MiB no representa un límite de memoria ni elimina las asignaciones
+transitorias del motor al cerrar.
+
+### Release instalada y reposo de cinco minutos
+
+Instalada y abierta el 2026-10-11. La firma estricta y la igualdad del bundle
+construido e instalado pasaron. Tras la preparación inicial del índice se
+reinició una vez; el PID 23050 permaneció estable durante los 300 segundos.
+No se solicitó inferencia ni publicación. Los 195 audios siguen presentes.
+
+| Medida | Release anterior, cinco minutos | Carga diferida, cinco minutos |
+| --- | ---: | ---: |
+| Bundle instalado | 170,69 MiB | 170,82 MiB |
+| `footprint` de app y auxiliares | 290,40 MiB | 274,16 MiB |
+| `footprint` de Rust | 201,83 MiB | 137,81 MiB |
+| RSS agregado | 3869,88 MiB | 740,23 MiB |
+| Pico de `footprint` de Rust desde el arranque (`vmmap`) | ~1,8 GiB | 337,6 MiB |
+
+La reducción más marcada está en el pico de arranque. En estas muestras de
+cinco minutos, el `footprint` total baja un 5,59 % y el de Rust un 31,72 %.
+La presión de memoria y la actividad de WebKit no están controladas: no son
+límites garantizados ni una atribución causal de cada MiB. Justo antes de
+actualizar, la instancia anterior llevaba unas dos horas abierta y marcaba
+375,90 MiB totales, de ellos 242,36 MiB de Rust; esa muestra tiene distinta
+antigüedad y se conserva como referencia adicional.
+
+Desglose final: Rust 137,81 MiB, contenido WebKit 99,75, GPU WebKit 18,50,
+Bun 12,45 y red WebKit 5,64. El host nativo ya se había descargado por
+inactividad. El bundle contiene 179.118.170 bytes. Registros locales:
+`/tmp/escriba-lazy-before-installed.json`, `/tmp/escriba-lazy-first-launch.json`
+y `/tmp/escriba-lazy-idle-after.json`.
+
+Validación: 203 pruebas Rust, 199 TypeScript, tipos, Clippy y formato correctos.
+La copia privada conservó todas las versiones y los recibos de 242 grabaciones
+(218 versiones y 16 trabajos). Las pruebas cubren escrituras acotadas, rollback,
+descartes, alias de recetas, carga del detalle e invalidación de su revisión.
+La comprobación manual de esta instalación sigue pendiente de Rubén.

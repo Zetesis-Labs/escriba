@@ -1,7 +1,7 @@
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::{Map, Value};
 
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq, Hash)]
 pub enum Field<T> {
     #[default]
     Missing,
@@ -90,7 +90,7 @@ pub struct Recording {
     pub extra: Map<String, Value>,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, Hash)]
 #[serde(rename_all = "camelCase")]
 pub struct Version {
     pub id: String,
@@ -114,7 +114,7 @@ pub struct Version {
     pub extra: Map<String, Value>,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, Hash)]
 pub struct Transcript {
     pub text: String,
     pub segments: Vec<Segment>,
@@ -186,6 +186,59 @@ pub struct LibraryData {
     pub extra: Map<String, Value>,
 }
 
+#[derive(Clone, Debug)]
+pub struct LibraryIndex(LibraryData);
+
+impl std::ops::Deref for LibraryIndex {
+    type Target = LibraryData;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl LibraryIndex {
+    pub(super) fn from_index(data: LibraryData) -> Self {
+        Self(data)
+    }
+    pub(super) fn new(data: LibraryData) -> Result<Self, String> {
+        let ids = data
+            .recordings
+            .iter()
+            .map(|record| record.id.clone())
+            .collect();
+        Self::from_edit(data, &ids)
+    }
+    pub(super) fn from_edit(
+        mut data: LibraryData,
+        full_recordings: &std::collections::HashSet<String>,
+    ) -> Result<Self, String> {
+        for record in data
+            .recordings
+            .iter_mut()
+            .filter(|record| full_recordings.contains(&record.id))
+        {
+            if let Some(versions) = record.versions.as_mut() {
+                for version in versions {
+                    *version = version.preview();
+                }
+            }
+            if let Some(publications) = record.publications.as_mut() {
+                for publication in publications {
+                    *publication = crate::library_view::light_publication(publication);
+                }
+            }
+        }
+        Ok(Self(data))
+    }
+
+    pub(super) fn edit(&self) -> LibraryData {
+        self.0.clone()
+    }
+    pub(super) fn json(&self) -> Value {
+        serde_json::json!(&self.0)
+    }
+}
+
 impl LibraryData {
     pub fn read(value: &Value) -> Result<Self, String> {
         <Self as Deserialize>::deserialize(value)
@@ -248,7 +301,7 @@ impl LibraryData {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, Hash)]
 pub struct Segment {
     pub start: serde_json::Number,
     pub end: serde_json::Number,
@@ -261,7 +314,7 @@ pub struct Segment {
     pub extra: Map<String, Value>,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, Hash)]
 pub struct Word {
     pub start: serde_json::Number,
     pub end: serde_json::Number,
@@ -270,7 +323,7 @@ pub struct Word {
     pub extra: Map<String, Value>,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, Hash)]
 pub struct Recognition {
     pub speaker: String,
     pub person: String,

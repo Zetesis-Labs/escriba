@@ -7,15 +7,17 @@ mod import;
 mod model;
 mod mutations;
 mod people;
+mod projection;
 mod recordings;
 mod settings;
 mod versions;
 mod views;
 mod work;
-use crate::persistence::{AudioDeletion, Persistence, Teaching};
+use crate::persistence::{AudioDeletion, Persistence, Teaching, WriteScope};
 use crate::voices::{recognize, KnownVoice, SpeakerVoice};
 use chrono::Utc;
 use fs2::FileExt;
+pub use model::LibraryIndex;
 pub use model::{Field, LibraryData, Recording, RecordingStatus, Settings, Version, WatchedFolder};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -111,7 +113,7 @@ type VersionCommit = (String, String, Vec<SpeakerVoice>, Option<Teaching>);
 
 pub struct Store {
     pub root: PathBuf,
-    pub data: LibraryData,
+    pub data: LibraryIndex,
     database: Persistence,
     pending_voices: HashMap<String, Vec<SpeakerVoice>>,
     audio_cleanup_enabled: bool,
@@ -142,7 +144,7 @@ impl Store {
             fs::Permissions::from_mode(0o700),
         )
         .map_err(|e| format!("No se pudo proteger SurrealDB: {e}"))?;
-        let stored = database.load()?;
+        let stored = database.load_index()?;
         let path = root.join("library.json");
         let mut data: Value = if let Some(saved) = stored.as_ref() {
             saved.clone()
@@ -186,9 +188,23 @@ impl Store {
             .into_iter()
             .flatten()
             .collect::<Vec<_>>();
+        let stored_is_new = stored.is_none();
         let previous = stored.unwrap_or_else(|| json!({"schemaVersion":1,"recordings":[],"accounts":[],"resolvers":[],"recipes":[],"destinations":[],"logs":[],"settings":{}}));
-        database.save_with_audio_deletions(previous, data, &discarded_audio)?;
-        let data = typed;
+        if stored_is_new {
+            database.save_with_audio_deletions(previous, data, &discarded_audio)?;
+        } else {
+            database.save_scoped_with_audio_deletions(
+                previous,
+                data,
+                WriteScope::default(),
+                &discarded_audio,
+            )?;
+        }
+        let data = if stored_is_new {
+            LibraryIndex::new(typed)?
+        } else {
+            LibraryIndex::from_index(typed)
+        };
         let store = Self {
             root,
             data,
@@ -241,25 +257,65 @@ impl Store {
         }
         Ok(())
     }
+    pub fn index_json(&self) -> Value {
+        self.data.json()
+    }
+    #[cfg(test)]
     pub fn data_json(&self) -> Value {
-        json!(&self.data)
+        self.full_data_json()
+            .expect("No se pudo leer la biblioteca de prueba")
+    }
+    fn full_data_json(&self) -> Result<Value, String> {
+        self.database
+            .load()?
+            .ok_or_else(|| "Biblioteca sin inicializar".into())
     }
     pub fn settings_json(&self) -> Value {
         json!(&self.data.settings)
     }
-    fn persist(&self, data: &LibraryData) -> Result<(), String> {
-        self.database.save(self.data_json(), json!(data))
-    }
+    #[cfg(test)]
     pub fn replace(&mut self, data: Value) -> Result<(), String> {
-        self.commit(LibraryData::read(&data)?)
+        let typed = LibraryData::read(&data)?;
+        if typed.schema_version != 1 {
+            return Err("Versión de biblioteca incompatible".into());
+        }
+        let index = LibraryIndex::new(typed)?;
+        self.database.save(self.full_data_json()?, data)?;
+        self.data = index;
+        Ok(())
+    }
+    pub fn replace_catalog(
+        &mut self,
+        data: Value,
+        aliases: HashMap<String, String>,
+    ) -> Result<(), String> {
+        let next = LibraryData::read(&data)?;
+        let index = LibraryIndex::from_index(next);
+        self.database.save_scoped(
+            self.index_json(),
+            data,
+            WriteScope {
+                recipe_aliases: aliases,
+                ..WriteScope::default()
+            },
+        )?;
+        self.data = index;
+        Ok(())
     }
     fn commit(&mut self, data: LibraryData) -> Result<(), String> {
         if data.schema_version != 1 {
             return Err("Versión de biblioteca incompatible".into());
         }
-        self.persist(&data)?;
-        self.data = data;
+        let index = LibraryIndex::from_index(data.clone());
+        self.database
+            .save_scoped(self.index_json(), json!(data), WriteScope::default())?;
+        self.data = index;
         Ok(())
+    }
+    fn recording_edit(&self, key: &str) -> Result<LibraryData, String> {
+        let mut data = self.data.edit();
+        *record_mut(&mut data, key)? = Recording::read(&self.recording(key)?)?;
+        Ok(data)
     }
 }
 fn collection(p: &Value) -> Result<&str, String> {
@@ -294,5 +350,7 @@ fn prune(value: &mut Value, key: &str) {
     }
 }
 
+#[cfg(test)]
+mod measurement;
 #[cfg(test)]
 mod tests;

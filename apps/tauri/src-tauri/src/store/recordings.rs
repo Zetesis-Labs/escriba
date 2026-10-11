@@ -2,12 +2,9 @@ use super::*;
 
 impl Store {
     pub fn recording(&self, record_id: &str) -> Result<Value, String> {
-        self.data
-            .recordings
-            .iter()
-            .find(|record| record.id == record_id)
-            .ok_or("Grabación no encontrada")?
-            .write()
+        self.database
+            .recording(record_id)?
+            .ok_or_else(|| "Grabación no encontrada".into())
     }
     pub(super) fn recording_for_write(&self, record_id: &str) -> Result<&Recording, String> {
         let record = self
@@ -160,7 +157,7 @@ impl Store {
             }
             "recording_discard" => {
                 let key = text(p, "id")?;
-                let prior = self.recording(key)?;
+                let prior = record_mut(next, key)?.write()?;
                 let r = record_mut(next, key)?;
                 *r = Recording::read(&discarded_record(&r.write()?)?)?;
                 let result = r.write()?;
