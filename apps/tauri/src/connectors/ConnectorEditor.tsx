@@ -36,13 +36,14 @@ function editableDestination(destination: Destination): Omit<Destination, "progr
   return copy;
 }
 
-export function ConnectorFieldControl({ field, configuration, onChange, onAction, home, inline = false }: {
+export function ConnectorFieldControl({ field, configuration, onChange, onAction, home, inline = false, standalone = false }: {
   field: ConnectorField;
   configuration: Configuration;
   onChange: (field: ConnectorField, value: JSONValue) => void;
   onAction: (action: string, value?: JSONValue) => void;
   home: string | null;
   inline?: boolean;
+  standalone?: boolean;
 }) {
   if (!isSafeFieldPath(field.path)) return <LabeledRow label={field.label}><SectionText problem>El proveedor declaró una ruta de campo no válida.</SectionText></LabeledRow>;
   const raw = field.path.length ? fieldValue(configuration, field.path) : "value" in field ? field.value as JSONValue : undefined;
@@ -82,6 +83,7 @@ export function ConnectorFieldControl({ field, configuration, onChange, onAction
     control = <InlineField value={value} onChange={(next) => change(next)} placeholder={field.placeholder} />;
   }
   if (inline) return <div className="connector-inline-field" role="group" aria-label={field.label}><div className="connector-field-value">{control}</div></div>;
+  if (field.type === "template" && field.multiline) return <FormRow><div className="connector-field-value" role="group" aria-label={field.label}>{!standalone && <span className="form-label">{field.label}</span>}{control}{field.help && <SectionText>{field.help}</SectionText>}</div></FormRow>;
   return <LabeledRow label={field.label}><div className="connector-field-value">{control}{field.help && <SectionText>{field.help}</SectionText>}</div></LabeledRow>;
 }
 
@@ -105,7 +107,7 @@ export function ConnectorViewFields({ view, configuration, onChange, onAction, h
               : <ActionButton key={index} action={part} onAction={onAction} />
             : <ConnectorFieldControl key={index} field={part} configuration={configuration} onChange={onChange} onAction={onAction} home={home} inline />)}</div></FormRow>];
         }
-        if (entry.type !== "action") return [<ConnectorFieldControl key={`field-${entry.path.join("/")}-${position}`} field={entry} configuration={configuration} onChange={onChange} onAction={onAction} home={home} />];
+        if (entry.type !== "action") return [<ConnectorFieldControl key={`field-${entry.path.join("/")}-${position}`} field={entry} configuration={configuration} onChange={onChange} onAction={onAction} home={home} standalone={!!section.title && section.fields.length === 1} />];
         if (position > 0 && fields[position - 1].type === "action") return [];
         const actions: ConnectorAction[] = [];
         for (let next = position; next < fields.length && fields[next].type === "action"; next++) actions.push(fields[next] as ConnectorAction);
