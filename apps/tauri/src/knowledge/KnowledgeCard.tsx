@@ -1,9 +1,9 @@
 import { ListTree, Plus } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { call } from "../api";
+import { knowledge } from "../api";
 import { Button, Sheet, Spinner } from "../mac/controls";
 import { confirmDestructive, errorText } from "../mac/native";
-import { editedFields, extensionOntologies, fieldInputText, fieldText, isInstalledOntology, isKnowledgeReference, isRecordPage, recordTitle, type InstalledOntology, type KnowledgeCollection, type KnowledgeRecord, type RuntimeHost } from "./model";
+import { editedFields, extensionOntologies, fieldInputText, fieldText, isKnowledgeReference, recordTitle, type InstalledOntology, type KnowledgeCollection, type KnowledgeRecord } from "./model";
 import "./knowledge.css";
 
 type Group = { ontology: InstalledOntology; collection: KnowledgeCollection; records: KnowledgeRecord[]; page: number; hasMore: boolean; loading: boolean; error: string | null };
@@ -12,7 +12,7 @@ type Endpoints = { records: KnowledgeRecord[]; page: number; hasMore: boolean; l
 type Attach = { groupKey: string; recordId: string; records: KnowledgeRecord[]; page: number; hasMore: boolean; loading: boolean; busy: boolean; error: string | null };
 const groupKey = (ontologyId: string, table: string) => `${ontologyId}\u0000${table}`;
 
-export function KnowledgeCard({ recordingId, versionId, host = call }: { recordingId: string; versionId?: string; host?: RuntimeHost }) {
+export function KnowledgeCard({ recordingId, versionId }: { recordingId: string; versionId?: string }) {
   const [groups, setGroups] = useState<Record<string, Group>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -29,15 +29,14 @@ export function KnowledgeCard({ recordingId, versionId, host = call }: { recordi
     if (scope !== generation.current) return;
     setGroups((current) => ({ ...current, [key]: { ontology, collection, records: append ? current[key]?.records ?? [] : [], page, hasMore: append ? current[key]?.hasMore ?? false : false, loading: true, error: null } }));
     try {
-      const result = await host<unknown>("knowledge_records", { id: ontology.id, table: collection.table, recordingId, page });
+      const result = await knowledge("knowledge_records", { id: ontology.id, table: collection.table, recordingId, page });
       if (scope !== generation.current) return;
-      if (!isRecordPage(result)) throw new Error("La página de registros no es válida.");
       setGroups((current) => ({ ...current, [key]: { ontology, collection, records: append ? [...(current[key]?.records ?? []), ...result.records] : result.records, page: result.page, hasMore: result.hasMore, loading: false, error: null } }));
     } catch (failure) {
       if (scope !== generation.current) return;
       setGroups((current) => ({ ...current, [key]: { ontology, collection, records: current[key]?.records ?? [], page: current[key]?.page ?? page, hasMore: current[key]?.hasMore ?? false, loading: false, error: errorText(failure) } }));
     }
-  }, [host, recordingId]);
+  }, [recordingId]);
 
   useEffect(() => {
     const scope = ++generation.current;
@@ -45,14 +44,13 @@ export function KnowledgeCard({ recordingId, versionId, host = call }: { recordi
     setGroups({});
     setLoading(true);
     setError(null);
-    void host<unknown>("knowledge_list").then((result) => {
+    void knowledge("knowledge_list").then((result) => {
       if (!current) return;
-      if (!Array.isArray(result) || !result.every(isInstalledOntology)) throw new Error("La lista de ontologías instaladas no es válida.");
       setBaseOntology(result.find((ontology) => ontology.builtIn === true) ?? null);
       for (const ontology of extensionOntologies(result)) for (const collection of ontology.collections) void loadPage(ontology, collection, 0, false, scope);
     }).catch((failure) => { if (current) setError(errorText(failure)); }).finally(() => { if (current) setLoading(false); });
     return () => { current = false; generation.current++; editorGeneration.current++; attachGeneration.current++; };
-  }, [host, recordingId, loadPage]);
+  }, [recordingId, loadPage]);
 
   const loadEndpoint = useCallback(async (ontology: InstalledOntology, table: string, page = 0, scope = editorGeneration.current) => {
     const collection = ontology.collections.find((candidate) => candidate.table === table);
@@ -60,15 +58,14 @@ export function KnowledgeCard({ recordingId, versionId, host = call }: { recordi
     const key = groupKey(ontology.id, table);
     setEndpoints((current) => ({ ...current, [key]: { records: page ? current[key]?.records ?? [] : [], page, hasMore: false, loading: true, error: null } }));
     try {
-      const result = await host<unknown>("knowledge_records", { id: ontology.id, table, page });
+      const result = await knowledge("knowledge_records", { id: ontology.id, table, page });
       if (scope !== editorGeneration.current) return;
-      if (!isRecordPage(result)) throw new Error("La página de registros no es válida.");
       setEndpoints((current) => ({ ...current, [key]: { records: page ? [...(current[key]?.records ?? []), ...result.records] : result.records, page: result.page, hasMore: result.hasMore, loading: false, error: null } }));
     } catch (failure) {
       if (scope !== editorGeneration.current) return;
       setEndpoints((current) => ({ ...current, [key]: { records: current[key]?.records ?? [], page: current[key]?.page ?? page, hasMore: current[key]?.hasMore ?? false, loading: false, error: errorText(failure) } }));
     }
-  }, [host]);
+  }, []);
 
   const openEditor = (key: string, record: KnowledgeRecord | null) => {
     const group = groups[key];
@@ -87,9 +84,8 @@ export function KnowledgeCard({ recordingId, versionId, host = call }: { recordi
     if (scope !== attachGeneration.current) return;
     setAttach((current) => current ? { ...current, records: page ? current.records : [], page, hasMore: false, loading: true, error: null } : null);
     try {
-      const result = await host<unknown>("knowledge_records", { id: ontology.id, table, page });
+      const result = await knowledge("knowledge_records", { id: ontology.id, table, page });
       if (scope !== attachGeneration.current) return;
-      if (!isRecordPage(result)) throw new Error("La página de registros no es válida.");
       setAttach((current) => current ? { ...current, records: page ? [...current.records, ...result.records] : result.records, page: result.page, hasMore: result.hasMore, loading: false, error: null } : null);
     } catch (failure) {
       if (scope !== attachGeneration.current) return;
@@ -111,7 +107,7 @@ export function KnowledgeCard({ recordingId, versionId, host = call }: { recordi
     if (!group) return;
     setAttach({ ...attach, busy: true, error: null });
     try {
-      await host("knowledge_attach", { id: group.ontology.id, expectedVersion: group.ontology.version, recordId: attach.recordId, recordingId, versionId });
+      await knowledge("knowledge_attach", { id: group.ontology.id, expectedVersion: group.ontology.version, recordId: attach.recordId, recordingId, versionId });
       setAttach(null);
       attachGeneration.current++;
       await loadPage(group.ontology, group.collection);
@@ -132,7 +128,7 @@ export function KnowledgeCard({ recordingId, versionId, host = call }: { recordi
         values[endpoint] = value;
       }
       setEditor({ ...editor, busy: true, error: null });
-      await host("knowledge_save", { id: group.ontology.id, table: group.collection.table, ...(editor.record ? { recordId: editor.record.id, expectedRev: editor.record.rev } : {}), values, recordingId, ...(versionId ? { versionId } : {}), expectedVersion: group.ontology.version });
+      await knowledge("knowledge_save", { id: group.ontology.id, table: group.collection.table, ...(editor.record ? { recordId: editor.record.id, expectedRev: editor.record.rev } : {}), values, recordingId, ...(versionId ? { versionId } : {}), expectedVersion: group.ontology.version });
       setEditor(null);
       await loadPage(group.ontology, group.collection);
     } catch (failure) { setEditor((current) => current ? { ...current, busy: false, error: errorText(failure) } : null); }
@@ -144,7 +140,7 @@ export function KnowledgeCard({ recordingId, versionId, host = call }: { recordi
     if (!group || !await confirmDestructive("¿Desvincular este registro?", "El registro se conserva para las demás notas.", "Desvincular")) return;
     setEditor({ ...editor, busy: true, error: null });
     try {
-      await host("knowledge_unlink", { id: group.ontology.id, recordId: editor.record.id, recordingId, expectedVersion: group.ontology.version });
+      await knowledge("knowledge_unlink", { id: group.ontology.id, recordId: editor.record.id, recordingId, expectedVersion: group.ontology.version });
       setEditor(null);
       await loadPage(group.ontology, group.collection);
     } catch (failure) { setEditor((current) => current ? { ...current, busy: false, error: errorText(failure) } : null); }

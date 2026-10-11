@@ -80,7 +80,7 @@ async fn recorre_referencias_entre_ontologias_y_conserva_destinos_borrados() {
         .await
         .unwrap();
     assert_eq!(forward.edges.len(), 1);
-    assert_eq!(forward.edges[0].kind, "reference");
+    assert_eq!(forward.edges[0].kind, graph::EdgeKind::Reference);
     assert_eq!(forward.edges[0].target, "[\"escriba\",\"person:ada\"]");
     let backward = graph
         .graph_expand("escriba", "person:ada", 0)
@@ -132,7 +132,7 @@ async fn pagina_conexiones_y_procedencia_en_ambas_direcciones_sin_perdidas() {
     let provenance = second
         .edges
         .iter()
-        .find(|e| e.kind == "provenance")
+        .find(|e| e.kind == graph::EdgeKind::Provenance)
         .unwrap();
     let backward = graph
         .graph_expand("escriba", "version:['audio', 'v1']", 0)
@@ -175,7 +175,7 @@ async fn detalle_acota_textos_y_senala_recortes_sin_modificar_registros() {
 
 #[tokio::test]
 async fn comandos_sincronizan_la_base_y_rechazan_paginas_invalidas() {
-    use crate::knowledge_commands::dispatch;
+    use crate::knowledge_commands::call as dispatch;
     use std::sync::{Arc, Mutex};
     let temp = tempfile::tempdir().unwrap();
     let mut store = crate::store::Store::open(temp.path().join("library")).unwrap();

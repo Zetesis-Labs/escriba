@@ -12,9 +12,10 @@ use surrealdb::{
     Surreal,
 };
 use tokio::sync::Mutex;
+use ts_rs::TS;
 use uuid::Uuid;
 
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, TS)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Ontology {
     pub id: String,
@@ -23,13 +24,13 @@ pub struct Ontology {
     pub migrations: Vec<Migration>,
     pub collections: Vec<Collection>,
 }
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, TS)]
 #[serde(deny_unknown_fields)]
 pub struct Migration {
     pub version: u32,
     pub sql: String,
 }
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, TS)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Collection {
     pub table: String,
@@ -37,15 +38,16 @@ pub struct Collection {
     pub title_field: String,
     pub fields: Vec<Field>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub relation: Option<Relation>,
 }
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, TS)]
 #[serde(deny_unknown_fields)]
 pub struct Relation {
     pub from: String,
     pub to: String,
 }
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, TS)]
 #[serde(deny_unknown_fields)]
 pub struct Field {
     pub key: String,
@@ -53,17 +55,19 @@ pub struct Field {
     #[serde(rename = "type")]
     pub kind: FieldType,
     #[serde(default)]
+    #[ts(optional, as = "Option<bool>")]
     pub required: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub reference: Option<ReferenceTarget>,
 }
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, TS)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ReferenceTarget {
     pub ontology_id: String,
     pub table: String,
 }
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, TS)]
 #[serde(rename_all = "lowercase")]
 pub enum FieldType {
     Text,
@@ -76,19 +80,20 @@ pub enum FieldType {
 
 mod base;
 mod base_query;
-pub use base::{base_definition, base_listing};
+pub use base::{base_definition, base_listing, ListedOntology};
 mod filters;
-pub use filters::LibraryFilter;
+pub use filters::{FilterResult, LibraryFilter};
 #[cfg(test)]
 mod filter_tests;
 mod saved_filters;
-pub use saved_filters::SaveLibraryFilter;
+pub use saved_filters::{SaveLibraryFilter, SavedLibraryFilter};
 mod graph;
+pub use graph::{GraphDetail, GraphPage};
 #[cfg(test)]
 mod graph_tests;
 mod migrations;
 mod records;
-pub use records::{SaveRecord, Source};
+pub use records::{GraphRecord, RecordPage, SaveRecord, Source};
 
 pub struct Knowledge {
     root: Surreal<Db>,

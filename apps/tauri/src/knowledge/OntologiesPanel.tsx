@@ -1,9 +1,9 @@
 import { BookOpen, Download, RotateCw } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { call } from "../api";
+import { knowledge } from "../api";
 import { Button, Segmented, Spinner } from "../mac/controls";
 import { errorText } from "../mac/native";
-import { candidateStatus, extensionOntologies, isDefinition, isInstalledOntology, type InstalledOntology, type KnowledgeCollection, type OntologyDefinition, type RuntimeHost } from "./model";
+import { candidateStatus, extensionOntologies, type InstalledOntology, type KnowledgeCollection, type OntologyDefinition } from "./model";
 import "./knowledge.css";
 import { GraphExplorer } from "./GraphExplorer";
 
@@ -20,7 +20,7 @@ export function OntologySummary({ ontology, base = false }: { ontology: Ontology
   return <div className={`knowledge-ontology-summary${base ? " knowledge-ontology-base" : ""}`}><div className="knowledge-ontology-row"><BookOpen size={16} strokeWidth={1.7} /><div><strong>{ontology.name}</strong><span className="font-caption secondary">{base ? "Incluida y mantenida por Escriba" : ontology.collections.map((collection) => collection.label).join(" · ") || "Sin colecciones"}</span></div><span className="font-caption secondary">v{ontology.version}</span></div><div className="knowledge-collections">{ontology.collections.map((collection) => <CollectionDetails key={collection.table} collection={collection} />)}</div></div>;
 }
 
-export function OntologiesPanel({ projectDefinitions, host = call }: { projectDefinitions?: OntologyDefinition[]; host?: RuntimeHost }) {
+export function OntologiesPanel({ projectDefinitions }: { projectDefinitions?: OntologyDefinition[] }) {
   const [installed, setInstalled] = useState<InstalledOntology[]>([]);
   const [candidates, setCandidates] = useState<OntologyDefinition[]>(projectDefinitions ?? []);
   const [loading, setLoading] = useState(true);
@@ -34,20 +34,18 @@ export function OntologiesPanel({ projectDefinitions, host = call }: { projectDe
     setLoading(true);
     setError(null);
     try {
-      const installedResult = await host<unknown>("knowledge_list");
+      const installedResult = await knowledge("knowledge_list");
       if (generation !== requestGeneration.current) return;
-      if (!Array.isArray(installedResult) || !installedResult.every(isInstalledOntology)) throw new Error("La lista de ontologías instaladas no es válida.");
       setInstalled(installedResult);
       if (projectDefinitions) setCandidates(projectDefinitions);
       else {
-        const candidateResult = await host<unknown>("knowledge_candidates");
+        const candidateResult = await knowledge("knowledge_candidates");
         if (generation !== requestGeneration.current) return;
-        if (!Array.isArray(candidateResult) || !candidateResult.every(isDefinition)) throw new Error("Las ontologías del proyecto no son válidas.");
         setCandidates(candidateResult);
       }
     } catch (failure) { if (generation === requestGeneration.current) setError(errorText(failure)); }
     finally { if (generation === requestGeneration.current) setLoading(false); }
-  }, [host, projectDefinitions]);
+  }, [projectDefinitions]);
 
   useEffect(() => { void load(); return () => { requestGeneration.current++; }; }, [load]);
 
@@ -55,7 +53,7 @@ export function OntologiesPanel({ projectDefinitions, host = call }: { projectDe
     setBusy(definition.id);
     setError(null);
     try {
-      await host("knowledge_install", { definition });
+      await knowledge("knowledge_install", { definition });
       await load();
     } catch (failure) { setError(errorText(failure)); }
     finally { setBusy(null); }
@@ -71,7 +69,7 @@ export function OntologiesPanel({ projectDefinitions, host = call }: { projectDe
   return <div className="ontology-workspace">
     <div className="ontology-mode-bar"><Segmented value={mode} onChange={setMode} options={[{ value: "schema", label: "Estructura" }, { value: "data", label: "Datos" }, { value: "catalog", label: "Instalación" }]} /><p>{mode === "schema" ? "Entidades y relaciones de la base y sus extensiones." : mode === "data" ? "Explora los registros y abre sus conexiones." : "Las ontologías permanecen al cambiar de proyecto."}</p><Button small icon={RotateCw} onClick={() => void load()} disabled={loading || !!busy} title="Actualizar ontologías" /></div>
     {error && <div className="knowledge-error" role="alert">{error}</div>}
-    {loading ? <div className="knowledge-loading"><Spinner /> Cargando ontologías…</div> : mode !== "catalog" ? <GraphExplorer key={mode} mode={mode} ontologies={installed} host={host} /> : <div className="ontology-catalog"><div className="knowledge-ontologies">
+    {loading ? <div className="knowledge-loading"><Spinner /> Cargando ontologías…</div> : mode !== "catalog" ? <GraphExplorer key={mode} mode={mode} ontologies={installed} /> : <div className="ontology-catalog"><div className="knowledge-ontologies">
     <div className="knowledge-heading"><div><h2>Ontologías</h2><p className="font-caption secondary">Estructuras instaladas en esta biblioteca. Actualizar el proyecto no las cambia.</p></div><Button small icon={RotateCw} onClick={() => void load()} disabled={loading || !!busy}>Actualizar lista</Button></div>
       <section className="knowledge-section"><h3>Base de Escriba</h3>
         {base.length ? base.map((ontology) => <OntologySummary key={ontology.id} ontology={ontology} base />) : <p className="font-caption secondary">La base de Escriba no está disponible en este momento.</p>}

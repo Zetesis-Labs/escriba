@@ -328,37 +328,6 @@ fn monitor_worker(
         }
     })
 }
-fn allowed(method: &str) -> bool {
-    matches!(
-        method,
-        "runtime_context"
-            | "knowledge_open"
-            | "knowledge_query"
-            | "knowledge_link"
-            | "account_effect_begin"
-            | "account_effect_finish"
-            | "recording_update"
-            | "version_save"
-            | "version_select"
-            | "version_update"
-            | "log"
-            | "transcribe"
-            | "summarize"
-            | "ask"
-            | "native_cancel"
-            | "project_build"
-            | "project_load"
-            | "project_install"
-            | "connector_http"
-            | "connector_files"
-            | "connector_audio"
-            | "publication_save"
-            | "publication_remove"
-            | "memory_recall"
-            | "memory_keep"
-            | "trace_save"
-    )
-}
 impl Scripts {
     pub fn new(path: PathBuf) -> Self {
         Self {
@@ -452,7 +421,7 @@ impl Scripts {
                         let workers = reader_workers.clone();
                         let alive = reader_alive.clone();
                         tokio::spawn(async move {
-                            let result = if let Some(lease) = lease.filter(|_| allowed(&method)) {
+                            let result = if let Some(lease) = lease {
                                 callback(method, value["params"].clone(), task.clone(), lease).await
                             } else {
                                 Err("Capacidad no autorizada o trabajo terminado".into())
@@ -1438,34 +1407,5 @@ mod tests {
         let mut oversized = vec![b' '; MAX_FRAME as usize + 1];
         oversized.push(b'\n');
         protocol_error_reaches_running_job(&oversized, "32 MiB").await;
-    }
-    #[test]
-    fn recipes_cannot_request_credentials_or_shell_commands() {
-        for supported in ["memory_recall", "memory_keep", "trace_save"] {
-            assert!(allowed(supported));
-        }
-        for forbidden in [
-            "credential_save",
-            "people_set_color",
-            "settings_save",
-            "export_file",
-            "open_url",
-            "open_privacy_settings",
-            "watch_folder_authorize",
-            "recording_start",
-            "import_audio",
-            "runtime_run",
-            "note_draft_get",
-            "note_draft_begin",
-            "note_draft_save",
-            "note_draft_discard",
-            "note_draft_commit",
-            "knowledge_filter_notes",
-            "knowledge_filters_list",
-            "knowledge_filter_save",
-            "knowledge_filter_remove",
-        ] {
-            assert!(!allowed(forbidden));
-        }
     }
 }

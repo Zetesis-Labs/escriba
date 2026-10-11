@@ -1,6 +1,6 @@
 use super::*;
 
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, TS)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SavedLibraryFilter {
     pub id: String,
@@ -8,9 +8,10 @@ pub struct SavedLibraryFilter {
     pub filter: LibraryFilter,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, TS)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SaveLibraryFilter {
+    #[ts(optional)]
     pub id: Option<String>,
     pub name: String,
     pub filter: LibraryFilter,

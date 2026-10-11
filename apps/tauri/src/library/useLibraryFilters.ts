@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { call } from "../api";
+import { knowledge } from "../api";
 import type { LibraryFilter, SavedLibraryFilter, SaveLibraryFilter } from "../core/libraryFilters";
-import type { OntologyDefinition } from "../knowledge/model";
+import type { InstalledOntology } from "../knowledge/model";
 import { errorText } from "../mac/native";
 
 type Result = { filter: LibraryFilter; ids: Set<string> | null; loading: boolean; error: string | null; name: string | null; incomplete?: boolean };
@@ -10,7 +10,7 @@ type Result = { filter: LibraryFilter; ids: Set<string> | null; loading: boolean
 export function useLibraryFilters() {
   const [saved, setSaved] = useState<SavedLibraryFilter[]>([]);
   const [savedError, setSavedError] = useState<string | null>(null);
-  const [catalog, setCatalog] = useState<OntologyDefinition[]>([]);
+  const [catalog, setCatalog] = useState<InstalledOntology[]>([]);
   const [catalogError, setCatalogError] = useState<string | null>(null);
   const [catalogLoading, setCatalogLoading] = useState(false);
   const [result, setResult] = useState<Result | null>(null);
@@ -19,14 +19,14 @@ export function useLibraryFilters() {
   const activeFilter = useRef<{ filter: LibraryFilter; name: string | null; savedId: string | null } | null>(null);
 
   const reloadSaved = useCallback(async () => {
-    try { setSaved(await call<SavedLibraryFilter[]>("knowledge_filters_list")); setSavedError(null); }
+    try { setSaved(await knowledge("knowledge_filters_list")); setSavedError(null); }
     catch (failure) { setSavedError(errorText(failure)); }
   }, []);
   useEffect(() => { void reloadSaved(); }, [reloadSaved]);
 
   const loadCatalog = useCallback(async () => {
     setCatalogLoading(true); setCatalogError(null);
-    try { setCatalog(await call<OntologyDefinition[]>("knowledge_list")); }
+    try { setCatalog(await knowledge("knowledge_list")); }
     catch (failure) { setCatalogError(errorText(failure)); }
     finally { setCatalogLoading(false); }
   }, []);
@@ -37,7 +37,7 @@ export function useLibraryFilters() {
     setSelectedSavedId(savedId);
     setResult((previous) => previous?.incomplete && previous.filter === filter ? previous : { filter, ids: null, loading: true, error: null, name, incomplete: false });
     try {
-      const answer = await call<{ recordingIds: string[]; incomplete?: boolean }>("knowledge_filter_notes", { filter });
+      const answer = await knowledge("knowledge_filter_notes", { filter });
       if (serial.current !== request) return;
       const incomplete = answer.incomplete === true;
       setResult({ filter, ids: new Set(answer.recordingIds), loading: false, error: null, name, incomplete });
@@ -65,12 +65,12 @@ export function useLibraryFilters() {
     void apply(filter.filter, filter.name, filter.id);
   }, [apply]);
   const save = useCallback(async (filter: SaveLibraryFilter) => {
-    const stored = await call<SavedLibraryFilter>("knowledge_filter_save", { filter });
+    const stored = await knowledge("knowledge_filter_save", { filter });
     await reloadSaved();
     return stored;
   }, [reloadSaved]);
   const remove = useCallback(async (id: string) => {
-    await call("knowledge_filter_remove", { id });
+    await knowledge("knowledge_filter_remove", { id });
     if (selectedSavedId === id) clear();
     await reloadSaved();
   }, [clear, reloadSaved, selectedSavedId]);

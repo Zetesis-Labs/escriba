@@ -1,10 +1,11 @@
 import { recordTitle, type KnowledgeCollection, type KnowledgeField, type OntologyDefinition } from "../knowledge/model";
 
-export type FilterOperator = "eq" | "ne" | "contains" | "startsWith" | "gt" | "gte" | "lt" | "lte" | "empty" | "notEmpty";
-export type FilterCondition = { ontologyId: string; table: string; field: string; operator: FilterOperator; value?: unknown };
-export type LibraryFilter = { kind: "visual"; match: "all" | "any"; conditions: FilterCondition[] } | { kind: "surrealql"; ontologyId: string; sql: string };
-export type SavedLibraryFilter = { id: string; name: string; filter: LibraryFilter };
-export type SaveLibraryFilter = Omit<SavedLibraryFilter, "id"> & { id?: string };
+import type { FilterCondition } from "../generated/FilterCondition";
+import type { FilterOperator } from "../generated/FilterOperator";
+import type { LibraryFilter } from "../generated/LibraryFilter";
+export type { FilterCondition, FilterOperator, LibraryFilter };
+export type { SavedLibraryFilter } from "../generated/SavedLibraryFilter";
+export type { SaveLibraryFilter } from "../generated/SaveLibraryFilter";
 export type RecordTarget = { ontologyId?: string; table: string; value: "id" | "reference" };
 export type FieldChoice = KnowledgeField & { recordTarget?: RecordTarget };
 

@@ -1,18 +1,19 @@
 import { ArrowLeft, ArrowRight, ChevronRight, CircleDot, GitBranch, Network, RotateCcw, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { knowledge } from "../api";
 import { checkedGraphPage, mergeGraph, schemaGraph } from "../core/knowledgeGraph";
 import { Button, Spinner } from "../mac/controls";
 import { errorText } from "../mac/native";
 import { GraphCanvas } from "./GraphCanvas";
 import { GraphInspector } from "./GraphInspector";
 import type { GraphData, GraphEdge, GraphNode, GraphPage, GraphSelection } from "./graphTypes";
-import type { InstalledOntology, RuntimeHost } from "./model";
+import type { InstalledOntology } from "./model";
 import "./graphExplorer.css";
 
 const empty: GraphData = { nodes: [], edges: [] };
 type Expansion = { page: number; hasMore: boolean };
 
-export function GraphExplorer({ ontologies, host, mode }: { ontologies: InstalledOntology[]; host: RuntimeHost; mode: "schema" | "data" }) {
+export function GraphExplorer({ ontologies, mode }: { ontologies: InstalledOntology[]; mode: "schema" | "data" }) {
   const [ontologyId, setOntologyId] = useState(mode === "schema" ? "" : ontologies.find((item) => !item.builtIn)?.id ?? ontologies[0]?.id ?? "");
   const ontology = ontologies.find((item) => item.id === ontologyId);
   const [chosenTable, setChosenTable] = useState("");
@@ -52,14 +53,14 @@ export function GraphExplorer({ ontologies, host, mode }: { ontologies: Installe
     setRoots(null);
     if (mode !== "data" || !ontologyId || !table) { setBusy(false); return; }
     setBusy(true);
-    void host("knowledge_graph_roots", { ontologyId, table, page }).then((result) => {
+    void knowledge("knowledge_graph_roots", { ontologyId, table, page }).then((result) => {
       if (request !== generation.current) return;
       const loaded = checkedGraphPage(result);
       setRoots(loaded);
       setGraph(loaded);
     }).catch((failure) => { if (request === generation.current) setError(errorText(failure)); }).finally(() => { if (request === generation.current) setBusy(false); });
     return () => { generation.current++; };
-  }, [host, mode, ontologyId, table, page, reload]);
+  }, [mode, ontologyId, table, page, reload]);
 
   const select = (next: GraphSelection) => { setSelection(next); setInspectorOpen(!!next); };
 
@@ -81,7 +82,7 @@ export function GraphExplorer({ ontologies, host, mode }: { ontologies: Installe
       select(relationEdge ? { kind: "edge", key: relationEdge.key } : { kind: "node", key: node.key });
     }
     try {
-      const loaded = checkedGraphPage(await host("knowledge_graph_expand", { ontologyId: node.ontologyId, recordId: node.recordId, page: prior ? prior.page + 1 : 0 }));
+      const loaded = checkedGraphPage(await knowledge("knowledge_graph_expand", { ontologyId: node.ontologyId, recordId: node.recordId, page: prior ? prior.page + 1 : 0 }));
       if (request !== generation.current) return;
       const merged = mergeGraph(center ? seed : latestGraph.current, loaded);
       setGraph(merged);
@@ -133,7 +134,7 @@ export function GraphExplorer({ ontologies, host, mode }: { ontologies: Installe
         {busy && !!visible.nodes.length && <div className="graph-working" role="status"><Spinner /> Cargando conexiones…</div>}
       </div>
       {inspectorOpen && selection && <aside className="graph-inspector" aria-label="Inspector del mapa"><button className="graph-inspector-close" aria-label="Cerrar inspector" onClick={() => setInspectorOpen(false)}><X size={15} /></button>
-        <GraphInspector key={`${selection.kind}:${selection.key}`} mode={mode} node={selectedNode} edge={selectedEdge} graph={visible} ontologies={ontologies} host={host} onSelect={select} />
+        <GraphInspector key={`${selection.kind}:${selection.key}`} mode={mode} node={selectedNode} edge={selectedEdge} graph={visible} ontologies={ontologies} onSelect={select} />
         {mode === "data" && expandable && !expandable.missing && <div className="graph-inspector-actions"><Button small prominent disabled={busy || (expansion !== undefined && !expansion.hasMore)} onClick={() => void expand(expandable)}>{expansion ? expansion.hasMore ? "Más conexiones" : "Conexiones cargadas" : "Ver conexiones"}</Button><Button small disabled={busy} onClick={() => void expand(expandable, true)}>Centrar aquí</Button></div>}
       </aside>}
     </div>

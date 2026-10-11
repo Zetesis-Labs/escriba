@@ -10,8 +10,20 @@ Rust: SurrealDB, cola duradera, biblioteca y versiones, configuración, cuentas/
 autenticado, archivos autorizados, vigilancia, ejecución del proceso nativo.
 Swift: WhisperKit/SpeakerKit, FoundationModels y captura/metadatos AVFoundation.
 
-`src/types.ts` es el modelo compartido. Frontend usa `call<T>(method, params)`
-desde `src/api.ts`; Rust implementa un único comando Tauri `app_command`.
+Rust implementa un único comando Tauri `app_command {method, params}` y lo
+deserializa a un enum etiquetado (`src-tauri/src/command.rs`): un método
+desconocido o un parámetro de más falla antes de ejecutar nada. Cada variante
+declara si refresca la biblioteca y si las recetas pueden llamarla; añadir un
+comando obliga a decidir ambas cosas y a documentarlo aquí, porque un test
+comprueba que todos figuran en este contrato.
+
+Los tipos de `src/generated/` se generan desde Rust con ts-rs:
+`cargo test --lib los_tipos_generados` falla si están desfasados y
+`ESCRIBA_WRITE_BINDINGS=1` los regenera. `knowledge(method, params)` de
+`src/api.ts` está tipado de punta a punta para los comandos `knowledge_*`;
+`call<T>(method, params)` comprueba el nombre del método y deja los
+parámetros como JSON hasta que cada módulo tipa los suyos. `src/types.ts`
+sigue siendo el modelo compartido de la biblioteca.
 Errores rechazan la promesa con texto legible; nunca éxitos vacíos.
 
 ## Comandos Rust
@@ -29,6 +41,8 @@ Errores rechazan la promesa con texto legible; nunca éxitos vacíos.
 - version_update {recordingId, versionId, digest?, data?} -> void.
 - people_list -> {name:string,color?:string,voices:VoiceMetadata[]}[] (sin vectores).
 - people_set_color {name,color} -> void (persona existente; color hexadecimal #RRGGBB, exclusivo de la UI).
+- people_rename {name,newName} -> void (si el nombre nuevo ya existe, une sus huellas); people_remove {name} -> void (borra sus huellas; las grabaciones conservan el nombre); people_remove_voice {id} -> void.
+- voice_registration_status, voice_registration_start {name}, voice_registration_import {name,path}, voice_registration_stop, voice_registration_cancel y voice_registration_dismiss -> VoiceRegistration; emiten `escriba://voice-registration` con cada estado. Registrar exige 30 segundos de habla.
 - note_draft_get {recordingId} -> NoteDraft | null (detalle privado de la UI).
 - note_draft_begin {recordingId} -> NoteDraft (recupera el existente o toma la versión vigente).
 - note_draft_save {recordingId,draftId,expectedRevision,content} -> NoteDraft (duradero; sin crear versión).
@@ -45,12 +59,18 @@ Errores rechazan la promesa con texto legible; nunca éxitos vacíos.
 - summarize {resolverId,instructions,prompt} -> Digest (una petición; troceo TS).
 - ask {resolverId,instructions,prompt,schema?} -> JSON.
 - recording_start {recipeId?} -> estado del panel; recording_stop -> Recording | null.
+- recording_dismiss -> estado del panel (descarta el aviso de problema); recording_cancel -> void (descarta la captura en curso y su archivo).
 - export_file {path,contents} -> void (archivo elegido por usuario en diálogo).
 - reveal {path} -> void; open_url {url} -> void (http/https).
 - open_privacy_settings -> void (abre Ajustes del Sistema, destino fijo; no disponible para recetas).
+- okf_file {accountId,path,action:'open'|'reveal'} -> void (solo documentos dentro de la carpeta autorizada de la cuenta OKF).
+- system_appearance -> {accent:string|null} (color de acento del sistema).
+- resolver_models {resolver,key?,resolverId?} -> string[] (modelos del servicio compatible con OpenAI); resolver_try {resolver,key?,resolverId?,role,instructions?,prompt?} -> Digest | {text} (prueba sin guardar; la clave escrita prevalece sobre la guardada).
+- whisper_model {action:'info'|'delete'} -> {model,available,bytes} | void (solo la carpeta de modelos de Escriba).
 - project_init {path} -> {hasDist:boolean} (crea ausentes; si ya existe el artefacto no añade fuentes).
 - project_build -> {recipes:Recipe[],connectorProgram?:string,ontologyProgram?:string} (Bun aislado construye `dist/` y el cargador lo lee; conserva el artefacto anterior si falla la construcción).
 - project_load -> el mismo resultado que project_build, leyendo solo `dist/escriba.json` y sus paquetes JavaScript.
+- project_open_vscode -> void (abre la carpeta del proyecto en VS Code).
 - project_list -> {files:string[]} (fuentes y JSON/Markdown; excluye dist, node_modules, .git, .escriba y enlaces).
 - project_read {entry} -> {source:string}; project_write {entry,source,expectedSource?,createNew?} -> void (confinado al proyecto, escritura atómica; rechaza una versión externa distinta o un archivo existente al crear).
 - project_tool {tool:'install'|'check'|'test'} -> {success:boolean,output:string} (Bun y TypeScript 7 incluidos, sandbox de desarrollo, salida y duración acotadas; solo install permite red, sin scripts de instalación).

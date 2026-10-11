@@ -1,18 +1,19 @@
 import { ArrowRight, CircleDot, GitBranch } from "lucide-react";
 import { useEffect, useState } from "react";
+import { knowledge } from "../api";
+import type { GraphDetail } from "../generated/GraphDetail";
 import { Spinner } from "../mac/controls";
 import { errorText } from "../mac/native";
 import type { GraphData, GraphEdge, GraphNode, GraphSelection } from "./graphTypes";
-import { fieldText, isRecordPage, type InstalledOntology, type KnowledgeRecord, type RuntimeHost } from "./model";
+import { fieldText, type InstalledOntology } from "./model";
 
 const fieldTypes: Record<string, string> = { text: "Texto", number: "Número", boolean: "Sí / no", date: "Fecha", json: "JSON", reference: "Referencia" };
-type Preview = KnowledgeRecord & { truncatedFields?: string[] };
 
-export function GraphInspector({ mode, node, edge, graph, ontologies, host, onSelect }: { mode: "schema" | "data"; node?: GraphNode; edge?: GraphEdge; graph: GraphData; ontologies: InstalledOntology[]; host: RuntimeHost; onSelect: (selection: GraphSelection) => void }) {
+export function GraphInspector({ mode, node, edge, graph, ontologies, onSelect }: { mode: "schema" | "data"; node?: GraphNode; edge?: GraphEdge; graph: GraphData; ontologies: InstalledOntology[]; onSelect: (selection: GraphSelection) => void }) {
   const item = node ?? edge;
   const ontology = ontologies.find((candidate) => candidate.id === item?.ontologyId);
   const collection = ontology?.collections.find((candidate) => candidate.table === item?.table);
-  const [preview, setPreview] = useState<Preview | null>(null);
+  const [preview, setPreview] = useState<GraphDetail | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const recordId = node?.recordId ?? edge?.recordId;
@@ -24,13 +25,11 @@ export function GraphInspector({ mode, node, edge, graph, ontologies, host, onSe
     setError(null);
     if (mode !== "data" || !recordId || !ontology || unavailable || edge?.kind === "provenance") return;
     setLoading(true);
-    void host("knowledge_graph_detail", { ontologyId: ontology.id, recordId }).then((result) => {
-      if (!current) return;
-      if (!isRecordPage({ records: [result], page: 0, hasMore: false })) throw new Error("Los datos del registro no son válidos.");
-      setPreview(result as Preview);
+    void knowledge("knowledge_graph_detail", { ontologyId: ontology.id, recordId }).then((result) => {
+      if (current) setPreview(result);
     }).catch((failure) => { if (current) setError(errorText(failure)); }).finally(() => { if (current) setLoading(false); });
     return () => { current = false; };
-  }, [mode, host, ontology, recordId, unavailable, edge?.kind]);
+  }, [mode, ontology, recordId, unavailable, edge?.kind]);
 
   const endpoint = (key: string) => {
     const target = graph.nodes.find((candidate) => candidate.key === key);
