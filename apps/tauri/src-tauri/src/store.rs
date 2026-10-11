@@ -129,7 +129,10 @@ impl Store {
     pub fn open(root: PathBuf) -> Result<Self, String> {
         Self::open_with_audio_cleanup(root, true)
     }
-    fn open_with_audio_cleanup(root: PathBuf, audio_cleanup_enabled: bool) -> Result<Self, String> {
+    pub(crate) fn open_with_audio_cleanup(
+        root: PathBuf,
+        audio_cleanup_enabled: bool,
+    ) -> Result<Self, String> {
         fs::create_dir_all(&root).map_err(|e| e.to_string())?;
         fs::set_permissions(&root, fs::Permissions::from_mode(0o700))
             .map_err(|e| format!("No se pudo proteger la biblioteca: {e}"))?;
