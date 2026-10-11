@@ -57,7 +57,10 @@
 .graph-inspector-warning { padding: 8px; border-radius: 6px; background: var(--fill); font-size: 12px; line-height: 1.5; color: var(--secondary); }
 .graph-explorer-footer { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 8px 14px; border-top: .5px solid var(--separator); color: var(--secondary); font-size: 10px; }
 @container (max-width: 1000px) {
-  .graph-inspector { position: absolute; z-index: 2; top: 10px; bottom: 10px; right: 10px; border: .5px solid var(--separator); border-radius: 10px; box-shadow: 0 6px 24px #0000001c; }
+  .has-inspector .graph-explorer-body { display: grid; grid-template-columns: 192px minmax(0, 1fr); grid-template-rows: minmax(140px, 1fr) minmax(0, 32%); }
+  .has-inspector .graph-browser { grid-column: 1; grid-row: 1 / 3; width: auto; }
+  .has-inspector .graph-workspace { grid-column: 2; grid-row: 1; min-height: 0; }
+  .graph-inspector { grid-column: 2; grid-row: 2; width: auto; border-left: 0; border-top: .5px solid var(--separator); padding: 12px 16px; }
 }
 @container (max-width: 700px) {
   .graph-browser { width: 156px; }
@@ -65,5 +68,5 @@
   .graph-explorer-controls label { flex-direction: column; align-items: start; gap: 3px; }
   .graph-explorer-controls select { max-width: 175px; }
   .graph-explorer-footer > span:last-child { display: none; }
-  .graph-inspector { width: 235px; }
+  .has-inspector .graph-explorer-body { grid-template-columns: 156px minmax(0, 1fr); }
 }

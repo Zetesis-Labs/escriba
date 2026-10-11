@@ -1,61 +1,38 @@
-import { describe, expect, it } from "vitest";
-import { edgeGeometry, hitEdge, fitGraph } from "../../src/core/graphGeometry";
-import { NODE_HEIGHT, NODE_WIDTH } from "../../src/core/graphLayout";
-import type { GraphEdge } from "../../src/knowledge/graphTypes";
+import { expect, test } from "vitest";
+import { fitGraph, hitRoute, zoomScale } from "../../src/core/graphGeometry";
+import type { RoutedEdge } from "../../src/core/graphScene";
 
-const edge = (key: string, source = "a", target = "b"): GraphEdge => ({ key, source, target, label: key, kind: "relation", ontologyId: "escriba", table: "rel" });
-const points = new Map([["a", { x: 0, y: 0 }], ["b", { x: 300, y: 0 }]]);
+const route: RoutedEdge = { points: [{ x: 0, y: 0 }, { x: 0, y: 180 }, { x: 200, y: 180 }], label: { x: 30, y: 130, width: 150, height: 26, text: "Asignado a persona" } };
 
-describe("graph geometry", () => {
-  it("gives parallel links distinct readable lanes and hit areas", () => {
-    const edges = [edge("first"), edge("second")];
-    const first = edgeGeometry(edges[0], points, edges);
-    const second = edgeGeometry(edges[1], points, edges);
-    expect(first?.label.y).not.toBe(second?.label.y);
-    expect(first && hitEdge(first, first.label, 7)).toBe(true);
-    expect(second && hitEdge(second, second.label, 7)).toBe(true);
-  });
+test("alejar un mapa encuadrado por debajo del mínimo no aumenta su escala", () => {
+  const { scale } = fitGraph({ x: 0, y: 0, width: 8000, height: 6000 }, 400, 300);
+  expect(zoomScale(scale, 1 / 1.2)).toBeLessThanOrEqual(scale);
+  expect(zoomScale(scale, 1.2)).toBeGreaterThan(scale);
+  expect(zoomScale(.2, .1)).toBe(.12);
+  expect(zoomScale(2, 2)).toBe(2.5);
+});
 
-  it("separates opposite directions between the same nodes", () => {
-    const edges = [edge("forward"), edge("backward", "b", "a")];
-    const forward = edgeGeometry(edges[0], points, edges);
-    const backward = edgeGeometry(edges[1], points, edges);
-    expect(forward?.label.y).not.toBe(backward?.label.y);
-  });
+test("selecciona toda la etiqueta y cada tramo visible de la conexión", () => {
+  expect(hitRoute(route, { x: 175, y: 145 }, 4)).toBe(true);
+  expect(hitRoute(route, { x: 3, y: 90 }, 4)).toBe(true);
+  expect(hitRoute(route, { x: 100, y: 177 }, 4)).toBe(true);
+  expect(hitRoute(route, { x: 100, y: 90 }, 4)).toBe(false);
+});
 
-  it("draws a finite selectable self relation", () => {
-    const self = edgeGeometry(edge("self", "a", "a"), points, [edge("self", "a", "a")]);
-    expect(self?.label.x).toBeGreaterThan(0);
-    expect(self && hitEdge(self, self.label, 7)).toBe(true);
-  });
+test("encuadra todas las entidades, rutas y etiquetas al entrar el inspector", () => {
+  const bounds = { x: -120, y: -80, width: 1400, height: 900 };
+  for (const width of [1050, 798, 380]) {
+    const camera = fitGraph(bounds, width, 530);
+    expect(bounds.x * camera.scale + camera.x).toBeGreaterThanOrEqual(43.9);
+    expect((bounds.x + bounds.width) * camera.scale + camera.x).toBeLessThanOrEqual(width - 43.9);
+    expect(bounds.y * camera.scale + camera.y).toBeGreaterThanOrEqual(43.9);
+    expect((bounds.y + bounds.height) * camera.scale + camera.y).toBeLessThanOrEqual(530 - 43.9);
+  }
+});
 
-  it("places multiple self-loop labels on separate sides of the node", () => {
-    const edges = [edge("self-a", "a", "a"), edge("self-b", "a", "a")];
-    const first = edgeGeometry(edges[0], points, edges);
-    const second = edgeGeometry(edges[1], points, edges);
-    expect(Math.hypot((first?.label.x ?? 0) - (second?.label.x ?? 0), (first?.label.y ?? 0) - (second?.label.y ?? 0))).toBeGreaterThan(70);
-  });
-
-  it("attaches self-loop arrows to the rectangular node in every orientation", () => {
-    const edges = Array.from({ length: 4 }, (_, index) => edge(`self-${index}`, "a", "a"));
-    for (const edgeItem of edges) {
-      const curve = edgeGeometry(edgeItem, points, edges);
-      for (const point of [curve?.start, curve?.end]) {
-        expect(point).toBeDefined();
-        expect(Math.abs(point!.x)).toBeLessThanOrEqual(NODE_WIDTH / 2 + .001);
-        expect(Math.abs(point!.y)).toBeLessThanOrEqual(NODE_HEIGHT / 2 + .001);
-        expect(Math.abs(Math.abs(point!.x) - NODE_WIDTH / 2) < .001 || Math.abs(Math.abs(point!.y) - NODE_HEIGHT / 2) < .001).toBe(true);
-      }
-    }
-  });
-
-  it("selects the visible ends of a long relation label", () => {
-    const curve = edgeGeometry(edge("long"), points, [edge("long")]);
-    expect(curve && hitEdge(curve, { x: curve.label.x + 66, y: curve.label.y }, 2, 150)).toBe(true);
-  });
-
-  it("does not generate invalid coordinates for absent endpoints or zero-size viewport", () => {
-    expect(edgeGeometry(edge("missing", "a", "z"), points, [])).toBeNull();
-    expect(fitGraph({ x: 0, y: 0, width: 0, height: 0 }, 0, 0)).toEqual({ x: 0, y: 0, scale: 1 });
-  });
+test("los mapas grandes también caben completos en una ventana pequeña", () => {
+  const camera = fitGraph({ x: 0, y: 0, width: 8000, height: 6000 }, 400, 300);
+  expect(camera.scale * 8000).toBeLessThanOrEqual(400 - 88);
+  expect(camera.scale * 6000).toBeLessThanOrEqual(300 - 88);
+  expect(fitGraph({ x: 0, y: 0, width: 0, height: 0 }, 0, 0)).toEqual({ x: 0, y: 0, scale: 1 });
 });

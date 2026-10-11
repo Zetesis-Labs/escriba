@@ -1,6 +1,10 @@
 # GraphMarks layout attribution
 
-`apps/tauri/src/core/graphLayout.ts` adapts the deterministic grouped-island placement idea and golden-angle ring arrangement from GraphMarks `src/lib/layouts/clustered.ts`, copyright © 2026 Zetesis Labs, licensed under MIT.
+La implementación inicial de `apps/tauri/src/core/graphLayout.ts` adaptaba la
+colocación por islas y anillos de ángulo áureo de GraphMarks
+`src/lib/layouts/clustered.ts`, copyright © 2026 Zetesis Labs, con licencia MIT.
+El trazado actual usa ELK Layered para reservar espacio a conexiones y
+etiquetas. Este aviso conserva la atribución de la implementación anterior.
 
 The original MIT license permits use, modification, and distribution with this notice and license text:
 

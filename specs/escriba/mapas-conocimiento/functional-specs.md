@@ -27,6 +27,12 @@ ontologías y separan tipos de entidades de registros concretos.
 - Zoom, desplazamiento, arrastre de nodos y encuadre permiten leer el mapa;
   teclado y listas alternativas permiten seleccionar entidades y relaciones.
   La vista sigue el tema de macOS y cabe en la ventana mínima de 960×640.
+- El trazado reserva el tamaño de tarjetas y etiquetas y rodea las tarjetas
+  con conexiones ortogonales. Al arrastrar horizontalmente se sugiere otro
+  orden dentro de las capas; se recalculan las rutas para conservar espacio.
+  El encuadre incluye etiquetas y bucles y se adapta al abrir el inspector.
+  En ventanas estrechas, el inspector ocupa una franja inferior. Los cruces
+  entre conexiones siguen siendo posibles en grafos no planares.
 - La visualización es de lectura. Las escrituras siguen en Biblioteca, Personas
   y los formularios existentes; no se ejecutan recetas ni publicaciones al
   recorrer un mapa.
@@ -72,3 +78,12 @@ sus 10 pruebas al repetirlo por separado con su timeout original.
 La revisión visual con datos sintéticos cubre estructura, registros,
 propiedades de relaciones, cambio de selección, referencias a personas,
 procedencia, bucles, relaciones paralelas, ventana de 960×640 y tema oscuro.
+
+Corrección posterior a la captura de Rubén: ELK Layered sustituye la colocación
+manual que dejaba etiquetas y conexiones sobre otras tarjetas. El caso de
+regresión reproduce las nueve entidades de la captura; también se prueban
+ciclos, relaciones paralelas, bucles y encuadre de mapas grandes. El cálculo
+usa un worker local empaquetado en la app y no consulta servicios externos.
+Pasaron las 166 pruebas del núcleo y la compilación de producción. En navegador
+se comprobó ese paquete con la CSP de la app, incluido un fallo HTTP simulado
+al cargar el worker: se muestra el error y «Reintentar» recupera el mapa.

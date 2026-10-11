@@ -1,4 +1,4 @@
-.knowledge-graph-canvas { position: relative; width: 100%; height: 100%; min-height: 280px; overflow: hidden; border-radius: 9px; background: var(--content); box-shadow: inset 0 0 0 .5px var(--separator); }
+.knowledge-graph-canvas { position: relative; width: 100%; height: 100%; min-height: 140px; overflow: hidden; background: var(--content); }
 .knowledge-graph-canvas canvas { display: block; width: 100%; height: 100%; cursor: grab; touch-action: none; outline: none; }
 .knowledge-graph-canvas canvas:focus-visible { outline: 2px solid var(--accent); outline-offset: -3px; border-radius: 9px; }
 .knowledge-graph-tools { position: absolute; right: 12px; top: 12px; display: flex; align-items: center; gap: 1px; padding: 3px; border: .5px solid var(--separator); border-radius: 8px; background: color-mix(in srgb, var(--content) 92%, transparent); box-shadow: 0 2px 9px #00000012; backdrop-filter: blur(12px); }
@@ -12,3 +12,5 @@
 .knowledge-graph-legend i { display: block; width: 7px; height: 7px; border-radius: 2px; }
 .knowledge-graph-empty { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); color: var(--secondary); font-size: 12px; pointer-events: none; }
 .knowledge-graph-accessible { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+.knowledge-graph-status { position: absolute; top: 12px; left: 12px; max-width: calc(100% - 155px); padding: 7px 10px; border-radius: 7px; background: var(--content); color: var(--secondary); border: .5px solid var(--separator); font-size: 11px; }
+.knowledge-graph-status button { display: block; margin-top: 8px; color: var(--accent); border: 0; background: transparent; font: inherit; }

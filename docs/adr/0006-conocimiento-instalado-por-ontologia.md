@@ -63,7 +63,10 @@ ontologías ni embeddings gestionados.
 
 Ampliación encargada por Rubén el 2026-10-11: Ontologías incorpora un mapa de
 estructura y un explorador de datos con inspector, conservando la gestión de
-instalaciones. El visor reutiliza algoritmos de colocación de GraphMarks;
+instalaciones. GraphMarks sirvió de referencia inicial. Tras detectar tarjetas,
+etiquetas y conexiones superpuestas, el visor usa ELK Layered en un worker
+local: calcula conjuntamente posiciones, espacio de etiquetas y rutas
+ortogonales. Canvas representa esa geometría sin recalcular las conexiones;
 las relaciones dirigidas, paralelas y los bucles conservan identidad propia.
 Rust entrega páginas de colecciones y vecindades declaradas, incluidas las
 referencias a la base y la procedencia. La WebView no recibe la base completa
