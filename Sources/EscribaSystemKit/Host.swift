@@ -12,7 +12,6 @@ extension Pipeline {
         materializeTimeout: TimeInterval = 300,
         enrich: Enricher? = nil,
         memory: NoteMemory? = nil,
-        recipe: Recipe? = nil,
         onEvent: EventHandler? = nil
     ) {
         self.init(
@@ -23,7 +22,6 @@ extension Pipeline {
             readiness: fileReadiness(settleSeconds: settleSeconds, materializeTimeout: materializeTimeout),
             enrich: enrich,
             memory: memory,
-            recipe: recipe,
             onEvent: onEvent)
     }
 }
@@ -64,12 +62,6 @@ extension DaemonController {
 }
 
 public let systemFolderWatcher: FolderWatcher = folderWatcher { $0.lowercased().hasSuffix(".m4a") }
-
-public let recipeProjectWatcher: FolderWatcher = folderWatcher { !ignoredByRecipesWatch($0) }
-
-public func ignoredByRecipesWatch(_ absolutePath: String) -> Bool {
-    ignoredByConnectorProject(absolutePath)
-}
 
 public func folderWatcher(isRelevant: @escaping @Sendable (String) -> Bool) -> FolderWatcher {
     { root, onChange in

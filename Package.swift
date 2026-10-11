@@ -11,13 +11,7 @@ let package = Package(
     targets: [
         .target(name: "EscribaCore"),
         .target(name: "EscribaEngine", dependencies: ["EscribaCore"]),
-        .systemLibrary(name: "CSQLite", providers: [.apt(["libsqlite3-dev"])]),
-        .target(
-            name: "EscribaSystemKit",
-            dependencies: [
-                "EscribaCore", "EscribaEngine",
-                .target(name: "CSQLite", condition: .when(platforms: [.linux])),
-            ]),
+        .target(name: "EscribaSystemKit", dependencies: ["EscribaCore", "EscribaEngine"]),
         .target(
             name: "EscribaWhisper",
             dependencies: [

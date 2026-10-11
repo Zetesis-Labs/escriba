@@ -168,21 +168,16 @@ struct HuellasPrivadasTests {
             recognitions: [Recognition(speaker: "Speaker 1", person: "Rubén", distance: 0.1)])
     }
 
-    @Test("ni la receta ni la exportación ven huellas ni distancias")
+    @Test("la exportación no ve huellas ni distancias")
     func noSalen() throws {
-        let receta = String(
-            decoding: try JSONEncoder().encode(RecipeNote(key: "a", version: 1, transcript: nota, digest: nil)),
-            as: UTF8.self)
         let exportada = transcriptExport(
             key: "a", startedAt: Date(), source: URL(fileURLWithPath: "/a.m4a"), backend: nil, transcript: nota
         ).json()
 
-        for texto in [receta, exportada] {
-            #expect(texto.contains("Rubén"))
-            #expect(!texto.contains("0.12345"))
-            #expect(!texto.contains("embedding"))
-            #expect(!texto.contains(modelo))
-        }
+        #expect(exportada.contains("Rubén"))
+        #expect(!exportada.contains("0.12345"))
+        #expect(!exportada.contains("embedding"))
+        #expect(!exportada.contains(modelo))
     }
 }
 

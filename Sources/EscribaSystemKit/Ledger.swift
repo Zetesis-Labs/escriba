@@ -2,11 +2,7 @@ import Foundation
 import Synchronization
 import EscribaEngine
 
-#if canImport(SQLite3)
 import SQLite3
-#else
-import CSQLite
-#endif
 
 public struct LedgerRecord: Sendable {
     public let key: String
