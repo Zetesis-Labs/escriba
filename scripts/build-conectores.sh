@@ -4,4 +4,4 @@ cd "$(dirname "$0")/../packages/conectores"
 npm ci --ignore-scripts
 npm test
 npm run build
-npm pack bundle --pack-destination dist --quiet
+npm pack ./bundle --pack-destination dist --quiet
