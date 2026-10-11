@@ -363,7 +363,11 @@ borrado y tipado y pueden ir en paralelo con ramas separadas una vez cerrada B.
   `knowledge(...)` tipado y pierde los validadores manuales de `model.ts`;
   `checkedGraphPage` se queda porque comprueba invariantes, no forma. Queda
   tipar los parámetros de `AppCommand` por módulos y llevar `Store::mutate`
-  a esas variantes; `Field<T>` no apareció en la parte tipada.
+  a esas variantes; `Field<T>` no apareció en la parte tipada. **No se hizo**
+  el test que compara `Note` de `packages/conectores/src/types.ts` y
+  `recetas/escriba-recetas.d.ts` con los tipos generados: Transcript, Version
+  y Recording aún no salen de Rust, así que no hay contra qué comparar. Va con
+  el tipado de esos comandos.
 - **Fase D** (2026-10-12). El worker ejecuta siempre un programa compilado:
   sin proyecto, `__DEFAULT_RECIPE__`, compilado de `recetas/por-defecto/receta.ts`
   por `runtime-host/defaultRecipe.mjs` con Zod compartido. Se borra el flujo
@@ -406,6 +410,11 @@ Las pruebas de runtime necesitan el Bun fijado en el `PATH`
 (`.build/bun/1.4.2/bun-darwin-aarch64`). `swift build` y `swift test` usan el
 `.build` propio de este worktree, creado en la fase E.
 
-Pendiente: prueba de compatibilidad con una copia privada de la biblioteca
-(pedir a Rubén que cierre la app), release, instalación y validación en
-pantalla por Rubén.
+Pendiente: prueba de compatibilidad con copias privadas (pedir a Rubén que
+cierre la app), instalación y validación en pantalla por Rubén. La prueba
+cubre los dos almacenes: `verifica_compatibilidad_de_copia_sin_mostrar_contenido`
+(`ESCRIBA_VERIFY_LIBRARY_COPY`) para `library.surrealkv` y
+`verifica_grafo_de_copia_sin_mostrar_contenido` (además
+`ESCRIBA_VERIFY_KNOWLEDGE_COPY`) para `knowledge.surrealkv`, que es la primera
+ejecución real de la proyección por huellas de la fase G. Ambas abren la copia
+sin limpieza de audio e imprimen solo recuentos y tiempos.

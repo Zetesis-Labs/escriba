@@ -685,6 +685,85 @@ pub async fn call(
 mod tests {
     use super::*;
 
+    fn copy_tree(source: &Path, destination: &Path) {
+        std::fs::create_dir_all(destination).unwrap();
+        for entry in std::fs::read_dir(source).unwrap() {
+            let entry = entry.unwrap();
+            let target = destination.join(entry.file_name());
+            if entry.file_type().unwrap().is_dir() {
+                copy_tree(&entry.path(), &target);
+            } else {
+                std::fs::copy(entry.path(), target).unwrap();
+            }
+        }
+    }
+
+    #[tokio::test]
+    #[ignore = "Requiere copias privadas autorizadas de library.surrealkv y knowledge.surrealkv"]
+    async fn verifica_grafo_de_copia_sin_mostrar_contenido() {
+        use std::os::unix::fs::PermissionsExt;
+        let library = std::env::var_os("ESCRIBA_VERIFY_LIBRARY_COPY")
+            .expect("Falta la copia de la biblioteca");
+        let graph =
+            std::env::var_os("ESCRIBA_VERIFY_KNOWLEDGE_COPY").expect("Falta la copia del grafo");
+        let temporary = tempfile::tempdir().unwrap();
+        std::fs::set_permissions(temporary.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+        copy_tree(
+            Path::new(&library),
+            &temporary.path().join("library.surrealkv"),
+        );
+        copy_tree(
+            Path::new(&graph),
+            &temporary.path().join("knowledge.surrealkv"),
+        );
+        let store = Store::open_with_audio_cleanup(temporary.path().into(), false)
+            .expect("La copia no se puede abrir");
+        let current = store
+            .data
+            .recordings
+            .iter()
+            .filter(|recording| recording.status != crate::store::RecordingStatus::Discarded)
+            .count();
+        let store = Arc::new(Mutex::new(store));
+        let knowledge = Knowledge::open(&temporary.path().join("knowledge.surrealkv"))
+            .await
+            .expect("La copia del grafo no se puede abrir");
+        let extensions = knowledge.list().await.unwrap().len();
+        let filters = knowledge.saved_filters().await.unwrap().len();
+        let started = std::time::Instant::now();
+        assert!(
+            synchronize_base(&knowledge, &store, None)
+                .await
+                .unwrap()
+                .complete
+        );
+        let first = started.elapsed();
+        let started = std::time::Instant::now();
+        assert!(
+            synchronize_base(&knowledge, &store, None)
+                .await
+                .unwrap()
+                .complete
+        );
+        let second = started.elapsed();
+        let projected = knowledge
+            .filter_notes(LibraryFilter::Surrealql {
+                ontology_id: "escriba".into(),
+                sql: "SELECT VALUE id FROM recording".into(),
+            })
+            .await
+            .unwrap()
+            .recording_ids
+            .len();
+        println!(
+            "vigentes {current}, proyectadas {projected}, extensiones {extensions}, filtros {filters}, primera sincronización {first:?}, segunda {second:?}"
+        );
+        assert_eq!(projected, current);
+        assert_eq!(knowledge.list().await.unwrap().len(), extensions);
+        assert_eq!(knowledge.saved_filters().await.unwrap().len(), filters);
+        knowledge.close().await.unwrap();
+    }
+
     #[tokio::test]
     async fn filtra_con_la_proyeccion_actual_y_guarda_consultas_desde_la_interfaz() {
         let temp = tempfile::tempdir().unwrap();
