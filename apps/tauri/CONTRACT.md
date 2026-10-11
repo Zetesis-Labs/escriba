@@ -84,6 +84,7 @@ incierto y se ofrece reintentar, sin inferir el resultado del texto del error.
 ## Trabajos y estado de la interfaz
 
 - runtime_run {operation,args} -> resultado del trabajo; la espera de la UI no es propietaria del trabajo.
+  La cola duradera tiene dos carriles: procesar y resumir comparten el de inferencia (uno a la vez, como el motor nativo); publicar y retirar van por el de red (hasta tres a la vez). Una nota nunca tiene dos trabajos activos ni corre dos a la vez. El controlador TypeScript no añade otra cola: solo rechaza procesar una nota que ya se está procesando.
 - runtime_jobs -> JobState[] (pendientes, activos y en espera de reintento).
 - runtime_history -> trabajos duraderos, resultado y error.
 - runtime_cancel {recordingId} -> void; revoca capacidades y termina la receta.

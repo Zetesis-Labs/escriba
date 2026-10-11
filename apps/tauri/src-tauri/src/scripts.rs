@@ -913,7 +913,7 @@ mod tests {
         let id = queue
             .enqueue("processRecording", json!({"recordingId":recording_id}))
             .unwrap();
-        queue.claim().unwrap().unwrap();
+        queue.claim(crate::jobs::Lane::Inference).unwrap().unwrap();
         let native = Arc::new(crate::native::Native::new(
             crate::native::binary("EscribaNativeHost").unwrap(),
         ));

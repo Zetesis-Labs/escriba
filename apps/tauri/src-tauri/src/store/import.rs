@@ -1,12 +1,15 @@
 use super::*;
 
 impl Store {
+    #[cfg(test)]
     pub fn import(&mut self, source: &Path, recipe_id: Option<&str>) -> Result<Value, String> {
         self.import_internal(source, recipe_id, None, false)
     }
+    #[cfg(test)]
     pub fn import_recovered_capture(&mut self, source: &Path) -> Result<Value, String> {
         self.import_internal(source, None, None, true)
     }
+    #[cfg(test)]
     pub fn import_with_metadata(
         &mut self,
         source: &Path,
@@ -25,6 +28,7 @@ impl Store {
             false,
         )
     }
+    #[cfg(test)]
     pub(super) fn import_internal(
         &mut self,
         source: &Path,
@@ -32,71 +36,45 @@ impl Store {
         metadata_from_watcher: Option<(&str, SystemTime, &str)>,
         recovered_capture: bool,
     ) -> Result<Value, String> {
-        let metadata = source
-            .metadata()
-            .map_err(|e| format!("No se puede leer {}: {e}", source.display()))?;
-        if !metadata.is_file() || metadata.len() == 0 {
-            return Err("El audio está vacío o no es un archivo".into());
+        let staged = stage_audio(&self.root, source, recovered_capture)?;
+        self.import_staged_internal(staged, source, recipe_id, metadata_from_watcher)
+    }
+    pub fn import_staged(
+        &mut self,
+        staged: StagedAudio,
+        source: &Path,
+        recipe_id: Option<&str>,
+    ) -> Result<Value, String> {
+        self.import_staged_internal(staged, source, recipe_id, None)
+    }
+    pub fn import_staged_with_metadata(
+        &mut self,
+        staged: StagedAudio,
+        source: &Path,
+        title: &str,
+        started_at: SystemTime,
+        source_key: &str,
+    ) -> Result<Value, String> {
+        if source_key.is_empty() || source_key.len() > 4096 {
+            return Err("Identidad de origen inválida".into());
         }
-        let capture_date =
-            if recovered_capture {
-                Some(metadata.modified().map_err(|e| {
-                    format!("No se puede leer la fecha de {}: {e}", source.display())
-                })?)
-            } else {
-                None
-            };
-        let ext = source
-            .extension()
-            .and_then(|s| s.to_str())
-            .unwrap_or("")
-            .to_lowercase();
-        if ![
-            "m4a", "mp3", "wav", "aac", "flac", "ogg", "oga", "opus", "mp4", "aiff", "aif", "caf",
-            "webm", "mov",
-        ]
-        .contains(&ext.as_str())
-        {
-            return Err("Formato de audio no admitido".into());
+        self.import_staged_internal(staged, source, None, Some((title, started_at, source_key)))
+    }
+    fn import_staged_internal(
+        &mut self,
+        staged: StagedAudio,
+        source: &Path,
+        recipe_id: Option<&str>,
+        metadata_from_watcher: Option<(&str, SystemTime, &str)>,
+    ) -> Result<Value, String> {
+        if staged.root != self.root || staged.source != source {
+            return Err("La copia preparada no corresponde a esta importación".into());
         }
-        let mut input = File::open(source).map_err(|e| e.to_string())?;
-        let temp = self.root.join("audio").join(format!(".{}.import", id()));
-        let mut output = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(0o600)
-            .open(&temp)
-            .map_err(|e| e.to_string())?;
-        let mut hash = Sha256::new();
-        let mut buffer = [0u8; 65536];
-        let copy_result = (|| -> Result<(), String> {
-            loop {
-                let n = input.read(&mut buffer).map_err(|e| e.to_string())?;
-                if n == 0 {
-                    break;
-                }
-                output.write_all(&buffer[..n]).map_err(|e| e.to_string())?;
-                hash.update(&buffer[..n]);
-            }
-            let after = input.metadata().map_err(|e| e.to_string())?;
-            if after.len() != metadata.len()
-                || after.modified().map_err(|e| e.to_string())?
-                    != metadata.modified().map_err(|e| e.to_string())?
-            {
-                return Err(
-                    "El audio cambió durante la copia; espera a que termine de grabarse".into(),
-                );
-            }
-            output.sync_all().map_err(|e| e.to_string())?;
-            Ok(())
-        })();
-        drop(output);
-        if let Err(error) = copy_result {
-            let _ = fs::remove_file(&temp);
-            return Err(error);
-        }
-        let content_digest = hash.finalize();
-        let content_hash = format!("{content_digest:x}");
+        let temp = staged.temp.clone();
+        let content_hash = staged.hash.clone();
+        let content_digest = staged.digest.clone();
+        let ext = staged.ext.clone();
+        let capture_date = staged.capture_date;
         let source_text = source.to_string_lossy();
         if metadata_from_watcher.is_none() {
             if let Some(existing) = self.data.recordings.iter().find(|record| {
@@ -219,9 +197,8 @@ impl Store {
                 return Ok(record);
             }
             if changed
-                && self.jobs()?.iter().any(|job| {
-                    job["recordingId"] == key
-                        && matches!(job["state"].as_str(), Some("queued" | "running" | "retry"))
+                && self.jobs_for(&key)?.iter().any(|job| {
+                    matches!(job["state"].as_str(), Some("queued" | "running" | "retry"))
                 })
             {
                 fs::remove_file(&temp).map_err(|e| e.to_string())?;
@@ -351,6 +328,97 @@ impl Store {
         }
         Ok(record)
     }
+}
+
+pub struct StagedAudio {
+    root: PathBuf,
+    source: PathBuf,
+    temp: PathBuf,
+    hash: String,
+    digest: Vec<u8>,
+    ext: String,
+    capture_date: Option<SystemTime>,
+}
+
+impl Drop for StagedAudio {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.temp);
+    }
+}
+
+pub fn stage_audio(
+    root: &Path,
+    source: &Path,
+    recovered_capture: bool,
+) -> Result<StagedAudio, String> {
+    let metadata = source
+        .metadata()
+        .map_err(|e| format!("No se puede leer {}: {e}", source.display()))?;
+    if !metadata.is_file() || metadata.len() == 0 {
+        return Err("El audio está vacío o no es un archivo".into());
+    }
+    let capture_date = if recovered_capture {
+        Some(
+            metadata
+                .modified()
+                .map_err(|e| format!("No se puede leer la fecha de {}: {e}", source.display()))?,
+        )
+    } else {
+        None
+    };
+    let ext = source
+        .extension()
+        .and_then(|s| s.to_str())
+        .unwrap_or("")
+        .to_lowercase();
+    if ![
+        "m4a", "mp3", "wav", "aac", "flac", "ogg", "oga", "opus", "mp4", "aiff", "aif", "caf",
+        "webm", "mov",
+    ]
+    .contains(&ext.as_str())
+    {
+        return Err("Formato de audio no admitido".into());
+    }
+    let mut input = File::open(source).map_err(|e| e.to_string())?;
+    let temp = root.join("audio").join(format!(".{}.import", id()));
+    let mut output = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&temp)
+        .map_err(|e| e.to_string())?;
+    let mut staged = StagedAudio {
+        root: root.to_owned(),
+        source: source.to_owned(),
+        temp,
+        hash: String::new(),
+        digest: Vec::new(),
+        ext,
+        capture_date,
+    };
+    let mut hash = Sha256::new();
+    let mut buffer = [0u8; 65536];
+    loop {
+        let n = input.read(&mut buffer).map_err(|e| e.to_string())?;
+        if n == 0 {
+            break;
+        }
+        output.write_all(&buffer[..n]).map_err(|e| e.to_string())?;
+        hash.update(&buffer[..n]);
+    }
+    let after = input.metadata().map_err(|e| e.to_string())?;
+    if after.len() != metadata.len()
+        || after.modified().map_err(|e| e.to_string())?
+            != metadata.modified().map_err(|e| e.to_string())?
+    {
+        return Err("El audio cambió durante la copia; espera a que termine de grabarse".into());
+    }
+    output.sync_all().map_err(|e| e.to_string())?;
+    drop(output);
+    let digest = hash.finalize();
+    staged.hash = format!("{digest:x}");
+    staged.digest = digest.to_vec();
+    Ok(staged)
 }
 
 pub(super) fn file_hash(path: &Path) -> Result<Vec<u8>, String> {

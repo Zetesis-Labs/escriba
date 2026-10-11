@@ -328,3 +328,12 @@ borrado y tipado y pueden ir en paralelo con ramas separadas una vez cerrada B.
   sube el esquema a 3: no hay incompatibilidad y la versión anterior sigue
   abriendo la biblioteca. Medido de paso: cada commit de SurrealKV cuesta del
   orden de 30 ms por la sincronización del WAL.
+- **Fase B** (2026-10-12). Copiar y calcular el hash del audio ya no bloquea
+  la biblioteca (vigilancia, importación manual, grabadora y capturas
+  recuperadas). La cola lee solo trabajos activos o de una nota, en lugar
+  del historial completo cada cinco segundos. Carriles: inferencia (1) y red
+  (3); el controlador TypeScript deja de encadenar trabajos. **No se hizo
+  asíncrono `Store`**: la espera dominante es el commit de SurrealKV (~30 ms),
+  que un `Mutex` de tokio no acorta; convertir 55 llamadas y 2.600 líneas de
+  tests no cambiaba nada observable. La sincronización del grafo en segundo
+  plano va con la fase G.

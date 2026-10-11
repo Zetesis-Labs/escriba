@@ -56,6 +56,37 @@ pub struct Job {
     #[serde(flatten)]
     pub extra: Map<String, Value>,
 }
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Lane {
+    Inference,
+    Io,
+}
+
+impl Lane {
+    pub const ALL: [Lane; 2] = [Lane::Inference, Lane::Io];
+    pub fn capacity(self) -> usize {
+        match self {
+            Lane::Inference => 1,
+            Lane::Io => 3,
+        }
+    }
+    fn index(self) -> usize {
+        match self {
+            Lane::Inference => 0,
+            Lane::Io => 1,
+        }
+    }
+}
+
+impl JobOperation {
+    pub fn lane(self) -> Lane {
+        match self {
+            JobOperation::ProcessRecording | JobOperation::SummarizeRecording => Lane::Inference,
+            JobOperation::PublishRecording | JobOperation::UnpublishRecording => Lane::Io,
+        }
+    }
+}
+
 impl Job {
     fn active(&self) -> bool {
         matches!(
@@ -67,27 +98,59 @@ impl Job {
         self.args["options"]["dryRun"] == true
     }
 }
-fn load(store: &Store) -> Result<Vec<Job>, String> {
-    store
-        .jobs()?
-        .into_iter()
-        .map(|value| {
-            let mut job: Job = serde_json::from_value(value)
-                .map_err(|e| format!("Trabajo guardado inválido: {e}"))?;
-            if job.state == JobState::Retry && job.error_code.is_none() {
-                job.error_code = match job.error.as_deref() {
-                    Some(error) if error.starts_with("BACKEND_UNAVAILABLE:") => {
-                        Some(ErrorCode::BackendUnavailable)
-                    }
-                    Some(error) if error.starts_with("RECIPE_UNAVAILABLE:") => {
-                        Some(ErrorCode::RecipeUnavailable)
-                    }
-                    _ => None,
-                };
+
+pub fn next_in_lane(jobs: &[Job], lane: Lane, now: i64) -> Option<usize> {
+    let in_lane = |job: &&Job| job.operation.lane() == lane;
+    let running = jobs
+        .iter()
+        .filter(in_lane)
+        .filter(|job| job.state == JobState::Running)
+        .count();
+    if running >= lane.capacity() {
+        return None;
+    }
+    let busy: std::collections::HashSet<&str> = jobs
+        .iter()
+        .filter(|job| job.state == JobState::Running)
+        .map(|job| job.recording_id.as_str())
+        .collect();
+    jobs.iter()
+        .enumerate()
+        .filter(|(_, job)| in_lane(job))
+        .filter(|(_, job)| matches!(job.state, JobState::Queued | JobState::Retry))
+        .filter(|(_, job)| job.next_attempt_at <= now)
+        .filter(|(_, job)| !busy.contains(job.recording_id.as_str()))
+        .min_by_key(|(_, job)| (job.created_at, job.id.clone()))
+        .map(|(index, _)| index)
+}
+
+fn parse(value: Value) -> Result<Job, String> {
+    let mut job: Job =
+        serde_json::from_value(value).map_err(|e| format!("Trabajo guardado inválido: {e}"))?;
+    if job.state == JobState::Retry && job.error_code.is_none() {
+        job.error_code = match job.error.as_deref() {
+            Some(error) if error.starts_with("BACKEND_UNAVAILABLE:") => {
+                Some(ErrorCode::BackendUnavailable)
             }
-            Ok(job)
-        })
-        .collect()
+            Some(error) if error.starts_with("RECIPE_UNAVAILABLE:") => {
+                Some(ErrorCode::RecipeUnavailable)
+            }
+            _ => None,
+        };
+    }
+    Ok(job)
+}
+fn parse_all(values: Vec<Value>) -> Result<Vec<Job>, String> {
+    values.into_iter().map(parse).collect()
+}
+fn load_active(store: &Store) -> Result<Vec<Job>, String> {
+    parse_all(store.jobs_active()?)
+}
+fn load_for(store: &Store, recording: &str) -> Result<Vec<Job>, String> {
+    parse_all(store.jobs_for(recording)?)
+}
+fn load_one(store: &Store, id: &str) -> Result<Option<Job>, String> {
+    store.job(id)?.map(parse).transpose()
 }
 fn save(store: &mut Store, job: &Job) -> Result<(), String> {
     store.job_save(&serde_json::to_value(job).map_err(|e| e.to_string())?)
@@ -98,7 +161,7 @@ fn value(job: Job) -> Result<Value, String> {
 
 pub struct Queue {
     store: Arc<Mutex<Store>>,
-    pub wake: Notify,
+    wakes: [Notify; 2],
     pub changed: Notify,
 }
 pub fn durable(operation: &str) -> bool {
@@ -111,7 +174,7 @@ impl Queue {
     pub fn new(store: Arc<Mutex<Store>>) -> Result<Self, String> {
         {
             let mut guard = store.lock().map_err(|_| "Biblioteca ocupada")?;
-            for mut job in load(&guard)? {
+            for mut job in load_active(&guard)? {
                 if job.state == JobState::Running {
                     job.state = JobState::Queued;
                     job.stage = "Recuperando trabajo interrumpido".into();
@@ -122,9 +185,23 @@ impl Queue {
         }
         Ok(Self {
             store,
-            wake: Notify::new(),
+            wakes: [Notify::new(), Notify::new()],
             changed: Notify::new(),
         })
+    }
+    pub fn wake(&self, lane: Lane) {
+        self.wakes[lane.index()].notify_one();
+    }
+    pub fn wake_all(&self) {
+        for lane in Lane::ALL {
+            self.wake(lane);
+        }
+    }
+    pub async fn idle(&self, lane: Lane) {
+        tokio::select! {
+            _ = self.wakes[lane.index()].notified() => {}
+            _ = tokio::time::sleep(std::time::Duration::from_secs(5)) => {}
+        }
     }
     pub fn enqueue(&self, operation: &str, args: Value) -> Result<String, String> {
         self.enqueue_with_origin(operation, args, false)
@@ -156,13 +233,14 @@ impl Queue {
             return Err("Restaura la grabación antes de procesarla".into());
         }
         let audio_hash = record.audio_hash.as_ref().cloned();
-        for job in load(&guard)?.into_iter().filter(Job::active) {
-            if job.recording_id == recording_id {
-                if job.operation == operation && job.args == args {
-                    return Ok(job.id);
-                }
-                return Err("La grabación ya tiene un trabajo pendiente".into());
+        if let Some(job) = load_for(&guard, &recording_id)?
+            .into_iter()
+            .find(Job::active)
+        {
+            if job.operation == operation && job.args == args {
+                return Ok(job.id);
             }
+            return Err("La grabación ya tiene un trabajo pendiente".into());
         }
         let id = store::id();
         let time = chrono::Utc::now().timestamp_millis();
@@ -187,66 +265,64 @@ impl Queue {
                 extra: Map::new(),
             },
         )?;
-        self.wake.notify_one();
+        self.wake(operation.lane());
         self.changed.notify_waiters();
         Ok(id)
     }
     pub fn jobs(&self) -> Result<Vec<Value>, String> {
         let guard = self.store.lock().map_err(|_| "Biblioteca ocupada")?;
-        load(&guard)?.into_iter().map(value).collect()
+        parse_all(guard.jobs()?)?.into_iter().map(value).collect()
     }
     pub fn visible(&self) -> Result<Value, String> {
         let guard = self.store.lock().map_err(|_| "Biblioteca ocupada")?;
-        Ok(json!(load(&guard)?
-            .into_iter()
-            .filter(Job::active)
-            .collect::<Vec<_>>()))
+        let mut active = load_active(&guard)?;
+        active.sort_by_key(|job| job.created_at);
+        Ok(json!(active))
     }
     pub fn automatic(&self) -> Result<(), String> {
         let candidates = {
             let guard = self.store.lock().map_err(|_| "Biblioteca ocupada")?;
-            let jobs = load(&guard)?;
-            guard
+            let pending: Vec<_> = guard
                 .data
                 .recordings
                 .iter()
                 .filter(|record| {
                     record.status == store::RecordingStatus::Pending
                         && record.audio_path.as_ref().is_some()
-                        && !jobs.iter().any(|job| {
-                            job.recording_id == record.id
-                                && job.operation == JobOperation::ProcessRecording
-                                && !job.dry_run()
-                                && (job.active()
-                                    || job.audio_hash.as_ref() == record.audio_hash.as_ref())
-                        })
                 })
-                .map(|record| record.id.clone())
-                .collect::<Vec<_>>()
+                .map(|record| (record.id.clone(), record.audio_hash.as_ref().cloned()))
+                .collect();
+            let mut candidates = Vec::new();
+            for (id, audio_hash) in pending {
+                let handled = load_for(&guard, &id)?.iter().any(|job| {
+                    job.operation == JobOperation::ProcessRecording
+                        && !job.dry_run()
+                        && (job.active() || job.audio_hash == audio_hash)
+                });
+                if !handled {
+                    candidates.push(id);
+                }
+            }
+            candidates
         };
         for id in candidates {
             self.enqueue_automatic(&id)?;
         }
         Ok(())
     }
-    pub fn claim(&self) -> Result<Option<Value>, String> {
+    pub fn claim(&self, lane: Lane) -> Result<Option<Value>, String> {
         let mut guard = self.store.lock().map_err(|_| "Biblioteca ocupada")?;
         let now = chrono::Utc::now().timestamp_millis();
-        let mut jobs = load(&guard)?;
-        jobs.sort_by_key(|job| job.created_at);
-        if jobs.iter().any(|job| job.state == JobState::Running) {
-            return Ok(None);
-        }
-        let Some(mut job) = jobs.into_iter().find(|job| {
-            matches!(job.state, JobState::Queued | JobState::Retry) && job.next_attempt_at <= now
-        }) else {
+        let mut jobs = load_active(&guard)?;
+        let Some(index) = next_in_lane(&jobs, lane, now) else {
             return Ok(None);
         };
+        let mut job = jobs.swap_remove(index);
         if job.operation == JobOperation::ProcessRecording
             && (job.automatic || job.attempt > 0 || job.args["options"]["force"] == false)
             && guard.recording(&job.recording_id)?["accountEffectPending"] == true
         {
-            let message = "Revisa la operación externa o sobre el grafo antes de reprocesar esta nota manualmente";
+            let message = "Revisa la operación externa antes de reprocesar esta nota manualmente";
             job.state = JobState::Failed;
             job.stage = "Error".into();
             job.error = Some(message.into());
@@ -257,6 +333,7 @@ impl Queue {
             )?;
             save(&mut guard, &job)?;
             self.changed.notify_waiters();
+            self.wake(lane);
             return Ok(None);
         }
         job.attempt += 1;
@@ -267,11 +344,12 @@ impl Queue {
         job.stage = "Procesando".into();
         save(&mut guard, &job)?;
         self.changed.notify_waiters();
+        self.wake(lane);
         value(job).map(Some)
     }
     pub fn finish(&self, id: &str, result: Result<Value, AppError>) -> Result<bool, String> {
         let mut guard = self.store.lock().map_err(|_| "Biblioteca ocupada")?;
-        let Some(mut job) = load(&guard)?.into_iter().find(|job| job.id == id) else {
+        let Some(mut job) = load_one(&guard, id)? else {
             return Ok(false);
         };
         if job.state == JobState::Cancelled {
@@ -312,13 +390,13 @@ impl Queue {
         }
         save(&mut guard, &job)?;
         self.changed.notify_waiters();
-        self.wake.notify_one();
+        self.wake(job.operation.lane());
         Ok(true)
     }
     pub fn stages(&self, stages: &Value) -> Result<(), String> {
         let stages = stages.as_array().ok_or("Estado de trabajos inválido")?;
         let mut guard = self.store.lock().map_err(|_| "Biblioteca ocupada")?;
-        for mut job in load(&guard)?
+        for mut job in load_active(&guard)?
             .into_iter()
             .filter(|job| job.state == JobState::Running)
         {
@@ -326,8 +404,11 @@ impl Queue {
                 .iter()
                 .find(|stage| stage["recordingId"] == job.recording_id)
             {
-                job.stage = store::text(stage, "stage")?.to_owned();
-                save(&mut guard, &job)?;
+                let stage = store::text(stage, "stage")?;
+                if job.stage != stage {
+                    job.stage = stage.to_owned();
+                    save(&mut guard, &job)?;
+                }
             }
         }
         self.changed.notify_waiters();
@@ -336,10 +417,7 @@ impl Queue {
     pub fn cancel(&self, recording: &str) -> Result<Vec<String>, String> {
         let mut guard = self.store.lock().map_err(|_| "Biblioteca ocupada")?;
         let mut ids = Vec::new();
-        for mut job in load(&guard)?
-            .into_iter()
-            .filter(|job| job.recording_id == recording && job.active())
-        {
+        for mut job in load_for(&guard, recording)?.into_iter().filter(Job::active) {
             ids.push(job.id.clone());
             job.state = JobState::Cancelled;
             job.error = Some("Proceso cancelado".into());
@@ -361,10 +439,7 @@ impl Queue {
             let changed = self.changed.notified();
             let job = {
                 let guard = self.store.lock().map_err(|_| "Biblioteca ocupada")?;
-                load(&guard)?
-                    .into_iter()
-                    .find(|job| job.id == id)
-                    .ok_or("Trabajo desconocido")?
+                load_one(&guard, id)?.ok_or("Trabajo desconocido")?
             };
             match job.state {
                 JobState::Succeeded => return Ok(job.result.unwrap_or(Value::Null)),
@@ -382,6 +457,136 @@ impl Queue {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn job(
+        id: &str,
+        recording: &str,
+        operation: JobOperation,
+        state: JobState,
+        created: i64,
+    ) -> Job {
+        Job {
+            id: id.into(),
+            recording_id: recording.into(),
+            operation,
+            args: json!({}),
+            automatic: false,
+            audio_hash: None,
+            state,
+            stage: String::new(),
+            attempt: 0,
+            created_at: created,
+            started_at: created,
+            next_attempt_at: 0,
+            error: None,
+            error_code: None,
+            result: None,
+            extra: Map::new(),
+        }
+    }
+
+    #[test]
+    fn una_transcripcion_en_curso_no_retiene_la_publicacion_de_otra_nota() {
+        let jobs = vec![
+            job(
+                "t",
+                "a",
+                JobOperation::ProcessRecording,
+                JobState::Running,
+                1,
+            ),
+            job(
+                "t2",
+                "c",
+                JobOperation::ProcessRecording,
+                JobState::Queued,
+                2,
+            ),
+            job(
+                "p",
+                "b",
+                JobOperation::PublishRecording,
+                JobState::Queued,
+                3,
+            ),
+        ];
+        assert_eq!(next_in_lane(&jobs, Lane::Inference, 10), None);
+        assert_eq!(next_in_lane(&jobs, Lane::Io, 10), Some(2));
+    }
+
+    #[test]
+    fn el_carril_de_red_admite_tres_y_respeta_esperas_y_orden() {
+        let mut jobs: Vec<Job> = (0..4)
+            .map(|index| {
+                job(
+                    &format!("p{index}"),
+                    &format!("r{index}"),
+                    JobOperation::PublishRecording,
+                    JobState::Queued,
+                    10 - index,
+                )
+            })
+            .collect();
+        assert_eq!(next_in_lane(&jobs, Lane::Io, 100), Some(3));
+        for running in &mut jobs[1..] {
+            running.state = JobState::Running;
+        }
+        assert_eq!(next_in_lane(&jobs, Lane::Io, 100), None);
+        jobs[3].state = JobState::Retry;
+        jobs[3].next_attempt_at = 500;
+        assert_eq!(next_in_lane(&jobs, Lane::Io, 100), Some(0));
+        jobs[0].next_attempt_at = 200;
+        jobs[0].state = JobState::Retry;
+        assert_eq!(next_in_lane(&jobs, Lane::Io, 100), None);
+        assert_eq!(next_in_lane(&jobs, Lane::Io, 600), Some(3));
+    }
+
+    #[test]
+    fn nunca_corren_dos_trabajos_de_la_misma_nota() {
+        let jobs = vec![
+            job(
+                "t",
+                "a",
+                JobOperation::ProcessRecording,
+                JobState::Running,
+                1,
+            ),
+            job(
+                "p",
+                "a",
+                JobOperation::PublishRecording,
+                JobState::Queued,
+                2,
+            ),
+        ];
+        assert_eq!(next_in_lane(&jobs, Lane::Io, 10), None);
+    }
+
+    #[test]
+    fn publicar_otra_nota_no_espera_a_la_transcripcion() {
+        let temp = tempfile::tempdir().unwrap();
+        let store = library(&temp.path().join("library"));
+        let mut ids = Vec::new();
+        for name in ["una.wav", "otra.wav"] {
+            let path = temp.path().join(name);
+            std::fs::write(&path, name.as_bytes()).unwrap();
+            ids.push(store.lock().unwrap().import(&path, None).unwrap()["id"].clone());
+        }
+        let queue = Queue::new(store.clone()).unwrap();
+        queue
+            .enqueue("processRecording", json!({"recordingId":ids[0]}))
+            .unwrap();
+        assert!(queue.claim(Lane::Inference).unwrap().is_some());
+        let publish = queue
+            .enqueue(
+                "publishRecording",
+                json!({"recordingId":ids[1],"destinationId":"d"}),
+            )
+            .unwrap();
+        assert_eq!(queue.claim(Lane::Io).unwrap().unwrap()["id"], publish);
+        assert!(queue.claim(Lane::Inference).unwrap().is_none());
+        assert_eq!(queue.visible().unwrap().as_array().unwrap().len(), 2);
+    }
     #[test]
     fn trabajo_automatico_no_repite_efecto_externo_incierto() {
         let temp = tempfile::tempdir().unwrap();
@@ -398,7 +603,7 @@ mod tests {
         let job = queue
             .enqueue_automatic(record["id"].as_str().unwrap())
             .unwrap();
-        assert!(queue.claim().unwrap().is_none());
+        assert!(queue.claim(Lane::Inference).unwrap().is_none());
         let failed = queue
             .jobs()
             .unwrap()
@@ -425,7 +630,7 @@ mod tests {
                 json!({"recordingId":record["id"],"options":{"force":true}}),
             )
             .unwrap();
-        assert!(queue.claim().unwrap().is_some());
+        assert!(queue.claim(Lane::Inference).unwrap().is_some());
         store
             .lock()
             .unwrap()
@@ -439,15 +644,11 @@ mod tests {
             .unwrap();
         {
             let mut guard = store.lock().unwrap();
-            let mut job = load(&guard)
-                .unwrap()
-                .into_iter()
-                .find(|job| job.id == id)
-                .unwrap();
+            let mut job = load_one(&guard, &id).unwrap().unwrap();
             job.next_attempt_at = 0;
             save(&mut guard, &job).unwrap();
         }
-        assert!(queue.claim().unwrap().is_none());
+        assert!(queue.claim(Lane::Inference).unwrap().is_none());
         let failed = queue
             .jobs()
             .unwrap()
@@ -470,7 +671,7 @@ mod tests {
         let id = queue
             .enqueue_automatic(record["id"].as_str().unwrap())
             .unwrap();
-        queue.claim().unwrap().unwrap();
+        queue.claim(Lane::Inference).unwrap().unwrap();
         queue.cancel(record["id"].as_str().unwrap()).unwrap();
         assert!(!queue.finish(&id, Ok(Value::Null)).unwrap());
     }
@@ -489,11 +690,11 @@ mod tests {
                 json!({"recordingId":record["id"],"options":{"force":true}}),
             )
             .unwrap();
-        assert_eq!(queue.claim().unwrap().unwrap()["attempt"], 1);
+        assert_eq!(queue.claim(Lane::Inference).unwrap().unwrap()["attempt"], 1);
         drop(queue);
         drop(store);
         let queue = Queue::new(library(&root)).unwrap();
-        let resumed = queue.claim().unwrap().unwrap();
+        let resumed = queue.claim(Lane::Inference).unwrap().unwrap();
         assert_eq!(resumed["id"], id);
         assert_eq!(resumed["attempt"], 2);
         assert_eq!(resumed["args"]["options"]["force"], false);
@@ -509,12 +710,12 @@ mod tests {
         store.lock().unwrap().import(&audio, None).unwrap();
         let queue = Queue::new(store.clone()).unwrap();
         queue.automatic().unwrap();
-        let first = queue.claim().unwrap().unwrap();
+        let first = queue.claim(Lane::Inference).unwrap().unwrap();
         assert_eq!(first["automatic"], true);
         drop(queue);
         drop(store);
         let queue = Queue::new(library(&root)).unwrap();
-        let resumed = queue.claim().unwrap().unwrap();
+        let resumed = queue.claim(Lane::Inference).unwrap().unwrap();
         assert_eq!(resumed["id"], first["id"]);
         assert_eq!(resumed["automatic"], true);
     }
@@ -585,7 +786,7 @@ mod tests {
                 json!({"recordingId":recordings[1]["id"]}),
             )
             .unwrap();
-        assert_eq!(queue.claim().unwrap().unwrap()["id"], first);
+        assert_eq!(queue.claim(Lane::Inference).unwrap().unwrap()["id"], first);
         queue
             .finish(
                 &first,
@@ -593,7 +794,7 @@ mod tests {
             )
             .unwrap();
         assert_eq!(
-            queue.claim().unwrap().unwrap()["recordingId"],
+            queue.claim(Lane::Inference).unwrap().unwrap()["recordingId"],
             recordings[1]["id"]
         );
         assert_eq!(
@@ -620,7 +821,7 @@ mod tests {
                 json!({"recordingId":record["id"],"options":{"dryRun":true}}),
             )
             .unwrap();
-        queue.claim().unwrap();
+        queue.claim(Lane::Inference).unwrap();
         queue.finish(&id, Err("Receta inválida".into())).unwrap();
         assert_eq!(
             store
@@ -631,7 +832,7 @@ mod tests {
             record
         );
         queue.automatic().unwrap();
-        let next = queue.claim().unwrap().unwrap();
+        let next = queue.claim(Lane::Inference).unwrap().unwrap();
         assert_ne!(next["id"], id);
         assert_eq!(next["args"]["options"]["force"], false);
     }
@@ -650,7 +851,7 @@ mod tests {
             .unwrap();
         let queue = Queue::new(store.clone()).unwrap();
         queue.automatic().unwrap();
-        let job = queue.claim().unwrap().unwrap();
+        let job = queue.claim(Lane::Inference).unwrap().unwrap();
         queue
             .finish(job["id"].as_str().unwrap(), Ok(Value::Null))
             .unwrap();
@@ -661,7 +862,7 @@ mod tests {
             .import_with_metadata(&audio, None, "Nota", started, "voiceMemos:test/1")
             .unwrap();
         queue.automatic().unwrap();
-        let next = queue.claim().unwrap().unwrap();
+        let next = queue.claim(Lane::Inference).unwrap().unwrap();
         assert_eq!(next["recordingId"], record["id"]);
         assert_ne!(next["audioHash"], job["audioHash"]);
     }

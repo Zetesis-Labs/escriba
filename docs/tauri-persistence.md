@@ -67,7 +67,7 @@ Las carpetas vigiladas también están tipadas. Su bookmark de macOS se conserva
 como valor opaco y se valida al restaurar el acceso: una autorización antigua
 dañada no impide abrir el resto de la biblioteca.
 
-La cola usa `Job` con estado y operación enumerados. Guarda `errorCode` junto al
+La cola usa `Job` con estado y operación enumerados. Reclamar, esperar y encolar leen solo los trabajos activos (índice en `state`), los de una nota (índice en `parent`) o uno por id; el historial completo solo se lee en `runtime_history`. La copia y el hash del audio al incorporar se hacen antes de tomar la biblioteca, que solo se bloquea para decidir y confirmar. Guarda `errorCode` junto al
 texto; la decisión de reintento usa ese código, conservado al atravesar el
 controlador y el worker de Bun. Los trabajos anteriores siguen siendo legibles
 sin ese campo y conservan su estado de espera o recuperación.

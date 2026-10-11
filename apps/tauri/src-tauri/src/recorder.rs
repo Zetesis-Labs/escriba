@@ -85,7 +85,7 @@ pub async fn stop(app: &AppHandle, state: &Arc<Runtime>) -> Result<Value, String
     }
     changed(app, state);
     let _ = app.emit("escriba://changed", ());
-    state.jobs.wake.notify_one();
+    state.jobs.wake_all();
     saved
 }
 
@@ -118,9 +118,16 @@ async fn save(state: &Runtime, session: &Session) -> Result<Value, String> {
         .await
         .map_err(|error| error.to_string())?;
     let path = PathBuf::from(text(&reply, "audioPath")?);
+    let staged = {
+        let root = state.library_root.clone();
+        let path = path.clone();
+        tokio::task::spawn_blocking(move || crate::store::stage_audio(&root, &path, false))
+            .await
+            .map_err(|e| e.to_string())??
+    };
     let updated = {
         let mut store = state.store()?;
-        let record = store.import(&path, session.recipe_id.as_deref())?;
+        let record = store.import_staged(staged, &path, session.recipe_id.as_deref())?;
         store.mutate(
             "recording_update",
             &json!({"id":record["id"],"duration":reply["duration"],"createdAt":session.started_at.to_rfc3339()}),

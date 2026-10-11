@@ -4,6 +4,15 @@ impl Store {
     pub fn jobs(&self) -> Result<Vec<Value>, String> {
         self.database.jobs()
     }
+    pub fn jobs_active(&self) -> Result<Vec<Value>, String> {
+        self.database.jobs_active()
+    }
+    pub fn jobs_for(&self, recording_id: &str) -> Result<Vec<Value>, String> {
+        self.database.jobs_for(recording_id)
+    }
+    pub fn job(&self, id: &str) -> Result<Option<Value>, String> {
+        self.database.job(id)
+    }
     pub fn job_save(&mut self, job: &Value) -> Result<(), String> {
         self.recording_for_write(text(job, "recordingId")?)?;
         self.database.save_job(job)

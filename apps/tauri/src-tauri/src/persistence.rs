@@ -145,6 +145,9 @@ enum Command {
     PendingAudioDeletions(mpsc::Sender<Result<Vec<AudioDeletion>, String>>),
     CompleteAudioDeletion(String, mpsc::Sender<Result<(), String>>),
     Jobs(mpsc::Sender<Result<Vec<Value>, String>>),
+    JobsActive(mpsc::Sender<Result<Vec<Value>, String>>),
+    JobsFor(String, mpsc::Sender<Result<Vec<Value>, String>>),
+    Job(String, mpsc::Sender<Result<Option<Value>, String>>),
     SaveJob(Value, mpsc::Sender<Result<(), String>>),
     #[cfg(test)]
     RemoveJob(String, mpsc::Sender<Result<(), String>>),
@@ -249,6 +252,15 @@ impl Persistence {
                         }
                         Command::Jobs(reply) => {
                             let _ = reply.send(jobs(&db).await);
+                        }
+                        Command::JobsActive(reply) => {
+                            let _ = reply.send(jobs_active(&db).await);
+                        }
+                        Command::JobsFor(recording, reply) => {
+                            let _ = reply.send(jobs_for(&db, &recording).await);
+                        }
+                        Command::Job(id, reply) => {
+                            let _ = reply.send(job(&db, &id).await);
                         }
                         Command::SaveJob(job, reply) => {
                             let _ = reply.send(save_job(&db, &job).await);
@@ -430,6 +442,15 @@ impl Persistence {
     pub fn jobs(&self) -> Result<Vec<Value>, String> {
         self.request(Command::Jobs)
     }
+    pub fn jobs_active(&self) -> Result<Vec<Value>, String> {
+        self.request(Command::JobsActive)
+    }
+    pub fn jobs_for(&self, recording: &str) -> Result<Vec<Value>, String> {
+        self.request(|reply| Command::JobsFor(recording.to_owned(), reply))
+    }
+    pub fn job(&self, id: &str) -> Result<Option<Value>, String> {
+        self.request(|reply| Command::Job(id.to_owned(), reply))
+    }
     pub fn save_job(&self, job: &Value) -> Result<(), String> {
         self.request(|reply| Command::SaveJob(job.clone(), reply))
     }
@@ -572,6 +593,11 @@ async fn connect(path: &Path) -> Result<Surreal<Db>, String> {
             .map_err(|e| e.to_string())?;
         }
     }
+    db.query("DEFINE INDEX IF NOT EXISTS idx_job_state ON TABLE job FIELDS state")
+        .await
+        .map_err(|e| e.to_string())?
+        .check()
+        .map_err(|e| e.to_string())?;
     migrate_v1(&db).await?;
     for table in [
         "recording",
@@ -1135,6 +1161,34 @@ async fn jobs(db: &Surreal<Db>) -> Result<Vec<Value>, String> {
         .into_iter()
         .map(|row| row.payload)
         .collect())
+}
+
+async fn jobs_active(db: &Surreal<Db>) -> Result<Vec<Value>, String> {
+    let mut response = db
+        .query("SELECT VALUE payload FROM job WHERE state = 'queued'; SELECT VALUE payload FROM job WHERE state = 'running'; SELECT VALUE payload FROM job WHERE state = 'retry'")
+        .await
+        .map_err(|e| e.to_string())?
+        .check()
+        .map_err(|e| e.to_string())?;
+    let mut active = Vec::new();
+    for statement in 0..3 {
+        let rows: Vec<Value> = response.take(statement).map_err(|e| e.to_string())?;
+        active.extend(rows);
+    }
+    Ok(active)
+}
+
+async fn jobs_for(db: &Surreal<Db>, recording: &str) -> Result<Vec<Value>, String> {
+    Ok(rows_for_parent(db, "job", recording)
+        .await?
+        .into_iter()
+        .map(|row| row.payload)
+        .collect())
+}
+
+async fn job(db: &Surreal<Db>, id: &str) -> Result<Option<Value>, String> {
+    let row: Option<Row> = db.select(("job", id)).await.map_err(|e| e.to_string())?;
+    Ok(row.map(|row| row.payload))
 }
 
 async fn save_job(db: &Surreal<Db>, job: &Value) -> Result<(), String> {
