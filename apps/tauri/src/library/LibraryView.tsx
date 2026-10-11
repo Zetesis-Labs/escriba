@@ -76,7 +76,7 @@ export function LibraryView({
   const [rename, setRename] = useState<Rename | null>(null);
   const selected = recordings.find((recording) => recording.id === selectedId) ?? null;
   const { detail, detailError } = useRecordingDetail(selected, active);
-  const live = liveDestinations(data.destinations, data.accounts);
+  const live = liveDestinations(data.destinations, data.accounts, data.providers);
   const folders = data.settings.watchedFolders;
   const canSummarize = data.native?.llm?.available !== false;
   const minute = useMemo(() => Math.floor(Date.now() / 60_000), [data]);

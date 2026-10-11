@@ -74,7 +74,7 @@ export async function request<T>(
 }
 export type RuntimeContext = Pick<
   Snapshot,
-  "recordings" | "resolvers" | "recipes" | "accounts" | "destinations"
+  "recordings" | "resolvers" | "recipes" | "accounts" | "destinations" | "providers"
 > & {
   settings: Pick<
     Snapshot["settings"],

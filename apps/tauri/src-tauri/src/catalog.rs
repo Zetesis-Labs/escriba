@@ -9,6 +9,11 @@ pub fn install(store: &mut Store, package: &Value) -> Result<(), String> {
     let destinations = package["destinations"]
         .as_array()
         .ok_or("Destinos compilados inválidos")?;
+    let empty_providers = Vec::new();
+    let providers = match package.get("providers") {
+        None => &empty_providers,
+        Some(value) => value.as_array().ok_or("Proveedores compilados inválidos")?,
+    };
     let mut next = store.index_json();
     let previous = next["recipes"]
         .as_array()
@@ -82,11 +87,25 @@ pub fn install(store: &mut Store, package: &Value) -> Result<(), String> {
         .as_array()
         .ok_or("Destinos inválidos")?
         .iter()
-        .filter(|destination| destination["program"].is_null())
+        .filter(|destination| destination["managed"] == true || destination["program"].is_null())
         .cloned()
-        .chain(destinations.iter().cloned())
+        .chain(destinations.iter().cloned().map(|mut destination| {
+            if let Some(fields) = destination.as_object_mut() {
+                fields.remove("managed");
+            }
+            destination
+        }))
         .collect::<Vec<_>>();
     for destination in &mut destinations {
+        if destination["managed"] == true {
+            if let Some(provider) = providers
+                .iter()
+                .find(|provider| provider["id"] == destination["provider"])
+            {
+                destination["program"] = provider["program"].clone();
+                destination["programFingerprint"] = provider["programFingerprint"].clone();
+            }
+        }
         if let Some(old) = store
             .data
             .destinations
@@ -97,7 +116,40 @@ pub fn install(store: &mut Store, package: &Value) -> Result<(), String> {
         }
     }
     next["destinations"] = json!(destinations);
-    for collection in ["recipes", "destinations"] {
+    let previous_providers = store
+        .data
+        .providers
+        .as_array()
+        .ok_or("Proveedores inválidos")?;
+    let mut installed_providers = HashSet::new();
+    let mut next_providers = Vec::new();
+    for provider in providers {
+        let id = text(provider, "id")?;
+        crate::store::safe_id(id)?;
+        if ["notion", "okf"].contains(&id)
+            || provider["name"]
+                .as_str()
+                .is_none_or(|name| name.trim().is_empty())
+            || !provider["defaultConfiguration"].is_object()
+            || provider["program"].as_str().is_none_or(str::is_empty)
+        {
+            return Err("Proveedor compilado inválido".into());
+        }
+        crate::capabilities::validate_access(provider)?;
+        installed_providers.insert(id.to_owned());
+        let mut installed = provider.clone();
+        installed["unavailable"] = json!(false);
+        next_providers.push(installed);
+    }
+    for old in previous_providers {
+        if !installed_providers.contains(text(old, "id")?) {
+            let mut missing = old.clone();
+            missing["unavailable"] = json!(true);
+            next_providers.push(missing);
+        }
+    }
+    next["providers"] = json!(next_providers);
+    for collection in ["recipes", "destinations", "providers"] {
         let mut keys = HashSet::new();
         for item in next[collection].as_array().ok_or("Catálogo inválido")? {
             let key = text(item, "id")?;
@@ -112,6 +164,77 @@ pub fn install(store: &mut Store, package: &Value) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn proveedor_del_proyecto_sobrevive_reapertura_y_retirada_sin_perder_cuenta() {
+        let temp = tempfile::tempdir().unwrap();
+        let mut store = Store::open(temp.path().into()).unwrap();
+        let provider = json!({"id":"example","name":"Example","capability":"http","origin":"https://example.org","allowedHeaders":["x-api-version"],"credential":{"label":"Token","header":"x-api-key"},"defaultConfiguration":{},"program":"compiled"});
+        install(
+            &mut store,
+            &json!({"recipes":[],"destinations":[],"providers":[provider]}),
+        )
+        .unwrap();
+        assert_eq!(
+            store.item("providers", "example").unwrap()["program"],
+            "compiled"
+        );
+        drop(store);
+        let mut store = Store::open(temp.path().into()).unwrap();
+        assert_eq!(
+            store.runtime_context(None).unwrap()["providers"][0]["origin"],
+            "https://example.org"
+        );
+        store.save_connector(&json!({"id":"draft","name":"Draft","provider":"example","enabled":false}), &json!({"id":"draft","name":"Draft","account":"draft","provider":"example","enabled":false,"configuration":{}})).unwrap();
+        assert_eq!(store.item("accounts", "draft").unwrap()["enabled"], false);
+        assert!(store.item("accounts", "draft").unwrap()["grant"].is_null());
+        store.save_connector(&json!({"id":"a","name":"A","provider":"example","grant":{"capability":"http","origin":"https://example.org","allowedHeaders":["x-api-version"],"credential":{"label":"Token","header":"x-api-key"}}}), &json!({"id":"a","name":"A","account":"a","provider":"example","enabled":true,"configuration":{}})).unwrap();
+        assert_eq!(store.item("destinations", "a").unwrap()["managed"], true);
+        assert_eq!(
+            store.item("destinations", "a").unwrap()["program"],
+            "compiled"
+        );
+        store.save_credential("a", "synthetic-token").unwrap();
+        assert!(store.mutate("config_save", &json!({"collection":"accounts","item":{"id":"a","name":"Notion","provider":"notion","enabled":true}})).is_err());
+        assert_eq!(
+            store.credential("a").unwrap().as_deref(),
+            Some("synthetic-token")
+        );
+        let mut account = store.item("accounts", "a").unwrap();
+        account["enabled"] = json!(false);
+        let destination = store.item("destinations", "a").unwrap();
+        store.save_connector(&account, &destination).unwrap();
+        assert_eq!(store.item("accounts", "a").unwrap()["enabled"], false);
+        let mut changed = store.item("providers", "example").unwrap();
+        changed["program"] = json!("updated");
+        install(
+            &mut store,
+            &json!({"recipes":[],"destinations":[],"providers":[changed]}),
+        )
+        .unwrap();
+        assert_eq!(
+            store.item("destinations", "a").unwrap()["program"],
+            "updated"
+        );
+        assert_eq!(store.item("destinations", "a").unwrap()["enabled"], true);
+        install(
+            &mut store,
+            &json!({"recipes":[],"destinations":[],"providers":[]}),
+        )
+        .unwrap();
+        assert_eq!(
+            store.item("providers", "example").unwrap()["unavailable"],
+            true
+        );
+        assert_eq!(
+            store.item("providers", "example").unwrap()["program"],
+            "updated"
+        );
+        assert_eq!(
+            store.item("destinations", "a").unwrap()["program"],
+            "updated"
+        );
+        assert_eq!(store.item("accounts", "a").unwrap()["provider"], "example");
+    }
     #[test]
     fn instalar_recetas_con_notas_descartadas_conserva_el_descarte() {
         let temp = tempfile::tempdir().unwrap();
@@ -226,5 +349,43 @@ mod tests {
         let error = install(&mut store, &json!({"recipes":[],"destinations":[{"id":"same","name":"Project","provider":"okf","account":"same","enabled":true,"configuration":{},"program":"new"}]})).unwrap_err();
         assert!(error.contains("Identificador duplicado"));
         assert_eq!(store.item("destinations", "same").unwrap()["name"], "App");
+    }
+
+    #[test]
+    fn proyecto_no_puede_marcar_su_destino_como_gestionado_por_la_app() {
+        let temp = tempfile::tempdir().unwrap();
+        let mut store = Store::open(temp.path().into()).unwrap();
+        install(&mut store, &json!({"recipes":[],"destinations":[{"id":"external","name":"External","provider":"notion","account":"a","enabled":true,"configuration":{},"program":"compiled","managed":true}]})).unwrap();
+        assert!(store.item("destinations", "external").unwrap()["managed"].is_null());
+        install(&mut store, &json!({"recipes":[],"destinations":[]})).unwrap();
+        assert!(store.item("destinations", "external").is_err());
+    }
+
+    #[test]
+    fn proveedor_de_carpeta_autoriza_despues_de_guardar_borrador() {
+        let temp = tempfile::tempdir().unwrap();
+        let folder = temp.path().join("documents");
+        std::fs::create_dir(&folder).unwrap();
+        let mut store = Store::open(temp.path().join("library")).unwrap();
+        install(&mut store, &json!({"recipes":[],"destinations":[],"providers":[{"id":"documents","name":"Documents","capability":"folder","allowedHeaders":[],"defaultConfiguration":{},"program":"compiled"}]})).unwrap();
+        let mut account =
+            json!({"id":"folder","name":"Folder","provider":"documents","enabled":false});
+        let mut destination = json!({"id":"folder","name":"Folder","provider":"documents","account":"folder","enabled":false,"configuration":{}});
+        store.save_connector(&account, &destination).unwrap();
+        assert!(store.item("accounts", "folder").unwrap()["grant"].is_null());
+        account["enabled"] = json!(true);
+        account["grant"] = json!({"capability":"folder","allowedHeaders":[]});
+        account["folder"] = json!(folder);
+        destination["configuration"]["folder"] = json!(temp.path().join("alias"));
+        std::os::unix::fs::symlink(&folder, temp.path().join("alias")).unwrap();
+        destination["enabled"] = json!(true);
+        store.save_connector(&account, &destination).unwrap();
+        let saved = store.item("accounts", "folder").unwrap();
+        assert_eq!(saved["folder"], json!(folder.canonicalize().unwrap()));
+        assert_eq!(
+            store.item("destinations", "folder").unwrap()["configuration"]["folder"],
+            saved["folder"]
+        );
+        assert_eq!(saved["grant"], account["grant"]);
     }
 }

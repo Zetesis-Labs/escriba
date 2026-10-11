@@ -2294,14 +2294,14 @@ var __conectores = (() => {
       function isFullView(response) {
         return "type" in response;
       }
-      function isTextRichTextItemResponse(richText) {
-        return richText.type === "text";
+      function isTextRichTextItemResponse(richText2) {
+        return richText2.type === "text";
       }
-      function isEquationRichTextItemResponse(richText) {
-        return richText.type === "equation";
+      function isEquationRichTextItemResponse(richText2) {
+        return richText2.type === "equation";
       }
-      function isMentionRichTextItemResponse(richText) {
-        return richText.type === "mention";
+      function isMentionRichTextItemResponse(richText2) {
+        return richText2.type === "mention";
       }
       function extractNotionId(urlOrId) {
         if (!urlOrId || typeof urlOrId !== "string") {
@@ -2575,9 +2575,11 @@ var __conectores = (() => {
   // src/index.ts
   var index_exports = {};
   __export(index_exports, {
+    builtinProviders: () => builtinProviders,
     createProgram: () => createProgram,
     defineNotionDestination: () => defineNotionDestination,
     defineOKFDestination: () => defineOKFDestination,
+    defineProvider: () => defineProvider,
     notionConfig: () => notionConfig,
     notionProblem: () => notionProblem,
     notionSchema: () => notionSchema,
@@ -3296,10 +3298,10 @@ var __conectores = (() => {
   function nullish(input2) {
     return input2 === null || input2 === void 0;
   }
-  function cleanRegex(source) {
-    const start = source.startsWith("^") ? 1 : 0;
-    const end = source.endsWith("$") ? source.length - 1 : source.length;
-    return source.slice(start, end);
+  function cleanRegex(source2) {
+    const start = source2.startsWith("^") ? 1 : 0;
+    const end = source2.endsWith("$") ? source2.length - 1 : source2.length;
+    return source2.slice(start, end);
   }
   function floatSafeRemainder(val, step) {
     const ratio = val / step;
@@ -3367,28 +3369,28 @@ var __conectores = (() => {
     else
       target[key] = value;
   }
-  function mirrorShape(target, source, keys, wrap) {
-    const raw = sourceShape(source);
+  function mirrorShape(target, source2, keys, wrap) {
+    const raw = sourceShape(source2);
     for (const key of keys) {
       const desc = Object.getOwnPropertyDescriptor(raw, key);
       if (!desc.enumerable)
         continue;
       if (desc.get) {
         deferProp(target, key, () => {
-          const value = source._zod.def.shape[key];
+          const value = source2._zod.def.shape[key];
           return wrap ? wrap(value, key) : value;
         });
       } else
         putProp(target, key, wrap ? wrap(desc.value, key) : desc.value);
     }
   }
-  function mirrorProps(target, source) {
-    for (const key of Reflect.ownKeys(source)) {
-      const desc = Object.getOwnPropertyDescriptor(source, key);
+  function mirrorProps(target, source2) {
+    for (const key of Reflect.ownKeys(source2)) {
+      const desc = Object.getOwnPropertyDescriptor(source2, key);
       if (!desc.enumerable)
         continue;
       if (desc.get)
-        deferProp(target, key, () => source[key]);
+        deferProp(target, key, () => source2[key]);
       else
         putProp(target, key, desc.value);
     }
@@ -4601,8 +4603,8 @@ var __conectores = (() => {
   var currencyCode = /^(?:AED|AFN|ALL|AMD|AOA|ARS|AUD|AWG|AZN|BAM|BBD|BDT|BHD|BIF|BMD|BND|BOB|BOV|BRL|BSD|BTN|BWP|BYN|BZD|CAD|CDF|CHE|CHF|CHW|CLF|CLP|CNY|COP|COU|CRC|CUP|CVE|CZK|DJF|DKK|DOP|DZD|EGP|ERN|ETB|EUR|FJD|FKP|GBP|GEL|GHS|GIP|GMD|GNF|GTQ|GYD|HKD|HNL|HTG|HUF|IDR|ILS|INR|IQD|IRR|ISK|JMD|JOD|JPY|KES|KGS|KHR|KMF|KPW|KRW|KWD|KYD|KZT|LAK|LBP|LKR|LRD|LSL|LYD|MAD|MDL|MGA|MKD|MMK|MNT|MOP|MRU|MUR|MVR|MWK|MXN|MXV|MYR|MZN|NAD|NGN|NIO|NOK|NPR|NZD|OMR|PAB|PEN|PGK|PHP|PKR|PLN|PYG|QAR|RON|RSD|RUB|RWF|SAR|SBD|SCR|SDG|SEK|SGD|SHP|SLE|SOS|SRD|SSP|STN|SVC|SYP|SZL|THB|TJS|TMT|TND|TOP|TRY|TTD|TWD|TZS|UAH|UGX|USD|USN|UYI|UYU|UYW|UZS|VED|VES|VND|VUV|WST|XAD|XAF|XAG|XAU|XBA|XBB|XBC|XBD|XCD|XCG|XDR|XOF|XPD|XPF|XPT|XSU|XTS|XUA|XXX|YER|ZAR|ZMW|ZWG)$/;
   var iban = /^[A-Z]{2}(?!00|01|99)\d{2}[A-Z0-9]{11,30}$/;
   var dateSource = `(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))`;
-  function anchor(source) {
-    return new RegExp(`^${source}$`);
+  function anchor(source2) {
+    return new RegExp(`^${source2}$`);
   }
   var date = /* @__PURE__ */ anchor(dateSource);
   function timeSource(args) {
@@ -7425,11 +7427,11 @@ ${content2.join("\n")}
     const regexParts = [];
     for (const part of def.parts) {
       if (typeof part === "object" && part !== null) {
-        const source = partPattern(part);
-        if (!source) {
+        const source2 = partPattern(part);
+        if (!source2) {
           throw new Error(`Invalid template literal part, no pattern found: ${[...part._zod.traits].shift()}`);
         }
-        regexParts.push(cleanRegex(source));
+        regexParts.push(cleanRegex(source2));
       } else if (part === null || primitiveTypes.has(typeof part)) {
         regexParts.push(escapeRegex(`${part}`));
       } else {
@@ -15555,9 +15557,9 @@ ${content2.join("\n")}
       installCompiledUserMethods(clone2, schema, parser);
     return clone2;
   }
-  function installCompiledUserMethods(target, source, parser) {
+  function installCompiledUserMethods(target, source2, parser) {
     const targetAny = target;
-    const sourceAny = source;
+    const sourceAny = source2;
     if (typeof sourceAny.safeParse === "function") {
       const originalSafeParse = sourceAny.safeParse;
       targetAny.safeParse = (data, params) => {
@@ -18152,10 +18154,10 @@ ${code}
 
   // node_modules/zod/v4/core/to-json-schema.js
   function assignProps(target, ...sources) {
-    for (const source of sources) {
-      for (const key of Reflect.ownKeys(source)) {
-        if (Object.prototype.propertyIsEnumerable.call(source, key)) {
-          assignProp(target, key, source[key]);
+    for (const source2 of sources) {
+      for (const key of Reflect.ownKeys(source2)) {
+        if (Object.prototype.propertyIsEnumerable.call(source2, key)) {
+          assignProp(target, key, source2[key]);
         }
       }
     }
@@ -19192,8 +19194,8 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
         bySchema.set(entry.schema, entry);
     }
     const rewrites = /* @__PURE__ */ new Map();
-    for (const record2 of pendingRecords.get(ctx) ?? []) {
-      const seen = ctx.seen.get(record2);
+    for (const record3 of pendingRecords.get(ctx) ?? []) {
+      const seen = ctx.seen.get(record3);
       const names = (seen?.def ?? seen?.schema)?.propertyNames;
       if (!names || names === true || rewrites.has(names))
         continue;
@@ -22256,6 +22258,716 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
     return _coercedDate(ZodDate, params);
   }
 
+  // src/notion.ts
+  var import_client = __toESM(require_src(), 1);
+
+  // src/templates.ts
+  var months = [
+    "enero",
+    "febrero",
+    "marzo",
+    "abril",
+    "mayo",
+    "junio",
+    "julio",
+    "agosto",
+    "septiembre",
+    "octubre",
+    "noviembre",
+    "diciembre"
+  ];
+  var tokens = /* @__PURE__ */ new Set([
+    "titulo",
+    "descripcion",
+    "resumen",
+    "etiquetas",
+    "fecha",
+    "fecha-iso",
+    "dia",
+    "hablantes",
+    "duracion",
+    "segundos",
+    "clave",
+    "origen",
+    "audio",
+    "transcripcion",
+    "transcripcion-tiempos",
+    "transcripcion-texto"
+  ]);
+  var marker = /\{\{([^{}]+)\}\}/g;
+  function render(text, value) {
+    return text.replace(
+      marker,
+      (raw, token) => tokens.has(token) || token.startsWith("enlace:") && token.length > 7 ? value(token) : raw
+    );
+  }
+  function sole(text) {
+    const m = text.trim().match(/^\{\{([^{}]+)\}\}$/);
+    return m && (tokens.has(m[1]) || m[1].startsWith("enlace:")) ? m[1] : void 0;
+  }
+  function clock(seconds) {
+    const n = Math.max(0, Math.floor(seconds));
+    return `${(n >= 3600 ? Math.floor(n / 3600) + ":" : "") + String(Math.floor(n % 3600 / 60)).padStart(2, "0")}:${String(n % 60).padStart(2, "0")}`;
+  }
+  function dateValues(iso, timeZone) {
+    const date5 = new Date(iso);
+    const parts = Object.fromEntries(
+      new Intl.DateTimeFormat("en-GB", {
+        timeZone,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hourCycle: "h23"
+      }).formatToParts(date5).map((p) => [p.type, p.value])
+    );
+    const { year, month, day, hour, minute, second } = parts;
+    const offset = (Date.UTC(+year, +month - 1, +day, +hour, +minute, +second) - Math.floor(date5.getTime() / 1e3) * 1e3) / 6e4;
+    const suffix = offset === 0 ? "Z" : `${offset < 0 ? "-" : "+"}${String(Math.floor(Math.abs(offset) / 60)).padStart(2, "0")}:${String(Math.abs(offset) % 60).padStart(2, "0")}`;
+    return {
+      day: `${year}-${month}-${day}`,
+      iso: `${year}-${month}-${day}T${hour}:${minute}:${second}${suffix}`,
+      long: `${+day} de ${months[+month - 1]} de ${year}, ${hour}:${minute}`
+    };
+  }
+  function monthHeading(key) {
+    const [year, month] = key.split("-");
+    const name = months[+month - 1];
+    return name ? `${name[0].toUpperCase()}${name.slice(1)} de ${year}` : "Otras";
+  }
+  function turns(note) {
+    if (!note.segments.some((s) => s.speaker))
+      return [{ text: note.text, speaker: void 0, start: void 0 }];
+    const result = [];
+    for (const s of note.segments) {
+      const last = result[result.length - 1];
+      if (last && last.speaker === s.speaker) last.text += " " + s.text;
+      else result.push({ ...s });
+    }
+    return result;
+  }
+  function prefix(turn, style) {
+    if (style === "transcripcion-texto") return "";
+    const stamp = style === "transcripcion-tiempos" && turn.start !== void 0 ? `[${clock(turn.start)}]` : "";
+    return [stamp, turn.speaker].filter(Boolean).join(" ");
+  }
+  function transcript(note, style = "transcripcion", markdown = false) {
+    return turns(note).flatMap(
+      (t) => t.text.split(/\r?\n/).filter(Boolean).map((line, i) => {
+        const p = i === 0 ? prefix(t, style) : "";
+        return p ? `${markdown ? "**" : ""}${p}:${markdown ? "**" : ""} ${line}` : line;
+      })
+    ).join(markdown ? "\n\n" : "\n");
+  }
+  function values(note) {
+    const date5 = dateValues(note.startedAt, note.timeZone || "UTC");
+    const title = note.digest?.title.trim() || fallbackTitle(note.text, note.key);
+    const summary = note.digest?.summary.trim() || "";
+    let description = summary.split(/\n/)[0].match(/^.*?[.?!](?=\s|$)/)?.[0] || summary.split(/\n/)[0];
+    if (description.length > 200) {
+      let out = "";
+      for (const word of description.split(/\s+/)) {
+        const next = out ? out + " " + word : word;
+        if (next.length >= 200) break;
+        out = next;
+      }
+      description = (out || description.slice(0, 199)) + "\u2026";
+    }
+    const speakers = [
+      ...new Set(
+        note.segments.map((s) => s.speaker).filter((s) => !!s)
+      )
+    ];
+    const duration3 = note.segments.at(-1)?.end;
+    const tags = note.digest?.tags || [];
+    const map2 = {
+      titulo: title,
+      descripcion: description || `Grabaci\xF3n del ${date5.long}.`,
+      resumen: summary,
+      etiquetas: tags.join(", "),
+      fecha: date5.long,
+      "fecha-iso": date5.iso,
+      dia: date5.day,
+      hablantes: speakers.join(", "),
+      duracion: duration3 === void 0 ? "" : clock(duration3),
+      segundos: duration3 === void 0 ? "" : String(Math.round(duration3)),
+      clave: note.key,
+      origen: decodeURIComponent(note.source.replace(/^file:\/\//, "")),
+      audio: note.source
+    };
+    return {
+      title,
+      tags,
+      speakers,
+      duration: duration3,
+      date: date5,
+      inline: (token) => token.startsWith("transcripcion") ? transcript(note) : map2[token] || ""
+    };
+  }
+  function cleanBody(text) {
+    const lines = text.split("\n");
+    const keep = lines.map(() => true);
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const heading = lines[i].match(/^(#{1,6})(?:\s|$)/);
+      if (!heading) continue;
+      if (!lines[i].replace(/^#+/, "").trim()) {
+        keep[i] = false;
+        continue;
+      }
+      let content2 = false;
+      for (let j = i + 1; j < lines.length; j++) {
+        const next = lines[j].match(/^(#{1,6})(?:\s|$)/);
+        if (next && next[1].length <= heading[1].length) break;
+        if (keep[j] && lines[j].trim()) content2 = true;
+      }
+      keep[i] = content2;
+    }
+    return lines.filter((_, i) => keep[i]).join("\n").replace(/\n[ \t]*\n(?:[ \t]*\n)+/g, "\n\n").trim();
+  }
+  function slug(text) {
+    const words = text.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().match(/[a-z0-9]+/g) || [];
+    let result = "";
+    for (const word of words) {
+      const next = result ? result + "-" + word : word;
+      if (next.length > 60) {
+        if (!result) result = word.slice(0, 60);
+        break;
+      }
+      result = next;
+    }
+    return result || "nota";
+  }
+  var quote = (text) => JSON.stringify(text.split(/[\r\n\t]+/).join(" "));
+  var linkText = (text) => text.replace(/([\[\]])/g, "\\$1");
+  function fallbackTitle(text, key) {
+    const words = text.split(/\s+/).filter(Boolean);
+    if (!words.length) return key;
+    const taken = [];
+    let length = 0;
+    for (const word of words) {
+      const next = length + (taken.length ? 1 : 0) + Array.from(word).length;
+      if (next > 80) break;
+      taken.push(word);
+      length = next;
+    }
+    return taken.join(" ") + (taken.length < words.length ? "\u2026" : "");
+  }
+
+  // src/notion.ts
+  var notionSchema = external_exports.object({
+    source: external_exports.object({
+      id: external_exports.string().min(1),
+      title: external_exports.string().default(""),
+      databaseTitle: external_exports.string().default(""),
+      properties: external_exports.array(external_exports.object({ name: external_exports.string(), type: external_exports.string() }))
+    }),
+    columns: external_exports.record(external_exports.string(), external_exports.string()).optional(),
+    body: external_exports.string().optional(),
+    mapping: external_exports.object({ byField: external_exports.record(external_exports.string(), external_exports.string()) }).optional(),
+    template: external_exports.object({ blocks: external_exports.array(external_exports.record(external_exports.string(), external_exports.unknown())) }).optional()
+  });
+  var fieldTokens = {
+    title: "titulo",
+    date: "fecha-iso",
+    speakers: "hablantes",
+    duration: "duracion",
+    key: "clave",
+    source: "origen",
+    summary: "resumen",
+    tags: "etiquetas"
+  };
+  var labels = {
+    title: "T\xEDtulo",
+    date: "Fecha de la grabaci\xF3n",
+    speakers: "Hablantes",
+    duration: "Duraci\xF3n (segundos)",
+    key: "Clave de la grabaci\xF3n",
+    source: "Fichero de origen",
+    summary: "Resumen",
+    tags: "Etiquetas"
+  };
+  function notionConfig(raw) {
+    const parsed = notionSchema.parse(raw);
+    const columns = parsed.columns || Object.fromEntries(
+      Object.entries(parsed.mapping?.byField || {}).flatMap(([field, name]) => {
+        const type = parsed.source.properties.find(
+          (p) => p.name === name
+        )?.type;
+        let token = fieldTokens[field];
+        if (field === "duration" && type === "number") token = "segundos";
+        if (field === "source" && type === "url") token = "audio";
+        return type && token ? [[name, `{{${token}}}`]] : [];
+      })
+    );
+    const body = parsed.body ?? parsed.template?.blocks.map((block) => {
+      const key = Object.keys(block)[0];
+      const val = block[key];
+      const value = typeof val === "object" && val !== null && "_0" in val ? String(val._0) : typeof val === "string" ? val : "";
+      if (key === "text") return value;
+      if (key === "heading") return "# " + value;
+      if (key === "summary") return "{{resumen}}";
+      if (key === "audio") return "{{audio}}";
+      if (key === "transcript")
+        return `{{${value === "plain" ? "transcripcion-texto" : value === "timestamps" ? "transcripcion-tiempos" : "transcripcion"}}}`;
+      if (key === "field")
+        return `**${labels[value]}:** {{${value === "date" ? "fecha" : fieldTokens[value]}}}`;
+      return "";
+    }).filter(Boolean).join("\n\n") ?? "{{transcripcion}}";
+    return { source: parsed.source, columns, body };
+  }
+  function suggestedColumns(source2, existing = {}) {
+    const specs = {
+      title: { types: ["title"], hints: ["titulo", "nombre", "asunto"] },
+      date: {
+        types: ["date"],
+        hints: ["fecha", "grabacion", "date", "dia", "momento"]
+      },
+      speakers: {
+        types: ["multi_select", "rich_text"],
+        hints: ["hablante", "speaker", "participante", "persona", "quien"]
+      },
+      duration: {
+        types: ["number", "rich_text"],
+        hints: ["duracion", "duration", "segundo", "length", "largo"]
+      },
+      key: {
+        types: ["rich_text"],
+        hints: ["clave", "key", "id", "identificador"]
+      },
+      source: {
+        types: ["url", "rich_text"],
+        hints: ["origen", "source", "fichero", "archivo", "ruta", "audio"]
+      },
+      summary: {
+        types: ["rich_text"],
+        hints: ["resumen", "summary", "sintesis", "abstract"]
+      },
+      tags: {
+        types: ["multi_select", "rich_text"],
+        hints: ["etiqueta", "tag", "tema", "categoria", "topic"]
+      }
+    };
+    const chosen = {};
+    const taken = /* @__PURE__ */ new Set();
+    const named = (name, field) => specs[field].hints.some(
+      (h) => name.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().includes(h)
+    );
+    for (const pass of [0, 1])
+      for (const [field, spec] of Object.entries(specs)) {
+        if (chosen[field]) continue;
+        const compatible = spec.types.flatMap(
+          (type) => source2.properties.filter((p) => p.type === type)
+        );
+        const property2 = compatible.find(
+          (p) => !taken.has(p.name) && (pass === 0 ? named(p.name, field) : !Object.keys(specs).some(
+            (other) => other !== field && named(p.name, other)
+          ))
+        );
+        if (property2) {
+          chosen[field] = property2.name;
+          taken.add(property2.name);
+        }
+      }
+    const columns = notionConfig({
+      source: source2,
+      mapping: { byField: chosen }
+    }).columns;
+    for (const [name, value] of Object.entries(existing))
+      if (source2.properties.some(
+        (p) => p.name === name && [
+          "title",
+          "rich_text",
+          "multi_select",
+          "select",
+          "date",
+          "number",
+          "url"
+        ].includes(p.type)
+      ))
+        columns[name] = value;
+    return columns;
+  }
+  function notionProblem(config2) {
+    const title = config2.source.properties.find((p) => p.type === "title");
+    if (!title)
+      return `La base \xAB${config2.source.title}\xBB no tiene propiedad de t\xEDtulo.`;
+    if (!config2.columns[title.name]?.trim())
+      return `Escribe qu\xE9 va en \xAB${title.name}\xBB, la columna del t\xEDtulo.`;
+  }
+  var rt = (text, bold = false) => ({
+    type: "text",
+    text: { content: text },
+    ...bold ? { annotations: { bold: true } } : {}
+  });
+  function runs(text) {
+    const parts = text.split("**");
+    return parts.length % 2 === 0 ? [rt(text)] : parts.flatMap((p, i) => p ? [rt(p, i % 2 === 1)] : []);
+  }
+  function chunks(text, limit = 2e3) {
+    const result = [];
+    let current = "";
+    for (const word of text.split(/\s+/).filter(Boolean)) {
+      if ((current ? current + " " + word : word).length <= limit) {
+        current = current ? current + " " + word : word;
+        continue;
+      }
+      if (current) {
+        result.push(current);
+        current = "";
+        limit = 2e3;
+      }
+      let rest = word;
+      while (rest.length > limit) {
+        result.push(rest.slice(0, limit));
+        rest = rest.slice(limit);
+        limit = 2e3;
+      }
+      current = rest;
+    }
+    if (current) result.push(current);
+    return result;
+  }
+  function blocks(text, type = "paragraph", lead = "") {
+    const result = [];
+    for (const line of text.split(/\r?\n/).filter(Boolean)) {
+      const rich = runs(line);
+      const pieces = line.length + (result.length ? 0 : lead.length) > 2e3 ? chunks(line, 2e3 - (result.length ? 0 : lead.length)) : [line];
+      for (const [i, piece] of pieces.entries()) {
+        const prefixRun = result.length === 0 && lead ? [rt(lead, true)] : [];
+        result.push({
+          object: "block",
+          type,
+          [type]: {
+            rich_text: [
+              ...prefixRun,
+              ...pieces.length === 1 ? rich : [rt(piece)]
+            ]
+          }
+        });
+      }
+    }
+    return result;
+  }
+  function notionPayload(note, config2, audio) {
+    const v = values(note);
+    const properties = {};
+    for (const p of config2.source.properties) {
+      const template = config2.columns[p.name];
+      if (!template?.trim()) continue;
+      const token = sole(template);
+      const text = render(template, v.inline).trim();
+      switch (p.type) {
+        case "title":
+        case "rich_text":
+          properties[p.name] = {
+            [p.type]: text ? [rt(text.slice(0, 2e3))] : []
+          };
+          break;
+        case "multi_select":
+          properties[p.name] = {
+            multi_select: (token === "etiquetas" ? v.tags : token === "hablantes" ? v.speakers : text.split(",").map((s) => s.trim())).filter(Boolean).map((name) => ({ name }))
+          };
+          break;
+        case "select":
+          properties[p.name] = { select: text ? { name: text } : null };
+          break;
+        case "date":
+          if (token === "fecha-iso" || token === "fecha")
+            properties[p.name] = { date: { start: v.date.iso } };
+          break;
+        case "number": {
+          const n = token === "segundos" || token === "duracion" ? v.duration === void 0 ? null : Math.round(v.duration) : text ? Number(text.replace(",", ".")) : null;
+          properties[p.name] = {
+            number: n !== null && Number.isFinite(n) ? n : null
+          };
+          break;
+        }
+        case "url":
+          properties[p.name] = { url: text || null };
+      }
+    }
+    const lines = config2.body.split("\n").flatMap((line) => {
+      const token = sole(line);
+      if (token?.startsWith("transcripcion"))
+        return [
+          {
+            blocks: turns(note).flatMap(
+              (t) => blocks(
+                t.text,
+                "paragraph",
+                prefix(t, token) ? prefix(t, token) + ": " : ""
+              )
+            )
+          }
+        ];
+      if (token === "audio")
+        return [
+          {
+            blocks: audio ? [
+              {
+                object: "block",
+                type: "audio",
+                audio: { type: "file_upload", file_upload: { id: audio } }
+              }
+            ] : []
+          }
+        ];
+      return render(line, v.inline).split("\n").map((text) => {
+        const heading = text.match(/^(#{1,6})(?:\s|$)(.*)/);
+        if (heading)
+          return {
+            level: heading[1].length,
+            blocks: blocks(
+              heading[2].trim(),
+              `heading_${Math.min(3, heading[1].length)}`
+            )
+          };
+        return {
+          blocks: /^[-*] /.test(text) ? blocks(text.slice(2), "bulleted_list_item") : blocks(text)
+        };
+      });
+    });
+    const kept = lines.map(() => true);
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const level = lines[i].level;
+      if (level === void 0) continue;
+      let content2 = false;
+      for (let j = i + 1; j < lines.length; j++) {
+        const nested = lines[j].level;
+        if (nested !== void 0 && nested <= level) break;
+        if (kept[j] && lines[j].blocks.length) content2 = true;
+      }
+      kept[i] = content2 && lines[i].blocks.length > 0;
+    }
+    const children = lines.flatMap((line, i) => kept[i] ? line.blocks : []);
+    return { properties, children };
+  }
+  function sdk(host) {
+    return new import_client.Client({
+      fetch: async (url2, init) => {
+        const method = (init?.method || "GET").toUpperCase();
+        const path = new URL(String(url2)).pathname;
+        const repeatable = method === "GET" || method === "DELETE" || method === "PATCH" && /^\/v1\/pages\/[^/]+$/.test(path) || method === "POST" && (path === "/v1/search" || /^\/v1\/data_sources\/[^/]+\/query$/.test(path) || /^\/v1\/file_uploads\/[^/]+\/send$/.test(path));
+        for (let attempt = 0; ; attempt++) {
+          try {
+            return await host.fetch(url2, init);
+          } catch (error62) {
+            if (!repeatable || attempt >= 4 || init && "signal" in init && init.signal?.aborted)
+              throw error62;
+            await new Promise(
+              (resolve) => setTimeout(resolve, 1e3 * 2 ** attempt)
+            );
+          }
+        }
+      },
+      notionVersion: "2025-09-03",
+      retry: { maxRetries: 4 },
+      logger: () => {
+      }
+    });
+  }
+  async function upload(client, host) {
+    const audio = await host.audio();
+    if (!audio) throw Error("No se pudo leer el audio");
+    const size = audio.data.size;
+    const multi = size > 20 * 1024 * 1024;
+    const partSize = 10 * 1024 * 1024;
+    const created = await client.fileUploads.create({
+      mode: multi ? "multi_part" : "single_part",
+      filename: audio.filename,
+      content_type: audio.data.type || "audio/mp4",
+      ...multi ? { number_of_parts: Math.ceil(size / partSize) } : {}
+    });
+    if (multi) {
+      for (let offset = 0, part = 1; offset < size; offset += partSize, part++)
+        await client.fileUploads.send({
+          file_upload_id: created.id,
+          file: {
+            data: audio.data.slice(
+              offset,
+              Math.min(size, offset + partSize),
+              audio.data.type
+            ),
+            filename: audio.filename
+          },
+          part_number: String(part)
+        });
+      await client.fileUploads.complete({ file_upload_id: created.id });
+    } else
+      await client.fileUploads.send({ file_upload_id: created.id, file: audio });
+    return created.id;
+  }
+  async function runNotion(request, host) {
+    const client = sdk(host);
+    if (request.operation === "discover") {
+      const resources = [];
+      let cursor;
+      const seen = /* @__PURE__ */ new Set();
+      do {
+        const result = await client.search({
+          filter: { property: "object", value: "data_source" },
+          page_size: 100,
+          ...cursor ? { start_cursor: cursor } : {}
+        });
+        for (const source2 of result.results) {
+          if (source2.object !== "data_source" || !("properties" in source2) || !("title" in source2))
+            continue;
+          const name = source2.title.map((t) => t.plain_text).join("") || "Sin t\xEDtulo";
+          const properties = Object.entries(source2.properties).map(
+            ([name2, p]) => ({ name: name2, type: p.type })
+          );
+          const schema = {
+            id: source2.id,
+            title: name,
+            databaseTitle: name,
+            properties
+          };
+          const existing = external_exports.record(external_exports.string(), external_exports.string()).safeParse(request.config?.columns);
+          resources.push({
+            configuration: {
+              source: schema,
+              columns: suggestedColumns(
+                schema,
+                existing.success ? existing.data : {}
+              ),
+              body: "{{transcripcion}}"
+            },
+            id: source2.id,
+            name,
+            schema: {
+              id: source2.id,
+              title: name,
+              databaseTitle: name,
+              properties
+            }
+          });
+        }
+        cursor = result.has_more ? result.next_cursor || void 0 : void 0;
+        if (cursor) {
+          if (seen.has(cursor))
+            throw Error("Notion repiti\xF3 el cursor de paginaci\xF3n");
+          seen.add(cursor);
+        }
+      } while (cursor);
+      return { resources };
+    }
+    const config2 = notionConfig(request.config);
+    let ref = request.previous?.locator ? { id: request.previous.locator, url: request.previous.url } : void 0;
+    if (request.operation === "remove") {
+      if (!ref) throw Error("Falta el localizador de la publicaci\xF3n");
+      await client.pages.update({ page_id: ref.id, archived: true });
+      const receipt2 = {
+        version: 1,
+        provider: "notion",
+        locator: ref.id,
+        ...ref.url ? { url: ref.url } : {},
+        state: "removed"
+      };
+      await host.checkpoint(receipt2);
+      return { locator: ref.id, receipt: receipt2 };
+    }
+    const problem = notionProblem(config2);
+    if (problem) throw Error(problem);
+    const note = request.note;
+    if (!note) throw Error("Falta la nota");
+    if (request.operation === "preview") return notionPayload(note, config2, "ejemplo");
+    const audio = config2.body.includes("{{audio}}") ? await upload(client, host) : void 0;
+    const payload = notionPayload(note, config2, audio);
+    if (!ref) {
+      const keyColumn = config2.source.properties.find(
+        (p) => p.type === "rich_text" && sole(config2.columns[p.name] || "") === "clave"
+      );
+      if (keyColumn) {
+        const found = await client.dataSources.query({
+          data_source_id: config2.source.id,
+          filter: { property: keyColumn.name, rich_text: { equals: note.key } },
+          page_size: 1
+        });
+        const page = found.results[0];
+        if (page && "url" in page) ref = { id: page.id, url: page.url };
+      }
+    }
+    if (!ref && request.previous?.state === "creating")
+      throw Error(
+        "El resultado de la creaci\xF3n anterior es incierto; reconcilia el localizador antes de publicar de nuevo"
+      );
+    if (ref) {
+      try {
+        await client.pages.update({
+          page_id: ref.id,
+          properties: payload.properties
+        });
+      } catch (error62) {
+        if (error62 && typeof error62 === "object" && "status" in error62 && error62.status === 404)
+          ref = void 0;
+        else throw error62;
+      }
+    }
+    let offset = 0;
+    if (!ref) {
+      const creating = {
+        version: 1,
+        provider: "notion",
+        locator: "",
+        key: note.key,
+        state: "creating"
+      };
+      await host.checkpoint(creating);
+      const created = await client.pages.create({
+        parent: { type: "data_source_id", data_source_id: config2.source.id },
+        properties: payload.properties,
+        children: payload.children.slice(0, 100)
+      }).catch(async (error62) => {
+        if (error62 && typeof error62 === "object" && "status" in error62 && typeof error62.status === "number" && error62.status >= 400 && error62.status < 500 && error62.status !== 408)
+          await host.checkpoint({ ...creating, state: "rejected" });
+        throw error62;
+      });
+      if (!created.id)
+        throw Error("Notion no devolvi\xF3 el ID de la p\xE1gina creada");
+      ref = { id: created.id, url: "url" in created ? created.url : void 0 };
+      offset = 100;
+    }
+    const receipt = {
+      version: 1,
+      provider: "notion",
+      locator: ref.id,
+      ...ref.url ? { url: ref.url } : {},
+      key: note.key,
+      state: "applying"
+    };
+    await host.checkpoint(receipt);
+    if (offset === 0) {
+      const ids = [];
+      let cursor;
+      const seen = /* @__PURE__ */ new Set();
+      do {
+        const list = await client.blocks.children.list({
+          block_id: ref.id,
+          page_size: 100,
+          ...cursor ? { start_cursor: cursor } : {}
+        });
+        ids.push(...list.results.map((b) => b.id));
+        cursor = list.has_more ? list.next_cursor || void 0 : void 0;
+        if (cursor) {
+          if (seen.has(cursor))
+            throw Error("Notion repiti\xF3 el cursor de paginaci\xF3n");
+          seen.add(cursor);
+        }
+      } while (cursor);
+      for (const id of ids) await client.blocks.delete({ block_id: id });
+    }
+    for (let i = offset; i < payload.children.length; i += 100)
+      await client.blocks.children.append({
+        block_id: ref.id,
+        children: payload.children.slice(i, i + 100)
+      });
+    receipt.state = "published";
+    await host.checkpoint(receipt);
+    return { locator: ref.id, ...ref.url ? { url: ref.url } : {}, receipt };
+  }
+
   // node_modules/@noble/hashes/esm/utils.js
   function isBytes(a) {
     return a instanceof Uint8Array || ArrayBuffer.isView(a) && a.constructor.name === "Uint8Array";
@@ -22589,200 +23301,6 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 
   // node_modules/@noble/hashes/esm/sha256.js
   var sha2562 = sha256;
-
-  // src/templates.ts
-  var months = [
-    "enero",
-    "febrero",
-    "marzo",
-    "abril",
-    "mayo",
-    "junio",
-    "julio",
-    "agosto",
-    "septiembre",
-    "octubre",
-    "noviembre",
-    "diciembre"
-  ];
-  var tokens = /* @__PURE__ */ new Set([
-    "titulo",
-    "descripcion",
-    "resumen",
-    "etiquetas",
-    "fecha",
-    "fecha-iso",
-    "dia",
-    "hablantes",
-    "duracion",
-    "segundos",
-    "clave",
-    "origen",
-    "audio",
-    "transcripcion",
-    "transcripcion-tiempos",
-    "transcripcion-texto"
-  ]);
-  var marker = /\{\{([^{}]+)\}\}/g;
-  function render(text, value) {
-    return text.replace(
-      marker,
-      (raw, token) => tokens.has(token) || token.startsWith("enlace:") && token.length > 7 ? value(token) : raw
-    );
-  }
-  function sole(text) {
-    const m = text.trim().match(/^\{\{([^{}]+)\}\}$/);
-    return m && (tokens.has(m[1]) || m[1].startsWith("enlace:")) ? m[1] : void 0;
-  }
-  function clock(seconds) {
-    const n = Math.max(0, Math.floor(seconds));
-    return `${(n >= 3600 ? Math.floor(n / 3600) + ":" : "") + String(Math.floor(n % 3600 / 60)).padStart(2, "0")}:${String(n % 60).padStart(2, "0")}`;
-  }
-  function dateValues(iso, timeZone) {
-    const date5 = new Date(iso);
-    const parts = Object.fromEntries(
-      new Intl.DateTimeFormat("en-GB", {
-        timeZone,
-        year: "numeric",
-        month: "2-digit",
-        day: "2-digit",
-        hour: "2-digit",
-        minute: "2-digit",
-        second: "2-digit",
-        hourCycle: "h23"
-      }).formatToParts(date5).map((p) => [p.type, p.value])
-    );
-    const { year, month, day, hour, minute, second } = parts;
-    const offset = (Date.UTC(+year, +month - 1, +day, +hour, +minute, +second) - Math.floor(date5.getTime() / 1e3) * 1e3) / 6e4;
-    const suffix = offset === 0 ? "Z" : `${offset < 0 ? "-" : "+"}${String(Math.floor(Math.abs(offset) / 60)).padStart(2, "0")}:${String(Math.abs(offset) % 60).padStart(2, "0")}`;
-    return {
-      day: `${year}-${month}-${day}`,
-      iso: `${year}-${month}-${day}T${hour}:${minute}:${second}${suffix}`,
-      long: `${+day} de ${months[+month - 1]} de ${year}, ${hour}:${minute}`
-    };
-  }
-  function monthHeading(key) {
-    const [year, month] = key.split("-");
-    const name = months[+month - 1];
-    return name ? `${name[0].toUpperCase()}${name.slice(1)} de ${year}` : "Otras";
-  }
-  function turns(note) {
-    if (!note.segments.some((s) => s.speaker))
-      return [{ text: note.text, speaker: void 0, start: void 0 }];
-    const result = [];
-    for (const s of note.segments) {
-      const last = result[result.length - 1];
-      if (last && last.speaker === s.speaker) last.text += " " + s.text;
-      else result.push({ ...s });
-    }
-    return result;
-  }
-  function prefix(turn, style) {
-    if (style === "transcripcion-texto") return "";
-    const stamp = style === "transcripcion-tiempos" && turn.start !== void 0 ? `[${clock(turn.start)}]` : "";
-    return [stamp, turn.speaker].filter(Boolean).join(" ");
-  }
-  function transcript(note, style = "transcripcion", markdown = false) {
-    return turns(note).flatMap(
-      (t) => t.text.split(/\r?\n/).filter(Boolean).map((line, i) => {
-        const p = i === 0 ? prefix(t, style) : "";
-        return p ? `${markdown ? "**" : ""}${p}:${markdown ? "**" : ""} ${line}` : line;
-      })
-    ).join(markdown ? "\n\n" : "\n");
-  }
-  function values(note) {
-    const date5 = dateValues(note.startedAt, note.timeZone || "UTC");
-    const title = note.digest?.title.trim() || fallbackTitle(note.text, note.key);
-    const summary = note.digest?.summary.trim() || "";
-    let description = summary.split(/\n/)[0].match(/^.*?[.?!](?=\s|$)/)?.[0] || summary.split(/\n/)[0];
-    if (description.length > 200) {
-      let out = "";
-      for (const word of description.split(/\s+/)) {
-        const next = out ? out + " " + word : word;
-        if (next.length >= 200) break;
-        out = next;
-      }
-      description = (out || description.slice(0, 199)) + "\u2026";
-    }
-    const speakers = [
-      ...new Set(
-        note.segments.map((s) => s.speaker).filter((s) => !!s)
-      )
-    ];
-    const duration3 = note.segments.at(-1)?.end;
-    const tags = note.digest?.tags || [];
-    const map2 = {
-      titulo: title,
-      descripcion: description || `Grabaci\xF3n del ${date5.long}.`,
-      resumen: summary,
-      etiquetas: tags.join(", "),
-      fecha: date5.long,
-      "fecha-iso": date5.iso,
-      dia: date5.day,
-      hablantes: speakers.join(", "),
-      duracion: duration3 === void 0 ? "" : clock(duration3),
-      segundos: duration3 === void 0 ? "" : String(Math.round(duration3)),
-      clave: note.key,
-      origen: decodeURIComponent(note.source.replace(/^file:\/\//, "")),
-      audio: note.source
-    };
-    return {
-      title,
-      tags,
-      speakers,
-      duration: duration3,
-      date: date5,
-      inline: (token) => token.startsWith("transcripcion") ? transcript(note) : map2[token] || ""
-    };
-  }
-  function cleanBody(text) {
-    const lines = text.split("\n");
-    const keep = lines.map(() => true);
-    for (let i = lines.length - 1; i >= 0; i--) {
-      const heading = lines[i].match(/^(#{1,6})(?:\s|$)/);
-      if (!heading) continue;
-      if (!lines[i].replace(/^#+/, "").trim()) {
-        keep[i] = false;
-        continue;
-      }
-      let content2 = false;
-      for (let j = i + 1; j < lines.length; j++) {
-        const next = lines[j].match(/^(#{1,6})(?:\s|$)/);
-        if (next && next[1].length <= heading[1].length) break;
-        if (keep[j] && lines[j].trim()) content2 = true;
-      }
-      keep[i] = content2;
-    }
-    return lines.filter((_, i) => keep[i]).join("\n").replace(/\n[ \t]*\n(?:[ \t]*\n)+/g, "\n\n").trim();
-  }
-  function slug(text) {
-    const words = text.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().match(/[a-z0-9]+/g) || [];
-    let result = "";
-    for (const word of words) {
-      const next = result ? result + "-" + word : word;
-      if (next.length > 60) {
-        if (!result) result = word.slice(0, 60);
-        break;
-      }
-      result = next;
-    }
-    return result || "nota";
-  }
-  var quote = (text) => JSON.stringify(text.split(/[\r\n\t]+/).join(" "));
-  var linkText = (text) => text.replace(/([\[\]])/g, "\\$1");
-  function fallbackTitle(text, key) {
-    const words = text.split(/\s+/).filter(Boolean);
-    if (!words.length) return key;
-    const taken = [];
-    let length = 0;
-    for (const word of words) {
-      const next = length + (taken.length ? 1 : 0) + Array.from(word).length;
-      if (next > 80) break;
-      taken.push(word);
-      length = next;
-    }
-    return taken.join(" ") + (taken.length < words.length ? "\u2026" : "");
-  }
 
   // src/okf.ts
   var property = external_exports.object({
@@ -23147,518 +23665,206 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
     return { locator: receipt.locator, receipt };
   }
 
-  // src/notion.ts
-  var import_client = __toESM(require_src(), 1);
-  var notionSchema = external_exports.object({
-    source: external_exports.object({
-      id: external_exports.string().min(1),
-      title: external_exports.string().default(""),
-      databaseTitle: external_exports.string().default(""),
-      properties: external_exports.array(external_exports.object({ name: external_exports.string(), type: external_exports.string() }))
-    }),
-    columns: external_exports.record(external_exports.string(), external_exports.string()).optional(),
-    body: external_exports.string().optional(),
-    mapping: external_exports.object({ byField: external_exports.record(external_exports.string(), external_exports.string()) }).optional(),
-    template: external_exports.object({ blocks: external_exports.array(external_exports.record(external_exports.string(), external_exports.unknown())) }).optional()
-  });
-  var fieldTokens = {
-    title: "titulo",
-    date: "fecha-iso",
-    speakers: "hablantes",
-    duration: "duracion",
-    key: "clave",
-    source: "origen",
-    summary: "resumen",
-    tags: "etiquetas"
-  };
-  var labels = {
-    title: "T\xEDtulo",
-    date: "Fecha de la grabaci\xF3n",
-    speakers: "Hablantes",
-    duration: "Duraci\xF3n (segundos)",
-    key: "Clave de la grabaci\xF3n",
-    source: "Fichero de origen",
-    summary: "Resumen",
-    tags: "Etiquetas"
-  };
-  function notionConfig(raw) {
-    const parsed = notionSchema.parse(raw);
-    const columns = parsed.columns || Object.fromEntries(
-      Object.entries(parsed.mapping?.byField || {}).flatMap(([field, name]) => {
-        const type = parsed.source.properties.find(
-          (p) => p.name === name
-        )?.type;
-        let token = fieldTokens[field];
-        if (field === "duration" && type === "number") token = "segundos";
-        if (field === "source" && type === "url") token = "audio";
-        return type && token ? [[name, `{{${token}}}`]] : [];
-      })
-    );
-    const body = parsed.body ?? parsed.template?.blocks.map((block) => {
-      const key = Object.keys(block)[0];
-      const val = block[key];
-      const value = typeof val === "object" && val !== null && "_0" in val ? String(val._0) : typeof val === "string" ? val : "";
-      if (key === "text") return value;
-      if (key === "heading") return "# " + value;
-      if (key === "summary") return "{{resumen}}";
-      if (key === "audio") return "{{audio}}";
-      if (key === "transcript")
-        return `{{${value === "plain" ? "transcripcion-texto" : value === "timestamps" ? "transcripcion-tiempos" : "transcripcion"}}}`;
-      if (key === "field")
-        return `**${labels[value]}:** {{${value === "date" ? "fecha" : fieldTokens[value]}}}`;
-      return "";
-    }).filter(Boolean).join("\n\n") ?? "{{transcripcion}}";
-    return { source: parsed.source, columns, body };
+  // src/editor.ts
+  var notionDefault = { source: { id: "", title: "", databaseTitle: "", properties: [] }, columns: {}, body: "{{transcripcion}}" };
+  var notionDefaultConfiguration = notionDefault;
+  var okfDefaultConfiguration = { folder: "", documents: standardDocuments() };
+  function record2(value) {
+    return value !== null && typeof value === "object" && !Array.isArray(value) ? value : {};
   }
-  function suggestedColumns(source, existing = {}) {
-    const specs = {
-      title: { types: ["title"], hints: ["titulo", "nombre", "asunto"] },
-      date: {
-        types: ["date"],
-        hints: ["fecha", "grabacion", "date", "dia", "momento"]
-      },
-      speakers: {
-        types: ["multi_select", "rich_text"],
-        hints: ["hablante", "speaker", "participante", "persona", "quien"]
-      },
-      duration: {
-        types: ["number", "rich_text"],
-        hints: ["duracion", "duration", "segundo", "length", "largo"]
-      },
-      key: {
-        types: ["rich_text"],
-        hints: ["clave", "key", "id", "identificador"]
-      },
-      source: {
-        types: ["url", "rich_text"],
-        hints: ["origen", "source", "fichero", "archivo", "ruta", "audio"]
-      },
-      summary: {
-        types: ["rich_text"],
-        hints: ["resumen", "summary", "sintesis", "abstract"]
-      },
-      tags: {
-        types: ["multi_select", "rich_text"],
-        hints: ["etiqueta", "tag", "tema", "categoria", "topic"]
-      }
-    };
-    const chosen = {};
-    const taken = /* @__PURE__ */ new Set();
-    const named = (name, field) => specs[field].hints.some(
-      (h) => name.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().includes(h)
-    );
-    for (const pass of [0, 1])
-      for (const [field, spec] of Object.entries(specs)) {
-        if (chosen[field]) continue;
-        const compatible = spec.types.flatMap(
-          (type) => source.properties.filter((p) => p.type === type)
-        );
-        const property2 = compatible.find(
-          (p) => !taken.has(p.name) && (pass === 0 ? named(p.name, field) : !Object.keys(specs).some(
-            (other) => other !== field && named(p.name, other)
-          ))
-        );
-        if (property2) {
-          chosen[field] = property2.name;
-          taken.add(property2.name);
-        }
-      }
-    const columns = notionConfig({
-      source,
-      mapping: { byField: chosen }
-    }).columns;
-    for (const [name, value] of Object.entries(existing))
-      if (source.properties.some(
-        (p) => p.name === name && [
-          "title",
-          "rich_text",
-          "multi_select",
-          "select",
-          "date",
-          "number",
-          "url"
-        ].includes(p.type)
-      ))
-        columns[name] = value;
-    return columns;
+  function string4(value, fallback = "") {
+    return typeof value === "string" ? value : fallback;
   }
-  function notionProblem(config2) {
-    const title = config2.source.properties.find((p) => p.type === "title");
-    if (!title)
-      return `La base \xAB${config2.source.title}\xBB no tiene propiedad de t\xEDtulo.`;
-    if (!config2.columns[title.name]?.trim())
-      return `Escribe qu\xE9 va en \xAB${title.name}\xBB, la columna del t\xEDtulo.`;
+  function source(value) {
+    const raw = record2(value);
+    if (raw.properties !== void 0 && !Array.isArray(raw.properties)) throw Error("source.properties: se esperaba una lista");
+    return { id: string4(raw.id), title: string4(raw.title), databaseTitle: string4(raw.databaseTitle), properties: Array.isArray(raw.properties) ? raw.properties.map((item, index) => {
+      const property2 = record2(item);
+      if (typeof property2.name !== "string" || typeof property2.type !== "string") throw Error(`source.properties.${index}: propiedad no v\xE1lida`);
+      return { name: property2.name, type: property2.type };
+    }) : [] };
   }
-  var rt = (text, bold = false) => ({
-    type: "text",
-    text: { content: text },
-    ...bold ? { annotations: { bold: true } } : {}
-  });
-  function runs(text) {
-    const parts = text.split("**");
-    return parts.length % 2 === 0 ? [rt(text)] : parts.flatMap((p, i) => p ? [rt(p, i % 2 === 1)] : []);
+  function notionConfiguration(raw) {
+    const input2 = record2(raw);
+    const columns = record2(input2.columns);
+    const normalized = { source: source(input2.source), columns: Object.fromEntries(Object.entries(columns).filter((entry) => typeof entry[1] === "string")), body: string4(input2.body, "{{transcripcion}}") };
+    return normalized.source.id ? notionConfig(normalized) : normalized;
   }
-  function chunks(text, limit = 2e3) {
-    const result = [];
-    let current = "";
-    for (const word of text.split(/\s+/).filter(Boolean)) {
-      if ((current ? current + " " + word : word).length <= limit) {
-        current = current ? current + " " + word : word;
-        continue;
-      }
-      if (current) {
-        result.push(current);
-        current = "";
-        limit = 2e3;
-      }
-      let rest = word;
-      while (rest.length > limit) {
-        result.push(rest.slice(0, limit));
-        rest = rest.slice(limit);
-        limit = 2e3;
-      }
-      current = rest;
+  function okfConfiguration(raw) {
+    const input2 = record2(raw);
+    if (input2.documents !== void 0 && !Array.isArray(input2.documents)) throw Error("documents: se esperaba una lista");
+    const documents = Array.isArray(input2.documents) ? input2.documents.map((item, index) => {
+      const doc = record2(item);
+      if (typeof doc.id !== "string") throw Error(`documents.${index}.id: identificador no v\xE1lido`);
+      if (!Array.isArray(doc.properties)) throw Error(`documents.${index}.properties: se esperaba una lista`);
+      return { id: doc.id, name: string4(doc.name), path: string4(doc.path), body: string4(doc.body), properties: doc.properties.map((item2, propertyIndex) => {
+        const property2 = record2(item2);
+        if (typeof property2.key !== "string" || typeof property2.value !== "string") throw Error(`documents.${index}.properties.${propertyIndex}: propiedad no v\xE1lida`);
+        return { ...typeof property2.id === "string" ? { id: property2.id } : {}, key: property2.key, value: property2.value };
+      }) };
+    }) : standardDocuments();
+    return { folder: string4(input2.folder), documents, ...typeof input2.producer === "string" ? { producer: input2.producer } : {} };
+  }
+  function writable(source2) {
+    const properties = source2.properties.filter((property2) => ["title", "rich_text", "multi_select", "select", "date", "number", "url"].includes(property2.type));
+    return [...properties.filter((property2) => property2.type === "title"), ...properties.filter((property2) => property2.type !== "title")];
+  }
+  function richText(value) {
+    return Array.isArray(value) ? value.map((run2) => string4(record2(record2(run2).text).content)).join("") : "";
+  }
+  function displayedProperty(value) {
+    const [type, content2] = Object.entries(record2(value))[0] ?? [];
+    if (type === "title" || type === "rich_text") return richText(content2) || "\u2014";
+    if (type === "multi_select" && Array.isArray(content2)) return content2.map((item) => string4(record2(item).name)).filter(Boolean).join(", ") || "\u2014";
+    if (type === "select") return string4(record2(content2).name, "\u2014");
+    if (type === "date") return string4(record2(content2).start, "\u2014");
+    if (type === "number" && typeof content2 === "number") return String(content2);
+    if (type === "url" && typeof content2 === "string") return content2;
+    return "\u2014";
+  }
+  function displayedBlock(value) {
+    const block = record2(value);
+    const type = string4(block.type, "paragraph");
+    if (type === "audio") return "\u25B6\uFE0E Audio";
+    const text = richText(record2(block[type]).rich_text);
+    if (type === "bulleted_list_item") return `\u2022 ${text}`;
+    const level = /^heading_([123])$/.exec(type)?.[1];
+    return level ? `${"#".repeat(Number(level))} ${text}` : text;
+  }
+  async function notionView(raw, state, preview) {
+    const config2 = notionConfiguration(raw);
+    const stateSources = Array.isArray(state.sources) ? state.sources.map(source).filter((entry) => entry.id) : [];
+    const sources = Array.isArray(state.sources) ? stateSources : config2.source.id ? [config2.source] : [];
+    const selected = config2.source.id ? config2.source : null;
+    const sections = [{ title: "Bases y columnas", fields: [{ type: "action", id: "refresh-sources", label: "Actualizar bases y columnas" }] }];
+    if (sources.length) sections.push({ title: "Base de datos", fields: [{ type: "select", path: ["source", "id"], label: "Guardar en", action: "select-source", options: [{ label: "Sin elegir", value: "" }, ...sources.map((item) => ({ label: item.databaseTitle === item.title || !item.title ? item.databaseTitle : `${item.databaseTitle} \u203A ${item.title}`, value: item.id }))] }] });
+    if (selected) {
+      const labels2 = { title: "t\xEDtulo", rich_text: "texto", multi_select: "selecci\xF3n m\xFAltiple", select: "selecci\xF3n", date: "fecha", number: "n\xFAmero", url: "URL" };
+      sections.push({ title: "Propiedades", help: "Una fila por columna de tu base: escribe qu\xE9 va en ella, con texto y datos. Vac\xEDa, Escriba no la toca. Las columnas de casilla, persona, archivo o relaci\xF3n no aparecen porque Escriba no escribe en ellas.", fields: writable(selected).map((column) => ({ type: "template", path: ["columns", column.name], label: `${column.name} \xB7 ${labels2[column.type]}`, context: "property", placeholder: "No se exporta" })) });
+      sections.push({ title: "Cuerpo de la p\xE1gina", help: "Escribe como en una p\xE1gina: # para t\xEDtulos, - para vi\xF1etas, **negrita**. Pulsa / para insertar un dato; el dato Audio sube el fichero a Notion. Una l\xEDnea cuyos datos salen vac\xEDos no se escribe.", fields: [{ type: "template", path: ["body"], label: "Cuerpo", context: "body", placeholder: "Escribe aqu\xED. Pulsa / para insertar un dato.", multiline: true }] });
     }
-    if (current) result.push(current);
-    return result;
-  }
-  function blocks(text, type = "paragraph", lead = "") {
-    const result = [];
-    for (const line of text.split(/\r?\n/).filter(Boolean)) {
-      const rich = runs(line);
-      const pieces = line.length + (result.length ? 0 : lead.length) > 2e3 ? chunks(line, 2e3 - (result.length ? 0 : lead.length)) : [line];
-      for (const [i, piece] of pieces.entries()) {
-        const prefixRun = result.length === 0 && lead ? [rt(lead, true)] : [];
-        result.push({
-          object: "block",
-          type,
-          [type]: {
-            rich_text: [
-              ...prefixRun,
-              ...pieces.length === 1 ? rich : [rt(piece)]
-            ]
-          }
-        });
-      }
-    }
-    return result;
-  }
-  function notionPayload(note, config2, audio) {
-    const v = values(note);
-    const properties = {};
-    for (const p of config2.source.properties) {
-      const template = config2.columns[p.name];
-      if (!template?.trim()) continue;
-      const token = sole(template);
-      const text = render(template, v.inline).trim();
-      switch (p.type) {
-        case "title":
-        case "rich_text":
-          properties[p.name] = {
-            [p.type]: text ? [rt(text.slice(0, 2e3))] : []
-          };
-          break;
-        case "multi_select":
-          properties[p.name] = {
-            multi_select: (token === "etiquetas" ? v.tags : token === "hablantes" ? v.speakers : text.split(",").map((s) => s.trim())).filter(Boolean).map((name) => ({ name }))
-          };
-          break;
-        case "select":
-          properties[p.name] = { select: text ? { name: text } : null };
-          break;
-        case "date":
-          if (token === "fecha-iso" || token === "fecha")
-            properties[p.name] = { date: { start: v.date.iso } };
-          break;
-        case "number": {
-          const n = token === "segundos" || token === "duracion" ? v.duration === void 0 ? null : Math.round(v.duration) : text ? Number(text.replace(",", ".")) : null;
-          properties[p.name] = {
-            number: n !== null && Number.isFinite(n) ? n : null
-          };
-          break;
-        }
-        case "url":
-          properties[p.name] = { url: text || null };
-      }
-    }
-    const lines = config2.body.split("\n").flatMap((line) => {
-      const token = sole(line);
-      if (token?.startsWith("transcripcion"))
-        return [
-          {
-            blocks: turns(note).flatMap(
-              (t) => blocks(
-                t.text,
-                "paragraph",
-                prefix(t, token) ? prefix(t, token) + ": " : ""
-              )
-            )
-          }
-        ];
-      if (token === "audio")
-        return [
-          {
-            blocks: audio ? [
-              {
-                object: "block",
-                type: "audio",
-                audio: { type: "file_upload", file_upload: { id: audio } }
-              }
-            ] : []
-          }
-        ];
-      return render(line, v.inline).split("\n").map((text) => {
-        const heading = text.match(/^(#{1,6})(?:\s|$)(.*)/);
-        if (heading)
-          return {
-            level: heading[1].length,
-            blocks: blocks(
-              heading[2].trim(),
-              `heading_${Math.min(3, heading[1].length)}`
-            )
-          };
-        return {
-          blocks: /^[-*] /.test(text) ? blocks(text.slice(2), "bulleted_list_item") : blocks(text)
-        };
-      });
-    });
-    const kept = lines.map(() => true);
-    for (let i = lines.length - 1; i >= 0; i--) {
-      const level = lines[i].level;
-      if (level === void 0) continue;
-      let content2 = false;
-      for (let j = i + 1; j < lines.length; j++) {
-        const nested = lines[j].level;
-        if (nested !== void 0 && nested <= level) break;
-        if (kept[j] && lines[j].blocks.length) content2 = true;
-      }
-      kept[i] = content2 && lines[i].blocks.length > 0;
-    }
-    const children = lines.flatMap((line, i) => kept[i] ? line.blocks : []);
-    return { properties, children };
-  }
-  function sdk(host) {
-    return new import_client.Client({
-      fetch: async (url2, init) => {
-        const method = (init?.method || "GET").toUpperCase();
-        const path = new URL(String(url2)).pathname;
-        const repeatable = method === "GET" || method === "DELETE" || method === "PATCH" && /^\/v1\/pages\/[^/]+$/.test(path) || method === "POST" && (path === "/v1/search" || /^\/v1\/data_sources\/[^/]+\/query$/.test(path) || /^\/v1\/file_uploads\/[^/]+\/send$/.test(path));
-        for (let attempt = 0; ; attempt++) {
-          try {
-            return await host.fetch(url2, init);
-          } catch (error62) {
-            if (!repeatable || attempt >= 4 || init && "signal" in init && init.signal?.aborted)
-              throw error62;
-            await new Promise(
-              (resolve) => setTimeout(resolve, 1e3 * 2 ** attempt)
-            );
-          }
-        }
-      },
-      notionVersion: "2025-09-03",
-      retry: { maxRetries: 4 },
-      logger: () => {
-      }
-    });
-  }
-  async function upload(client, host) {
-    const audio = await host.audio();
-    if (!audio) throw Error("No se pudo leer el audio");
-    const size = audio.data.size;
-    const multi = size > 20 * 1024 * 1024;
-    const partSize = 10 * 1024 * 1024;
-    const created = await client.fileUploads.create({
-      mode: multi ? "multi_part" : "single_part",
-      filename: audio.filename,
-      content_type: audio.data.type || "audio/mp4",
-      ...multi ? { number_of_parts: Math.ceil(size / partSize) } : {}
-    });
-    if (multi) {
-      for (let offset = 0, part = 1; offset < size; offset += partSize, part++)
-        await client.fileUploads.send({
-          file_upload_id: created.id,
-          file: {
-            data: audio.data.slice(
-              offset,
-              Math.min(size, offset + partSize),
-              audio.data.type
-            ),
-            filename: audio.filename
-          },
-          part_number: String(part)
-        });
-      await client.fileUploads.complete({ file_upload_id: created.id });
-    } else
-      await client.fileUploads.send({ file_upload_id: created.id, file: audio });
-    return created.id;
-  }
-  async function runNotion(request, host) {
-    const client = sdk(host);
-    if (request.operation === "discover") {
-      const resources = [];
-      let cursor;
-      const seen = /* @__PURE__ */ new Set();
-      do {
-        const result = await client.search({
-          filter: { property: "object", value: "data_source" },
-          page_size: 100,
-          ...cursor ? { start_cursor: cursor } : {}
-        });
-        for (const source of result.results) {
-          if (source.object !== "data_source" || !("properties" in source) || !("title" in source))
-            continue;
-          const name = source.title.map((t) => t.plain_text).join("") || "Sin t\xEDtulo";
-          const properties = Object.entries(source.properties).map(
-            ([name2, p]) => ({ name: name2, type: p.type })
-          );
-          const schema = {
-            id: source.id,
-            title: name,
-            databaseTitle: name,
-            properties
-          };
-          const existing = external_exports.record(external_exports.string(), external_exports.string()).safeParse(request.config?.columns);
-          resources.push({
-            configuration: {
-              source: schema,
-              columns: suggestedColumns(
-                schema,
-                existing.success ? existing.data : {}
-              ),
-              body: "{{transcripcion}}"
-            },
-            id: source.id,
-            name,
-            schema: {
-              id: source.id,
-              title: name,
-              databaseTitle: name,
-              properties
-            }
-          });
-        }
-        cursor = result.has_more ? result.next_cursor || void 0 : void 0;
-        if (cursor) {
-          if (seen.has(cursor))
-            throw Error("Notion repiti\xF3 el cursor de paginaci\xF3n");
-          seen.add(cursor);
-        }
-      } while (cursor);
-      return { resources };
-    }
-    const config2 = notionConfig(request.config);
-    let ref = request.previous?.locator ? { id: request.previous.locator, url: request.previous.url } : void 0;
-    if (request.operation === "remove") {
-      if (!ref) throw Error("Falta el localizador de la publicaci\xF3n");
-      await client.pages.update({ page_id: ref.id, archived: true });
-      const receipt2 = {
-        version: 1,
-        provider: "notion",
-        locator: ref.id,
-        ...ref.url ? { url: ref.url } : {},
-        state: "removed"
-      };
-      await host.checkpoint(receipt2);
-      return { locator: ref.id, receipt: receipt2 };
-    }
-    const problem = notionProblem(config2);
-    if (problem) throw Error(problem);
-    const note = request.note;
-    if (!note) throw Error("Falta la nota");
-    if (request.operation === "preview") return notionPayload(note, config2, "ejemplo");
-    const audio = config2.body.includes("{{audio}}") ? await upload(client, host) : void 0;
-    const payload = notionPayload(note, config2, audio);
-    if (!ref) {
-      const keyColumn = config2.source.properties.find(
-        (p) => p.type === "rich_text" && sole(config2.columns[p.name] || "") === "clave"
-      );
-      if (keyColumn) {
-        const found = await client.dataSources.query({
-          data_source_id: config2.source.id,
-          filter: { property: keyColumn.name, rich_text: { equals: note.key } },
-          page_size: 1
-        });
-        const page = found.results[0];
-        if (page && "url" in page) ref = { id: page.id, url: page.url };
-      }
-    }
-    if (!ref && request.previous?.state === "creating")
-      throw Error(
-        "El resultado de la creaci\xF3n anterior es incierto; reconcilia el localizador antes de publicar de nuevo"
-      );
-    if (ref) {
+    const view = { sections, subtitle: selected ? selected.databaseTitle === selected.title || !selected.title ? selected.databaseTitle : `${selected.databaseTitle} \u203A ${selected.title}` : "Sin base elegida" };
+    if (selected) {
       try {
-        await client.pages.update({
-          page_id: ref.id,
-          properties: payload.properties
-        });
+        const result = await preview("notion", config2);
+        const properties = record2(result.properties);
+        view.previews = [{ title: "As\xED queda", properties: writable(selected).filter((item) => Object.hasOwn(properties, item.name)).map((item) => ({ label: item.name, value: displayedProperty(properties[item.name]) })), text: Array.isArray(result.children) ? result.children.map(displayedBlock).join("\n\n") : "" }];
       } catch (error62) {
-        if (error62 && typeof error62 === "object" && "status" in error62 && error62.status === 404)
-          ref = void 0;
-        else throw error62;
+        view.problem = error62 instanceof Error ? error62.message : String(error62);
       }
     }
-    let offset = 0;
-    if (!ref) {
-      const creating = {
-        version: 1,
-        provider: "notion",
-        locator: "",
-        key: note.key,
-        state: "creating"
-      };
-      await host.checkpoint(creating);
-      const created = await client.pages.create({
-        parent: { type: "data_source_id", data_source_id: config2.source.id },
-        properties: payload.properties,
-        children: payload.children.slice(0, 100)
-      }).catch(async (error62) => {
-        if (error62 && typeof error62 === "object" && "status" in error62 && typeof error62.status === "number" && error62.status >= 400 && error62.status < 500 && error62.status !== 408)
-          await host.checkpoint({ ...creating, state: "rejected" });
-        throw error62;
-      });
-      if (!created.id)
-        throw Error("Notion no devolvi\xF3 el ID de la p\xE1gina creada");
-      ref = { id: created.id, url: "url" in created ? created.url : void 0 };
-      offset = 100;
+    return view;
+  }
+  function selectedDocument(config2, state) {
+    const chosen = typeof state.selectedDocument === "string" ? state.selectedDocument : config2.documents[0]?.id;
+    return config2.documents.find((doc) => doc.id === chosen) ?? config2.documents[0];
+  }
+  async function okfView(raw, state, preview) {
+    const config2 = okfConfiguration(raw);
+    const selected = selectedDocument(config2, state);
+    const sections = [
+      { title: "Carpeta del bundle", help: "Escriba gestiona esta carpeta como un bundle OKF: escribe los documentos, un index.md en cada carpeta y log.md. Si va dentro de un bundle m\xE1s grande, elige una subcarpeta propia.", fields: [{ type: "folder", path: ["folder"], label: "Carpeta" }] },
+      { title: "Documentos", help: "Cada grabaci\xF3n escribe un fichero por documento. Para enlazarlos entre s\xED, inserta el dato \xABEnlace a\u2026\xBB.", fields: [{ type: "select", row: "documents", path: [], value: selected?.id ?? "", label: "Documento", action: "select-document", options: config2.documents.map((doc) => ({ value: doc.id, label: doc.name || "Sin nombre" })) }, { type: "action", row: "documents", id: "add-document", label: "+" }, { type: "action", row: "documents", id: "remove-document", label: "\u2212", disabled: !selected, destructive: true }] }
+    ];
+    const view = { sections, subtitle: config2.folder || "Sin carpeta elegida" };
+    if (selected) {
+      const index = config2.documents.findIndex((doc) => doc.id === selected.id);
+      const base = ["documents", index];
+      const links = config2.documents.map((doc) => ({ id: doc.id, name: doc.name }));
+      sections.push({ title: "Documento", help: "La ruta dentro del bundle. Escribe // para insertar un dato en ella; el t\xEDtulo se pone sin tildes ni signos.", fields: [{ type: "text", path: [...base, "name"], label: "Nombre" }, { type: "template", path: [...base, "path"], label: "Ruta", context: "path", placeholder: "carpeta/[D\xEDa]-[T\xEDtulo].md" }] });
+      sections.push({ title: "Propiedades", help: "Son el frontmatter del fichero: clave y valor, con texto y datos mezclados. type es obligatorio en OKF. Escriba a\xF1ade siempre escriba_key y generated para reconocer sus ficheros.", fields: [...selected.properties.flatMap((property2, propertyIndex) => {
+        const fixed = property2.key.trim() === "type" && selected.properties.findIndex((item) => item.key.trim() === "type") === propertyIndex;
+        const row = `property:${selected.id}:${property2.id ?? propertyIndex}`;
+        return [
+          { type: "text", row, path: [...base, "properties", propertyIndex, "key"], label: "Clave", placeholder: "clave", disabled: fixed },
+          { type: "template", row, path: [...base, "properties", propertyIndex, "value"], label: property2.key || "Valor", context: "property", links, current: selected.id, placeholder: "valor" },
+          ...fixed ? [] : [{ type: "action", row, id: `remove-property:${encodeURIComponent(selected.id)}:${propertyIndex}`, label: `Quitar propiedad ${property2.key}`, destructive: true }]
+        ];
+      }), { type: "action", id: "add-property", label: "A\xF1adir propiedad" }] });
+      sections.push({ title: "Cuerpo", help: "Escribe como en una p\xE1gina: Markdown, con # para los t\xEDtulos. Pulsa / donde quieras para insertar un dato, o usa +. Una l\xEDnea cuyos datos salen vac\xEDos no se escribe.", fields: [{ type: "template", path: [...base, "body"], label: "Cuerpo", context: "body", links, current: selected.id, placeholder: "Escribe aqu\xED. Pulsa / para insertar un dato.", multiline: true }] });
+      try {
+        const previewResult = await preview("okf", { ...config2, folder: config2.folder || "/" });
+        const file2 = Array.isArray(previewResult.files) ? previewResult.files.map(record2).find((item) => item.documentID === selected.id) : void 0;
+        if (file2) view.previews = [{ title: "As\xED queda", text: `\u25A4 ${string4(file2.path)}
+
+${string4(file2.contents)}` }];
+      } catch (error62) {
+        view.problem = error62 instanceof Error ? error62.message : String(error62);
+      }
     }
-    const receipt = {
-      version: 1,
-      provider: "notion",
-      locator: ref.id,
-      ...ref.url ? { url: ref.url } : {},
-      key: note.key,
-      state: "applying"
-    };
-    await host.checkpoint(receipt);
-    if (offset === 0) {
-      const ids = [];
-      let cursor;
-      const seen = /* @__PURE__ */ new Set();
-      do {
-        const list = await client.blocks.children.list({
-          block_id: ref.id,
-          page_size: 100,
-          ...cursor ? { start_cursor: cursor } : {}
-        });
-        ids.push(...list.results.map((b) => b.id));
-        cursor = list.has_more ? list.next_cursor || void 0 : void 0;
-        if (cursor) {
-          if (seen.has(cursor))
-            throw Error("Notion repiti\xF3 el cursor de paginaci\xF3n");
-          seen.add(cursor);
-        }
-      } while (cursor);
-      for (const id of ids) await client.blocks.delete({ block_id: id });
+    return view;
+  }
+  async function describeBuiltin(provider, config2, state, preview) {
+    return { view: provider === "notion" ? await notionView(config2, state, preview) : await okfView(config2, state, preview) };
+  }
+  async function actionBuiltin(provider, config2, state, action, value, preview, host) {
+    if (provider === "notion") {
+      const current2 = notionConfiguration(config2);
+      if (action === "refresh-sources") {
+        if (!host) throw Error("Falta el host de capacidades");
+        const discovered = await runNotion({ operation: "discover", provider: "notion", config: current2 }, host);
+        const sources = Array.isArray(discovered.resources) ? discovered.resources.map((item) => source(record2(item).schema)).filter((item) => item.id) : [];
+        const fresh = sources.find((item) => item.id === current2.source.id);
+        const configuration2 = fresh ? { source: fresh, columns: suggestedColumns(fresh, current2.columns), body: current2.body } : current2;
+        const nextState2 = { ...state, sources };
+        const result = await describeBuiltin(provider, configuration2, nextState2, preview);
+        return { configuration: configuration2, state: nextState2, ...result, ...sources.length ? {} : { problem: "La integraci\xF3n no tiene acceso a ninguna base. Comp\xE1rtele una desde Notion." } };
+      }
+      if (action === "select-source") {
+        const sources = Array.isArray(state.sources) ? state.sources.map(source) : [];
+        const chosen = sources.find((item) => item.id === value);
+        if (!chosen && value !== "") throw Error("Base de Notion desconocida");
+        const configuration2 = chosen ? { source: chosen, columns: suggestedColumns(chosen, current2.source.id === chosen.id ? current2.columns : {}), body: current2.body } : { source: notionDefault.source, columns: {}, body: current2.body };
+        return { configuration: configuration2, state, ...await describeBuiltin(provider, configuration2, state, preview) };
+      }
+      throw Error(`Acci\xF3n de Notion desconocida: ${action}`);
     }
-    for (let i = offset; i < payload.children.length; i += 100)
-      await client.blocks.children.append({
-        block_id: ref.id,
-        children: payload.children.slice(i, i + 100)
-      });
-    receipt.state = "published";
-    await host.checkpoint(receipt);
-    return { locator: ref.id, ...ref.url ? { url: ref.url } : {}, receipt };
+    const current = okfConfiguration(config2);
+    let nextState = state;
+    let documents = [...current.documents];
+    const selected = selectedDocument(current, state);
+    if (action === "select-document") {
+      if (!documents.some((doc) => doc.id === value)) throw Error("Documento desconocido");
+      nextState = { ...state, selectedDocument: String(value) };
+    } else if (action === "add-document") {
+      const id = crypto.randomUUID();
+      documents.push({ id, name: `Documento ${documents.length + 1}`, path: "documentos/{{dia}}-{{titulo}}.md", properties: [{ key: "type", value: "Documento" }, { key: "title", value: "{{titulo}}" }], body: "{{resumen}}" });
+      nextState = { ...state, selectedDocument: id };
+    } else if (action === "remove-document") {
+      if (!selected) throw Error("Falta un documento seleccionado");
+      documents = documents.filter((doc) => doc.id !== selected.id);
+      nextState = { ...state, selectedDocument: documents[0]?.id ?? "" };
+    } else if (action === "add-property") {
+      if (!selected) throw Error("Falta un documento seleccionado");
+      documents = documents.map((doc) => doc.id === selected.id ? { ...doc, properties: [...doc.properties, { id: crypto.randomUUID(), key: "", value: "" }] } : doc);
+    } else if (action.startsWith("remove-property:")) {
+      const match = /^remove-property:([^:]+):(\d+)$/.exec(action);
+      if (!match) throw Error("Acci\xF3n de propiedad no v\xE1lida");
+      const id = decodeURIComponent(match[1]);
+      const index = Number(match[2]);
+      const doc = documents.find((item) => item.id === id);
+      if (!doc || !doc.properties[index]) throw Error("Propiedad desconocida");
+      const firstType = doc.properties.findIndex((item) => item.key.trim() === "type");
+      if (index === firstType) throw Error("La propiedad type es obligatoria");
+      documents = documents.map((item) => item.id === id ? { ...item, properties: item.properties.filter((_, candidate) => candidate !== index) } : item);
+    } else throw Error(`Acci\xF3n de OKF desconocida: ${action}`);
+    const configuration = { ...current, documents };
+    return { configuration, state: nextState, ...await describeBuiltin(provider, configuration, nextState, preview) };
+  }
+  function builtinProblem(provider, config2) {
+    if (provider === "notion") {
+      const parsed2 = notionConfiguration(config2);
+      if (!parsed2.source.id) return "Elige la base donde guardar.";
+      return notionProblem(parsed2);
+    }
+    const parsed = okfConfiguration(config2);
+    if (!parsed.folder.trim()) return "Elige la carpeta donde guardar las notas.";
+    if (!parsed.documents.length) return "A\xF1ade al menos un documento.";
+    for (const document2 of parsed.documents)
+      if (!document2.properties.find((property2) => property2.key.trim() === "type")?.value.trim()) return `\xAB${document2.name}\xBB necesita un valor en type: OKF lo exige.`;
+    for (let index = 0; index < parsed.documents.length; index++)
+      for (let other = index + 1; other < parsed.documents.length; other++)
+        if (parsed.documents[index].path.trim().replace(/^\/+|\/+$/g, "") === parsed.documents[other].path.trim().replace(/^\/+|\/+$/g, "")) return `\xAB${parsed.documents[index].name}\xBB y \xAB${parsed.documents[other].name}\xBB escriben en la misma ruta.`;
   }
 
   // src/index.ts
@@ -23682,29 +23888,59 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
     source: external_exports.string(),
     timeZone: external_exports.string()
   });
+  var builtinProviders = [
+    { id: "notion", name: "Notion", capability: "http", origin: "https://api.notion.com", allowedHeaders: ["content-type", "accept", "notion-version"], credential: { label: "Token de la integraci\xF3n", header: "Authorization", prefix: "Bearer ", help: "En Notion: Ajustes \u2192 Conexiones \u2192 nueva conexi\xF3n con \xABToken de acceso\xBB." }, defaultConfiguration: notionDefaultConfiguration, connectAction: "refresh-sources", configurationSchema: external_exports.toJSONSchema(notionSchema), autoPublishLabel: "Publicar cada transcripci\xF3n nueva", removalMessage: "Se borran su configuraci\xF3n y su token de Notion; tendr\xEDas que volver a pegarlo. Las p\xE1ginas ya publicadas siguen en Notion." },
+    { id: "okf", name: "OKF", capability: "folder", allowedHeaders: [], defaultConfiguration: okfDefaultConfiguration, configurationSchema: external_exports.toJSONSchema(okfSchema), autoPublishLabel: "Exportar cada transcripci\xF3n nueva", removalMessage: "Se borra su configuraci\xF3n. Los ficheros ya escritos siguen en la carpeta." }
+  ];
+  var headerName = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
+  function safeText(value, label) {
+    if (!value.trim() || /[\r\n\0]/.test(value)) throw Error(`${label} no v\xE1lido`);
+  }
+  function defineProvider(definition) {
+    const { manifest } = definition;
+    if (!/^[a-z][a-z0-9-]*$/.test(manifest.id) || manifest.id === "notion" || manifest.id === "okf") throw Error(`ID de proveedor no v\xE1lido o reservado: ${manifest.id}`);
+    safeText(manifest.name, "Nombre de proveedor");
+    if (manifest.description) safeText(manifest.description, "Descripci\xF3n de proveedor");
+    if (manifest.connectAction) safeText(manifest.connectAction, "Acci\xF3n de conexi\xF3n");
+    if (manifest.capability === "http") {
+      if (!manifest.origin) throw Error("El proveedor HTTP necesita un origen");
+      let origin;
+      try {
+        origin = new URL(manifest.origin);
+      } catch {
+        throw Error("El proveedor HTTP necesita un origen v\xE1lido");
+      }
+      if (!["https:", "http:"].includes(origin.protocol) || origin.origin !== manifest.origin || origin.username || origin.password) throw Error("El proveedor HTTP necesita un origen sin ruta ni credenciales");
+      if (origin.protocol === "http:" && !["127.0.0.1", "[::1]"].includes(origin.hostname)) throw Error("El origen HTTP externo requiere HTTPS");
+    }
+    if (manifest.capability === "folder" && (manifest.origin || manifest.credential)) throw Error("Un proveedor de carpeta no puede declarar acceso HTTP");
+    const headers = /* @__PURE__ */ new Set();
+    for (const header of manifest.allowedHeaders) {
+      if (!headerName.test(header)) throw Error(`Cabecera no v\xE1lida: ${header}`);
+      const normalized = header.toLowerCase();
+      if (headers.has(normalized)) throw Error(`Cabecera repetida: ${header}`);
+      headers.add(normalized);
+    }
+    if (manifest.credential) {
+      safeText(manifest.credential.label, "Nombre de credencial");
+      if (!headerName.test(manifest.credential.header)) throw Error("Cabecera de credencial no v\xE1lida");
+      if (headers.has(manifest.credential.header.toLowerCase())) throw Error("La cabecera de credencial se inyecta separadamente");
+      if (manifest.credential.prefix && /[\r\n\0]/.test(manifest.credential.prefix)) throw Error("Prefijo de credencial no v\xE1lido");
+    }
+    definition.configurationSchema.parse(manifest.defaultConfiguration);
+    definition.configurationSchema.toJSONSchema();
+    return definition;
+  }
   async function run(request, host) {
-    if (request.operation === "manifest")
-      return {
-        providers: [
-          {
-            id: "notion",
-            name: "Notion",
-            capability: "http",
-            origin: "https://api.notion.com",
-            allowedHeaders: ["content-type", "accept", "notion-version"],
-            configurationSchema: external_exports.toJSONSchema(notionSchema),
-            inputSchema: external_exports.toJSONSchema(inputSchema)
-          },
-          {
-            id: "okf",
-            name: "Open Knowledge Format",
-            capability: "folder",
-            allowedHeaders: [],
-            configurationSchema: external_exports.toJSONSchema(okfSchema),
-            inputSchema: external_exports.toJSONSchema(inputSchema)
-          }
-        ]
-      };
+    if (request.operation === "describe" || request.operation === "action") {
+      const provider2 = request.provider || "";
+      if (!builtinProviders.some((entry) => entry.id === provider2)) throw Error(`Proveedor desconocido: ${provider2}`);
+      const config2 = request.config || builtinProviders.find((entry) => entry.id === provider2)?.defaultConfiguration || {};
+      const state = request.state || {};
+      const preview = (id, configuration) => run({ operation: "preview", provider: id, config: configuration });
+      return request.operation === "describe" ? describeBuiltin(provider2, config2, state, preview) : actionBuiltin(provider2, config2, state, request.action || "", request.value, preview, host);
+    }
+    if (request.operation === "manifest") return { providers: builtinProviders.map((provider2) => ({ ...provider2, inputSchema: external_exports.toJSONSchema(inputSchema) })) };
     if (request.operation === "preview" && !request.note) {
       const now = request.now || (/* @__PURE__ */ new Date()).toISOString();
       request = {
@@ -23779,6 +24015,7 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
       };
     if (request.operation === "validate") {
       try {
+        const builtin = builtinProblem(provider, request.config || {});
         const config2 = provider === "okf" ? okfConfig(request.config) : notionConfig(request.config);
         let problem = provider === "notion" ? notionProblem(notionConfig(config2)) : void 0;
         if (provider === "okf") {
@@ -23791,6 +24028,7 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
             if (!doc.properties.find((p) => p.key.trim() === "type")?.value.trim())
               problem = `\xAB${doc.name}\xBB necesita un valor en type: OKF lo exige.`;
         }
+        problem ||= builtin;
         return {
           valid: !problem,
           ...problem ? { problem } : {},
@@ -23834,28 +24072,61 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
   function defineOKFDestination(options) {
     return { ...options, provider: "okf" };
   }
-  function createProgram(destinations) {
+  function createProgram(destinations, providers = []) {
+    const byProvider = /* @__PURE__ */ new Map();
+    for (const provider of providers) {
+      defineProvider(provider);
+      if (byProvider.has(provider.manifest.id)) throw Error(`Proveedor repetido: ${provider.manifest.id}`);
+      byProvider.set(provider.manifest.id, provider);
+    }
     const byID = /* @__PURE__ */ new Map();
     for (const d of destinations) {
       if (!d.id || byID.has(d.id))
         throw Error(`ID de destino vac\xEDo o repetido: ${d.id}`);
+      if (!builtinProviders.some((provider) => provider.id === d.provider) && !byProvider.has(d.provider)) throw Error(`Proveedor desconocido: ${d.provider}`);
       byID.set(d.id, d);
     }
     return {
       inspect() {
         return {
+          providers: [...builtinProviders, ...providers.map((provider) => ({ ...provider.manifest, configurationSchema: provider.configurationSchema.toJSONSchema() }))],
           destinations: destinations.map((d) => ({
             id: d.id,
             name: d.name,
             provider: d.provider,
             account: d.account,
             configuration: d.configuration,
-            inputSchema: external_exports.toJSONSchema(d.inputSchema || inputSchema),
+            inputSchema: d.inputSchema ? d.inputSchema.toJSONSchema() : external_exports.toJSONSchema(inputSchema),
             ...d.description ? { description: d.description } : {}
           }))
         };
       },
       async run(request, host) {
+        const custom2 = byProvider.get(request.provider || "");
+        if (request.operation === "manifest") return { providers: [...builtinProviders, ...providers.map((provider2) => ({ ...provider2.manifest, configurationSchema: provider2.configurationSchema.toJSONSchema() }))] };
+        if (request.operation === "describe" || request.operation === "action" || request.operation === "validate" || request.operation === "template" || request.operation === "discover") {
+          if (custom2) {
+            const config2 = request.config || custom2.manifest.defaultConfiguration;
+            const state = request.state || {};
+            if (request.operation === "describe") return custom2.describe(config2, state);
+            if (request.operation === "action") {
+              if (!custom2.action) throw Error(`El proveedor ${custom2.manifest.id} no declara acciones`);
+              return custom2.action(config2, state, request.action || "", request.value, host);
+            }
+            if (request.operation === "validate") {
+              const parsed = custom2.configurationSchema.safeParse(config2);
+              return parsed.success ? { valid: true } : { valid: false, problem: parsed.error.issues.map((issue2) => `${issue2.path.join(".")}: ${issue2.message}`).join("; ") };
+            }
+            if (request.operation === "template") return { configuration: custom2.manifest.defaultConfiguration };
+            if (!custom2.run) throw Error(`El proveedor ${custom2.manifest.id} no implementa ${request.operation}`);
+            return custom2.run(request, host);
+          }
+          if (request.provider) return run(request, host);
+        }
+        if (custom2 && !request.destination) {
+          if (!custom2.run) throw Error(`El proveedor ${custom2.manifest.id} no implementa ${request.operation}`);
+          return custom2.run({ ...request, config: request.config || custom2.manifest.defaultConfiguration }, host);
+        }
         const d = byID.get(request.destination || "");
         if (!d) throw Error(`Destino desconocido: ${request.destination}`);
         let note = request.note;
@@ -23865,10 +24136,13 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
           );
           note = d.prepare ? await d.prepare(input2, request) : request.note;
         }
-        return run(
-          { ...request, note, provider: d.provider, config: d.configuration },
-          host
-        );
+        const provider = byProvider.get(d.provider);
+        const delegated = { ...request, note, provider: d.provider, config: request.config || d.configuration };
+        if (provider) {
+          if (!provider.run) throw Error(`El proveedor ${d.provider} no implementa ${request.operation}`);
+          return provider.run(delegated, host);
+        }
+        return run(delegated, host);
       }
     };
   }

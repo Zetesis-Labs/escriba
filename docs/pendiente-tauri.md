@@ -13,7 +13,8 @@ coexistencia.
 
 Ampliación confirmada por Rubén el 2026-10-11: proveedores instalables desde el
 proyecto, formularios y credenciales gestionados por Escriba, y uso de SDK desde
-las recetas con cuentas autorizadas. Está pendiente; criterios de aceptación en
+las recetas con cuentas autorizadas. Implementado y probado automáticamente;
+queda la validación de la release instalada por Rubén. Criterios de aceptación en
 [objetivo-extensibilidad-recetas.md](objetivo-extensibilidad-recetas.md). Este
 encargo amplía expresamente la paridad y el contrato del apartado 8.
 

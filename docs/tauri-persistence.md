@@ -70,6 +70,21 @@ texto; la decisión de reintento usa ese código, conservado al atravesar el
 controlador y el worker de Bun. Los trabajos anteriores siguen siendo legibles
 sin ese campo y conservan su estado de espera o recuperación.
 
+## Proveedores y autorizaciones
+
+La tabla `provider` conserva manifiestos y programas instalados. Las bibliotecas
+anteriores abren con este catálogo vacío, sin cambiar IDs ni credenciales de
+Notion/OKF. `account.grant` guarda la autorización explícita de proveedores
+externos; el token permanece en su archivo privado. Instalar un proyecto nunca
+crea una autorización. Los destinos `managed` pertenecen al formulario de la app
+y conservan sus valores al reconstruir el proyecto. Retirar un proveedor lo marca
+como no disponible sin borrar cuentas ni programas de publicaciones anteriores.
+
+`recording.accountEffectPending` se confirma antes de una escritura de SDK y
+permanece tras el éxito. La cola bloquea la recuperación o el reintento automático
+de esa operación; sólo el inicio de un nuevo reprocesado manual retira la marca.
+Esto cubre también un cierre entre el efecto externo y la confirmación del job.
+
 ## Personas y huellas privadas
 
 `person` conserva los nombres; `person_voice`, las huellas aprendidas con su modelo, origen y fecha; `voice`, las huellas de cada versión de transcripción. Estas tablas se consultan en Rust y no forman parte del documento que recibe la WebView o el runtime. La interfaz obtiene nombres y metadatos de las huellas, `hasVoices` en las versiones y reconocimientos `{speaker, person, distance}`. Las respuestas a JavaScript rechazan cualquier campo de embedding.

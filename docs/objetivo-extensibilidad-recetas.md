@@ -2,8 +2,9 @@
 
 Objetivo confirmado por Rubén el 2026-10-11. Ampliación del proyecto TypeScript
 aprobado y del [ADR-0001](adr/0001-conectores-en-typescript.md).
-**Pendiente de implementación y validación instalada.** Este documento describe
-el comportamiento requerido, no una capacidad disponible en la versión actual.
+**Implementación completada; pendiente de validación instalada por Rubén.** Este
+documento conserva los criterios de aceptación y registra el contrato implementado.
+Las pruebas automatizadas no sustituyen los recorridos manuales con la app instalada.
 
 ## Resultado esperado
 
@@ -33,27 +34,44 @@ definidos en [CONTEXT.md](../CONTEXT.md). Las publicaciones conservan su ciclo
 actual de actualización y retirada; una consulta o acción arbitraria del SDK
 no se presenta automáticamente como una publicación gestionada por Escriba.
 
-## Qué se conserva y qué falta
+## Contrato implementado
 
-Ya existen proyectos con dependencias npm, construcción de `dist/`, formularios
-de recetas con Zod, programas de conectores en TypeScript, almacenamiento privado
-de credenciales y transporte autenticado en Rust.
+El proyecto exporta `inspect` y `run` desde `src/conectores.ts`; Escriba carga su
+artefacto en `dist/conectores.js`. `defineProvider` registra el manifiesto, el
+esquema Zod de configuración ordinaria, `describe`, las acciones del formulario
+y las operaciones del proveedor. `createProgram(destinos, proveedores)` conserva
+los destinos existentes y añade las declaraciones de proveedores. `inspect()`
+devuelve ambos catálogos. La app usa el mismo renderizador de `ConnectorView`
+para Notion, OKF y proveedores externos: campos con rutas de configuración,
+opciones y vistas previas proceden del programa. `describe` calcula la vista sin
+acceso al host; `action` puede consultar o modificar el servicio al pulsar un
+control y devolver configuración y estado temporal. Esas acciones explícitas no
+se encolan ni se repiten al renderizar, reiniciar o recuperar trabajos. La
+credencial queda fuera del esquema y del estado.
 
-Falta generalizar la declaración, configuración y autorización de proveedores.
-La pantalla y los tipos actuales de cuentas y destinos contemplan Notion y OKF;
-la política HTTP del runtime contiene condiciones específicas de Notion. La
-receta sólo recibe `conector(...).publicar(nota)`, mientras que el transporte
-autenticado se entrega únicamente al programa del conector.
+Cada cuenta guarda la autorización del usuario: proveedor, origen HTTP o carpeta,
+cabeceras permitidas y definición de credencial. El transporte compara la
+petición con la autorización vigente y añade la credencial en Rust. El código
+no puede enviarla a otro origen ni seguir redirecciones para extraerla. Cambiar
+la declaración del proyecto no amplía una cuenta ya autorizada. Una receta usa
+`api.cuenta(id).fetch` como transporte de un SDK que permita sustituir `fetch`.
+Así puede consultar y modificar Notion con su cuenta sin ver el token. Las
+operaciones de cuenta no crean por sí mismas una publicación gestionada. Sólo
+`publicar` y el recibo del conector participan en la regeneración y retirada
+posteriores.
 
-Referencias de la revisión:
+El [proyecto externo de ejemplo](../examples/conectores/README.md) muestra el
+manifiesto, un formulario con opciones dinámicas, clave de API, publicación con
+recibo y receta que consulta y escribe mediante `cuenta.fetch`. Se construye con
+las herramientas del proyecto y puede distribuirse sólo como `dist/`, sin
+fuentes ni dependencias instaladas en el Mac de destino.
 
-- `apps/tauri/src/connectors/ConnectorsPane.tsx` y `ConnectorEditor.tsx`:
-  proveedores y editores fijados en la aplicación.
-- `apps/tauri/src/types.ts`: cuentas y destinos con dos proveedores posibles.
-- `apps/tauri/src/runtime/worker.ts`: interfaz de receta y transporte del conector.
-- `apps/tauri/src/runtime/connectors.ts` y
-  `apps/tauri/src-tauri/src/capabilities.rs`: autorización, transporte y
-  restricciones específicas del proveedor.
+Una escritura arbitraria iniciada por una receta puede terminar sin respuesta
+confirmada. Escriba no la repite automáticamente; queda pendiente hasta que el
+usuario decide cómo continuar y reprocesa manualmente. Las publicaciones gestionadas siguen
+la reconciliación y los recibos definidos por cada conector. OAuth, SDK sin
+transporte intercambiable y recuperación automática de efectos arbitrarios
+siguen fuera de alcance.
 
 ## Alcance de la extensión
 
@@ -76,11 +94,9 @@ servicio. Un SDK debe poder utilizar el transporte del host; no se promete
 compatibilidad universal con SDK que exijan red directa, binarios nativos o
 recursos excluidos por el contrato actual de empaquetado.
 
-La forma exacta de la interfaz TypeScript, las declaraciones de autenticación y
-el modelo de permisos se concretarán al implementar. Este objetivo no da por
-resueltos OAuth, SDK con transporte no sustituible ni la recuperación automática
-de efectos arbitrarios ante un reintento. El diseño debe hacer explícito qué
-acciones se pueden repetir y evitar repetir a ciegas escrituras inciertas.
+El contrato concreto está descrito en [Proyectos de recetas](proyecto-recetas-tauri.md)
+y en el README de `@escriba/conectores`. La validación instalada y las llamadas
+reales autorizadas siguen los criterios de aceptación siguientes.
 
 ## Criterios de aceptación
 
@@ -107,3 +123,21 @@ acciones se pueden repetir y evitar repetir a ciegas escrituras inciertas.
    release instalada para que Rubén compruebe ambos recorridos. Las llamadas a
    servicios reales requieren el encargo correspondiente y cuentas de pruebas;
    nunca se publican notas reales en Notion.
+
+## Verificación de la implementación
+
+- App: 219 pruebas TypeScript; comprobación de tipos del frontend y del host.
+- Librería de conectores: 42 pruebas, incluidos formularios, opciones dinámicas,
+  errores de campos y publicaciones conservadas.
+- Rust: 214 pruebas completas y 5 ignoradas; 24 comprobaciones focalizadas tras
+  los últimos cambios de actualización de proyectos y normalización de carpetas.
+  Clippy con advertencias como errores y formato correctos.
+- Bun compilado bajo sandbox: proveedor externo construido en un temporal,
+  ejecución desde `dist/` tras retirar las fuentes, formulario, acción y recibo
+  de publicación. SDK oficial de Notion con lectura y escritura sintéticas.
+- Copia íntegra del ejemplo fuera del checkout: instalación de dependencias,
+  comprobación con TypeScript 7 nativo y construcción usando herramientas
+  incluidas bajo sandbox. No necesita rutas al repositorio para instalar paquetes.
+- Interfaz revisada en navegador a 960×640 y 1260×820 con formularios Notion/OKF.
+  Queda la confirmación manual de Rubén sobre la release instalada; no se han
+  realizado llamadas a Notion real.

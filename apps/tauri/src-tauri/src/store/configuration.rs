@@ -29,14 +29,25 @@ impl Store {
         }
     }
     pub fn save_connector(&mut self, account: &Value, destination: &Value) -> Result<(), String> {
+        let accounts = self.data.accounts.as_array().ok_or("Cuentas inválidas")?;
+        let destinations = self
+            .data
+            .destinations
+            .as_array()
+            .ok_or("Destinos inválidos")?;
         let key = text(account, "id")?;
         safe_id(key)?;
         let provider = text(account, "provider")?;
-        if !["notion", "okf"].contains(&provider)
-            || destination["id"] != key
+        let builtin = ["notion", "okf"].contains(&provider);
+        let provider_definition = if builtin {
+            None
+        } else {
+            Some(self.item("providers", provider)?)
+        };
+        if destination["id"] != key
             || destination["account"] != key
             || destination["provider"] != provider
-            || destination.get("program").is_some()
+            || (builtin && destination.get("program").is_some())
             || destination["enabled"].as_bool().is_none()
         {
             return Err("Cuenta y destino del conector no coinciden".into());
@@ -44,19 +55,58 @@ impl Store {
         if !account.is_object() || !destination["configuration"].is_object() {
             return Err("Configuración del conector inválida".into());
         }
-        if self
-            .item("accounts", key)
-            .is_ok_and(|old| old["provider"] != provider)
-            || self
-                .item("destinations", key)
-                .is_ok_and(|old| !old["program"].is_null())
+        if accounts
+            .iter()
+            .any(|old| old["id"] == key && old["provider"] != provider)
+            || destinations
+                .iter()
+                .any(|old| old["id"] == key && old["managed"] != true && !old["program"].is_null())
         {
             return Err("El identificador pertenece a otro conector".into());
         }
         let mut account = account.clone();
         let mut destination = destination.clone();
-        account["enabled"] = json!(true);
-        if provider == "notion" {
+        if let Some(grant) = account.get("grant") {
+            crate::capabilities::validate_account_grant(grant)?;
+        }
+        destination["managed"] = json!(true);
+        account["enabled"] = json!(account["enabled"].as_bool().unwrap_or(true));
+        if let Some(definition) = &provider_definition {
+            if definition["unavailable"] == true {
+                return Err("Proveedor no disponible".into());
+            }
+            if let Some(grant) = account.get("grant") {
+                if !crate::capabilities::access_equivalent(grant, definition) {
+                    return Err("La autorización no coincide con el proveedor instalado".into());
+                }
+                if let Ok(old) = self.item("accounts", key) {
+                    let authority_changed = old["grant"].is_object()
+                        && !crate::capabilities::same_authority(&old["grant"], grant);
+                    if authority_changed && self.credential(key)?.is_some() {
+                        return Err(
+                            "Retira la credencial antes de cambiar el origen o la autenticación"
+                                .into(),
+                        );
+                    }
+                }
+                if grant["capability"] == "http" {
+                    account["origin"] = grant["origin"].clone();
+                    account
+                        .as_object_mut()
+                        .ok_or("Cuenta inválida")?
+                        .remove("folder");
+                } else {
+                    let folder = account["folder"].as_str().ok_or("Carpeta inválida")?;
+                    let canonical = canonical_folder(Path::new(folder))?;
+                    account["folder"] = json!(canonical);
+                    destination["configuration"]["folder"] = json!(canonical);
+                }
+            } else if account["enabled"] != false || destination["enabled"] != false {
+                return Err("Falta la autorización de la cuenta".into());
+            }
+            destination["program"] = definition["program"].clone();
+            destination["programFingerprint"] = definition["programFingerprint"].clone();
+        } else if provider == "notion" {
             account["origin"] = json!("https://api.notion.com");
         } else {
             let folder = destination["configuration"]["folder"]
@@ -78,6 +128,14 @@ impl Store {
                 .ok_or("Cuenta inválida")?
                 .remove(field);
         }
+        if !accounts.iter().any(|old| old["id"] == key) {
+            let orphan = self.credential_path(key)?;
+            if orphan.exists() {
+                fs::remove_file(orphan).map_err(|error| {
+                    format!("No se pudo retirar una credencial anterior: {error}")
+                })?;
+            }
+        }
         let mut next = self.data.edit();
         for (collection, item) in [("accounts", account), ("destinations", destination)] {
             let items = next
@@ -93,11 +151,10 @@ impl Store {
         self.commit(next)
     }
     pub fn remove_connector(&mut self, key: &str) -> Result<(), String> {
-        let account = self.item("accounts", key)?;
+        self.item("accounts", key)?;
         let destination = self.item("destinations", key)?;
-        if !["notion", "okf"].contains(&account["provider"].as_str().unwrap_or(""))
-            || destination["account"] != key
-            || !destination["program"].is_null()
+        if destination["account"] != key
+            || (destination["managed"] != true && !destination["program"].is_null())
         {
             return Err("El conector de la app no coincide con su cuenta y destino".into());
         }
@@ -136,6 +193,9 @@ impl Store {
         Ok(match method {
             "config_save" => {
                 let collection = collection(p)?;
+                next.catalog(collection)?
+                    .as_array()
+                    .ok_or("Colección inválida")?;
                 let mut item = p["item"].clone();
                 let key = text(&item, "id")?.to_owned();
                 if collection == "accounts" || collection == "resolvers" {
@@ -158,6 +218,15 @@ impl Store {
                 if collection == "accounts" {
                     if !["notion", "okf"].contains(&item["provider"].as_str().unwrap_or("")) {
                         return Err("Proveedor no válido".into());
+                    }
+                    if let Some(grant) = item.get("grant") {
+                        crate::capabilities::validate_account_grant(grant)?;
+                    }
+                    if self
+                        .item("accounts", &key)
+                        .is_ok_and(|old| old["provider"] != item["provider"])
+                    {
+                        return Err("El identificador pertenece a otro proveedor".into());
                     }
                     if item["provider"] == "notion" {
                         item["origin"] = json!("https://api.notion.com");

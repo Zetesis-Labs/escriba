@@ -391,7 +391,7 @@ test("revocar cuenta entre lectura y efecto bloquea escritura y no reintenta cre
       return {};
     },
   });
-  await assert.rejects(service.publish("r", "d"), /permisos han cambiado/);
+  await assert.rejects(service.publish("r", "d"), /desactivada o revocada/);
   assert.equal(m.calls.filter((c) => c.method === "connector_files").length, 0);
   m.state.accounts[0].enabled = true;
   m.state.recordings[0].publications[0].receipt = { state: "running" };
@@ -575,7 +575,7 @@ test("cancelar grabación en cola no cancela el proceso nativo de otra grabació
   await rejected;
   assert.equal(controller.getJobs().length, 0);
 });
-test("validación y descubrimiento no permiten escrituras HTTP sin recibo", async () => {
+test("validación no permite acceso HTTP", async () => {
   const m = memory();
   m.state.accounts.push({
     id: "a",
@@ -601,7 +601,7 @@ test("validación y descubrimiento no permiten escrituras HTTP sin recibo", asyn
         body: "{}",
       }),
   });
-  await assert.rejects(service.validate("d"), /solo permite lecturas/);
+  await assert.rejects(service.validate("d"), /no permite acceso HTTP/);
   assert.equal(m.calls.filter((c) => c.method === "connector_http").length, 0);
 });
 test("cambiar Whisper en ajustes invalida reuso aunque el resolver conserve su modelo anterior", async () => {

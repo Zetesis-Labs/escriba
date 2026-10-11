@@ -66,6 +66,31 @@ const payload = {
   lists,
   values: {},
 };
+test("una receta usa el SDK de Notion con la cuenta sin recibir su credencial", async () => {
+  const program = await recipe(`import {Client} from '@notionhq/client';
+    export async function flujo(audio,escriba) {
+      const cuenta = escriba.cuenta('Trabajo');
+      if ('token' in cuenta || 'credential' in cuenta) throw Error('secreto expuesto');
+      const notion = new Client({fetch:cuenta.fetch});
+      await notion.users.list({page_size:1});
+      await notion.pages.create({parent:{page_id:'parent'},properties:{title:{title:[]}}});
+    }`);
+  const calls: Array<{ operation: string; args: unknown }> = [];
+  await runner().run({ kind: "recipe", program, payload: {
+    ...payload, lists: { ...lists, cuentas: [{ clave: "notion-1", nombre: "Trabajo", tipo: "notion", activo: true, origen: "https://api.notion.com" }] },
+  } }, { call: async (operation, args) => {
+    calls.push({ operation, args });
+    return { status: 200, headers: { "content-type": "application/json" }, body: '{"object":"list","results":[],"has_more":false,"next_cursor":null}' };
+  } });
+  assert.equal(calls.length, 2);
+  for (const call of calls) {
+    assert.equal(call.operation, "account.http");
+    assert.equal((call.args as { accountId: string }).accountId, "notion-1");
+  }
+  assert.equal((calls[0].args as { method: string }).method, "GET");
+  assert.equal((calls[1].args as { method: string }).method, "POST");
+  assert.match((calls[1].args as { body: string }).body, /parent/);
+});
 test("Worker real valida Zod, pregunta y guarda datos sin acceso a red", async () => {
   const program = await recipe(
     `import {z} from 'zod'; export const receta={datos:z.object({tema:z.string()})}; export async function flujo(audio,api){if(typeof fetch!=='undefined'||typeof XMLHttpRequest!=='undefined')throw Error('red disponible');const note=await api.transcribir(audio);note.datos=await api.preguntar({entrada:note.texto,esquema:z.object({tema:z.string()})});await note.guardar();}`,

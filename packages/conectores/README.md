@@ -73,3 +73,42 @@ con el Bun incluido, en procesos aislados y con capacidades del host Rust.
 
 Las pruebas no llaman a servicios reales. La validación contra Notion real con
 datos sintéticos sigue pendiente de la autorización de esa fase.
+
+## Proveedores del proyecto
+
+`createProgram(destinos, proveedores)` permite declarar proveedores desde un proyecto externo. Un proveedor define su manifiesto de acceso, la configuración ordinaria con Zod, los formularios que Escriba muestra y sus operaciones. La credencial se declara en `manifest.credential` y la conserva el host; no forma parte de `defaultConfiguration` ni se entrega al programa.
+
+```ts
+import { z } from 'zod';
+import { createProgram, defineProvider } from '@escriba/conectores';
+
+const synthetic = defineProvider({
+  manifest: {
+    id: 'synthetic', name: 'Synthetic', capability: 'http',
+    origin: 'https://example.test', allowedHeaders: ['content-type'],
+    credential: { label: 'Clave', header: 'Authorization', prefix: 'Bearer ' },
+    defaultConfiguration: { project: 'demo' },
+  },
+  configurationSchema: z.object({ project: z.string().min(1) }),
+  describe: (configuration) => ({
+    view: { sections: [{ title: 'Proyecto', fields: [
+      { type: 'text', path: ['project'], label: 'Proyecto' },
+    ] }] },
+  }),
+  run: async (request, host) => {
+    if (!host) throw Error('Falta el host de capacidades');
+    const response = await host.fetch('https://example.test/projects/' + request.config?.project);
+    return { resource: await response.json() };
+  },
+});
+
+const program = createProgram([], [synthetic]);
+export const inspect = program.inspect;
+export const run = program.run;
+```
+
+`inspect()` devuelve proveedores y destinos serializables. `run({ operation: 'describe', provider, config, state })` entrega una `view` declarativa sin autoridad del host. `action` puede consultar el servicio mediante `host.fetch` y devolver `{ configuration, state, view }`; `state` conserva sólo selección temporal y opciones, nunca credenciales. `validate` comunica los campos inválidos por su ruta Zod. Las operaciones de cuenta y publicación se delegan a `run` del proveedor. Los proveedores incorporados Notion y OKF usan este mismo contrato de formularios.
+
+`manifest.connectAction` indica la acción que se ejecuta tras guardar una credencial nueva; Notion usa `refresh-sources`. Los selectores cuyo valor vive en el estado temporal pueden declarar `field.value` aunque `field.path` esté vacío. La definición acepta instancias de Zod instaladas por el proyecto externo; su esquema debe ofrecer `parse`, `safeParse` y `toJSONSchema`.
+
+El [proyecto externo de ejemplo](../../examples/conectores/README.md) muestra un proveedor con opciones dinámicas, clave de API, publicación con recibo y una receta que consulta y escribe mediante la cuenta autorizada.

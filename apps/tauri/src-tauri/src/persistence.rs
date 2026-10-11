@@ -522,6 +522,7 @@ async fn connect(path: &Path) -> Result<Surreal<Db>, String> {
         "resolver",
         "recipe",
         "destination",
+        "provider",
         "log",
         "setting",
         "job",
@@ -577,6 +578,7 @@ async fn connect(path: &Path) -> Result<Surreal<Db>, String> {
         "resolver",
         "recipe",
         "destination",
+        "provider",
         "log",
         "job",
         "memory",
@@ -683,7 +685,7 @@ async fn downgrade_v1_test(db: &Surreal<Db>) -> Result<(), String> {
     }
 }
 
-fn table_names() -> [&'static str; 9] {
+fn table_names() -> [&'static str; 10] {
     [
         "recording",
         "version",
@@ -692,6 +694,7 @@ fn table_names() -> [&'static str; 9] {
         "resolver",
         "recipe",
         "destination",
+        "provider",
         "log",
         "setting",
     ]
@@ -748,7 +751,7 @@ async fn load(db: &Surreal<Db>) -> Result<Option<Value>, String> {
     {
         return Err("Versión de esquema SurrealDB incompatible".into());
     }
-    let mut data = json!({"schemaVersion":1,"recordings":[],"accounts":[],"resolvers":[],"recipes":[],"destinations":[],"logs":[],"settings":{}});
+    let mut data = json!({"schemaVersion":1,"recordings":[],"accounts":[],"resolvers":[],"recipes":[],"destinations":[],"providers":[],"logs":[],"settings":{}});
     type OrderedChildren = (Vec<(i64, Value)>, Vec<(i64, Value)>);
     let mut children: BTreeMap<String, OrderedChildren> = BTreeMap::new();
     for table in table_names() {
@@ -790,6 +793,10 @@ async fn load(db: &Surreal<Db>) -> Result<Option<Value>, String> {
                     .as_array_mut()
                     .ok_or("Estado inválido")?
                     .push(item),
+                "provider" => data["providers"]
+                    .as_array_mut()
+                    .ok_or("Estado inválido")?
+                    .push(item),
                 "log" => data["logs"]
                     .as_array_mut()
                     .ok_or("Estado inválido")?
@@ -822,10 +829,14 @@ fn flatten_with_scope(
         ("resolver", "resolvers"),
         ("recipe", "recipes"),
         ("destination", "destinations"),
+        ("provider", "providers"),
         ("log", "logs"),
     ] {
-        for (position, item) in data[field]
-            .as_array()
+        let empty = Vec::new();
+        for (position, item) in data
+            .get(field)
+            .and_then(Value::as_array)
+            .or_else(|| (field == "providers").then_some(&empty))
             .ok_or(format!("{field} inválido"))?
             .iter()
             .enumerate()

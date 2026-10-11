@@ -181,9 +181,15 @@ pub struct LibraryData {
     pub resolvers: Value,
     pub recipes: Value,
     pub destinations: Value,
+    #[serde(default = "empty_catalog")]
+    pub providers: Value,
     pub logs: Value,
     #[serde(flatten)]
     pub extra: Map<String, Value>,
+}
+
+fn empty_catalog() -> Value {
+    Value::Array(Vec::new())
 }
 
 #[derive(Clone, Debug)]
@@ -287,6 +293,7 @@ impl LibraryData {
             "resolvers" => Ok(&self.resolvers),
             "recipes" => Ok(&self.recipes),
             "destinations" => Ok(&self.destinations),
+            "providers" => Ok(&self.providers),
             _ => Err("Colección desconocida".into()),
         }
     }
@@ -296,6 +303,7 @@ impl LibraryData {
             "resolvers" => Ok(&mut self.resolvers),
             "recipes" => Ok(&mut self.recipes),
             "destinations" => Ok(&mut self.destinations),
+            "providers" => Ok(&mut self.providers),
             _ => Err("Colección desconocida".into()),
         }
     }

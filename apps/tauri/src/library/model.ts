@@ -1,5 +1,6 @@
 import type { Account, Destination, JSONObject, Publication, Recipe, Recording, Resolver, Snapshot, Transcript, Version, WatchedFolder } from "../types";
-import { connectorProblem, isAppConnector } from "../core/connectors";
+import { builtinProviders, type Provider } from "@escriba/conectores";
+import { accountAuthority } from "../core/providerAccess";
 
 export const versionsInOrder = (recording: Recording) =>
   [...recording.versions].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
@@ -54,9 +55,22 @@ export function currentVersionLabel(recording: Recording) {
 
 export const isPublished = (publication: Publication) => Boolean(publication.receipt?.locator || publication.receipt?.url) && publication.receipt?.state !== "removed";
 
-export function liveDestinations(destinations: Destination[], accounts: Account[]) {
+export function liveDestinations(destinations: Destination[], accounts: Account[], providers: Provider[] = []) {
   return destinations.filter(
-    (destination) => destination.enabled && accounts.some((account) => account.id === destination.account && account.enabled && (!isAppConnector(destination) || connectorProblem(account, destination) === null)),
+    (destination) => {
+      if (!destination.enabled) return false;
+      const account = accounts.find((candidate) => candidate.id === destination.account && candidate.enabled && candidate.provider === destination.provider);
+      const provider = builtinProviders.find((entry) => entry.id === destination.provider) ?? providers.find((entry) => entry.id === destination.provider);
+      if (!account || !provider || ("unavailable" in provider && provider.unavailable)) return false;
+      if (provider.credential && !account.hasCredential) return false;
+      if (provider.capability === "folder" && account.folder !== destination.configuration.folder) return false;
+      try {
+        accountAuthority(account, providers);
+        return true;
+      } catch {
+        return false;
+      }
+    },
   );
 }
 
@@ -81,4 +95,4 @@ export function libraryRecordings(data: Snapshot) {
   return data.recordings.filter((recording) => recording.status !== "discarded").sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
-export const providerLabel = (provider: string) => (provider === "notion" ? "Notion" : provider === "okf" ? "OKF" : provider);
+export const providerLabel = (provider: string) => builtinProviders.find((entry) => entry.id === provider)?.name ?? provider;

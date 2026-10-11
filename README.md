@@ -33,8 +33,11 @@ Los conectores Notion y OKF viven en `packages/conectores`. Las recetas se edita
 construyen con el Bun incluido en Escriba. El playground CodeMirror incorpora
 instalación de dependencias, comprobación de tipos con TypeScript 7 y pruebas;
 la app carga el `dist/` resultante. Véase [proyectos de recetas](docs/proyecto-recetas-tauri.md).
-Los secretos y el audio se manejan mediante capacidades
-nativas; las recetas no reciben los tokens.
+El proyecto también puede declarar proveedores con formularios y acciones que
+aparecen en Conectores, y usar SDK mediante `escriba.cuenta(...).fetch`. Los
+secretos y el audio se manejan mediante capacidades nativas; las recetas no
+reciben los tokens. El [ejemplo de proveedor](examples/conectores/README.md)
+muestra el contrato sin añadir código específico a la aplicación.
 
 ## Desarrollo
 

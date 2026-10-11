@@ -6,6 +6,8 @@ import type {
   JSONObject,
 } from "../types";
 import { publicationConfiguration } from "../core/publicationConfiguration";
+import { accountAuthority } from "../core/providerAccess";
+import { authorizedAccount, accountHttp } from "./accounts";
 import {
   aborted,
   jsonObject,
@@ -92,7 +94,10 @@ export function createConnectorService(
       ? publication.program || builtinProgram
       : live?.program || builtinProgram;
     const provider = retained ? publication.provider : live!.provider;
+    if (account.provider !== provider) throw Error("La cuenta pertenece a otro proveedor");
     const name = retained ? publication.name : live!.name;
+    const managed = retained ? publication.managed : live?.managed;
+    const grant = accountAuthority(account, snapshot.providers, !!retained);
     if (!alreadyLocked)
       return locked(accountId, () =>
         perform(operation, destinationId, recordingId, version, signal, true),
@@ -113,12 +118,12 @@ export function createConnectorService(
           receipt,
           configuration,
           program,
+          managed: managed === true,
         });
       };
       const refreshAuthority = async () => {
         aborted(signal);
-        const current = await readContext(host);
-        const active = current.accounts.find((a) => a.id === accountId);
+        const { account: active } = await authorizedAccount(host, accountId, grant, !!retained);
         if (
           !active?.enabled ||
           active.folder !== account.folder ||
@@ -140,8 +145,8 @@ export function createConnectorService(
             operation,
             provider,
             config: configuration,
-            ...(live?.program ||
-            (publication?.program && publication.program !== builtinProgram)
+            ...(!managed && (live?.program ||
+            (publication?.program && publication.program !== builtinProgram))
               ? { destination: destinationId }
               : {}),
             ...(recording && operation !== "remove"
@@ -167,46 +172,7 @@ export function createConnectorService(
             const args = object(raw);
             switch (op) {
               case "connector.http": {
-                if (account.provider !== "notion" || !account.origin)
-                  throw Error("La cuenta no permite HTTP");
-                const url = new URL(text(args.url, "URL"));
-                if (
-                  url.origin !== new URL(account.origin).origin ||
-                  url.username ||
-                  url.password
-                )
-                  throw Error("URL fuera de la cuenta");
-                const method = String(args.method || "GET").toUpperCase();
-                if (
-                  !["GET", "POST", "PATCH", "PUT", "DELETE", "HEAD"].includes(
-                    method,
-                  )
-                )
-                  throw Error("Método HTTP no permitido");
-                if (
-                  !saving &&
-                  !(
-                    ["GET", "HEAD"].includes(method) ||
-                    (method === "POST" &&
-                      (url.pathname === "/v1/search" ||
-                        /^\/v1\/data_sources\/[^/]+\/query$/.test(
-                          url.pathname,
-                        )))
-                  )
-                )
-                  throw Error("Esta operación solo permite lecturas");
-                const headers = object(args.headers || {});
-                if (
-                  Object.keys(headers).some(
-                    (h) =>
-                      !["content-type", "accept", "notion-version"].includes(
-                        h.toLowerCase(),
-                      ),
-                  )
-                )
-                  throw Error("Cabecera HTTP no permitida");
-                if (saving && receipt?.state === "prepared")
-                  await save({ ...receipt, state: "running" });
+                if (!saving && operation !== "discover") throw Error("Esta operación no permite acceso HTTP");
                 const multipart = Array.isArray(args.multipart)
                   ? args.multipart.map((part) => {
                       const p = object(part);
@@ -225,26 +191,30 @@ export function createConnectorService(
                       return p;
                     })
                   : undefined;
-                return host.call("connector_http", {
-                  accountId,
-                  url: url.href,
-                  method,
-                  headers,
-                  body: args.body,
+                return accountHttp(host, accountId, {
+                  ...args,
                   ...(multipart ? { multipart } : {}),
+                }, {
+                  expected: grant,
+                  retained: !!retained,
+                  signal: invocationSignal ?? signal,
+                  beforeSend: async () => {
+                    if (saving && receipt?.state === "prepared") await save({ ...receipt, state: "running" });
+                  },
                 });
               }
               case "connector.snapshot":
-                if (account.provider !== "okf")
+                if (grant.capability !== "folder")
                   throw Error("La cuenta no permite archivos");
                 return host.call("connector_files", {
                   accountId,
+                  expectedGrant: grant,
                   operation: "snapshot",
                 });
               case "connector.apply":
                 if (
                   !saving ||
-                  account.provider !== "okf" ||
+                  grant.capability !== "folder" ||
                   !Array.isArray(args.changes)
                 )
                   throw Error("Escritura no autorizada");
@@ -252,6 +222,7 @@ export function createConnectorService(
                   await save({ ...receipt, state: "running" });
                 return host.call("connector_files", {
                   accountId,
+                  expectedGrant: grant,
                   operation: "apply",
                   changes: args.changes,
                 });

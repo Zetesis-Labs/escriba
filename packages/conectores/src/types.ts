@@ -35,7 +35,7 @@ export interface Host {
 }
 export interface Receipt {
   version: 1;
-  provider: "okf" | "notion";
+  provider: string;
   locator: string;
   url?: string;
   key?: string;
@@ -48,6 +48,8 @@ export interface Request {
   destination?: string;
   input?: unknown;
   operation:
+    | "describe"
+    | "action"
     | "manifest"
     | "template"
     | "validate"
@@ -56,8 +58,11 @@ export interface Request {
     | "discover"
     | "migrate"
     | "preview";
-  provider?: "okf" | "notion";
+  provider?: string;
   config?: Record<string, unknown>;
+  state?: Record<string, unknown>;
+  action?: string;
+  value?: JSONValue;
   note?: Note;
   previous?: Partial<Receipt>;
   now?: string;

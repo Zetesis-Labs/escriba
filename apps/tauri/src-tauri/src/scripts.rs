@@ -332,6 +332,8 @@ fn allowed(method: &str) -> bool {
     matches!(
         method,
         "runtime_context"
+            | "account_effect_begin"
+            | "account_effect_finish"
             | "recording_update"
             | "version_save"
             | "version_select"

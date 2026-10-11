@@ -68,6 +68,22 @@ Un mensaje de error sin código conocido se trata como `failed`, aunque su texto
 contenga un marcador antiguo. Los rechazos de capacidades y de workers conservan
 el código hasta la cola duradera.
 
+Los proyectos pueden aportar proveedores con formularios declarativos. El
+controlador ejecuta `connectorEditor` en un worker: describir y validar no
+concede capacidades; una acción explícita accede a la cuenta que la UI indique.
+No se ejecuta código del proveedor en la WebView ni se repiten esas acciones al
+recuperar trabajos. Los resultados se validan contra `ConnectorView` antes de
+renderizarlos.
+
+El fetch de `escriba.cuenta(id)` usa `account.http`. Cada petición relee la
+autorización y Rust vuelve a contrastar `expectedGrant`, origen y cabeceras antes
+de inyectar el secreto. Una escritura de SDK confirma antes
+`accountEffectPending` en la grabación; se conserva incluso al terminar para
+cubrir un cierre previo al acuse del job. Una ejecución manual nueva retira la
+marca; un trabajo automático, recuperado o reintentado se bloquea. Los SDK pueden
+tener sus propios reintentos: la receta debe desactivarlos o asegurar la
+idempotencia cuando modifique recursos.
+
 El controlador consulta `runtime_context({recordingId?})`: catálogos, ajustes de
 procesamiento y únicamente la grabación solicitada con sus versiones y recibos.
 Sin `recordingId` obtiene solo configuración. No recibe registros, otras notas,

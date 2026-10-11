@@ -40,6 +40,7 @@ impl Store {
                     "currentVersionId": original.current_version_id,
                     "versions": original.versions,
                     "publications": original.publications,
+                    "accountEffectPending": original.extra.get("accountEffectPending") == Some(&json!(true)),
                 });
                 vec![recording]
             }
@@ -68,6 +69,7 @@ impl Store {
             "recipes": self.data.recipes,
             "accounts": accounts,
             "destinations": self.data.destinations,
+            "providers": self.data.providers,
         });
         self.mark_credentials(&mut value);
         Ok(value)

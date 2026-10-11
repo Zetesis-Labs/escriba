@@ -1,7 +1,8 @@
 import { describe, expect, test } from "vitest";
 import { criteriaLabel, currentVersion, currentVersionLabel, isPublished, liveDestinations, originName, publishedNames, versionTitle } from "../../src/library/model";
 import type { Recording, Version } from "../../src/types";
-import { makeConnector, chooseNotionSource } from "../../src/core/connectors";
+import type { Provider } from "@escriba/conectores";
+import { providerAccess } from "../../src/core/providerAccess";
 
 const version = (id: string, createdAt: string, extra: Partial<Version> = {}): Version => ({
   id,
@@ -86,13 +87,30 @@ describe("la biblioteca de Tauri contada como en Swift", () => {
     expect(isPublished({ ...base, receipt: { state: "legacy", error: "Sin conexión", locator: "page" } })).toBe(true);
     expect(isPublished({ ...base, receipt: { state: "published", locator: "page" } })).toBe(true);
   });
-  test("un conector de la app solo permite publicar cuando está configurado y conectado", () => {
-    const created = makeConnector("notion", "notion", "Notion");
-    const config = chooseNotionSource(created.destination.configuration, {
-      id: "base", title: "Pruebas", databaseTitle: "Pruebas", properties: [{ name: "Nombre", type: "title" }],
-    });
-    const destination = { ...created.destination, enabled: true, configuration: { ...config, source: { ...config.source } } };
-    expect(liveDestinations([destination], [created.account])).toEqual([]);
-    expect(liveDestinations([destination], [{ ...created.account, hasCredential: true }])).toEqual([destination]);
+  test("un conector gestionado sigue el estado persistido de cuenta y destino", () => {
+    const destination = { id: "custom", name: "Externo", provider: "external", account: "custom", managed: true, enabled: true, configuration: {} };
+    const provider: Provider = { id: "external", name: "Externo", capability: "http", origin: "https://example.test", allowedHeaders: [], defaultConfiguration: {} };
+    const account = { id: "custom", name: "Externo", provider: "external", enabled: true, grant: providerAccess(provider) };
+    expect(liveDestinations([destination], [account], [provider])).toEqual([destination]);
+    expect(liveDestinations([destination], [{ ...account, enabled: false }], [provider])).toEqual([]);
+    expect(liveDestinations([{ ...destination, enabled: false }], [account], [provider])).toEqual([]);
+    expect(liveDestinations([destination], [{ ...account, grant: undefined }], [provider])).toEqual([]);
+    expect(liveDestinations([destination], [account], [{ ...provider, unavailable: true }])).toEqual([]);
+    expect(liveDestinations([destination], [account], [{ ...provider, origin: "https://other.test" }])).toEqual([]);
+  });
+  test("un proveedor con credencial solo aparece conectado y autorizado", () => {
+    const provider: Provider = { id: "remote", name: "Remoto", capability: "http", origin: "https://example.test", allowedHeaders: [], credential: { label: "Token", header: "authorization" }, defaultConfiguration: {} };
+    const destination = { id: "remote", name: "Remoto", provider: "remote", account: "remote", enabled: true, configuration: {} };
+    const account = { id: "remote", name: "Remoto", provider: "remote", enabled: true, grant: providerAccess(provider) };
+    expect(liveDestinations([destination], [account], [provider])).toEqual([]);
+    expect(liveDestinations([destination], [{ ...account, hasCredential: true }], [provider])).toEqual([destination]);
+    expect(liveDestinations([destination], [{ ...account, hasCredential: true, grant: undefined }], [provider])).toEqual([]);
+  });
+  test("una carpeta distinta a la autorizada deja de figurar entre los destinos activos", () => {
+    const provider: Provider = { id: "files", name: "Ficheros", capability: "folder", allowedHeaders: [], defaultConfiguration: { folder: "/nuevo" } };
+    const destination = { id: "files", name: "Ficheros", provider: "files", account: "files", enabled: true, configuration: { folder: "/nuevo" } };
+    const account = { id: "files", name: "Ficheros", provider: "files", enabled: true, folder: "/anterior", grant: providerAccess(provider) };
+    expect(liveDestinations([destination], [account], [provider])).toEqual([]);
+    expect(liveDestinations([destination], [{ ...account, folder: "/nuevo" }], [provider])).toEqual([destination]);
   });
 });

@@ -7,7 +7,7 @@ import {
   createWorkerRunner,
   type WorkerPort,
 } from "../src/runtime/workerClient";
-import { object, text, message, errorCode, protocolError } from "../src/runtime/contracts";
+import { object, text, message, errorCode, protocolError, jsonObject, json } from "../src/runtime/contracts";
 import type { NativeStatus, ProcessOptions } from "../src/types";
 declare const __WORKER_SOURCE__: string;
 declare const __BUILTIN_PROGRAM__: string;
@@ -220,6 +220,19 @@ async function main() {
         return runtime.discoverDestination(text(args.destinationId, "destino"));
       case "validateDestination":
         return runtime.validateDestination(text(args.destinationId, "destino"));
+      case "connectorEditor": {
+        const operation = args.operation;
+        if (operation !== "describe" && operation !== "action" && operation !== "validate") throw Error("Operación del editor inválida");
+        const input = object(args.request);
+        return runtime.connectorEditor(operation, {
+          providerId: text(input.providerId, "proveedor"),
+          ...(typeof input.accountId === "string" ? { accountId: input.accountId } : {}),
+          configuration: jsonObject(input.configuration),
+          ...(input.state === undefined ? {} : { state: jsonObject(input.state) }),
+          ...(typeof input.action === "string" ? { action: input.action } : {}),
+          ...(input.value === undefined ? {} : { value: json(input.value) }),
+        });
+      }
       case "getRecipeSchema":
         return runtime.getRecipeSchema(text(args.recipeId, "receta"));
       case "rebuildProject":

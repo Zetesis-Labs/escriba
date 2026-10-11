@@ -4,16 +4,26 @@ impl Store {
     pub fn mutate(&mut self, method: &str, p: &Value) -> Result<Value, String> {
         let guarded = match method {
             "recording_update" | "recording_remove_audio" => Some(text(p, "id")?),
-            "version_save" | "version_select" | "version_update" | "publication_save"
-            | "publication_remove" => Some(text(p, "recordingId")?),
+            "version_save"
+            | "version_select"
+            | "version_update"
+            | "publication_save"
+            | "publication_remove"
+            | "account_effect_begin"
+            | "account_effect_finish" => Some(text(p, "recordingId")?),
             _ => None,
         };
         if let Some(recording_id) = guarded {
             self.recording_for_write(recording_id)?;
         }
         let full_recording = match method {
-            "version_save" | "version_select" | "version_update" | "publication_save"
-            | "publication_remove" => Some(text(p, "recordingId")?),
+            "version_save"
+            | "version_select"
+            | "version_update"
+            | "publication_save"
+            | "publication_remove"
+            | "account_effect_begin"
+            | "account_effect_finish" => Some(text(p, "recordingId")?),
             _ => None,
         };
         let before = match full_recording {
@@ -81,6 +91,17 @@ impl Store {
                     .as_mut()
                     .ok_or("Publicaciones inválidas")?
                     .retain(|v| v["destinationId"] != key);
+                Value::Null
+            }
+            "account_effect_begin" | "account_effect_finish" => {
+                let record = record_mut(&mut next, text(p, "recordingId")?)?;
+                if method == "account_effect_begin" {
+                    record
+                        .extra
+                        .insert("accountEffectPending".into(), json!(true));
+                } else {
+                    record.extra.remove("accountEffectPending");
+                }
                 Value::Null
             }
             _ => return Err(format!("Operación desconocida: {method}")),

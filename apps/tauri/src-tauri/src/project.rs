@@ -1,6 +1,7 @@
 //! TypeScript project creation, confined source access, and Bun artifacts.
 use serde::Deserialize;
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 use std::{
     collections::HashSet,
     ffi::CString,
@@ -18,6 +19,8 @@ use std::{
 use walkdir::WalkDir;
 
 const TYPES: &str = include_str!("../../../../recetas/escriba-recetas.d.ts");
+const PREVIOUS_TYPES_SHA256: &str =
+    "1ddebd218cbb5a0b4f3b6a40120dadec5c8c5912eeb93a6d1d3fdd824b7146d1";
 const EXAMPLE: &str = include_str!("../../../../recetas/por-defecto/receta.ts");
 const SOURCE_LIMIT: usize = 8 * 1024 * 1024;
 const BUNDLE_LIMIT: usize = 32 * 1024 * 1024;
@@ -50,6 +53,8 @@ pub fn load_with_tools(path: &Path, runtime: &Path, vendor: &Path) -> Result<Val
     let catalog = load(path)?;
     let root = project_root(path)?;
     ensure_safe_project_root(&root)?;
+    refresh_existing_managed_dependencies(&root, vendor)?;
+    refresh_generated_types(&root)?;
     refresh_launcher(&root, runtime, vendor, false)?;
     Ok(catalog)
 }
@@ -197,6 +202,10 @@ pub fn list(path: &Path) -> Result<Value, String> {
 }
 
 pub fn tool(path: &Path, runtime: &Path, vendor: &Path, name: &str) -> Result<Value, String> {
+    let root = project_root(path)?;
+    ensure_safe_project_root(&root)?;
+    refresh_existing_managed_dependencies(&root, vendor)?;
+    refresh_generated_types(&root)?;
     let (executable, arguments, network) = match name {
         "install" => (
             runtime.to_path_buf(),
@@ -476,6 +485,8 @@ pub fn initialize(
     }
     match fs::symlink_metadata(root.join("dist/escriba.json")) {
         Ok(metadata) if metadata.is_file() && !metadata.file_type().is_symlink() => {
+            refresh_existing_managed_dependencies(&root, vendor)?;
+            refresh_generated_types(&root)?;
             refresh_launcher(&root, runtime, vendor, false)?;
             return Ok(true);
         }
@@ -558,6 +569,9 @@ pub fn initialize(
 /// Builds an artifact with the bundled runtime, then inspects only that artifact.
 pub fn build(path: &Path, runtime: &Path, vendor: &Path) -> Result<Value, String> {
     let root = project_root(path)?;
+    ensure_safe_project_root(&root)?;
+    refresh_existing_managed_dependencies(&root, vendor)?;
+    refresh_generated_types(&root)?;
     let vendor_real =
         fs::canonicalize(vendor).map_err(|_| "No están disponibles las dependencias incluidas")?;
     let root_text = root.to_str().ok_or("Ruta de proyecto no UTF-8")?;
@@ -767,6 +781,144 @@ fn vendor_modules(vendor: &Path) -> PathBuf {
     }
 }
 
+fn refresh_generated_types(root: &Path) -> Result<(), String> {
+    let path = root.join("escriba-recetas.d.ts");
+    let kind = match fs::symlink_metadata(&path) {
+        Ok(kind) => kind,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(_) => return Err("No se pudieron inspeccionar los tipos del proyecto".into()),
+    };
+    if !kind.is_file() || kind.file_type().is_symlink() {
+        return Err("Los tipos del proyecto no son un archivo real".into());
+    }
+    if kind.len() > SOURCE_LIMIT as u64 {
+        return Err("Los tipos del proyecto superan el límite".into());
+    }
+    let existing = fs::read(&path).map_err(|_| "No se pudieron leer los tipos del proyecto")?;
+    if existing == TYPES.as_bytes() {
+        return Ok(());
+    }
+    let digest = Sha256::digest(&existing);
+    if format!("{digest:x}") != PREVIOUS_TYPES_SHA256 {
+        return Ok(());
+    }
+    let temporary = root.join(format!(".escriba-recetas-types-{}", uuid::Uuid::new_v4()));
+    let result = (|| -> Result<(), String> {
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temporary)
+            .map_err(|_| "No se pudieron preparar los tipos del proyecto")?;
+        file.write_all(TYPES.as_bytes())
+            .and_then(|_| file.sync_all())
+            .map_err(|_| "No se pudieron escribir los tipos del proyecto")?;
+        fs::rename(&temporary, &path)
+            .map_err(|_| "No se pudieron actualizar los tipos del proyecto")?;
+        File::open(root)
+            .and_then(|directory| directory.sync_all())
+            .map_err(|_| "No se pudo sincronizar el proyecto")?;
+        Ok(())
+    })();
+    let _ = fs::remove_file(&temporary);
+    result
+}
+
+fn refresh_existing_managed_dependencies(root: &Path, vendor: &Path) -> Result<(), String> {
+    let deps = root.join(".escriba/deps");
+    match fs::symlink_metadata(&deps) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(_) => return Err("No se pudo inspeccionar la carpeta administrada".into()),
+        Ok(kind) if !kind.is_dir() || kind.file_type().is_symlink() => {
+            return Err("Carpeta administrada inválida".into());
+        }
+        Ok(_) => {}
+    }
+    let managed = root.join(".escriba");
+    let kind = fs::symlink_metadata(&managed).map_err(|_| "Carpeta administrada inválida")?;
+    if !kind.is_dir() || kind.file_type().is_symlink() {
+        return Err("Carpeta administrada inválida".into());
+    }
+    for (package, name, runtime) in [
+        ("@escriba/conectores", "conectores", true),
+        ("zod", "zod", true),
+        ("@types/bun", "types-bun", false),
+        ("bun-types", "bun-types", false),
+        ("@types/node", "types-node", false),
+        ("undici-types", "undici-types", false),
+    ] {
+        match fs::symlink_metadata(deps.join(name)) {
+            Ok(_) => install_managed_dependency(root, vendor, package, name, runtime)?,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(_) => return Err("No se pudo inspeccionar la dependencia administrada".into()),
+        }
+    }
+    Ok(())
+}
+
+fn same_dependency(source: &Path, destination: &Path) -> Result<bool, String> {
+    let mut source_paths = HashSet::new();
+    for item in WalkDir::new(source).follow_links(false) {
+        let item = item.map_err(|_| "No se pudo leer la dependencia incluida")?;
+        let relative = item
+            .path()
+            .strip_prefix(source)
+            .map_err(|_| "Dependencia incluida inválida")?;
+        if item.file_type().is_symlink() {
+            return Err("La dependencia incluida contiene un enlace simbólico".into());
+        }
+        if relative.as_os_str().is_empty() {
+            continue;
+        }
+        source_paths.insert(relative.to_path_buf());
+        let target = destination.join(relative);
+        let kind = match fs::symlink_metadata(&target) {
+            Ok(kind) => kind,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+            Err(_) => return Err("Dependencia administrada inválida".into()),
+        };
+        if kind.file_type().is_symlink() {
+            return Err("Dependencia administrada contiene un enlace simbólico".into());
+        }
+        if item.file_type().is_dir() {
+            if !kind.is_dir() {
+                return Ok(false);
+            }
+        } else if item.file_type().is_file() {
+            let source_size = item
+                .metadata()
+                .map_err(|_| "Dependencia incluida inválida")?
+                .len();
+            if source_size > BUNDLE_LIMIT as u64 {
+                return Err("Archivo de dependencia supera 32 MiB".into());
+            }
+            if !kind.is_file() || kind.len() != source_size {
+                return Ok(false);
+            }
+            if fs::read(item.path()).map_err(|_| "No se pudo leer la dependencia incluida")?
+                != fs::read(&target).map_err(|_| "No se pudo leer la dependencia administrada")?
+            {
+                return Ok(false);
+            }
+        } else {
+            return Err("Tipo de archivo de dependencia inválido".into());
+        }
+    }
+    for item in WalkDir::new(destination).follow_links(false) {
+        let item = item.map_err(|_| "No se pudo leer la dependencia administrada")?;
+        if item.file_type().is_symlink() {
+            return Err("Dependencia administrada contiene un enlace simbólico".into());
+        }
+        let relative = item
+            .path()
+            .strip_prefix(destination)
+            .map_err(|_| "Dependencia administrada inválida")?;
+        if !relative.as_os_str().is_empty() && !source_paths.contains(relative) {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
 fn install_managed_dependency(
     root: &Path,
     vendor: &Path,
@@ -788,9 +940,8 @@ fn install_managed_dependency(
     let deps = managed.join("deps");
     real_directory(&deps)?;
     let destination = deps.join(name);
-    if destination.exists() {
-        let kind =
-            fs::symlink_metadata(&destination).map_err(|_| "Dependencia administrada inválida")?;
+    let existing = fs::symlink_metadata(&destination);
+    if let Ok(kind) = existing.as_ref() {
         if !kind.is_dir()
             || kind.file_type().is_symlink()
             || !destination.join("package.json").is_file()
@@ -799,7 +950,11 @@ fn install_managed_dependency(
         {
             return Err("Dependencia administrada inválida".into());
         }
-        return Ok(());
+        if same_dependency(&source, &destination)? {
+            return Ok(());
+        }
+    } else if !matches!(existing, Err(ref error) if error.kind() == std::io::ErrorKind::NotFound) {
+        return Err("Dependencia administrada inválida".into());
     }
     let temporary = deps.join(format!(".{name}-{}", uuid::Uuid::new_v4()));
     fs::create_dir(&temporary).map_err(|_| "No se pudo preparar la dependencia")?;
@@ -832,10 +987,26 @@ fn install_managed_dependency(
                 return Err("Tipo de archivo de dependencia inválido");
             }
         }
-        fs::rename(&temporary, &destination).map_err(|_| "No se pudo instalar la dependencia")?;
+        let backup = deps.join(format!(".{name}-backup-{}", uuid::Uuid::new_v4()));
+        let replacing = destination.exists();
+        if replacing {
+            fs::rename(&destination, &backup)
+                .map_err(|_| "No se pudo preparar la actualización de la dependencia")?;
+        }
+        if fs::rename(&temporary, &destination).is_err() {
+            if replacing {
+                fs::rename(&backup, &destination)
+                    .map_err(|_| "No se pudo restaurar la dependencia anterior")?;
+            }
+            return Err("No se pudo instalar la dependencia");
+        }
         File::open(&deps)
             .and_then(|dir| dir.sync_all())
             .map_err(|_| "No se pudo sincronizar la dependencia")?;
+        if replacing {
+            fs::remove_dir_all(&backup)
+                .map_err(|_| "No se pudo retirar la dependencia anterior")?;
+        }
         Ok(())
     })();
     if result.is_err() {
@@ -1038,6 +1209,153 @@ mod tests {
 
     fn project_vendor() -> PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR")).join("vendor")
+    }
+
+    #[test]
+    fn actualiza_dependencia_administrada_y_conserva_archivos_del_usuario() {
+        let folder = tempfile::tempdir().unwrap();
+        let vendor = tempfile::tempdir().unwrap();
+        let source = vendor.path().join("conectores");
+        fs::create_dir(&source).unwrap();
+        fs::write(source.join("package.json"), "{}").unwrap();
+        fs::write(source.join("index.js"), "nuevo").unwrap();
+        fs::write(source.join("index.d.ts"), "nuevo").unwrap();
+        let managed = folder.path().join(".escriba/deps/conectores");
+        fs::create_dir_all(&managed).unwrap();
+        fs::write(managed.join("package.json"), "{}").unwrap();
+        fs::write(managed.join("index.js"), "viejo").unwrap();
+        fs::write(managed.join("index.d.ts"), "viejo").unwrap();
+        fs::write(managed.join("sobrante.js"), "obsoleto").unwrap();
+        let own = folder
+            .path()
+            .join("node_modules/@escriba/conectores/index.js");
+        fs::create_dir_all(own.parent().unwrap()).unwrap();
+        fs::write(&own, "usuario").unwrap();
+
+        install_managed_dependency(
+            folder.path(),
+            vendor.path(),
+            "conectores",
+            "conectores",
+            true,
+        )
+        .unwrap();
+        assert_eq!(
+            fs::read_to_string(managed.join("index.js")).unwrap(),
+            "nuevo"
+        );
+        assert!(!managed.join("sobrante.js").exists());
+        assert_eq!(fs::read_to_string(own).unwrap(), "usuario");
+    }
+
+    #[test]
+    fn proyecto_con_dist_actualiza_copia_antigua_sin_crear_fuentes() {
+        let folder = tempfile::tempdir().unwrap();
+        let vendor = tempfile::tempdir().unwrap();
+        let source = vendor.path().join("node_modules/@escriba/conectores");
+        fs::create_dir_all(&source).unwrap();
+        for (name, content) in [
+            ("package.json", "{}"),
+            ("index.js", "export const defineProvider = true"),
+            ("index.d.ts", "export declare const defineProvider: boolean"),
+        ] {
+            fs::write(source.join(name), content).unwrap();
+        }
+        let managed = folder.path().join(".escriba/deps/conectores");
+        fs::create_dir_all(&managed).unwrap();
+        for name in ["package.json", "index.js", "index.d.ts"] {
+            fs::write(managed.join(name), "viejo").unwrap();
+        }
+        fs::create_dir(folder.path().join("dist")).unwrap();
+        fs::write(
+            folder.path().join("dist/escriba.json"),
+            r#"{"version":1,"recipes":[]}"#,
+        )
+        .unwrap();
+        let has_dist = initialize(
+            folder.path(),
+            &json!([]),
+            vendor.path(),
+            Path::new("/bun/ausente"),
+        )
+        .unwrap();
+        assert!(has_dist);
+        assert!(fs::read_to_string(managed.join("index.js"))
+            .unwrap()
+            .contains("defineProvider"));
+        assert!(!folder.path().join("src").exists());
+        assert!(!folder.path().join("package.json").exists());
+    }
+
+    #[test]
+    fn bun_reinstala_conector_file_tras_reemplazar_dependencia_administrada() {
+        let folder = tempfile::tempdir().unwrap();
+        let vendor = tempfile::tempdir().unwrap();
+        let runtime = crate::native::binary("escriba-runtime").unwrap();
+        let source = vendor.path().join("node_modules/@escriba/conectores");
+        fs::create_dir_all(&source).unwrap();
+        let package = r#"{"name":"@escriba/conectores","version":"1.0.0","main":"index.js"}"#;
+        fs::write(source.join("package.json"), package).unwrap();
+        fs::write(
+            source.join("index.js"),
+            "export const defineProvider = true",
+        )
+        .unwrap();
+        fs::write(
+            source.join("index.d.ts"),
+            "export declare const defineProvider: boolean",
+        )
+        .unwrap();
+        let managed = folder.path().join(".escriba/deps/conectores");
+        fs::create_dir_all(&managed).unwrap();
+        fs::write(managed.join("package.json"), package).unwrap();
+        fs::write(managed.join("index.js"), "export const oldApi = true").unwrap();
+        fs::write(
+            managed.join("index.d.ts"),
+            "export declare const oldApi: boolean",
+        )
+        .unwrap();
+        fs::write(
+            folder.path().join("package.json"),
+            r#"{"name":"probe","dependencies":{"@escriba/conectores":"file:.escriba/deps/conectores"}}"#,
+        )
+        .unwrap();
+        let old = run_development(
+            folder.path(),
+            &runtime,
+            vendor.path(),
+            &["install", "--ignore-scripts"],
+            true,
+            true,
+            true,
+        )
+        .unwrap();
+        assert!(old.success, "{}", old.output);
+        let installed = folder
+            .path()
+            .join("node_modules/@escriba/conectores/index.js");
+        assert!(fs::read_to_string(&installed).unwrap().contains("oldApi"));
+        let result = tool(folder.path(), &runtime, vendor.path(), "install").unwrap();
+        assert_eq!(result["success"], true, "{result}");
+        assert!(fs::read_to_string(installed)
+            .unwrap()
+            .contains("defineProvider"));
+    }
+
+    #[test]
+    fn refresca_tipos_generados_sin_pisar_tipos_editados() {
+        let folder = tempfile::tempdir().unwrap();
+        let types = folder.path().join("escriba-recetas.d.ts");
+        let previous = TYPES
+            .replace("interface InfoDeCuenta {\n  readonly clave: string\n  readonly nombre: string\n  readonly tipo: string\n  readonly activo: boolean\n  readonly origen: string | null\n}\n\ninterface Cuenta {\n  readonly clave: string\n  readonly nombre: string\n  readonly fetch: typeof fetch\n}\n\n", "")
+            .replace("  readonly cuentas?: readonly InfoDeCuenta[]\n", "")
+            .replace("  cuenta(claveONombre: string): Cuenta\n", "");
+        fs::write(&types, previous).unwrap();
+        refresh_generated_types(folder.path()).unwrap();
+        assert_eq!(fs::read_to_string(&types).unwrap(), TYPES);
+        fs::write(&types, "// tipos propios").unwrap();
+        refresh_generated_types(folder.path()).unwrap();
+        assert_eq!(fs::read_to_string(&types).unwrap(), "// tipos propios");
     }
 
     #[test]

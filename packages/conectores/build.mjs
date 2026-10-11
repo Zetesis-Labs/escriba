@@ -30,7 +30,7 @@ await build({
   format: "esm",
   outfile: join(resources, "index.js"),
 });
-for (const name of ["index", "types", "notion", "okf"]) {
+for (const name of ["index", "types", "protocol", "notion", "okf"]) {
   const declaration = await readFile(
     join(root, "dist", name + ".d.ts"),
     "utf8",
@@ -84,6 +84,7 @@ await writeFile(
         "index.js",
         "index.d.ts",
         "types.d.ts",
+        "protocol.d.ts",
         "notion.d.ts",
         "okf.d.ts",
         "conectores.js",
