@@ -43,33 +43,8 @@ struct TrazaDeRecetaTests {
     }
 }
 
-@Suite("Traza en texto plano, para copiarla")
-struct TrazaEnTextoTests {
-    @Test("la traza se copia con su cabecera, sus pasos, su log y su error")
-    func texto() {
-        let traza = RecipeTrace(
-            recipe: "mi-receta", name: "Mi receta", fingerprint: "8105438abc",
-            steps: [
-                RecipeStep(capability: "transcribir", detail: "WhisperKit · ES", seconds: 1.25, error: nil, origin: "Por defecto"),
-                RecipeStep(capability: "publicar", detail: "Notion", seconds: 0.4, error: "sin red"),
-            ],
-            logs: [
-                RecipeLogLine(level: .info, text: "hola", origin: nil, seconds: 0),
-                RecipeLogLine(level: .warn, text: "ojo", origin: "Por defecto", seconds: 1.5),
-            ],
-            error: "la receta falló: sin red", seconds: 2, data: #"{"cliente":"Acme"}"#)
-
-        #expect(recipeTraceText(traza) == """
-            Receta «Mi receta» · 8105438 · falló · 2,0 s
-            ✓ Por defecto › transcribir · WhisperKit · ES (1,3 s)
-            ✗ publicar · Notion (0,4 s): sin red
-            +0,0 s hola
-            +1,5 s aviso Por defecto › ojo
-            Datos: {"cliente":"Acme"}
-            Error: la receta falló: sin red
-            """)
-    }
-
+@Suite("Datos en la traza")
+struct DatosEnLaTrazaTests {
     @Test("los datos guardados viajan con la traza y una traza vieja, sin ellos, se sigue leyendo")
     func datosEnLaTraza() throws {
         let traza = RecipeTrace(recipe: "x", fingerprint: "f", steps: [], logs: [], error: nil, data: #"{"a":1}"#)

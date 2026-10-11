@@ -47,7 +47,7 @@ npm test --prefix apps/tauri
 cargo test --manifest-path apps/tauri/src-tauri/Cargo.toml --lib
 ```
 
-El adaptador nativo y el CLI mantienen sus suites Swift, Linux y WASI.
+El adaptador nativo y el CLI mantienen sus suites Swift (`swift test`, solo macOS).
 La aplicación macOS se compila con el SDK de Apple, fuera del devcontainer de
 otros proyectos. Las instrucciones completas están en [CLAUDE.md](CLAUDE.md).
 

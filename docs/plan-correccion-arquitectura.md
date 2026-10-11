@@ -372,13 +372,25 @@ borrado y tipado y pueden ir en paralelo con ramas separadas una vez cerrada B.
   como advertencia también cuando falla una publicación, como hacía el flujo
   en línea. Un test comprueba que Rust incrusta el mismo fichero que compila
   el runtime. `RecipeTemplate.swift` y `build-recetas.sh` se van con la E.
+- **Fase E** (2026-10-12). Fuera la pila de recetas Swift (núcleo, motor,
+  `RecipeProjectFolder`, `RecipeTemplate`), sus 16 ficheros de tests,
+  `build-recetas.sh`, `descargar-zod.sh`, `CSQLite` y los jobs `linux` y
+  `wasi`. `Pipeline` pierde `recipe` y los eventos `recipeUnavailable` y
+  `traced`; una nota con receta elegida en la bandeja sigue fallando como
+  antes («las recetas no arrancan en este Mac»). Se conservan
+  `RecipeTrace`, `RecipeStep`, `RecipeLogLine` y los enumerados de ejecución
+  en `EscribaCore/RecipeTrace.swift`, porque `EscribaStore` guarda y lee esas
+  trazas y el plan no toca la biblioteca del CLI. `Ledger` solo cambia su
+  import de SQLite. La comprobación de tipos de `receta.ts` pasa al
+  `tsconfig` de la app, que antes la cubría por la importación retirada en D.
 
 ## Estado para retomar
 
 Ramas apiladas en `_worktrees/escriba-arquitectura`, sin push:
 `refactor/persistencia-por-entidad` (plan + A) → `refactor/cerrojos-y-colas`
 (B) → `refactor/grafo-incremental` (G) → `refactor/topologia-procesos` (F)
-→ `refactor/contrato-tipado` (C) → `refactor/receta-unica` (D).
+→ `refactor/contrato-tipado` (C) → `refactor/receta-unica` (D) →
+`refactor/swift-sin-recetas` (E).
 Cada siguiente fase sale de la última.
 El worktree reutiliza la caché de `escriba-tauri`: `apps/tauri/src-tauri/target`
 es un enlace a la suya, Bun 1.4.2 está en su `.build/bun` y SwiftPM usa
@@ -386,8 +398,7 @@ es un enlace a la suya, Bun 1.4.2 está en su `.build/bun` y SwiftPM usa
 Tras cambiar TypeScript del runtime, `node apps/tauri/scripts/prepare.mjs`
 recompila el binario antes de los tests de Rust.
 
-Pendiente, en este orden: E (retirar la pila de recetas Swift y los jobs
-Linux/WASI), H (ADR-0003, ADR-0007, CLAUDE.md).
+Pendiente: H (ADR-0003, ADR-0007, CLAUDE.md).
 Las pruebas de runtime necesitan el Bun fijado en el `PATH`
 (`.build/bun/1.4.2/bun-darwin-aarch64`). Al final:
 prueba de compatibilidad con una copia privada de la biblioteca (pedir a Rubén

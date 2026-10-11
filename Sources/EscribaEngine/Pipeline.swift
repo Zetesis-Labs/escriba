@@ -11,7 +11,6 @@ public struct Pipeline: Sendable {
     public let readiness: ReadinessProbe
     public let enrich: Enricher?
     public let memory: NoteMemory?
-    public let recipe: Recipe?
     public let onEvent: EventHandler?
 
     public init(
@@ -22,7 +21,6 @@ public struct Pipeline: Sendable {
         readiness: @escaping ReadinessProbe = { _ in .ready },
         enrich: Enricher? = nil,
         memory: NoteMemory? = nil,
-        recipe: Recipe? = nil,
         onEvent: EventHandler? = nil
     ) {
         self.source = source
@@ -32,7 +30,6 @@ public struct Pipeline: Sendable {
         self.readiness = readiness
         self.enrich = enrich
         self.memory = memory
-        self.recipe = recipe
         self.onEvent = onEvent
     }
 
@@ -59,7 +56,7 @@ public struct Pipeline: Sendable {
         var deferred = 0
         var downRoutes: Set<String> = []
 
-        for (index, recording) in pending.enumerated() {
+        for recording in pending {
             let route = backend.route(recording.url)
             guard !downRoutes.contains(route) else {
                 Log.info("\(recording.key) espera: su motor de transcripcion no responde")
@@ -77,11 +74,6 @@ public struct Pipeline: Sendable {
                 onEvent?(.backendUnavailable(reason: "\(error)"))
                 downRoutes.insert(route)
                 deferred += 1
-            } catch let unavailable as RecipeUnavailable {
-                Log.error("receta no disponible, las notas esperan: \(unavailable.reason)")
-                onEvent?(.recipeUnavailable(reason: unavailable.reason))
-                deferred += pending.count - index
-                break
             } catch {
                 Log.error("fallo procesando \(recording.key): \(error)")
                 recordFailure(of: recording, "\(error)")
@@ -120,7 +112,9 @@ public struct Pipeline: Sendable {
             return .deferred
         }
 
-        let target = try target(of: recording)
+        if try source.chosenRecipe(recording) != nil {
+            throw ChosenRecipeUnavailable(reason: "las recetas no arrancan en este Mac")
+        }
 
         Log.info("transcribiendo \(recording.key)")
         onEvent?(.transcribing(key: recording.key))
@@ -128,7 +122,7 @@ public struct Pipeline: Sendable {
 
         let delivered: (transcript: Transcript, output: URL)
         do {
-            delivered = try await deliver(recording, target: target)
+            delivered = try await deliver(recording)
         } catch let error as TranscriptionError where error.isBackendUnavailable {
             throw error
         } catch let error as TranscriptionError {
@@ -148,72 +142,12 @@ public struct Pipeline: Sendable {
         return .done
     }
 
-    private func target(of recording: Recording) throws -> RecipeTarget? {
-        let chosen = try source.chosenRecipe(recording)
-        guard let recipe else {
-            if chosen != nil { throw ChosenRecipeUnavailable(reason: "las recetas no arrancan en este Mac") }
-            return nil
-        }
-        do {
-            return try recipe.shelf.target(chosen)
-        } catch let missing as RecipeLookupError where chosen != nil {
-            throw ChosenRecipeUnavailable(reason: "\(missing)")
-        } catch {
-            throw RecipeUnavailable(reason: "\(error)")
-        }
-    }
-
-    private func deliver(
-        _ recording: Recording, target: RecipeTarget?
-    ) async throws -> (transcript: Transcript, output: URL) {
+    private func deliver(_ recording: Recording) async throws -> (transcript: Transcript, output: URL) {
         let capabilities = Capabilities(backend: backend, enrich: enrich, memory: memory)
-        if let recipe, let target {
-            return try await deliver(recording, with: recipe, target, capabilities)
-        }
         let take = try await capabilities.summarize(recording, try await capabilities.transcribe(recording))
         let output = try await sink(Note(recording: recording, transcript: take.transcript, digest: take.digest))
         return (take.transcript, output)
     }
-
-    private func deliver(
-        _ recording: Recording, with recipe: Recipe, _ target: RecipeTarget, _ capabilities: Capabilities
-    ) async throws -> (transcript: Transcript, output: URL) {
-        let (result, trace) = await runRecipe(
-            target, of: recipe, on: recording, capabilities: capabilities, save: sink)
-        onEvent?(.traced(key: recording.key, trace: trace))
-        return try result.get()
-    }
-}
-
-public func runRecipe(
-    _ target: RecipeTarget, of recipe: Recipe, on recording: Recording, audio: URL? = nil,
-    backend: TranscriptionBackend, enrich: Enricher?, memory: NoteMemory?, save: @escaping Sink, dryRun: Bool = false,
-    fresh: Bool = false
-) async -> (result: Result<(transcript: Transcript, output: URL), any Error>, trace: RecipeTrace) {
-    await runRecipe(
-        target, of: recipe, on: recording, audio: audio,
-        capabilities: Capabilities(backend: backend, enrich: enrich, memory: memory, readOnly: dryRun), save: save,
-        dryRun: dryRun, fresh: fresh)
-}
-
-private func runRecipe(
-    _ target: RecipeTarget, of recipe: Recipe, on recording: Recording, audio: URL? = nil,
-    capabilities: Capabilities, save: @escaping Sink, dryRun: Bool = false, fresh: Bool = false
-) async -> (result: Result<(transcript: Transcript, output: URL), any Error>, trace: RecipeTrace) {
-    let session = RecipeSession(
-        recording: recording, audio: audio, capabilities: capabilities, save: save, recipe: recipe, target: target,
-        dryRun: dryRun, fresh: fresh)
-    do {
-        try await recipe.runtime.run(target.package, session.bridge)
-        guard let delivered = session.delivered else { throw RecipeError.notSaved }
-        return (.success(delivered), session.trace(error: nil))
-    } catch {
-        return (.failure(error), session.trace(error: error))
-    }
-}
-
-private struct RecipeUnavailable: Error {
-    let reason: String
 }
 
 private struct ChosenRecipeUnavailable: Error, CustomStringConvertible {
