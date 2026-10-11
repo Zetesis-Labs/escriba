@@ -100,6 +100,22 @@ incierto y se ofrece reintentar, sin inferir el resultado del texto del error.
 - knowledge_save {id,expectedVersion,table,recordId?,expectedRev?,values,recordingId?,versionId?} -> registro; formulario JSON con control de revisión y procedencia opcional.
 - knowledge_delete {id,expectedVersion,table,recordId,expectedRev} -> void; knowledge_unlink {id,expectedVersion,recordId,recordingId} -> void.
 - knowledge_attach {id,expectedVersion,recordId,recordingId,versionId} -> void; vínculo de una nota con un registro ya existente desde la UI.
+- knowledge_filter_notes {filter} -> {recordingIds}; aplica condiciones visuales sobre campos declarados o una consulta SurrealQL de lectura. Sincroniza la base y devuelve identidades de notas vigentes, sin descargar sus transcripciones a la interfaz.
+- knowledge_filters_list -> SavedLibraryFilter[]; knowledge_filter_save {filter:{id?,name,ontologyId,sql}} -> SavedLibraryFilter; knowledge_filter_remove {id} -> void. `SavedLibraryFilter` contiene `id,name,ontologyId,sql`; los filtros permanecen en el registro privado de conocimiento al cambiar de proyecto. Estos comandos son exclusivos de la UI.
+
+Los filtros se ejecutan con el principal de datos de la ontología, tras validar
+que el AST completo sea de lectura, incluidas las extensiones. El último
+resultado SurrealQL debe contener identidades nativas, registros con `id` o
+referencias explícitas a la base. El host resuelve la procedencia y las
+referencias declaradas contra la versión vigente; no hace recorridos
+implícitos. Las condiciones visuales combinan notas con todas o cualquiera de
+las coincidencias. Las consultas tienen un límite de 10 segundos, 10000
+entidades/notas y 8 MiB de resultado aceptado; excederlo produce un error. Este
+último límite se comprueba sin copiar el resultado y no constituye un presupuesto
+total de RAM: el SDK embebido materializa primero los resultados de SurrealQL.
+Los selectores
+visuales usan páginas ligeras de `knowledge_graph_roots`. Contrato de los
+criterios y comportamiento en `../../specs/escriba/filtros-biblioteca/functional-specs.md`.
 
 Los comandos `knowledge_graph_*` sincronizan la proyección base mediante su
 journal antes de consultar. No ejecutan recetas ni SQL aportado por la WebView.

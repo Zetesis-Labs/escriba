@@ -24,8 +24,10 @@ en `docs/proyecto-recetas-tauri.md`. Otros cambios de producto requieren encargo
 no añadir opciones ni flujos aprovechando una corrección.
 
 La UI usa controles propios en `apps/tauri/src/mac/` y menús, alertas y diálogos
-nativos. Mantener los textos y flujos acordados: sin búsqueda, filtros ni
-velocidad de reproducción, React Aria o shadcn.
+nativos. Mantener los textos y flujos acordados: sin búsqueda ni velocidad de
+reproducción, React Aria o shadcn. Los filtros visuales por entidades y las
+consultas SurrealQL guardadas bajo Biblioteca están aprobados en
+`specs/escriba/filtros-biblioteca/functional-specs.md`.
 
 ## Límites de módulos
 

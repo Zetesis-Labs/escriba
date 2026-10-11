@@ -77,6 +77,12 @@ pub enum FieldType {
 mod base;
 mod base_query;
 pub use base::{base_definition, base_listing};
+mod filters;
+pub use filters::LibraryFilter;
+#[cfg(test)]
+mod filter_tests;
+mod saved_filters;
+pub use saved_filters::SaveLibraryFilter;
 mod graph;
 #[cfg(test)]
 mod graph_tests;
@@ -144,7 +150,7 @@ impl Knowledge {
             .use_db("registry")
             .await
             .map_err(error)?;
-        root.query("DEFINE TABLE IF NOT EXISTS ontology SCHEMALESS PERMISSIONS NONE")
+        root.query("DEFINE TABLE IF NOT EXISTS ontology SCHEMALESS PERMISSIONS NONE; DEFINE TABLE IF NOT EXISTS library_filter SCHEMALESS PERMISSIONS NONE;")
             .await
             .map_err(error)?
             .check()

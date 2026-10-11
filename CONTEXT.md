@@ -50,6 +50,13 @@ Puede estar vinculada a varias notas sin duplicarse.
 versión de nota, con la grabación y, si procede, la receta de origen.
 _Evitar_: publicación, que se refiere a un destino externo.
 
+**Filtro de Biblioteca**: criterio que selecciona notas por las entidades y
+relaciones de su conocimiento. Se aplica al contenido confirmado vigente.
+
+**Filtro guardado**: consulta con nombre que la persona conserva para volver a
+seleccionar sus notas desde Biblioteca. Pertenece a la biblioteca y permanece
+disponible aunque cambie el proyecto de recetas.
+
 **Proveedor**: servicio o formato con el que se integra Escriba, como Notion
 u OKF. No representa una cuenta concreta del usuario.
 

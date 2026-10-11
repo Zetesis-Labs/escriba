@@ -74,6 +74,17 @@ ni ejecuta SurrealQL. Esta vista de lectura no añade relaciones implícitas ni
 descubre tablas raw ajenas al manifiesto. Alcance y criterios en
 `specs/escriba/mapas-conocimiento/functional-specs.md`.
 
+La ampliación de Biblioteca del 2026-10-11 permite filtrar visualmente cualquier
+colección declarada y guardar consultas SurrealQL con nombre bajo Biblioteca.
+La WebView envía criterios o texto de consulta; Rust valida el AST de lectura y
+ejecuta como principal de datos de la ontología, también para extensiones.
+Los resultados se resuelven contra la versión vigente de cada nota usando
+procedencia y referencias explícitas. Las bases lógicas siguen separadas y las
+condiciones combinan identidades de nota en el host. No se descargan detalles
+completos para filtrar. Los filtros guardados pertenecen al registro privado de
+la biblioteca de conocimiento y sobreviven al cambio de proyecto. Alcance en
+`specs/escriba/filtros-biblioteca/functional-specs.md`.
+
 Un registro puede vincularse a varias versiones de nota. La UI puede editarlo
 mediante formularios declarados con control de revisión; el host protege esas
 correcciones manuales frente a escrituras de recetas. Una consulta raw puede
