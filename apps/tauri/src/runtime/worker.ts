@@ -123,6 +123,8 @@ function noteObject(
     async vincular(ontologyId: string, recordId: string) {
       if (typeof ontologyId !== "string" || !ontologyId.trim())
         throw Error("Falta el identificador de la ontología");
+      if (ontologyId === "escriba")
+        throw Error("La base de Escriba ya deriva sus registros de la biblioteca; no se puede vincular una nota a ella");
       if (typeof recordId !== "string" || !recordId.trim())
         throw Error("Falta el identificador del registro");
       const expectedVersion = await graphVersion(ontologyId, rpc);

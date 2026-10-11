@@ -22,6 +22,7 @@ const TYPES: &str = include_str!("../../../../recetas/escriba-recetas.d.ts");
 const PREVIOUS_TYPES_SHA256: &[&str] = &[
     "1ddebd218cbb5a0b4f3b6a40120dadec5c8c5912eeb93a6d1d3fdd824b7146d1",
     "976e7e95fa41cffb8273cc14a72ec4fa091e89c9d9d147824f542ff971e3cebe",
+    "dd560d43ed138390fcbdaa222ae214a90c04084864c4ed9595596fb4f3a83b8b",
 ];
 const EXAMPLE: &str = include_str!("../../../../recetas/por-defecto/receta.ts");
 const SOURCE_LIMIT: usize = 8 * 1024 * 1024;
@@ -1427,7 +1428,18 @@ mod tests {
     fn refresca_tipos_generados_sin_pisar_tipos_editados() {
         let folder = tempfile::tempdir().unwrap();
         let types = folder.path().join("escriba-recetas.d.ts");
-        let before_graph = TYPES
+        let before_reference = TYPES
+            .replace("interface ReferenciaDeConocimiento {\n  readonly ontologyId: \"escriba\"\n  readonly table: string\n  readonly id: string\n}\n\n", "")
+            .replace("  readonly type: \"text\" | \"number\" | \"boolean\" | \"date\" | \"json\" | \"reference\"\n", "  readonly type: \"text\" | \"number\" | \"boolean\" | \"date\" | \"json\"\n")
+            .replace("  readonly reference?: { readonly ontologyId: \"escriba\"; readonly table: ReferenciaDeConocimiento[\"table\"] }\n", "");
+        assert_eq!(
+            format!("{:x}", Sha256::digest(before_reference.as_bytes())),
+            PREVIOUS_TYPES_SHA256[2]
+        );
+        fs::write(&types, &before_reference).unwrap();
+        refresh_generated_types(folder.path()).unwrap();
+        assert_eq!(fs::read_to_string(&types).unwrap(), TYPES);
+        let before_graph = before_reference
             .replace("  vincular(ontologiaId: string, registroId: string): Promise<void>\n", "")
             .replace("  grafo(ontologiaId: string): Promise<import(\"surrealdb\").Surreal>\n", "")
             .replace("interface DependenciaDeOntologia {\n  readonly id: string\n  readonly minVersion: number\n  readonly maxVersion: number\n}\n\ninterface CampoDeConocimiento {\n  readonly key: string\n  readonly label: string\n  readonly type: \"text\" | \"number\" | \"boolean\" | \"date\" | \"json\"\n  readonly required?: boolean\n}\n\ninterface ColeccionDeConocimiento {\n  readonly table: string\n  readonly label: string\n  readonly titleField: string\n  readonly fields: readonly CampoDeConocimiento[]\n  readonly relation?: { readonly from: string; readonly to: string }\n}\n\ninterface Ontologia {\n  readonly id: string\n  readonly name: string\n  readonly version: number\n  readonly migrations: readonly { readonly version: number; readonly sql: string }[]\n  readonly collections: readonly ColeccionDeConocimiento[]\n}\n\n", "");

@@ -113,3 +113,22 @@ test("editar texto repetido mantiene saltos y espacios originales", () => {
   ] };
   expect(changeSegmentText(transcript, 1, "voz").text).toBe("eco\n\nvoz");
 });
+
+test("elegir una persona guarda su ID; elegir sólo etiqueta borra el ID previo", () => {
+  const transcript: Transcript = { text: "hola adiós", segments: [
+    { start: 0, end: 1, text: "hola", speaker: "Ana", personId: "person:old" },
+    { start: 1, end: 2, text: "adiós", speaker: "Luis", personId: "person:luis" },
+  ] };
+  expect(renameSpeaker(transcript, "Ana", "Ana", "person:ana").segments[0]).toMatchObject({ speaker: "Ana", personId: "person:ana" });
+  expect(renameSpeaker(transcript, "Ana", "Speaker 1").segments[0]).toEqual({ start: 0, end: 1, text: "hola", speaker: "Speaker 1" });
+  expect(renameSpeaker(transcript, "Ana", "Speaker 1").segments[1].personId).toBe("person:luis");
+});
+
+test("dividir selección conserva la persona sólo en fragmentos no reasignados", () => {
+  const transcript: Transcript = { text: "uno dos tres", segments: [{ start: 0, end: 3, text: "uno dos tres", speaker: "Ana", personId: "person:ana" }] };
+  const changed = assignSelectedSpeaker(transcript, [{ segment: 0, start: 4, end: 7 }], "Luis", "person:luis");
+  expect(changed.segments.map(({ text, speaker, personId }) => [text, speaker, personId])).toEqual([
+    ["uno ", "Ana", "person:ana"], ["dos", "Luis", "person:luis"], [" tres", "Ana", "person:ana"],
+  ]);
+  expect(assignSelectedSpeaker(transcript, [{ segment: 0, start: 4, end: 7 }], "Speaker 2").segments[1].personId).toBeUndefined();
+});

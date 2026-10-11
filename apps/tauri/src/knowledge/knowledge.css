@@ -11,6 +11,22 @@
 .knowledge-ontology-row > div { display: flex; flex-direction: column; gap: 3px; flex: 1; min-width: 0; }
 .knowledge-ontology-row strong { font-size: 13px; font-weight: 550; }
 .knowledge-ontology-row span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.knowledge-ontology-summary { border: .5px solid var(--separator); border-radius: 8px; overflow: hidden; margin-top: 8px; }
+.knowledge-ontology-summary .knowledge-ontology-row { border: 0; }
+.knowledge-ontology-base { background: color-mix(in srgb, var(--accent) 4%, var(--content)); }
+.knowledge-collections { border-top: .5px solid var(--separator); padding: 0 12px; }
+.knowledge-collection + .knowledge-collection { border-top: .5px solid var(--separator); }
+.knowledge-collection summary { cursor: pointer; display: flex; align-items: center; gap: 8px; padding: 9px 2px; font-size: 12px; font-weight: 550; }
+.knowledge-collection summary::before { content: "›"; color: var(--secondary); font-size: 16px; line-height: 12px; transition: transform .15s; }
+.knowledge-collection[open] summary::before { transform: rotate(90deg); }
+.knowledge-collection summary code { margin-left: auto; color: var(--secondary); font-size: 10px; font-weight: 400; }
+.knowledge-collection-detail { padding: 0 2px 11px 15px; font-size: 11px; }
+.knowledge-collection-detail dl { margin: 0; }
+.knowledge-collection-detail dl > div { display: flex; justify-content: space-between; gap: 12px; padding: 5px 0; border-top: .5px solid var(--separator); }
+.knowledge-collection-detail dt { color: var(--label); }
+.knowledge-collection-detail dt code { margin-left: 7px; color: var(--secondary); }
+.knowledge-collection-detail dd { margin: 0; color: var(--secondary); text-align: right; }
+.knowledge-relation { margin: 0 0 7px; color: var(--secondary); }
 .knowledge-error { color: var(--red); background: color-mix(in srgb, var(--red) 7%, transparent); border-radius: 6px; padding: 9px 11px; margin-bottom: 14px; font-size: 12px; user-select: text; }
 .knowledge-loading { display: flex; align-items: center; gap: 7px; color: var(--secondary); font-size: 12px; }
 .knowledge-card { display: flex; flex-direction: column; gap: 11px; border-top: .5px solid var(--separator); padding-top: 19px; }

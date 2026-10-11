@@ -3,13 +3,29 @@ import { DateTime, RecordId } from "surrealdb";
 export const receta = { nombre: "Reunión con un acuerdo de ejemplo" };
 
 export const ontologias = [
-  { id: "ejemplo.reuniones", minVersion: 1, maxVersion: 1 },
+  { id: "ejemplo.reuniones", minVersion: 2, maxVersion: 2 },
 ] satisfies readonly DependenciaDeOntologia[];
 
 export async function flujo(audio: Audio, api: Escriba) {
   const db = await api.grafo("ejemplo.reuniones");
   const nota = await api.transcribir(audio);
   await nota.guardar();
+  const base = await api.grafo("escriba");
+  const [grabaciones] = await base.query<[Array<{ currentVersion: RecordId | null }>]>(
+    "SELECT currentVersion FROM recording WHERE id = $id",
+    { id: new RecordId("recording", audio.clave) },
+  );
+  const versionId = grabaciones?.[0]?.currentVersion;
+  if (!versionId) throw Error("La versión de la nota aún no está en la base de Escriba");
+  const [segmentos] = await base.query<[Array<{ id: RecordId }>]>(
+    "SELECT id FROM segment WHERE version = $version ORDER BY index LIMIT 1",
+    { version: versionId },
+  );
+  const segmentoId = segmentos?.[0]?.id;
+  if (!segmentoId) throw Error("La nota no tiene un segmento que referenciar");
+  const segmento: ReferenciaDeConocimiento = {
+    ontologyId: "escriba", table: "segment", id: segmentoId.toString(),
+  };
 
   const reunionId = new RecordId("reunion", `${audio.clave}-${nota.version}`);
   const acuerdoId = new RecordId("acuerdo", `${audio.clave}-${nota.version}`);
@@ -21,7 +37,7 @@ export async function flujo(audio: Audio, api: Escriba) {
     titulo: audio.nombre,
     fecha: new DateTime(audio.fecha),
   });
-  await db.create(acuerdoId).content({ titulo: tituloAcuerdo, estado: "pendiente" });
+  await db.create(acuerdoId).content({ titulo: tituloAcuerdo, estado: "pendiente", segmento });
   await db.relate(acuerdoId, relacionId, reunionId);
 
   const [relaciones] = await db.query<[Array<{ in: RecordId; out: RecordId }>]>(

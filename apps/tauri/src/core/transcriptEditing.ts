@@ -100,19 +100,26 @@ function normalizedRanges(transcript: Transcript, selection: TranscriptSelection
   return bySegment;
 }
 
-function fragment(segment: Segment, start: number, end: number, speaker: string | null | undefined): Segment {
+function fragment(segment: Segment, start: number, end: number, speaker: string | null | undefined, personId?: string): Segment {
   const text = segment.text.slice(start, end);
   const chosenSpeaker = speaker === undefined ? {} : { speaker };
+  const { personId: _personId, ...withoutPerson } = segment;
+  const chosenPerson = personId ? { personId } : {};
   const aligned = alignedWords(segment);
   const words = aligned?.filter((item) => item.start >= start && item.end <= end).map((item) => ({ ...item.word }));
   if (words?.length) {
-    return { ...segment, text, ...chosenSpeaker, start: words[0].start, end: words.at(-1)!.end, words };
+    return { ...withoutPerson, text, ...chosenSpeaker, ...chosenPerson, start: words[0].start, end: words.at(-1)!.end, words };
   }
-  const { words: _words, ...rest } = segment;
-  return { ...rest, text, ...chosenSpeaker, timingShared: true };
+  const { words: _words, ...rest } = withoutPerson;
+  return { ...rest, text, ...chosenSpeaker, ...chosenPerson, timingShared: true };
 }
 
-export function assignSelectedSpeaker(transcript: Transcript, selection: TranscriptSelectionRange[], speaker: string): Transcript {
+function assignedSegment(segment: Segment, speaker: string, personId?: string): Segment {
+  const { personId: _personId, ...rest } = cloneSegment(segment);
+  return { ...rest, speaker, ...(personId ? { personId } : {}) };
+}
+
+export function assignSelectedSpeaker(transcript: Transcript, selection: TranscriptSelectionRange[], speaker: string, personId?: string): Transcript {
   if (!speaker.trim()) throw new RangeError("El hablante no puede estar vacío");
   const ranges = normalizedRanges(transcript, selection);
   if (!ranges.size) return { ...transcript, segments: transcript.segments.map(cloneSegment), recognitions: transcript.recognitions?.map((item) => ({ ...item })) };
@@ -121,20 +128,20 @@ export function assignSelectedSpeaker(transcript: Transcript, selection: Transcr
   const groups = transcript.segments.map((segment, index) => {
     const selected = ranges.get(index);
     if (!selected?.length) return [cloneSegment(segment)];
-    if (segment.speaker === speaker) return [cloneSegment(segment)];
+    if (segment.speaker === speaker && (segment.personId ?? undefined) === personId) return [cloneSegment(segment)];
     changed = true;
     if (segment.speaker && segment.speaker !== speaker) affected.add(segment.speaker);
     if (selected.length === 1 && selected[0][0] === 0 && selected[0][1] === segment.text.length) {
-      return [{ ...cloneSegment(segment), speaker }];
+      return [assignedSegment(segment, speaker, personId)];
     }
     const pieces: Segment[] = [];
     let cursor = 0;
     for (const [start, end] of selected) {
-      if (cursor < start) pieces.push(fragment(segment, cursor, start, segment.speaker));
-      pieces.push(fragment(segment, start, end, speaker));
+      if (cursor < start) pieces.push(fragment(segment, cursor, start, segment.speaker, segment.personId ?? undefined));
+      pieces.push(fragment(segment, start, end, speaker, personId));
       cursor = end;
     }
-    if (cursor < segment.text.length) pieces.push(fragment(segment, cursor, segment.text.length, segment.speaker));
+    if (cursor < segment.text.length) pieces.push(fragment(segment, cursor, segment.text.length, segment.speaker, segment.personId ?? undefined));
     return pieces;
   });
   const recognitions = transcript.recognitions?.filter((item) =>
@@ -153,10 +160,10 @@ export function changeSegmentText(transcript: Transcript, index: number, text: s
   return { ...transcript, text: replacementText(transcript, index, text), segments, ...(transcript.recognitions ? { recognitions: transcript.recognitions.map((item) => ({ ...item })) } : {}) };
 }
 
-export function renameSpeaker(transcript: Transcript, from: string, to: string): Transcript {
+export function renameSpeaker(transcript: Transcript, from: string, to: string, personId?: string): Transcript {
   if (!to.trim()) throw new RangeError("El hablante no puede estar vacío");
-  const segments = transcript.segments.map((segment) => ({ ...cloneSegment(segment), ...(segment.speaker === from ? { speaker: to } : {}) }));
-  const changed = transcript.segments.some((segment) => segment.speaker === from && from !== to);
+  const segments = transcript.segments.map((segment) => segment.speaker === from ? assignedSegment(segment, to, personId) : cloneSegment(segment));
+  const changed = transcript.segments.some((segment) => segment.speaker === from && (from !== to || (segment.personId ?? undefined) !== personId));
   const recognitions = transcript.recognitions?.filter((item) => !changed || (item.speaker !== from && item.person !== from && item.speaker !== to && item.person !== to))
     .map((item) => ({ ...item }));
   return { ...transcript, segments, ...(recognitions ? { recognitions } : {}) };

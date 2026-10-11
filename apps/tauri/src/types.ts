@@ -11,6 +11,7 @@ export interface Segment {
   end: number;
   text: string;
   speaker?: string | null;
+  personId?: string | null;
   words?: { start: number; end: number; text: string }[];
   timingShared?: boolean;
 }
@@ -33,6 +34,7 @@ export interface PersonVoice {
   model: string;
 }
 export interface Person {
+  id?: string;
   name: string;
   color?: string;
   voices: PersonVoice[];

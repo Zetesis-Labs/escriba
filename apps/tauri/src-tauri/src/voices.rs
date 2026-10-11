@@ -32,6 +32,7 @@ pub struct SpeakerVoice {
 #[derive(Clone, Debug, PartialEq)]
 pub struct KnownVoice {
     pub person: String,
+    pub person_id: String,
     pub embedding: Vec<f32>,
     pub model: String,
 }
@@ -40,6 +41,7 @@ pub struct KnownVoice {
 pub struct Recognition {
     pub speaker: String,
     pub person: String,
+    pub person_id: String,
     pub distance: f32,
 }
 
@@ -98,6 +100,7 @@ pub fn recognize(voices: &[SpeakerVoice], known: &[KnownVoice]) -> Vec<Recogniti
                 candidates.push(Recognition {
                     speaker: voice.speaker.clone(),
                     person: person.person.clone(),
+                    person_id: person.person_id.clone(),
                     distance,
                 });
             }
@@ -165,6 +168,7 @@ mod tests {
 
     fn known(person: &str, embedding: &[f32], model: &str) -> KnownVoice {
         KnownVoice {
+            person_id: person.into(),
             person: person.into(),
             embedding: embedding.into(),
             model: model.into(),

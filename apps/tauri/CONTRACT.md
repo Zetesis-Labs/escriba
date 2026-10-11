@@ -161,9 +161,18 @@ recordId)` pasa por `graph.link` y exige una versión activa de nota. Cada llama
 comprueba la dependencia guardada y la versión exacta abierta, por lo que una
 actualización de ontología exige volver a abrir el grafo.
 
+La dependencia de `escriba` v1 es implícita si la receta no la declara. Una
+declaración explícita conserva su intervalo y falla si es incompatible. El mismo
+`api.grafo("escriba")` abre la base interna de solo lectura tras sincronizarla
+desde la biblioteca. Sus tablas públicas son `person`, `recording`, `version`,
+`transcript`, `speaker`, `segment` y `word`; no expone rutas, credenciales,
+huellas ni embeddings. `graph.link` rechaza `escriba`, cuyos vínculos ya derivan
+de la biblioteca. Las referencias desde una ontología de usuario a la base son
+objetos `{ontologyId:"escriba",table,id}`; no habilitan recorridos entre bases.
+
 El `dryRun` deniega `graph.open`, `graph.query` y `graph.link`. El controlador
-confirma `accountEffectPending` antes de toda consulta raw, aunque pueda ser
-solo lectura, pues un lote SurrealQL también puede escribir; esto bloquea el
+confirma `accountEffectPending` antes de toda consulta raw a una ontología de
+usuario, pues un lote SurrealQL también puede escribir; esto bloquea el
 reintento automático ante un resultado incierto. Los formularios de la UI usan
 JSON y control de revisión; la protección de correcciones manuales impide que
 una receta sobrescriba un registro editado allí. No hay cruces automáticos entre

@@ -147,11 +147,18 @@ interface DependenciaDeOntologia {
   readonly maxVersion: number
 }
 
+interface ReferenciaDeConocimiento {
+  readonly ontologyId: "escriba"
+  readonly table: string
+  readonly id: string
+}
+
 interface CampoDeConocimiento {
   readonly key: string
   readonly label: string
-  readonly type: "text" | "number" | "boolean" | "date" | "json"
+  readonly type: "text" | "number" | "boolean" | "date" | "json" | "reference"
   readonly required?: boolean
+  readonly reference?: { readonly ontologyId: "escriba"; readonly table: ReferenciaDeConocimiento["table"] }
 }
 
 interface ColeccionDeConocimiento {

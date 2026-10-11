@@ -19,6 +19,9 @@ import { RecordId, Table } from "surrealdb";
 export const receta = { nombre: "Grafo sintético" };
 export const ontologias = [{ id: "ejemplo.grafo", minVersion: 1, maxVersion: 1 }];
 export async function flujo(audio, api) {
+  const base = await api.grafo("escriba");
+  const recordings = await base.query("SELECT id FROM recording");
+  if (!(recordings[0]?.[0]?.id instanceof RecordId)) throw Error("La base no conserva la identidad de la grabación");
   const db = await api.grafo("ejemplo.grafo");
   const ada = new RecordId("person", "ada");
   const grace = new RecordId("person", "grace");
@@ -31,6 +34,8 @@ export async function flujo(audio, api) {
   if (names[0]?.[0]?.[0] !== "Grace") throw Error("No se recorrió la relación");
   const note = await api.transcribir(audio);
   await note.guardar();
+  const transcripts = await base.query("SELECT id, text FROM transcript");
+  if (transcripts[0]?.[0]?.text !== "Audio sintético" || !(transcripts[0]?.[0]?.id instanceof RecordId)) throw Error("La base no sincronizó la nota confirmada");
   await note.vincular("ejemplo.grafo", "person:ada");
 }
 "#).unwrap();

@@ -55,6 +55,13 @@ fn requirement(store: &Store, p: &Value) -> Result<Dependency, String> {
     let declared = dependencies(recipe.get("ontologies"))?
         .into_iter()
         .find(|d| d.id == id)
+        .or_else(|| {
+            (id == "escriba").then(|| Dependency {
+                id: "escriba".into(),
+                min_version: 1,
+                max_version: 1,
+            })
+        })
         .ok_or("La receta no declara esta ontología")?;
     let expected: Dependency = serde_json::from_value(p["dependency"].clone())
         .map_err(|_| "Dependencia de ontología inválida")?;
@@ -100,6 +107,32 @@ fn version(p: &Value) -> Result<u32, String> {
         .ok_or_else(|| "Versión de ontología inválida".into())
 }
 
+async fn synchronize_base<'a>(
+    knowledge: &'a Knowledge,
+    store: &Arc<Mutex<Store>>,
+) -> Result<tokio::sync::MutexGuard<'a, ()>, String> {
+    let guard = knowledge.base_sync.lock().await;
+    let epoch = knowledge.base_epoch().await?;
+    store
+        .lock()
+        .map_err(|_| "Biblioteca no disponible")?
+        .knowledge_prepare(&epoch)?;
+    loop {
+        let change = store
+            .lock()
+            .map_err(|_| "Biblioteca no disponible")?
+            .knowledge_change()?;
+        let Some(change) = change else {
+            return Ok(guard);
+        };
+        knowledge.sync_base_change(&change).await?;
+        store
+            .lock()
+            .map_err(|_| "Biblioteca no disponible")?
+            .knowledge_ack(&change.key, &change.revision)?;
+    }
+}
+
 pub async fn dispatch(
     knowledge: &Knowledge,
     store: &Arc<Mutex<Store>>,
@@ -107,7 +140,13 @@ pub async fn dispatch(
     p: Value,
 ) -> Result<Value, String> {
     match method {
-        "knowledge_list" => Ok(json!(knowledge.list().await?)),
+        "knowledge_list" => {
+            let mut listed = vec![crate::knowledge::base_listing()];
+            for ontology in knowledge.list().await? {
+                listed.push(json!(ontology));
+            }
+            Ok(json!(listed))
+        }
         "knowledge_install" => {
             let definition: Ontology = serde_json::from_value(p["definition"].clone())
                 .map_err(|_| "Ontología inválida")?;
@@ -132,12 +171,16 @@ pub async fn dispatch(
                 let store = store.lock().map_err(|_| "Biblioteca no disponible")?;
                 requirement(&store, &p)?
             };
-            let installed = knowledge
-                .list()
-                .await?
-                .into_iter()
-                .find(|o| o.id == required.id)
-                .ok_or("Instala la ontología desde Recetas antes de ejecutar esta receta")?;
+            let installed = if required.id == "escriba" {
+                crate::knowledge::base_definition()
+            } else {
+                knowledge
+                    .list()
+                    .await?
+                    .into_iter()
+                    .find(|o| o.id == required.id)
+                    .ok_or("Instala la ontología desde Recetas antes de ejecutar esta receta")?
+            };
             if !(required.min_version..=required.max_version).contains(&installed.version) {
                 return Err(format!(
                     "La receta requiere «{}» entre v{} y v{}; está instalada v{}",
@@ -148,6 +191,11 @@ pub async fn dispatch(
                 return Ok(json!({"version":installed.version}));
             }
             if method == "knowledge_query" {
+                let _base_guard = if required.id == "escriba" {
+                    Some(synchronize_base(knowledge, store).await?)
+                } else {
+                    None
+                };
                 return Ok(json!(
                     knowledge
                         .query_cbor(
@@ -174,6 +222,11 @@ pub async fn dispatch(
             Ok(Value::Null)
         }
         "knowledge_records" => {
+            let _base_guard = if text(&p, "id")? == "escriba" {
+                Some(synchronize_base(knowledge, store).await?)
+            } else {
+                None
+            };
             let page = p
                 .get("page")
                 .map(|v| {
@@ -196,6 +249,7 @@ pub async fn dispatch(
             ))
         }
         "knowledge_save" => {
+            let _base_guard = synchronize_base(knowledge, store).await?;
             let provenance = if p.get("recordingId").is_some() {
                 let store = store.lock().map_err(|_| "Biblioteca no disponible")?;
                 Some(source(&store, &p, None)?)

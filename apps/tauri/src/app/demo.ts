@@ -1,11 +1,11 @@
 import type { Person, Snapshot } from "../types";
 
 export const demoPeople: Person[] = [
-  { name: "Ana", voices: [
+  { id: "11111111-1111-4111-8111-111111111111", name: "Ana", voices: [
     { id: "demo-voice-1", source: "Reunión del lanzamiento", addedAt: "2026-10-09T09:47:00Z", model: "pyannote" },
     { id: "demo-voice-2", source: "muestra de voz", addedAt: "2026-10-08T11:10:00Z", model: "pyannote" },
   ] },
-  { name: "Luis", voices: [{ id: "demo-voice-3", source: "Reunión del lanzamiento", addedAt: "2026-10-09T09:47:00Z", model: "pyannote" }] },
+  { id: "22222222-2222-4222-8222-222222222222", name: "Luis", voices: [{ id: "demo-voice-3", source: "Reunión del lanzamiento", addedAt: "2026-10-09T09:47:00Z", model: "pyannote" }] },
 ];
 
 export const demoSnapshot: Snapshot = {

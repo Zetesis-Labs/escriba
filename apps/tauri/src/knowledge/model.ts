@@ -1,10 +1,15 @@
-export type KnowledgeField = { key: string; label: string; type: "text" | "number" | "boolean" | "date" | "json"; required?: boolean };
+export type KnowledgeReference = { ontologyId: "escriba"; table: string; id: string };
+export type KnowledgeField = { key: string; label: string; type: "text" | "number" | "boolean" | "date" | "json" | "reference"; required?: boolean; reference?: { ontologyId: "escriba"; table: string } };
 export type KnowledgeCollection = { table: string; label: string; titleField: string; fields: KnowledgeField[]; relation?: { from: string; to: string } };
-export type OntologyDefinition = { id: string; name: string; version: number; migrations: { version: number; sql: string }[]; collections: KnowledgeCollection[] };
+export type OntologyDefinition = { id: string; name: string; version: number; builtIn?: boolean; migrations: { version: number; sql: string }[]; collections: KnowledgeCollection[] };
 export type InstalledOntology = OntologyDefinition;
 export type KnowledgeRecord = { id: string; ontologyId: string; table: string; values: Record<string, unknown>; rev: string; recordingId?: string | null; versionId?: string | null };
 export type RecordPage = { records: KnowledgeRecord[]; page: number; hasMore: boolean };
 export type RuntimeHost = <T = unknown>(method: string, params?: Record<string, unknown>) => Promise<T>;
+
+export function extensionOntologies<T extends OntologyDefinition>(ontologies: T[]): T[] {
+  return ontologies.filter((ontology) => !ontology.builtIn && ontology.id !== "escriba");
+}
 
 function canonical(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
@@ -32,6 +37,13 @@ export function parseField(field: KnowledgeField, raw: string | boolean): unknow
     const value = Number(text.replace(",", "."));
     if (!Number.isFinite(value)) throw new Error(`«${field.label}» debe ser un número.`);
     return value;
+  }
+  if (field.type === "reference") {
+    try {
+      const value: unknown = JSON.parse(text);
+      if (isKnowledgeReference(value) && field.reference && value.ontologyId === field.reference.ontologyId && value.table === field.reference.table) return value;
+    } catch {}
+    throw new Error(`«${field.label}» debe referirse a un registro válido de ${field.reference?.table ?? "la base"}.`);
   }
   if (field.type === "json") {
     try { return JSON.parse(text); } catch { throw new Error(`«${field.label}» debe contener JSON válido.`); }
@@ -75,7 +87,13 @@ export function fieldText(value: unknown): string {
 export function isInstalledOntology(value: unknown): value is InstalledOntology {
   if (!value || typeof value !== "object") return false;
   const item = value as Record<string, unknown>;
-  return typeof item.id === "string" && typeof item.name === "string" && Number.isInteger(item.version) && Array.isArray(item.collections) && item.collections.every(isCollection) && Array.isArray(item.migrations) && item.migrations.every((migration) => !!migration && typeof migration === "object" && Number.isInteger((migration as Record<string, unknown>).version) && typeof (migration as Record<string, unknown>).sql === "string");
+  return typeof item.id === "string" && typeof item.name === "string" && Number.isInteger(item.version) && (item.builtIn === undefined || typeof item.builtIn === "boolean") && Array.isArray(item.collections) && item.collections.every(isCollection) && Array.isArray(item.migrations) && item.migrations.every((migration) => !!migration && typeof migration === "object" && Number.isInteger((migration as Record<string, unknown>).version) && typeof (migration as Record<string, unknown>).sql === "string");
+}
+
+export function isKnowledgeReference(value: unknown): value is KnowledgeReference {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const item = value as Record<string, unknown>;
+  return item.ontologyId === "escriba" && typeof item.table === "string" && item.table.length > 0 && typeof item.id === "string" && item.id.startsWith(`${item.table}:`) && item.id.length > item.table.length + 1;
 }
 
 export function isDefinition(value: unknown): value is OntologyDefinition {
@@ -90,7 +108,8 @@ function isCollection(value: unknown): value is KnowledgeCollection {
   return validRelation && typeof item.table === "string" && typeof item.label === "string" && typeof item.titleField === "string" && Array.isArray(item.fields) && item.fields.every((field) => {
     if (!field || typeof field !== "object") return false;
     const candidate = field as Record<string, unknown>;
-    return typeof candidate.key === "string" && typeof candidate.label === "string" && ["text", "number", "boolean", "date", "json"].includes(String(candidate.type));
+    const reference = candidate.reference;
+    return typeof candidate.key === "string" && typeof candidate.label === "string" && (candidate.required === undefined || typeof candidate.required === "boolean") && ["text", "number", "boolean", "date", "json", "reference"].includes(String(candidate.type)) && (candidate.type === "reference" ? !!reference && typeof reference === "object" && (reference as Record<string, unknown>).ontologyId === "escriba" && typeof (reference as Record<string, unknown>).table === "string" && String((reference as Record<string, unknown>).table).length > 0 : reference === undefined);
   });
 }
 

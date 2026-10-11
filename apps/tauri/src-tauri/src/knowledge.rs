@@ -54,6 +54,14 @@ pub struct Field {
     pub kind: FieldType,
     #[serde(default)]
     pub required: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reference: Option<ReferenceTarget>,
+}
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ReferenceTarget {
+    pub ontology_id: String,
+    pub table: String,
 }
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
@@ -63,14 +71,19 @@ pub enum FieldType {
     Boolean,
     Date,
     Json,
+    Reference,
 }
 
+mod base;
+mod base_query;
+pub use base::{base_definition, base_listing};
 mod migrations;
 mod records;
 pub use records::{SaveRecord, Source};
 
 pub struct Knowledge {
     root: Mutex<Surreal<Db>>,
+    pub(crate) base_sync: Mutex<()>,
     #[cfg(test)]
     path: std::path::PathBuf,
 }
@@ -133,14 +146,21 @@ impl Knowledge {
             .map_err(error)?
             .check()
             .map_err(error)?;
-        Ok(Self {
+        let knowledge = Self {
             root: Mutex::new(root),
+            base_sync: Mutex::new(()),
             #[cfg(test)]
             path: path.to_path_buf(),
-        })
+        };
+        knowledge.initialize_base().await?;
+        Ok(knowledge)
     }
 }
 
+#[cfg(test)]
+mod base_safety_tests;
+#[cfg(test)]
+mod base_tests;
 #[cfg(test)]
 mod tests;
 
@@ -163,6 +183,9 @@ pub fn validate_catalog(ontologies: &[Ontology]) -> Result<(), String> {
     Ok(())
 }
 fn validate(ontology: &Ontology) -> Result<(), String> {
+    if ontology.id == "escriba" {
+        return Err("La ontología base de Escriba la mantiene la aplicación".into());
+    }
     if ontology.id.is_empty()
         || ontology.id.len() > 200
         || ontology.name.trim().is_empty()
@@ -194,6 +217,20 @@ fn validate(ontology: &Ontology) -> Result<(), String> {
             identifier(&field.key)?;
             if matches!(field.key.as_str(), "id" | "in" | "out") || !field_keys.insert(&field.key) {
                 return Err("Campo de colección duplicado o reservado".into());
+            }
+            match (&field.kind, &field.reference) {
+                (FieldType::Reference, Some(target))
+                    if target.ontology_id == "escriba"
+                        && base_definition().collections.iter().any(|collection| {
+                            collection.table == target.table && collection.relation.is_none()
+                        }) => {}
+                (FieldType::Reference, _) | (_, Some(_)) => {
+                    return Err(
+                        "Referencia de campo inválida; elige una entidad de la base de Escriba"
+                            .into(),
+                    )
+                }
+                _ => {}
             }
         }
         if let Some(relation) = &collection.relation {
@@ -409,6 +446,9 @@ impl Knowledge {
     ) -> Result<Vec<DbValue>, String> {
         if sql.len() > 1_000_000 {
             return Err("Consulta demasiado grande".into());
+        }
+        if id == "escriba" {
+            base_query::validate(sql)?;
         }
         if !matches!(bindings, DbValue::Object(_)) {
             return Err("Los parámetros deben ser un objeto".into());

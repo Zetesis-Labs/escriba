@@ -139,6 +139,26 @@ test("una nota confirmada se vincula al grafo por su versión activa", async () 
   assert.deepEqual(calls[3].payload, { noteId: "version-123", ontologyId: "personas", recordId: "persona:ada", expectedVersion: 2 });
 });
 
+test("la nota rechaza un vínculo manual a la base derivada antes de abrir el grafo", async () => {
+  const recipe = await program(`export async function flujo(audio, api) {
+    const note = await api.transcribir(audio);
+    await note.guardar();
+    let denied = false;
+    try { await note.vincular('escriba', 'segment:sample'); } catch (error) { denied = String(error).includes('base de Escriba'); }
+    if (!denied) throw Error('Se permitió vincular la base derivada');
+  }`);
+  const calls: string[] = [];
+  await runner().run({ kind: "recipe", program: recipe, payload }, {
+    call: async (operation) => {
+      calls.push(operation);
+      if (operation === "transcribe" || operation === "save")
+        return { handle: "version-123", clave: "recording-1", version: 1, texto: "Texto", segmentos: [], datos: null };
+      throw Error(`Capacidad inesperada: ${operation}`);
+    },
+  });
+  assert.deepEqual(calls, ["transcribe", "save"]);
+});
+
 test("el SDK del grafo impide sesiones ajenas y operaciones que requieren un canal persistente", async () => {
   const recipe = await program(`import { Table } from 'surrealdb';
     export async function flujo(_audio, api) {

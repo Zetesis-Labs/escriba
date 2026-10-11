@@ -3,11 +3,43 @@
 Las recetas necesitan compartir entidades y relaciones entre notas sin convertir
 el proyecto de código en propietario de los datos. El grafo se guarda en
 `knowledge.surrealkv`, separado de la biblioteca de notas, con una base lógica
-por ID estable de ontología. El proyecto propone definiciones, pero la persona
+por ID estable de ontología. La base integrada `escriba` está siempre disponible;
+el proyecto propone extensiones, pero la persona
 usuaria instala o actualiza cada ontología de forma explícita. Su versión y sus
 registros permanecen al cambiar de proyecto. Cada receta declara el intervalo
 `minVersion`/`maxVersion` que admite; Rust lo contrasta con el catálogo instalado
-en cada acceso.
+en cada acceso. La dependencia de `escriba` v1 es implícita, salvo que la receta
+declare explícitamente otro intervalo compatible.
+
+La base publica las identidades canónicas de Personas y Biblioteca: personas,
+grabaciones, versiones, transcripciones, hablantes, segmentos y palabras, junto
+con sus relaciones. Se muestra en Ontologías separada de las extensiones, con
+campos y extremos de cada relación desplegables. La aplicación es propietaria de
+este esquema; una extensión no puede usar el identificador `escriba`. Si una
+instalación anterior ya lo usaba, la apertura falla sin sustituir sus datos.
+
+La biblioteca sigue siendo la fuente de verdad. Una cola privada duradera marca
+los cambios de persona o grabación en la misma transacción que los confirma.
+Antes de consultar la base, el host proyecta cada entidad pendiente en una
+transacción y acusa recibo sólo de la revisión aplicada. Un identificador de la
+proyección permite reconstruirla si se recrea el almacén de conocimiento. No se
+carga toda la biblioteca en memoria ni se replican las personas en cada
+extensión. Los borradores no entran en la proyección hasta confirmarse. Rutas de
+audio, credenciales, huellas de voz y datos arbitrarios de recetas quedan fuera.
+
+Las recetas consultan la base con `api.grafo("escriba")`. Un validador del AST
+rechaza escrituras y control de sesión, además de los permisos de sólo lectura
+de las tablas. Las modificaciones de Biblioteca y Personas siguen usando sus
+operaciones habituales. La asignación de una persona conserva su UUID en el
+segmento; los nombres históricos no se convierten en identidades por conjetura.
+Un segmento se identifica dentro de su versión y no se supone equivalente a un
+segmento de otra versión.
+
+Una extensión referencia la base mediante un campo `reference` con
+`{ontologyId, table, id}`. El formulario elige registros existentes de la base y
+conserva una referencia anterior aunque el original se haya borrado, sin
+recrearlo. Esta referencia explícita no habilita recorridos SurrealQL entre
+bases lógicas: se resuelve consultando la base correspondiente por el SDK.
 
 Una definición contiene migraciones SurrealQL consecutivas y acumulativas. Las
 ya aplicadas son inmutables y las pendientes se confirman de forma atómica con
@@ -33,9 +65,11 @@ Un registro puede vincularse a varias versiones de nota. La UI puede editarlo
 mediante formularios declarados con control de revisión; el host protege esas
 correcciones manuales frente a escrituras de recetas. Una consulta raw puede
 acceder a tablas propias de la ontología según sus permisos; para vincular un
-registro a una nota, la tabla debe estar en `collections`. Toda consulta raw
+registro a una nota, la tabla debe estar en `collections`. Toda consulta raw de
+una extensión
 activa antes el marcador duradero que bloquea el reintento automático,
-porque el SQL puede tener efectos incluso si la llamada parece de lectura. La
+porque el SQL puede tener efectos incluso si la llamada parece de lectura. Las
+lecturas de la base integrada no activan ese marcador. La
 prueba `dryRun` deniega el grafo hasta disponer de una ejecución reversible.
 
 La implementación y las pruebas de esta decisión están en la rama de trabajo;

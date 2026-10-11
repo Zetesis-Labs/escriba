@@ -1,5 +1,8 @@
 import { describe, expect, test } from "vitest";
-import { candidateStatus, editedFields, fieldInputText, isDefinition, isInstalledOntology, isRecordPage, parseField, recordTitle } from "../../src/knowledge/model";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { OntologySummary } from "../../src/knowledge/OntologiesPanel";
+import { candidateStatus, editedFields, extensionOntologies, fieldInputText, isDefinition, isInstalledOntology, isRecordPage, parseField, recordTitle } from "../../src/knowledge/model";
 
 const collection = { table: "personas", label: "Personas", titleField: "nombre", fields: [{ key: "nombre", label: "Nombre", type: "text" as const, required: true }] };
 
@@ -56,5 +59,42 @@ describe("ontologías en la interfaz", () => {
     expect(isRecordPage({ page: 0, hasMore: false, records: [{ id: "personas:1", ontologyId: "crm", table: "personas", rev: "abc", values: { nombre: "Ada" } }] })).toBe(true);
     expect(isDefinition({ id: "crm", name: "CRM", version: 1, migrations: [], collections: [{ ...collection, relation: { from: "personas" } }] })).toBe(false);
     expect(isInstalledOntology({ id: "crm", name: "CRM", version: 1, migrations: [], collections: [null] })).toBe(false);
+  });
+
+  test("una referencia a la base conserva su identidad y los valores desaparecidos al editar", () => {
+    const reference = { key: "persona", label: "Persona", type: "reference" as const, reference: { ontologyId: "escriba" as const, table: "person" } };
+    const value = { ontologyId: "escriba", table: "person", id: "person:ada" };
+    const raw = fieldInputText(reference, value);
+    expect(parseField(reference, raw)).toEqual(value);
+    expect(editedFields({ ...collection, fields: [collection.fields[0], reference] }, { nombre: "Ada nueva", persona: raw }, { nombre: "Ada", persona: value })).toEqual({ nombre: "Ada nueva", persona: value });
+    expect(() => parseField(reference, JSON.stringify({ ...value, table: "recording" }))).toThrow("Persona");
+    expect(() => parseField(reference, JSON.stringify({ ...value, id: "recording:wrong" }))).toThrow("Persona");
+    expect(() => parseField(reference, "person:ada")).toThrow("Persona");
+  });
+
+  test("valida metadatos de campos de referencia y la marca de base", () => {
+    const ontology = { id: "escriba", name: "Base", version: 1, builtIn: true, migrations: [], collections: [collection] };
+    expect(isInstalledOntology(ontology)).toBe(true);
+    expect(isInstalledOntology({ ...ontology, builtIn: "yes" })).toBe(false);
+    expect(isDefinition({ ...ontology, collections: [{ ...collection, fields: [{ key: "persona", label: "Persona", type: "reference" }] }] })).toBe(false);
+    expect(isDefinition({ ...ontology, collections: [{ ...collection, fields: [{ key: "persona", label: "Persona", type: "reference", reference: { ontologyId: "escriba", table: "person" } }] }] })).toBe(true);
+  });
+
+  test("presenta la base y sus relaciones sin acciones de instalación", () => {
+    const ontology = { id: "escriba", name: "Escriba", version: 1, builtIn: true, migrations: [], collections: [collection, { table: "identified_as", label: "Identificado como", titleField: "id", fields: [], relation: { from: "speaker", to: "personas" } }] };
+    const markup = renderToStaticMarkup(createElement(OntologySummary, { ontology, base: true }));
+    expect(markup).toContain("Incluida y mantenida por Escriba");
+    expect(markup).toContain("Personas");
+    expect(markup).toContain("identified_as");
+    expect(markup).toContain("speaker");
+    expect(markup).toContain("nombre");
+    expect(markup).not.toContain("Instalar");
+    expect(markup).not.toContain("Actualizar</button>");
+  });
+
+  test("la ficha de nota sólo recorre extensiones", () => {
+    const base = { id: "escriba", name: "Escriba", version: 1, builtIn: true, migrations: [], collections: Array.from({ length: 14 }, (_, index) => ({ ...collection, table: `base_${index}` })) };
+    const extension = { id: "crm", name: "CRM", version: 1, migrations: [], collections: [collection] };
+    expect(extensionOntologies([base, extension])).toEqual([extension]);
   });
 });

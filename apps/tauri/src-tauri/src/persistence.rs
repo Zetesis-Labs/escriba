@@ -17,7 +17,9 @@ use surrealdb::{
 use tokio::sync::mpsc as async_mpsc;
 use uuid::Uuid;
 mod index;
+mod knowledge;
 use index::{load_index, preview_for, recording};
+pub use knowledge::CoreChange;
 
 #[derive(Clone, Debug, SurrealValue)]
 struct Row {
@@ -99,6 +101,9 @@ impl AudioDeletion {
 }
 
 enum Command {
+    KnowledgePrepare(String, mpsc::Sender<Result<(), String>>),
+    KnowledgeChange(mpsc::Sender<Result<Option<CoreChange>, String>>),
+    KnowledgeAck(String, String, mpsc::Sender<Result<(), String>>),
     DraftRead(String, String, mpsc::Sender<Result<Option<Value>, String>>),
     Load(mpsc::Sender<Result<Option<Value>, String>>),
     LoadIndex(mpsc::Sender<Result<Option<Value>, String>>),
@@ -190,6 +195,15 @@ impl Persistence {
                 let _ = ready_sender.send(Ok(()));
                 while let Some(command) = receiver.recv().await {
                     match command {
+                        Command::KnowledgePrepare(epoch, reply) => {
+                            let _ = reply.send(knowledge::prepare(&db, &epoch).await);
+                        }
+                        Command::KnowledgeChange(reply) => {
+                            let _ = reply.send(knowledge::change(&db).await);
+                        }
+                        Command::KnowledgeAck(key, revision, reply) => {
+                            let _ = reply.send(knowledge::ack(&db, &key, &revision).await);
+                        }
                         Command::DraftRead(table, key, reply) => {
                             let result = async {
                                 let row: Option<Row> =
@@ -379,6 +393,15 @@ impl Persistence {
             .send(command(reply))
             .map_err(|_| "SurrealDB dejó de responder")?;
         receiver.recv().map_err(|_| "SurrealDB dejó de responder")?
+    }
+    pub fn knowledge_prepare(&self, epoch: &str) -> Result<(), String> {
+        self.request(|reply| Command::KnowledgePrepare(epoch.into(), reply))
+    }
+    pub fn knowledge_change(&self) -> Result<Option<CoreChange>, String> {
+        self.request(Command::KnowledgeChange)
+    }
+    pub fn knowledge_ack(&self, key: &str, revision: &str) -> Result<(), String> {
+        self.request(|reply| Command::KnowledgeAck(key.into(), revision.into(), reply))
     }
     pub fn load(&self) -> Result<Option<Value>, String> {
         self.request(Command::Load)
@@ -637,6 +660,7 @@ async fn connect(path: &Path) -> Result<Surreal<Db>, String> {
         .check()
         .map_err(|e| e.to_string())?;
     }
+    knowledge::initialize(&db).await?;
     Ok(db)
 }
 
@@ -1392,7 +1416,7 @@ async fn people(db: &Surreal<Db>) -> Result<Value, String> {
         let own: Vec<Value> = voices.iter().filter(|voice| voice.person_id == person.id)
             .map(|voice| json!({"id":voice.id,"model":voice.model,"source":voice.source,"addedAt":voice.added_at})).collect();
         (!own.is_empty()).then(|| {
-            let mut value = json!({"name":person.name,"voices":own});
+            let mut value = json!({"id":person.id,"name":person.name,"voices":own});
             if let Some(color) = person.color { value["color"] = json!(color); }
             value
         })
@@ -1410,6 +1434,7 @@ async fn known_voices(db: &Surreal<Db>) -> Result<Vec<KnownVoice>, String> {
                 .find(|person| person.id == voice.person_id)
                 .map(|person| KnownVoice {
                     person: person.name.clone(),
+                    person_id: person.id.clone(),
                     model: voice.model,
                     embedding: voice.embedding,
                 })

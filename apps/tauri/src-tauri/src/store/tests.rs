@@ -199,6 +199,11 @@ fn transcribir_reconoce_sin_exponer_huellas_y_la_version_las_conserva() {
         .unwrap();
     let transcript = store.recognize_transcription(key, json!({"text":"hola","segments":[{"speaker":"Speaker 1","start":0.0,"end":1.0,"text":"hola","words":[]}],"voices":[{"speaker":"Speaker 1","model":"m","embedding":[1.0,0.01]}]})).unwrap();
     assert_eq!(transcript["segments"][0]["speaker"], "Rubén");
+    let person_id = store.people().unwrap()[0]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert_eq!(transcript["segments"][0]["personId"], person_id);
     assert_eq!(transcript["recognitions"][0]["speaker"], "Speaker 1");
     assert!(!transcript.to_string().contains("embedding"));
     let version = store

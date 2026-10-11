@@ -395,6 +395,8 @@ export function createRuntime(
                     if (!Number.isSafeInteger(args.expectedVersion) || Number(args.expectedVersion) < 1)
                       throw Error("Versión de ontología inválida");
                     if (operation === "graph.link") {
+                      if (ontologyId === "escriba")
+                        throw Error("La base de Escriba ya deriva sus registros de la biblioteca; no se puede vincular una nota a ella");
                       const version = active();
                       if (args.noteId !== version.id) throw Error("La referencia no pertenece a la versión activa");
                       return await host.call("knowledge_link", {
@@ -402,7 +404,7 @@ export function createRuntime(
                         versionId: version.id, recordId: text(args.recordId, "registro"),
                       });
                     }
-                    if (!accountMutation) {
+                    if (ontologyId !== "escriba" && !accountMutation) {
                       await host.call("account_effect_begin", { recordingId: id });
                       accountMutation = true;
                     }

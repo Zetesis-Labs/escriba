@@ -87,6 +87,34 @@ Esto cubre también un cierre entre el efecto externo y la confirmación del job
 
 ## Conocimiento instalado
 
+`escriba` es la ontología base integrada, visible aunque no haya proyecto ni
+extensiones instaladas. El listado de su esquema no abre el motor de
+conocimiento. Expone `person`, `recording`, `version`, `transcript`, `speaker`,
+`segment` y `word`, con relaciones `has_version`, `has_transcript`, `has_segment`,
+`has_word`, `spoken_by`, `identified_as` y `derived_from`. Personas y grabaciones
+reutilizan los UUID de la biblioteca; los hijos usan IDs compuestos con la
+grabación y versión. El índice de segmento y palabra sólo identifica contenido
+dentro de esa versión.
+
+La base es una proyección persistida de la biblioteca. Los eventos privados de
+`recording`, `version` y `person` encolan el propietario afectado en
+`knowledge_dirty`, con revisión única, dentro de la transacción original. Antes
+de leer la base, el host consume esa cola de uno en uno: obtiene una persona o
+una grabación con sus versiones, filtra los campos públicos, reemplaza su
+proyección de forma atómica y retira únicamente la revisión consumida. El
+bloqueo de sincronización abarca también la consulta que la necesita.
+`knowledge_meta` conserva la marca de incorporación inicial y el identificador
+de la proyección; recrear el grafo vuelve a encolar las identidades existentes
+sin perder eliminaciones pendientes. Los borradores sin confirmar no se
+proyectan. No se exportan rutas, credenciales, huellas, recibos ni los campos
+abiertos `inputs`, `data` y extensiones de transcripción.
+
+`api.grafo("escriba")` usa el mismo SDK y una dependencia implícita de v1. La
+base rechaza escrituras explícitamente mediante validación del AST y permisos
+de tabla de sólo lectura. No permite guardar, borrar ni vincular registros por
+los formularios del grafo. El ID `escriba` está reservado; una extensión antigua
+que lo use provoca un error visible, conservando su esquema y datos.
+
 El grafo reside en `knowledge.surrealkv`, un almacén físico separado de
 `library.surrealkv`, dentro de Application Support. Usa el espacio `knowledge`
 y una base lógica distinta por ID estable de ontología. Un catálogo privado
@@ -127,13 +155,18 @@ ediciones manuales de la UI comparan la huella de revisión antes de guardar o
 borrar; un conflicto conserva el estado anterior. Una protección instalada por
 el host impide que una receta sobrescriba un registro corregido manualmente.
 La lista de colecciones se pagina; no se incorpora al índice ligero de la
-biblioteca. No hay enlaces automáticos entre bases de ontologías ni proyecciones
-vectoriales gestionadas.
+biblioteca. Los campos `reference` de las extensiones apuntan a una entidad de
+la base mediante `{ontologyId, table, id}`. El formulario valida las referencias
+nuevas y conserva las antiguas cuyo original se haya eliminado; no borra el
+conocimiento extendido ni recrea personas. Son referencias explícitas, sin
+recorridos SurrealQL entre bases de ontologías ni proyecciones vectoriales
+gestionadas.
 
-Toda `graph.query` marca `recording.accountEffectPending` antes de enviarse,
+Toda `graph.query` de una extensión marca `recording.accountEffectPending` antes de enviarse,
 porque el SQL raw puede escribir incluso cuando parezca una lectura. Así se
 bloquea el reintento automático si no se conoce el resultado; `dryRun` deniega
-el grafo. Un lote `BEGIN`/`COMMIT` de SurrealQL puede ser transaccional, pero
+el grafo. Las consultas de sólo lectura a `escriba` no activan ese marcador.
+Un lote `BEGIN`/`COMMIT` de SurrealQL de una extensión puede ser transaccional, pero
 el puente no ofrece transacciones interactivas del SDK ni consultas `live`.
 
 ## Borradores de notas
@@ -178,6 +211,14 @@ nueva versión. Las versiones originales y las huellas ya aprendidas permanecen.
 ## Personas y huellas privadas
 
 `person` conserva los nombres; `person_voice`, las huellas aprendidas con su modelo, origen y fecha; `voice`, las huellas de cada versión de transcripción. Estas tablas se consultan en Rust y no forman parte del documento que recibe la WebView o el runtime. La interfaz obtiene nombres y metadatos de las huellas, `hasVoices` en las versiones y reconocimientos `{speaker, person, distance}`. Las respuestas a JavaScript rechazan cualquier campo de embedding.
+
+`people_list` expone el UUID canónico de cada persona. Una selección manual o un
+reconocimiento nuevo conserva ese `personId` en los segmentos y, en el segundo
+caso, en el reconocimiento. La proyección sólo crea `identified_as` si existe
+esa persona y todos los segmentos del hablante coinciden en su identidad. Los
+nombres antiguos sin UUID no se interpretan como una asignación de identidad.
+Cada segmento conserva además su `personId` explícito, aunque otras partes de
+ese hablante no estén identificadas o tengan una asignación distinta.
 
 El color opcional pertenece a la persona, no a una versión ni a un hablante de
 una nota. `people_set_color` sólo acepta `#RRGGBB` y una persona existente; no
