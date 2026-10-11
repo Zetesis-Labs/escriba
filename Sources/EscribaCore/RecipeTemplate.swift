@@ -54,6 +54,20 @@ interface InfoDeReceta {
   readonly tipo: "formulario" | "codigo"
 }
 
+interface InfoDeCuenta {
+  readonly clave: string
+  readonly nombre: string
+  readonly tipo: string
+  readonly activo: boolean
+  readonly origen: string | null
+}
+
+interface Cuenta {
+  readonly clave: string
+  readonly nombre: string
+  readonly fetch: typeof fetch
+}
+
 interface OpcionesDeTranscripcion {
   stt?: string
   idioma?: string | null
@@ -113,6 +127,7 @@ interface ListasDeEscriba {
   readonly llms: readonly Resolutor[]
   readonly conectores: readonly InfoDeConector[]
   readonly recetas: readonly InfoDeReceta[]
+  readonly cuentas?: readonly InfoDeCuenta[]
 }
 
 interface Escriba<P = null> extends ListasDeEscriba {
@@ -121,6 +136,7 @@ interface Escriba<P = null> extends ListasDeEscriba {
   preguntar<T>(pedido: PreguntaConEsquema<T>): Promise<T>
   preguntar(pedido: Pregunta): Promise<string>
   conector(claveONombre: string): Conector
+  cuenta(claveONombre: string): Cuenta
   receta(claveONombre: string): Receta
   log(texto: string): void
 }
