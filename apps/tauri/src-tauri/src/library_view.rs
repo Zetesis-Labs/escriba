@@ -111,7 +111,9 @@ pub fn light_library(data: &Value) -> Value {
     };
     let mut light: Map<String, Value> = object
         .iter()
-        .filter(|(key, _)| !["recordings", "recipes", "destinations"].contains(&key.as_str()))
+        .filter(|(key, _)| {
+            !["recordings", "recipes", "destinations", "providers"].contains(&key.as_str())
+        })
         .map(|(key, value)| (key.clone(), value.clone()))
         .collect();
     light.insert(
@@ -121,6 +123,10 @@ pub fn light_library(data: &Value) -> Value {
     light.insert(
         "destinations".into(),
         without_program(&data["destinations"], "program", "programFingerprint"),
+    );
+    light.insert(
+        "providers".into(),
+        without_program(&data["providers"], "program", "programFingerprint"),
     );
     let recordings = data["recordings"]
         .as_array()
@@ -188,6 +194,10 @@ pub fn typed_library(data: &crate::store::LibraryIndex) -> Value {
     fields.insert(
         "destinations".into(),
         without_program(&data.destinations, "program", "programFingerprint"),
+    );
+    fields.insert(
+        "providers".into(),
+        without_program(&data.providers, "program", "programFingerprint"),
     );
     Value::Object(fields)
 }

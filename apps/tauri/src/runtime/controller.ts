@@ -1,4 +1,7 @@
 import { z } from "zod";
+import { builtinProviders, type ConnectorEditorRequest, type Provider } from "@escriba/conectores";
+import { connectorEditor, accountHttp } from "./accounts";
+import { accountAuthority, authorityKey, providerAccess, providerManifest } from "../core/providerAccess";
 import type {
   Destination,
   Recording,
@@ -66,6 +69,13 @@ function lists(snapshot: RuntimeContext): Lists {
       clave: r.id,
       nombre: r.name,
       tipo: r.kind === "form" ? "formulario" : "codigo",
+    })),
+    cuentas: snapshot.accounts.map((account) => ({
+      clave: account.id,
+      nombre: account.name,
+      tipo: account.provider,
+      activo: account.enabled,
+      origen: account.origin ?? account.grant?.origin ?? null,
     })),
   };
 }
@@ -236,6 +246,7 @@ export function createRuntime(
         throw new RuntimeError(`La receta ${requestedRecipe} no está disponible`, "recipe_unavailable");
       const chosen = lookup(snapshot.recipes, requestedRecipe, "Receta");
       const fresh = processOptions.force ?? true;
+      let accountMutation = false;
       const renewed = new Set<string>();
       let current: Version | undefined;
       let savedData: JSONValue | undefined;
@@ -601,6 +612,22 @@ export function createRuntime(
                       );
                     return null;
                   }
+                  case "account.http": {
+                    const account = lookup(snapshot.accounts, text(args.accountId, "cuenta"), "Cuenta");
+                    if (args.multipart !== undefined) throw Error("El SDK no tiene acceso a los adjuntos de la grabación");
+                    return await accountHttp(host, account.id, args, {
+                      expected: accountAuthority(account, snapshot.providers),
+                      signal,
+                      beforeSend: async (method) => {
+                        if (["GET", "HEAD"].includes(method)) return;
+                        if (processOptions.dryRun) throw Error("La prueba de receta no permite escrituras externas del SDK");
+                        if (!accountMutation) {
+                          await host.call("account_effect_begin", { recordingId: id });
+                          accountMutation = true;
+                        }
+                      },
+                    });
+                  }
                   case "process": {
                     const next = lookup(
                       snapshot.recipes,
@@ -637,6 +664,10 @@ export function createRuntime(
         );
       };
       try {
+        if (!processOptions.dryRun && recording.accountEffectPending) {
+          if (processOptions.force === false) throw Error("Revisa la operación externa antes de reprocesar esta nota manualmente");
+          await host.call("account_effect_finish", { recordingId: id });
+        }
         if (!processOptions.dryRun)
           await host.call("recording_update", {
             id,
@@ -654,6 +685,7 @@ export function createRuntime(
           });
         return { versionId: current.id };
       } catch (error) {
+        if (accountMutation) error = new RuntimeError(`La receta hizo una operación externa; revisa el destino antes de reprocesar. ${message(error)}`, "failed");
         traceError = message(error);
         traceErrorCode = errorCode(error);
         if (!processOptions.dryRun)
@@ -770,6 +802,7 @@ export function createRuntime(
     return schema === null ? null : jsonObject(schema);
   }
   return {
+    connectorEditor: (operation: "describe" | "action" | "validate", input: ConnectorEditorRequest) => connectorEditor(host, runner, operation, input),
     async notificationProblems(status: NativeStatus) {
       return notificationProblems(await readContext(host), status);
     },
@@ -823,6 +856,7 @@ export function createRuntime(
           },
         };
         let destinations: Destination[] = [];
+        let providers: Provider[] = [];
         if (typeof built.connectorProgram === "string") {
           const program = built.connectorProgram;
           const inspected = object(
@@ -833,9 +867,23 @@ export function createRuntime(
           );
           if (!Array.isArray(inspected.destinations))
             throw Error("El proyecto no devolvió destinos");
+          if (inspected.providers !== undefined && !Array.isArray(inspected.providers)) throw Error("El proyecto devolvió proveedores inválidos");
+          const ids = new Set<string>();
+          providers = (Array.isArray(inspected.providers) ? inspected.providers : []).flatMap((raw) => {
+            const provider = providerManifest(raw);
+            if (ids.has(provider.id)) throw Error(`Proveedor repetido: ${provider.id}`);
+            ids.add(provider.id);
+            const builtin = builtinProviders.find((entry) => entry.id === provider.id);
+            if (builtin) {
+              if (authorityKey(providerAccess(builtin)) !== authorityKey(providerAccess(provider))) throw Error("El proyecto no puede cambiar los permisos de un proveedor de serie");
+              return [];
+            }
+            return [{ ...provider, program }];
+          });
           destinations = inspected.destinations.map((raw) => {
             const d = object(raw);
-            if (d.provider !== "notion" && d.provider !== "okf")
+            const provider = text(d.provider, "proveedor");
+            if (![...builtinProviders, ...providers].some((entry) => entry.id === provider))
               throw Error("Proveedor desconocido");
             const id = text(d.id, "ID de destino");
             const account = text(d.account, "cuenta del destino");
@@ -848,7 +896,7 @@ export function createRuntime(
             return {
               id,
               name: text(d.name, "nombre del destino"),
-              provider: d.provider,
+              provider,
               account,
               enabled:
                 snapshot.destinations.find((previous) => previous.id === id)
@@ -869,6 +917,7 @@ export function createRuntime(
             ...recipes,
           ],
           destinations,
+          providers,
         };
         for (const recipe of recipes) {
           const inspected = object(
@@ -887,7 +936,7 @@ export function createRuntime(
           if (typeof inspected.description === "string")
             recipe.description = inspected.description;
         }
-        await host.call("project_install", { recipes, destinations });
+        await host.call("project_install", { recipes, destinations, providers });
       });
       projectQueue = rebuilding.then(() => {}, () => {});
       return rebuilding;

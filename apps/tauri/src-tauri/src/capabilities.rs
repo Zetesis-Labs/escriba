@@ -27,16 +27,228 @@ pub struct AudioFile {
     pub recording_id: String,
 }
 
-/// Sends one request to the account's fixed origin. Credentials never enter `request`.
-pub async fn http(
+pub fn validate_access(access: &Value) -> Result<(), String> {
+    match required_str(access, "capability")? {
+        "http" => {
+            parse_origin(required_str(access, "origin")?)?;
+            let allowed = access["allowedHeaders"]
+                .as_array()
+                .ok_or("Cabeceras autorizadas inválidas")?;
+            for value in allowed {
+                let header = value.as_str().ok_or("Cabecera autorizada inválida")?;
+                safe_header_name(header)?;
+            }
+            if let Some(credential) = access.get("credential") {
+                if !credential.is_null() {
+                    required_str(credential, "label")?;
+                    let header = required_str(credential, "header")?;
+                    if !header.eq_ignore_ascii_case("authorization") {
+                        safe_header_name(header)?;
+                    }
+                    if allowed.iter().any(|value| {
+                        value
+                            .as_str()
+                            .is_some_and(|name| name.eq_ignore_ascii_case(header))
+                    }) {
+                        return Err(
+                            "La cabecera de credencial no puede pasar desde la receta".into()
+                        );
+                    }
+                    if let Some(prefix) = credential.get("prefix") {
+                        let prefix = prefix.as_str().ok_or("Prefijo de credencial inválido")?;
+                        if prefix.contains(['\r', '\n']) {
+                            return Err("Prefijo de credencial inválido".into());
+                        }
+                    }
+                    if credential
+                        .get("help")
+                        .is_some_and(|value| !value.is_string())
+                    {
+                        return Err("Ayuda de credencial inválida".into());
+                    }
+                }
+            }
+        }
+        "folder" => {
+            if access.get("origin").is_some_and(|value| !value.is_null())
+                || access
+                    .get("credential")
+                    .is_some_and(|value| !value.is_null())
+                || access["allowedHeaders"]
+                    .as_array()
+                    .is_none_or(|headers| !headers.is_empty())
+            {
+                return Err("Permiso de carpeta inválido".into());
+            }
+        }
+        _ => return Err("Capacidad de proveedor inválida".into()),
+    }
+    Ok(())
+}
+
+pub fn validate_account_grant(grant: &Value) -> Result<(), String> {
+    validate_access(grant)?;
+    let fields = grant.as_object().ok_or("Autorización inválida")?;
+    if fields.keys().any(|key| {
+        !["capability", "origin", "allowedHeaders", "credential"].contains(&key.as_str())
+    }) {
+        return Err("La autorización contiene datos no permitidos".into());
+    }
+    if let Some(credential) = grant["credential"].as_object() {
+        if credential
+            .keys()
+            .any(|key| !["label", "header", "prefix", "help"].contains(&key.as_str()))
+        {
+            return Err("La definición de credencial contiene datos no permitidos".into());
+        }
+    }
+    Ok(())
+}
+
+pub fn access_equivalent(left: &Value, right: &Value) -> bool {
+    if validate_access(left).is_err()
+        || validate_access(right).is_err()
+        || left["capability"] != right["capability"]
+    {
+        return false;
+    }
+    if !same_authority(left, right) {
+        return false;
+    }
+    let headers = |value: &Value| -> Vec<String> {
+        let mut names = value["allowedHeaders"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .map(str::to_ascii_lowercase)
+            .collect::<Vec<_>>();
+        names.sort();
+        names.dedup();
+        names
+    };
+    if headers(left) != headers(right) {
+        return false;
+    }
+    true
+}
+
+pub fn same_authority(left: &Value, right: &Value) -> bool {
+    if left["capability"] != right["capability"] {
+        return false;
+    }
+    if left["capability"] == "http"
+        && parse_origin(left["origin"].as_str().unwrap_or(""))
+            .ok()
+            .map(|url| url.origin())
+            != parse_origin(right["origin"].as_str().unwrap_or(""))
+                .ok()
+                .map(|url| url.origin())
+    {
+        return false;
+    }
+    let credential = |value: &Value| -> Option<(String, String)> {
+        value["credential"].as_object().map(|credential| {
+            (
+                credential
+                    .get("header")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_ascii_lowercase(),
+                credential
+                    .get("prefix")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_owned(),
+            )
+        })
+    };
+    credential(left) == credential(right)
+}
+
+fn safe_header_name(header: &str) -> Result<(), String> {
+    let name = reqwest::header::HeaderName::from_bytes(header.as_bytes())
+        .map_err(|_| "Cabecera HTTP inválida")?;
+    let lower = name.as_str();
+    if [
+        "authorization",
+        "proxy-authorization",
+        "host",
+        "cookie",
+        "set-cookie",
+        "connection",
+        "transfer-encoding",
+        "content-length",
+        "forwarded",
+    ]
+    .contains(&lower)
+        || lower.starts_with("proxy-")
+        || lower.starts_with("sec-")
+        || lower.starts_with("x-forwarded-")
+    {
+        return Err("Cabecera HTTP no permitida".into());
+    }
+    Ok(())
+}
+
+pub fn authorized_access(
     account: &Value,
+    provider: Option<&Value>,
+    request: &Value,
+    capability: &str,
+) -> Result<Value, String> {
+    ensure_enabled(account)?;
+    let canonical_builtin = match account["provider"].as_str() {
+        Some("notion") => Some(
+            json!({"capability":"http","origin":"https://api.notion.com","allowedHeaders":["accept","content-type","notion-version"],"credential":{"label":"Token","header":"authorization","prefix":"Bearer "}}),
+        ),
+        Some("okf") => Some(json!({"capability":"folder","allowedHeaders":[]})),
+        _ => None,
+    };
+    let granted = if let Some(grant) = account.get("grant") {
+        validate_account_grant(grant)?;
+        if canonical_builtin
+            .as_ref()
+            .is_some_and(|canonical| !access_equivalent(grant, canonical))
+        {
+            return Err("La autorización de la cuenta no coincide con el proveedor".into());
+        }
+        grant.clone()
+    } else if let Some(canonical) = canonical_builtin {
+        canonical
+    } else {
+        return Err("Cuenta sin autorización".into());
+    };
+    if granted["capability"] != capability {
+        return Err("Capacidad no autorizada para esta cuenta".into());
+    }
+    if provider.is_some() && request.get("expectedGrant").is_none() {
+        return Err("Falta la autorización esperada de la cuenta".into());
+    }
+    if let Some(expected) = request.get("expectedGrant") {
+        if !access_equivalent(expected, &granted) {
+            return Err("La autorización de la cuenta cambió".into());
+        }
+    }
+    if let Some(provider) = provider {
+        if !access_equivalent(provider, &granted) {
+            return Err("La definición del proveedor cambió; reautoriza la cuenta".into());
+        }
+    }
+    Ok(granted)
+}
+
+/// Sends one request to the account's fixed origin. Credentials never enter `request`.
+pub async fn http_with_grant(
+    account: &Value,
+    grant: &Value,
     credential: Option<String>,
     request: &Value,
     audio: Option<AudioFile>,
 ) -> Result<Value, String> {
     ensure_enabled(account)?;
     let origin = parse_origin(
-        account
+        grant
             .get("origin")
             .and_then(Value::as_str)
             .ok_or("Cuenta sin origen HTTP")?,
@@ -66,9 +278,15 @@ pub async fn http(
         let headers = headers.as_object().ok_or("Cabeceras HTTP inválidas")?;
         for (name, value) in headers {
             let lower = name.to_ascii_lowercase();
-            if !["accept", "content-type", "notion-version"].contains(&lower.as_str()) {
+            if !grant["allowedHeaders"].as_array().is_some_and(|allowed| {
+                allowed.iter().any(|item| {
+                    item.as_str()
+                        .is_some_and(|header| header.eq_ignore_ascii_case(&lower))
+                })
+            }) {
                 return Err("Cabecera HTTP no permitida".into());
             }
+            safe_header_name(name)?;
             let value = value.as_str().ok_or("Cabecera HTTP inválida")?;
             if value.contains(['\r', '\n']) {
                 return Err("Cabecera HTTP inválida".into());
@@ -122,7 +340,23 @@ pub async fn http(
         if secret.is_empty() || secret.contains(['\r', '\n']) {
             return Err("Credencial inválida".into());
         }
-        outgoing = outgoing.bearer_auth(secret);
+        let credential = grant["credential"]
+            .as_object()
+            .ok_or("Credencial no autorizada")?;
+        let header = credential
+            .get("header")
+            .and_then(Value::as_str)
+            .ok_or("Cabecera de credencial inválida")?;
+        let prefix = credential
+            .get("prefix")
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        if !header.eq_ignore_ascii_case("authorization") {
+            safe_header_name(header)?;
+        }
+        outgoing = outgoing.header(header, format!("{prefix}{secret}"));
+    } else if grant["credential"].is_object() {
+        return Err("La cuenta necesita una credencial".into());
     }
     let mut response = outgoing
         .send()
@@ -614,6 +848,16 @@ fn write_change(root_fd: &OwnedFd, change: &FileChange) -> Result<(), String> {
 mod tests {
     use super::*;
 
+    async fn http(
+        account: &Value,
+        credential: Option<String>,
+        request: &Value,
+        audio: Option<AudioFile>,
+    ) -> Result<Value, String> {
+        let grant = json!({"capability":"http","origin":account["origin"],"allowedHeaders":["accept","content-type","notion-version"],"credential":credential.as_ref().map(|_| json!({"label":"Token","header":"authorization","prefix":"Bearer "}))});
+        http_with_grant(account, &grant, credential, request, audio).await
+    }
+
     #[test]
     fn archivo_okf_autorizado_acepta_md_real_y_rechaza_escape_por_enlace() {
         let temp = tempfile::tempdir().unwrap();
@@ -686,6 +930,58 @@ mod tests {
         .await
         .is_err());
         assert!(parse_origin("http://localhost:1234").is_err());
+    }
+
+    #[tokio::test]
+    async fn custom_grant_injects_selected_header_and_rejects_stale_grant() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let origin = format!("http://127.0.0.1:{}", listener.local_addr().unwrap().port());
+        let grant = json!({"capability":"http","origin":origin,"allowedHeaders":["x-version"],"credential":{"label":"Token","header":"x-api-key","prefix":"Key "}});
+        let provider = json!({"id":"example","capability":"http","origin":origin,"allowedHeaders":["x-version"],"credential":{"label":"Token","header":"x-api-key","prefix":"Key "}});
+        let account = json!({"id":"a","provider":"example","enabled":true,"grant":grant});
+        let request = json!({"url":format!("{origin}/items"),"headers":{"x-version":"2026"},"expectedGrant":grant});
+        let accepted = authorized_access(&account, Some(&provider), &request, "http").unwrap();
+        let observed = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut bytes = [0u8; 4096];
+            let size = socket.read(&mut bytes).await.unwrap();
+            socket
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok")
+                .await
+                .unwrap();
+            String::from_utf8_lossy(&bytes[..size]).to_ascii_lowercase()
+        });
+        assert_eq!(
+            http_with_grant(
+                &account,
+                &accepted,
+                Some("synthetic".into()),
+                &request,
+                None
+            )
+            .await
+            .unwrap()["status"],
+            200
+        );
+        let sent = observed.await.unwrap();
+        assert!(sent.contains("x-api-key: key synthetic"));
+        assert!(sent.contains("x-version: 2026"));
+        let changed = json!({"id":"example","capability":"http","origin":"https://changed.example","allowedHeaders":["x-version"],"credential":{"label":"Token","header":"x-api-key","prefix":"Key "}});
+        assert!(authorized_access(&account, Some(&changed), &request, "http").is_err());
+        let revoked = json!({"id":"a","provider":"example","enabled":false,"grant":grant});
+        assert!(authorized_access(&revoked, Some(&provider), &request, "http").is_err());
+    }
+
+    #[test]
+    fn cuenta_notion_antigua_acepta_mismo_permiso_con_otra_etiqueta() {
+        let account = json!({"id":"old","provider":"notion","origin":"https://api.notion.com","enabled":true});
+        let expected = json!({"capability":"http","origin":"https://api.notion.com/","allowedHeaders":["notion-version","Content-Type","accept"],"credential":{"label":"Token de la integración","header":"Authorization","prefix":"Bearer "}});
+        let request = json!({"expectedGrant":expected});
+        assert!(authorized_access(&account, None, &request, "http").is_ok());
+        let changed = json!({"expectedGrant":{"capability":"http","origin":"https://other.example","allowedHeaders":["accept","content-type","notion-version"],"credential":{"label":"Token","header":"authorization","prefix":"Bearer "}}});
+        assert!(authorized_access(&account, None, &changed, "http").is_err());
+        let disclosed = json!({"capability":"http","origin":"https://api.notion.com","allowedHeaders":[],"credential":{"label":"Token","header":"authorization","value":"synthetic-secret"}});
+        assert!(validate_account_grant(&disclosed).is_err());
     }
 
     #[tokio::test]

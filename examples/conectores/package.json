@@ -1,0 +1,9 @@
+{
+  "name": "escriba-proveedor-ejemplo",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@escriba/conectores": "file:.escriba/deps/conectores",
+    "zod": "4.6.5"
+  }
+}

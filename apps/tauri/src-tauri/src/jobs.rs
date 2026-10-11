@@ -242,6 +242,23 @@ impl Queue {
         }) else {
             return Ok(None);
         };
+        if job.operation == JobOperation::ProcessRecording
+            && (job.automatic || job.attempt > 0 || job.args["options"]["force"] == false)
+            && guard.recording(&job.recording_id)?["accountEffectPending"] == true
+        {
+            let message = "Revisa la operación externa antes de reprocesar esta nota manualmente";
+            job.state = JobState::Failed;
+            job.stage = "Error".into();
+            job.error = Some(message.into());
+            job.error_code = Some(ErrorCode::Failed);
+            guard.mutate(
+                "recording_update",
+                &json!({"id":job.recording_id,"status":"failed","error":message}),
+            )?;
+            save(&mut guard, &job)?;
+            self.changed.notify_waiters();
+            return Ok(None);
+        }
         job.attempt += 1;
         if job.attempt > 1 && job.operation == JobOperation::ProcessRecording {
             job.args["options"]["force"] = json!(false);
@@ -365,6 +382,80 @@ impl Queue {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn trabajo_automatico_no_repite_efecto_externo_incierto() {
+        let temp = tempfile::tempdir().unwrap();
+        let audio = temp.path().join("synthetic.wav");
+        std::fs::write(&audio, b"synthetic audio").unwrap();
+        let store = library(&temp.path().join("library"));
+        let record = store.lock().unwrap().import(&audio, None).unwrap();
+        store
+            .lock()
+            .unwrap()
+            .mutate("account_effect_begin", &json!({"recordingId":record["id"]}))
+            .unwrap();
+        let queue = Queue::new(store.clone()).unwrap();
+        let job = queue
+            .enqueue_automatic(record["id"].as_str().unwrap())
+            .unwrap();
+        assert!(queue.claim().unwrap().is_none());
+        let failed = queue
+            .jobs()
+            .unwrap()
+            .into_iter()
+            .find(|item| item["id"] == job)
+            .unwrap();
+        assert_eq!(failed["state"], "failed");
+        assert!(failed["error"]
+            .as_str()
+            .unwrap()
+            .contains("Revisa la operación externa"));
+    }
+    #[test]
+    fn trabajo_manual_recuperado_no_repite_efecto_externo_incierto() {
+        let temp = tempfile::tempdir().unwrap();
+        let audio = temp.path().join("synthetic.wav");
+        std::fs::write(&audio, b"synthetic audio").unwrap();
+        let store = library(&temp.path().join("library"));
+        let record = store.lock().unwrap().import(&audio, None).unwrap();
+        let queue = Queue::new(store.clone()).unwrap();
+        let id = queue
+            .enqueue(
+                "processRecording",
+                json!({"recordingId":record["id"],"options":{"force":true}}),
+            )
+            .unwrap();
+        assert!(queue.claim().unwrap().is_some());
+        store
+            .lock()
+            .unwrap()
+            .mutate("account_effect_begin", &json!({"recordingId":record["id"]}))
+            .unwrap();
+        queue
+            .finish(
+                &id,
+                Err(AppError::new(ErrorCode::BackendUnavailable, "temporary")),
+            )
+            .unwrap();
+        {
+            let mut guard = store.lock().unwrap();
+            let mut job = load(&guard)
+                .unwrap()
+                .into_iter()
+                .find(|job| job.id == id)
+                .unwrap();
+            job.next_attempt_at = 0;
+            save(&mut guard, &job).unwrap();
+        }
+        assert!(queue.claim().unwrap().is_none());
+        let failed = queue
+            .jobs()
+            .unwrap()
+            .into_iter()
+            .find(|job| job["id"] == id)
+            .unwrap();
+        assert_eq!(failed["state"], "failed");
+    }
     fn library(path: &std::path::Path) -> Arc<Mutex<Store>> {
         Arc::new(Mutex::new(Store::open(path.to_owned()).unwrap()))
     }

@@ -11,6 +11,7 @@ export function runtimeContext(
     recipes: state.recipes,
     accounts: state.accounts,
     destinations: state.destinations,
+    providers: state.providers,
     settings: {
       defaultRecipeId: state.settings.defaultRecipeId,
       language: state.settings.language,

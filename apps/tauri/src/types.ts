@@ -62,6 +62,7 @@ export interface Version {
   learnedVoice?: boolean;
 }
 export interface Publication {
+  managed?: boolean;
   destinationId: string;
   accountId?: string;
   name: string;
@@ -73,6 +74,7 @@ export interface Publication {
   error?: string;
 }
 export interface Recording {
+  accountEffectPending?: boolean;
   id: string;
   title: string;
   createdAt: string;
@@ -110,19 +112,22 @@ export interface Recipe {
   bundleFingerprint?: string;
   error?: string;
 }
+export type { Provider, ProviderAccess } from "@escriba/conectores";
 export interface Account {
   id: string;
   name: string;
-  provider: "notion" | "okf";
+  provider: string;
   enabled: boolean;
   folder?: string;
   origin?: string;
   hasCredential?: boolean;
+  grant?: import("@escriba/conectores").ProviderAccess;
 }
 export interface Destination {
+  managed?: boolean;
   id: string;
   name: string;
-  provider: "notion" | "okf";
+  provider: string;
   account: string;
   enabled: boolean;
   configuration: JSONObject;
@@ -163,6 +168,7 @@ export interface NativeStatus {
   [key: string]: unknown;
 }
 export interface Snapshot {
+  providers?: import("@escriba/conectores").Provider[];
   recordings: Recording[];
   resolvers: Resolver[];
   recipes: Recipe[];

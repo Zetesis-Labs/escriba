@@ -13,6 +13,7 @@
     "index.js",
     "index.d.ts",
     "types.d.ts",
+    "protocol.d.ts",
     "notion.d.ts",
     "okf.d.ts",
     "conectores.js",

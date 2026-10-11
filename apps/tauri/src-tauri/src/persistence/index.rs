@@ -123,7 +123,7 @@ pub(super) async fn load_index(db: &Surreal<Db>) -> Result<Option<Value>, String
         return Err("Versión de esquema SurrealDB incompatible".into());
     }
     let needs_preview_mark = backfill_previews(db).await?;
-    let mut data = json!({"schemaVersion":1,"recordings":[],"accounts":[],"resolvers":[],"recipes":[],"destinations":[],"logs":[],"settings":{}});
+    let mut data = json!({"schemaVersion":1,"recordings":[],"accounts":[],"resolvers":[],"recipes":[],"destinations":[],"providers":[],"logs":[],"settings":{}});
     let mut parents = HashSet::new();
     for table in [
         "recording",
@@ -131,6 +131,7 @@ pub(super) async fn load_index(db: &Surreal<Db>) -> Result<Option<Value>, String
         "resolver",
         "recipe",
         "destination",
+        "provider",
         "log",
         "setting",
     ] {
@@ -147,6 +148,7 @@ pub(super) async fn load_index(db: &Surreal<Db>) -> Result<Option<Value>, String
                 "resolver" => "resolvers",
                 "recipe" => "recipes",
                 "destination" => "destinations",
+                "provider" => "providers",
                 "log" => "logs",
                 _ => unreachable!(),
             };

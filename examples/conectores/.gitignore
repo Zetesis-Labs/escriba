@@ -1,0 +1,5 @@
+node_modules/
+.escriba/
+dist/
+escriba
+escriba-recetas.d.ts

@@ -1812,6 +1812,13 @@ fn guardar_conector_persiste_cuenta_y_destino_juntos_y_rechaza_pareja_incoherent
         store.item("destinations", "connector").unwrap()["account"],
         "connector"
     );
+    let mut revoked = account.clone();
+    revoked["enabled"] = json!(false);
+    store.save_connector(&revoked, &destination).unwrap();
+    assert_eq!(
+        store.item("accounts", "connector").unwrap()["enabled"],
+        false
+    );
     let before = store.data_json();
     assert!(store.save_connector(&account, &json!({"id":"wrong","name":"OKF","provider":"okf","account":"connector","configuration":{}})).is_err());
     assert!(store.save_connector(&account, &json!({"id":"connector","name":"OKF","provider":"notion","account":"connector","configuration":{}})).is_err());
@@ -1826,6 +1833,18 @@ fn guardar_conector_persiste_cuenta_y_destino_juntos_y_rechaza_pareja_incoherent
         reopened.item("destinations", "connector").unwrap()["provider"],
         "okf"
     );
+}
+
+#[test]
+fn cuenta_notion_desconectada_conserva_la_revocacion() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = Store::open(dir.path().join("library")).unwrap();
+    let account = json!({"id":"notion-test","name":"Notion","provider":"notion","enabled":false});
+    let destination = json!({"id":"notion-test","name":"Notion","provider":"notion","account":"notion-test","enabled":false,"configuration":{}});
+    store.save_connector(&account, &destination).unwrap();
+    let saved = store.item("accounts", "notion-test").unwrap();
+    assert_eq!(saved["enabled"], false);
+    assert!(crate::capabilities::authorized_access(&saved, None, &json!({}), "http").is_err());
 }
 
 #[test]
@@ -2054,4 +2073,33 @@ fn biblioteca_tipificada_conserva_la_vista_ligera_sin_texto_completo_ni_programa
         400
     );
     assert!(store.library()["recipes"][0].get("bundle").is_none());
+}
+#[test]
+fn operacion_de_cuenta_incierta_sobrevive_reapertura_hasta_resolucion_manual() {
+    let temp = tempfile::tempdir().unwrap();
+    let audio = temp.path().join("synthetic.wav");
+    std::fs::write(&audio, b"synthetic audio").unwrap();
+    let root = temp.path().join("library");
+    let mut store = Store::open(root.clone()).unwrap();
+    let record = store.import(&audio, None).unwrap();
+    let id = record["id"].as_str().unwrap();
+    store
+        .mutate("account_effect_begin", &json!({"recordingId":id}))
+        .unwrap();
+    assert_eq!(store.recording(id).unwrap()["accountEffectPending"], true);
+    assert_eq!(
+        store.runtime_context(Some(id)).unwrap()["recordings"][0]["accountEffectPending"],
+        true
+    );
+    drop(store);
+    let mut store = Store::open(root).unwrap();
+    assert_eq!(store.recording(id).unwrap()["accountEffectPending"], true);
+    store
+        .mutate("account_effect_finish", &json!({"recordingId":id}))
+        .unwrap();
+    assert!(store.recording(id).unwrap()["accountEffectPending"].is_null());
+    assert_eq!(
+        store.runtime_context(Some(id)).unwrap()["recordings"][0]["accountEffectPending"],
+        false
+    );
 }

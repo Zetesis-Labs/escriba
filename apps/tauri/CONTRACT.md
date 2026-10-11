@@ -46,10 +46,12 @@ Errores rechazan la promesa con texto legible; nunca éxitos vacíos.
 - project_list -> {files:string[]} (fuentes y JSON/Markdown; excluye dist, node_modules, .git, .escriba y enlaces).
 - project_read {entry} -> {source:string}; project_write {entry,source,expectedSource?,createNew?} -> void (confinado al proyecto, escritura atómica; rechaza una versión externa distinta o un archivo existente al crear).
 - project_tool {tool:'install'|'check'|'test'} -> {success:boolean,output:string} (Bun y TypeScript 7 incluidos, sandbox de desarrollo, salida y duración acotadas; solo install permite red, sin scripts de instalación).
-- connector_http {accountId,url,method?,headers?,body?,multipart?} -> {status,headers,body} (cuenta fija origen; secreto en Rust, no redirects; multipart [{name,value? ,audio?:{recordingId,start?,end?},filename?,type?}]).
-- connector_files {accountId,operation:'snapshot'|'apply',changes?} -> mapa de textos / void (solo carpeta autorizada, sin symlinks ni escapes, CAS expectedContents).
+- connector_save {account,destination} -> void (cuenta y destino gestionado con el mismo id; autorización explícita en account.grant, credencial por separado).
+- connector_remove {id} -> void (retira configuración y credencial local; conserva las publicaciones).
+- connector_http {accountId,expectedGrant,url,method?,headers?,body?,multipart?} -> {status,headers,body} (cuenta fija origen y cabeceras; secreto en Rust, no redirects; multipart [{name,value? ,audio?:{recordingId,start?,end?},filename?,type?}]).
+- connector_files {accountId,expectedGrant,operation:'snapshot'|'apply',changes?} -> mapa de textos / void (solo carpeta autorizada, sin symlinks ni escapes, CAS expectedContents).
 - connector_audio {recordingId} -> {size,type,filename} | null (audio opaco, bytes nunca a receta).
-- publication_save {recordingId,destinationId,accountId,name,provider,receipt,configuration,program?} -> void.
+- publication_save {recordingId,destinationId,accountId,name,provider,receipt,configuration,program?,managed?} -> void.
 - publication_remove {recordingId,destinationId} -> void.
 - watch_scan -> Recording[] (audio asentado, deduplicado; intervalos en host).
 - watch_folder_authorize {folderId?,name?,style?} -> WatchedFolder | null (panel nativo; cancelar no modifica configuración). Sin folderId incorpora la carpeta elegida; con folderId reautoriza esa fuente, conservando su identidad. Si la ruta anterior ya no existe, permite seleccionar su nueva ubicación. No disponible para recetas.
@@ -61,7 +63,8 @@ Errores rechazan la promesa con texto legible; nunca éxitos vacíos.
 - runtime_history -> trabajos duraderos, resultado y error.
 - runtime_cancel {recordingId} -> void; revoca capacidades y termina la receta.
 - recording_status -> {active,clock,recipeName,levels,problem} del panel de captura.
-- project_install {recipes,destinations} -> void; actualización transaccional de catálogo.
+- project_install {recipes,destinations,providers} -> void; actualización transaccional de catálogo, sin conceder acceso a cuentas.
+- account_effect_begin / account_effect_finish {recordingId} -> void; marcador duradero de escrituras arbitrarias de SDK. Solo se retira al iniciar otro reprocesado manual explícito.
 - memory_recall / memory_keep {recordingId,versionId,fingerprint,value?} -> JSON / void.
 - trace_save {recordingId,...} -> void; trace_list {recordingId?} -> trazas.
 
@@ -78,6 +81,28 @@ marcadores dentro del mensaje. La entrega de notificaciones usa el permiso
 solicitado al arrancar. Los ajustes de usuario ya no aceptan `theme`, `language`
 ni `autoProcess`; el idioma guardado anteriormente sigue siendo legible para
 las recetas que lo usaban como valor de partida.
+
+## Proveedores del proyecto
+
+`@escriba/conectores` define `ProviderManifest`, `ProviderAccess` y `ConnectorView`.
+El catálogo `providers` guarda los manifiestos y programas; la biblioteca ligera
+entrega únicamente metadatos y `programFingerprint`. `runtime_context` incluye el
+programa para ejecutar `connectorEditor {operation,request}` fuera de la WebView.
+`describe` y `validate` carecen de capacidades; las acciones explícitas usan el
+transporte de la cuenta. La respuesta del proveedor se valida antes de renderizarla.
+Notion, OKF y los proveedores instalados comparten el mismo renderizador.
+
+Cada llamada compara `expectedGrant` con la cuenta y el proveedor vigentes.
+Cambiar el origen o la autenticación exige retirar la credencial anterior antes
+de autorizar de nuevo. Retirar el proyecto marca el proveedor como no disponible;
+las publicaciones previas conservan su programa, configuración y recibo para
+actualizarse o retirarse con la autorización que siga vigente.
+
+Las recetas reciben `cuentas` y `cuenta(id).fetch`, sin credenciales. Una operación
+SDK arbitraria no genera un recibo de publicación. Antes de enviar una escritura,
+el controlador confirma `accountEffectPending`; la cola bloquea su repetición
+automática o recuperada hasta una ejecución manual explícita. Se conserva el
+marcador al terminar para cubrir un cierre antes de confirmar el trabajo.
 
 `watchIssues` contiene los errores del último escaneo de las carpetas habilitadas
 (`folderId`, `path`, `message`, `permissionDenied`). La UI mantiene un aviso

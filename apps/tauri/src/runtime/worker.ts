@@ -175,7 +175,16 @@ async function recipe(task: WorkerTask) {
   };
   const api = Object.freeze({
     ...lists,
+    cuentas: lists.cuentas || [],
     parametros: parameters,
+    cuenta(key: string) {
+      const account = lookup(key, lists.cuentas || []);
+      return Object.freeze({
+        clave: account.clave,
+        nombre: account.nombre,
+        fetch: authenticatedFetch("account.http", { accountId: account.clave }),
+      });
+    },
     async transcribir(target: unknown, options: unknown = {}) {
       if (target !== audio)
         throw Error("La receta solo puede procesar su grabación");
@@ -309,45 +318,7 @@ async function connector(task: WorkerTask) {
   }
   Object.defineProperty(globalThis, "FormData", { value: Multipart });
   const host = {
-    async fetch(input: RequestInfo | URL, init?: RequestInit) {
-      const suppliedHeaders = new Headers(init?.headers);
-      suppliedHeaders.delete("user-agent");
-      const headers = Object.fromEntries(suppliedHeaders.entries());
-      const body = init?.body;
-      let multipart: unknown[] | undefined;
-      if (body instanceof Multipart)
-        multipart = body.parts.map((p) => {
-          if (typeof p.value === "string")
-            return { name: p.name, value: p.value };
-          const audio = attachments.get(p.value);
-          if (!audio) throw Error("El adjunto no pertenece a la grabación");
-          return {
-            name: p.name,
-            audio,
-            filename: p.filename,
-            type: p.value.type,
-          };
-        });
-      else if (body !== undefined && body !== null && typeof body !== "string")
-        throw Error("El cuerpo HTTP no es compatible");
-      const result = object(
-        await rpc("connector.http", {
-          url: String(input),
-          method: init?.method || "GET",
-          headers,
-          ...(multipart ? { multipart } : { body }),
-        }),
-      );
-      return new Response(
-        [204, 205, 304].includes(Number(result.status))
-          ? null
-          : String(result.body || ""),
-        {
-          status: Number(result.status),
-          headers: result.headers as Record<string, string>,
-        },
-      );
-    },
+    fetch: authenticatedFetch("connector.http"),
     files: {
       snapshot: async () =>
         (await rpc("connector.snapshot")) as Record<string, string>,
@@ -368,6 +339,49 @@ async function connector(task: WorkerTask) {
   const fn = module?.run || builtinConnector;
   if (typeof fn !== "function") throw Error("El programa no exporta run");
   return fn(task.payload, host);
+}
+function authenticatedFetch(operation: string, authority: Record<string, string> = {}): typeof fetch {
+  return async (input: RequestInfo | URL, init?: RequestInit) => {
+      const original = input instanceof Request ? input : undefined;
+      const suppliedHeaders = new Headers(init?.headers ?? original?.headers);
+      suppliedHeaders.delete("user-agent");
+      const headers = Object.fromEntries(suppliedHeaders.entries());
+      const body = init?.body ?? (original?.body ? await original.clone().text() : undefined);
+      let multipart: unknown[] | undefined;
+      if (body instanceof Multipart)
+        multipart = body.parts.map((p) => {
+          if (typeof p.value === "string")
+            return { name: p.name, value: p.value };
+          const audio = attachments.get(p.value);
+          if (!audio) throw Error("El adjunto no pertenece a la grabación");
+          return {
+            name: p.name,
+            audio,
+            filename: p.filename,
+            type: p.value.type,
+          };
+        });
+      else if (body !== undefined && body !== null && typeof body !== "string")
+        throw Error("El cuerpo HTTP no es compatible");
+      const result = object(
+        await rpc(operation, {
+          ...authority,
+          url: original?.url ?? String(input),
+          method: init?.method || original?.method || "GET",
+          headers,
+          ...(multipart ? { multipart } : { body }),
+        }),
+      );
+      return new Response(
+        [204, 205, 304].includes(Number(result.status))
+          ? null
+          : String(result.body || ""),
+        {
+          status: Number(result.status),
+          headers: result.headers as Record<string, string>,
+        },
+      );
+  };
 }
 globalThis.onmessage = (event) => {
   const data = object(event.data);

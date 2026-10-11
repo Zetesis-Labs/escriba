@@ -294,6 +294,7 @@ fn dispatch<'a>(
                     .map(|_| text(&p, "recordingId"))
                     .transpose()?,
             ),
+            "account_effect_begin" | "account_effect_finish" => state.store()?.mutate(method, &p),
             "runtime_run" => {
                 let operation = text(&p, "operation")?;
                 let args = p.get("args").cloned().unwrap_or(json!({}));
@@ -523,7 +524,7 @@ fn dispatch<'a>(
             }
             "recording_stop" => recorder::stop(app, state).await,
             "connector_http" => {
-                let (account, secret, audio) = {
+                let (account, grant, secret, audio) = {
                     let store = state.store()?;
                     let key = text(&p, "accountId")?;
                     let record_id = p["multipart"].as_array().and_then(|a| {
@@ -538,12 +539,30 @@ fn dispatch<'a>(
                             })
                         })
                         .transpose()?;
-                    (store.item("accounts", key)?, store.credential(key)?, audio)
+                    let account = store.item("accounts", key)?;
+                    let provider = match account["provider"].as_str() {
+                        Some("notion" | "okf") => None,
+                        Some(id) => Some(store.item("providers", id)?),
+                        None => return Err("Cuenta sin proveedor".into()),
+                    };
+                    let grant =
+                        capabilities::authorized_access(&account, provider.as_ref(), &p, "http")?;
+                    (account, grant, store.credential(key)?, audio)
                 };
-                capabilities::http(&account, secret, &p, audio).await
+                capabilities::http_with_grant(&account, &grant, secret, &p, audio).await
             }
             "connector_files" => {
-                let account = state.store()?.item("accounts", text(&p, "accountId")?)?;
+                let account = {
+                    let store = state.store()?;
+                    let account = store.item("accounts", text(&p, "accountId")?)?;
+                    let provider = match account["provider"].as_str() {
+                        Some("notion" | "okf") => None,
+                        Some(id) => Some(store.item("providers", id)?),
+                        None => return Err("Cuenta sin proveedor".into()),
+                    };
+                    capabilities::authorized_access(&account, provider.as_ref(), &p, "folder")?;
+                    account
+                };
                 tokio::task::spawn_blocking(move || capabilities::files(&account, &p))
                     .await
                     .map_err(|e| e.to_string())?

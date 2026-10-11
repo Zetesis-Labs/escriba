@@ -157,6 +157,9 @@ impl Store {
         if data["schemaVersion"] != 1 {
             return Err("Versión de biblioteca incompatible".into());
         }
+        if data.get("providers").is_none() {
+            data["providers"] = json!([]);
+        }
         data = migrate_recipe_assignments(data)?;
         let mut discarded_audio = Vec::new();
         for record in data["recordings"]
@@ -189,7 +192,10 @@ impl Store {
             .flatten()
             .collect::<Vec<_>>();
         let stored_is_new = stored.is_none();
-        let previous = stored.unwrap_or_else(|| json!({"schemaVersion":1,"recordings":[],"accounts":[],"resolvers":[],"recipes":[],"destinations":[],"logs":[],"settings":{}}));
+        let mut previous = stored.unwrap_or_else(|| json!({"schemaVersion":1,"recordings":[],"accounts":[],"resolvers":[],"recipes":[],"destinations":[],"providers":[],"logs":[],"settings":{}}));
+        if previous.get("providers").is_none() {
+            previous["providers"] = json!([]);
+        }
         if stored_is_new {
             database.save_with_audio_deletions(previous, data, &discarded_audio)?;
         } else {
