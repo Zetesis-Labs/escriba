@@ -1,10 +1,11 @@
 import { BookOpen, Download, RotateCw } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { call } from "../api";
-import { Button, Spinner } from "../mac/controls";
+import { Button, Segmented, Spinner } from "../mac/controls";
 import { errorText } from "../mac/native";
 import { candidateStatus, extensionOntologies, isDefinition, isInstalledOntology, type InstalledOntology, type KnowledgeCollection, type OntologyDefinition, type RuntimeHost } from "./model";
 import "./knowledge.css";
+import { GraphExplorer } from "./GraphExplorer";
 
 const fieldTypeLabel: Record<string, string> = { text: "Texto", number: "Número", boolean: "Sí / no", date: "Fecha", json: "JSON", reference: "Referencia" };
 
@@ -26,6 +27,7 @@ export function OntologiesPanel({ projectDefinitions, host = call }: { projectDe
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const requestGeneration = useRef(0);
+  const [mode, setMode] = useState<"schema" | "data" | "catalog">("schema");
 
   const load = useCallback(async () => {
     const generation = ++requestGeneration.current;
@@ -66,10 +68,11 @@ export function OntologiesPanel({ projectDefinitions, host = call }: { projectDe
   const older = extensionCandidates.filter((definition) => candidateStatus(definition, extensions) === "older");
   const conflicts = extensionCandidates.filter((definition) => candidateStatus(definition, extensions) === "conflict");
 
-  return <div className="knowledge-ontologies">
-    <div className="knowledge-heading"><div><h2>Ontologías</h2><p className="font-caption secondary">Estructuras instaladas en esta biblioteca. Actualizar el proyecto no las cambia.</p></div><Button small icon={RotateCw} onClick={() => void load()} disabled={loading || !!busy}>Actualizar lista</Button></div>
+  return <div className="ontology-workspace">
+    <div className="ontology-mode-bar"><Segmented value={mode} onChange={setMode} options={[{ value: "schema", label: "Estructura" }, { value: "data", label: "Datos" }, { value: "catalog", label: "Instalación" }]} /><p>{mode === "schema" ? "Entidades y relaciones de la base y sus extensiones." : mode === "data" ? "Explora los registros y abre sus conexiones." : "Las ontologías permanecen al cambiar de proyecto."}</p><Button small icon={RotateCw} onClick={() => void load()} disabled={loading || !!busy} title="Actualizar ontologías" /></div>
     {error && <div className="knowledge-error" role="alert">{error}</div>}
-    {loading ? <div className="knowledge-loading"><Spinner /> Cargando ontologías…</div> : <>
+    {loading ? <div className="knowledge-loading"><Spinner /> Cargando ontologías…</div> : mode !== "catalog" ? <GraphExplorer key={mode} mode={mode} ontologies={installed} host={host} /> : <div className="ontology-catalog"><div className="knowledge-ontologies">
+    <div className="knowledge-heading"><div><h2>Ontologías</h2><p className="font-caption secondary">Estructuras instaladas en esta biblioteca. Actualizar el proyecto no las cambia.</p></div><Button small icon={RotateCw} onClick={() => void load()} disabled={loading || !!busy}>Actualizar lista</Button></div>
       <section className="knowledge-section"><h3>Base de Escriba</h3>
         {base.length ? base.map((ontology) => <OntologySummary key={ontology.id} ontology={ontology} base />) : <p className="font-caption secondary">La base de Escriba no está disponible en este momento.</p>}
       </section>
@@ -81,6 +84,6 @@ export function OntologiesPanel({ projectDefinitions, host = call }: { projectDe
         {older.map((definition) => <p className="font-caption warning" key={definition.id}>El proyecto ofrece «{definition.name}» v{definition.version}, anterior a la instalada. Se conserva la versión instalada.</p>)}
         {conflicts.map((definition) => <p className="font-caption warning" role="alert" key={definition.id}>«{definition.name}» v{definition.version} tiene una definición distinta de la versión instalada. Cambia el número de versión del proyecto antes de actualizar.</p>)}
       </section>
-    </>}
+    </div></div>}
   </div>;
 }

@@ -138,6 +138,8 @@ export function RecipesPane({ data, refresh }: { data: Snapshot; refresh: () => 
     </div>
   );
 
+  if (ontologiesOpen) return <Pane title="Ontologías" toolbar={<Button small onClick={() => setOntologiesOpen(false)}>Volver a recetas</Button>}><OntologiesPanel key={data.settings.projectPath} host={desktop ? undefined : demoKnowledge} /></Pane>;
+
   return (
     <Pane title="Recetas">
       {editorOpen && data.settings.projectPath ? (
@@ -173,7 +175,7 @@ export function RecipesPane({ data, refresh }: { data: Snapshot; refresh: () => 
         </div>
         <div className="list-detail-divider" />
         <div className="detail-column">
-          {ontologiesOpen ? <OntologiesPanel key={data.settings.projectPath} host={desktop ? undefined : demoKnowledge} /> : selected ? (
+          {selected ? (
             <RecipeDetail
               key={selected.id}
               recipe={selected}

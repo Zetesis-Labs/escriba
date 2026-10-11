@@ -221,6 +221,36 @@ pub async fn dispatch(
                 .await?;
             Ok(Value::Null)
         }
+        "knowledge_graph_roots" | "knowledge_graph_expand" | "knowledge_graph_detail" => {
+            let ontology = text(&p, "ontologyId")?;
+            let page = p
+                .get("page")
+                .map(|v| {
+                    v.as_u64()
+                        .and_then(|v| u32::try_from(v).ok())
+                        .ok_or("Página inválida")
+                })
+                .transpose()?
+                .unwrap_or(0);
+            let _base_guard = synchronize_base(knowledge, store).await?;
+            match method {
+                "knowledge_graph_roots" => Ok(json!(
+                    knowledge
+                        .graph_roots(ontology, text(&p, "table")?, page)
+                        .await?
+                )),
+                "knowledge_graph_expand" => Ok(json!(
+                    knowledge
+                        .graph_expand(ontology, text(&p, "recordId")?, page)
+                        .await?
+                )),
+                _ => Ok(json!(
+                    knowledge
+                        .graph_detail(ontology, text(&p, "recordId")?)
+                        .await?
+                )),
+            }
+        }
         "knowledge_records" => {
             let _base_guard = if text(&p, "id")? == "escriba" {
                 Some(synchronize_base(knowledge, store).await?)
