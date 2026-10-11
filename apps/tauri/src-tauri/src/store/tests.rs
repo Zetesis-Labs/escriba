@@ -2533,3 +2533,81 @@ fn color_persona_fusionada_prioriza_destino_y_hereda_si_no_tiene() {
         assert_eq!(people[0]["voices"].as_array().unwrap().len(), 2);
     }
 }
+
+#[test]
+fn dividir_hablante_conserva_solo_huellas_con_intervalos_inequivocos() {
+    let (_dir, mut store, key, initial) = note_draft_fixture();
+    store
+        .mutate(
+            "note_draft_discard",
+            &json!({"recordingId":key,"draftId":initial["id"],"expectedRevision":0}),
+        )
+        .unwrap();
+    let transcript = store.recognize_transcription(&key, json!({"text":"uno dos tres","segments":[{"start":0,"end":2,"text":"uno dos","speaker":"A"},{"start":2,"end":3,"text":"tres","speaker":"B"}],"voices":[{"speaker":"A","model":"m","embedding":[1.0,0.0]},{"speaker":"B","model":"m","embedding":[0.0,1.0]}]})).unwrap();
+    let source = store
+        .mutate(
+            "version_save",
+            &json!({"recordingId":key,"transcript":transcript}),
+        )
+        .unwrap();
+    for (segments, expected) in [
+        (
+            json!([{"start":0,"end":1,"text":"uno","speaker":"A"},{"start":1,"end":2,"text":"dos","speaker":"Persona"},{"start":2,"end":3,"text":"tres","speaker":"B"}]),
+            vec!["B"],
+        ),
+        (
+            json!([{"start":0,"end":2,"text":"uno","speaker":"A","timingShared":true},{"start":0,"end":2,"text":"dos","speaker":"Persona","timingShared":true},{"start":2,"end":3,"text":"tres","speaker":"B"}]),
+            vec!["B"],
+        ),
+        (
+            json!([{"start":0,"end":1,"text":"uno","speaker":"A"},{"start":1,"end":2,"text":"dos","speaker":"B"},{"start":2,"end":3,"text":"tres","speaker":"B"}]),
+            vec![],
+        ),
+        (
+            json!([{"start":0,"end":2,"text":"uno dos","speaker":"A"},{"start":2,"end":3,"text":"tres","speaker":"B"},{"start":2,"end":3,"text":"duplicado","speaker":"Otra"}]),
+            vec!["A"],
+        ),
+        (
+            json!([{"start":0,"end":2,"text":"uno dos","speaker":"Renombrada"},{"start":2,"end":3,"text":"tres","speaker":"B"}]),
+            vec!["Renombrada", "B"],
+        ),
+    ] {
+        store
+            .mutate(
+                "version_select",
+                &json!({"recordingId":key,"versionId":source["id"]}),
+            )
+            .unwrap();
+        let draft = store
+            .mutate("note_draft_begin", &json!({"recordingId":key}))
+            .unwrap();
+        let mut content = draft["content"].clone();
+        content["transcript"]["segments"] = segments;
+        store.mutate("note_draft_save", &json!({"recordingId":key,"draftId":draft["id"],"expectedRevision":0,"content":content})).unwrap();
+        let result = store
+            .mutate(
+                "note_draft_commit",
+                &json!({"recordingId":key,"draftId":draft["id"],"expectedRevision":1}),
+            )
+            .unwrap();
+        let voices = store
+            .version_voices(result["version"]["id"].as_str().unwrap())
+            .unwrap();
+        assert_eq!(
+            voices
+                .iter()
+                .map(|voice| voice.speaker.as_str())
+                .collect::<Vec<_>>(),
+            expected
+        );
+        assert_eq!(
+            store
+                .version_voices(source["id"].as_str().unwrap())
+                .unwrap()
+                .len(),
+            2
+        );
+        assert!(store.known_voices().unwrap().is_empty());
+        assert!(!result.to_string().contains("embedding"));
+    }
+}

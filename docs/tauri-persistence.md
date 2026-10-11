@@ -120,8 +120,8 @@ elimina también sus borradores y recibos en la misma transacción que la lápid
 
 Las correcciones manuales no enseñan huellas a Personas. Se copian sólo las
 huellas cuyos segmentos mantienen los intervalos y una correspondencia de
-hablante inequívoca. Si cambia la segmentación no se copian huellas; dividir,
-quitar o mezclar la asignación de un hablante retira las huellas afectadas de la
+hablante inequívoca. Dividir, quitar o mezclar la asignación de un hablante
+retira sólo las huellas afectadas; las de hablantes sin cambios se conservan en la
 nueva versión. Las versiones originales y las huellas ya aprendidas permanecen.
 
 ## Personas y huellas privadas
