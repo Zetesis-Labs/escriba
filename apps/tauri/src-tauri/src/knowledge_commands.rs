@@ -716,6 +716,10 @@ mod tests {
             Path::new(&graph),
             &temporary.path().join("knowledge.surrealkv"),
         );
+        let key = temporary.path().join("knowledge.key");
+        std::fs::copy(Path::new(&graph).with_extension("key"), &key)
+            .expect("Falta knowledge.key junto a la copia del grafo");
+        std::fs::set_permissions(&key, std::fs::Permissions::from_mode(0o600)).unwrap();
         let store = Store::open_with_audio_cleanup(temporary.path().into(), false)
             .expect("La copia no se puede abrir");
         let current = store
