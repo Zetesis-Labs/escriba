@@ -1443,6 +1443,7 @@ mod tests {
         }
         for forbidden in [
             "credential_save",
+            "people_set_color",
             "settings_save",
             "export_file",
             "open_url",
@@ -1451,6 +1452,11 @@ mod tests {
             "recording_start",
             "import_audio",
             "runtime_run",
+            "note_draft_get",
+            "note_draft_begin",
+            "note_draft_save",
+            "note_draft_discard",
+            "note_draft_commit",
         ] {
             assert!(!allowed(forbidden));
         }

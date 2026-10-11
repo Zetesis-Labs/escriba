@@ -12,6 +12,7 @@ export interface Segment {
   text: string;
   speaker?: string | null;
   words?: { start: number; end: number; text: string }[];
+  timingShared?: boolean;
 }
 export interface Transcript {
   text: string;
@@ -33,6 +34,7 @@ export interface PersonVoice {
 }
 export interface Person {
   name: string;
+  color?: string;
   voices: PersonVoice[];
 }
 export interface VoiceRegistration {
@@ -49,6 +51,7 @@ export interface Digest {
 }
 export interface Version {
   id: string;
+  title?: string;
   revision?: string;
   createdAt: string;
   backend: string;
@@ -60,6 +63,26 @@ export interface Version {
   inputs?: JSONObject;
   hasVoices?: boolean;
   learnedVoice?: boolean;
+}
+export interface NoteContent {
+  title: string;
+  transcript: Transcript;
+  digest: Digest | null;
+  data: JSONValue;
+}
+export interface NoteDraft {
+  id: string;
+  recordingId: string;
+  baseVersionId: string;
+  baseFingerprint: string;
+  revision: number;
+  createdAt: string;
+  updatedAt: string;
+  content: NoteContent;
+}
+export interface NoteDraftCommit {
+  version: Version;
+  created: boolean;
 }
 export interface Publication {
   managed?: boolean;

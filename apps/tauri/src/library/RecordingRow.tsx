@@ -6,7 +6,7 @@ import { currentVersion, publishedNames, transcriptDuration } from "./model";
 
 export const displayTitle = (recording: Recording) => {
   const version = currentVersion(recording);
-  return recordingTitle(version?.digest, version?.transcript.text, new Date(recording.createdAt));
+  return version?.title ?? recordingTitle(version?.digest, version?.transcript.text, new Date(recording.createdAt));
 };
 
 export function TagChips({ tags, limit }: { tags: string[]; limit?: number }) {

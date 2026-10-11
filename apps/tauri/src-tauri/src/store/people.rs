@@ -15,6 +15,9 @@ impl Store {
     ) -> Result<(), String> {
         self.database.add_person_voice(name, voice, source)
     }
+    pub fn set_person_color(&self, name: &str, color: &str) -> Result<(), String> {
+        self.database.set_person_color(name, color)
+    }
     pub fn rename_person(&self, name: &str, new_name: &str) -> Result<(), String> {
         self.database.rename_person(name, new_name)
     }

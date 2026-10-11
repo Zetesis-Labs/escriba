@@ -198,6 +198,7 @@ fn refreshes_library(method: &str, params: &Value) -> bool {
         | "recording_discard"
         | "recording_remove_audio"
         | "recording_stop"
+        | "note_draft_commit"
         | "version_save"
         | "version_select"
         | "version_update"
@@ -206,6 +207,7 @@ fn refreshes_library(method: &str, params: &Value) -> bool {
         | "config_remove"
         | "connector_save"
         | "connector_remove"
+        | "people_set_color"
         | "people_rename"
         | "people_remove"
         | "people_remove_voice"
@@ -381,6 +383,12 @@ fn dispatch<'a>(
             }
             "recording_cancel" => recorder::cancel(app, state).await,
             "people_list" => state.store()?.people(),
+            "people_set_color" => {
+                state
+                    .store()?
+                    .set_person_color(text(&p, "name")?, text(&p, "color")?)?;
+                Ok(Value::Null)
+            }
             "people_rename" => {
                 state
                     .store()?

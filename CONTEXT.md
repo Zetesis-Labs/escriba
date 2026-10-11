@@ -11,6 +11,13 @@ Puede conservar sus transcripciones aunque ya no exista una copia del audio.
 **Nota**: resultado de procesar una grabación, con transcripción y, cuando
 corresponde, resumen y datos producidos por la receta.
 
+**Versión**: estado confirmado de una nota. Conserva su contenido para consultar
+el resultado anterior de un procesamiento o una corrección.
+
+**Borrador de versión**: conjunto de correcciones manuales de una nota que aún
+no se han confirmado. Agrupa los cambios hasta guardarlos como una sola versión;
+descartarlo conserva la versión de origen.
+
 **Receta**: flujo que decide cómo procesar una grabación y qué hacer con su nota.
 Sus parámetros permiten configurar ese flujo para el usuario o una ejecución.
 

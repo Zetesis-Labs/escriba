@@ -1,0 +1,102 @@
+.recipe-trace {
+  min-width: 0;
+  border: 0.5px solid var(--separator);
+  border-radius: 10px;
+  background: var(--fill);
+  overflow: hidden;
+}
+
+.recipe-trace-toggle,
+.recipe-trace-detail-heading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  width: 100%;
+}
+
+.recipe-trace-toggle {
+  padding: 11px 12px;
+  border: 0;
+  background: transparent;
+  text-align: left;
+}
+
+.recipe-trace-toggle:hover { background: var(--fill-strong); }
+.recipe-trace-status { display: inline-flex; flex: none; color: var(--green); }
+.recipe-trace-failed .recipe-trace-status,
+.recipe-trace-status.recipe-trace-failed { color: var(--red); }
+.recipe-trace-waiting .recipe-trace-status,
+.recipe-trace-status.recipe-trace-waiting { color: var(--orange); }
+.recipe-trace-heading { display: flex; flex: 1; flex-direction: column; min-width: 0; }
+.recipe-trace-name { overflow-wrap: anywhere; font-weight: 600; }
+.recipe-trace-meta { color: var(--secondary); font-size: 11px; }
+.recipe-trace-time { flex: none; color: var(--secondary); font-size: 11px; white-space: nowrap; }
+.recipe-trace-toggle > .disclosure { flex: none; color: var(--secondary); }
+
+.recipe-trace-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  min-width: 0;
+  padding: 12px;
+}
+.recipe-trace > .recipe-trace-detail { border-top: 0.5px solid var(--separator); }
+.recipe-trace-detail-heading { padding-bottom: 12px; }
+.recipe-trace-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-width: 0; }
+.recipe-trace-toolbar > span { min-width: 0; }
+.recipe-trace-steps { list-style: none; margin: 12px 0 0; padding: 0; }
+.recipe-trace-step { position: relative; display: flex; gap: 10px; min-width: 0; padding: 0 0 14px; }
+.recipe-trace-step:not(:last-child)::before {
+  content: "";
+  position: absolute;
+  top: 20px;
+  bottom: 3px;
+  left: 7px;
+  width: 1px;
+  background: var(--separator);
+}
+.recipe-trace-marker { display: inline-flex; flex: none; width: 15px; height: 18px; color: var(--green); }
+.recipe-trace-step-error .recipe-trace-marker { color: var(--red); }
+.recipe-trace-step-body { flex: 1; min-width: 0; }
+.recipe-trace-step-line { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.recipe-trace-step-name { font-weight: 500; overflow-wrap: anywhere; }
+.recipe-trace-step-state { color: var(--secondary); font-size: 11px; font-weight: 400; }
+.recipe-trace-step-error .recipe-trace-step-state { color: var(--red); }
+.recipe-trace-step-time { flex: none; color: var(--secondary); font-size: 11px; }
+.recipe-trace-origin { display: block; overflow-wrap: anywhere; }
+.recipe-trace-step-message,
+.recipe-trace-final-error {
+  margin: 6px 0 0;
+  padding: 7px 9px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--red) 9%, transparent);
+  color: var(--label);
+  overflow-wrap: anywhere;
+}
+.recipe-trace-final-error { display: flex; align-items: flex-start; gap: 8px; margin-top: 2px; }
+.recipe-trace-final-error svg { flex: none; color: var(--red); }
+.recipe-trace-empty { margin: 12px 0; }
+.recipe-trace-technical,
+.recipe-trace-result { min-width: 0; font-size: 11px; }
+.recipe-trace-technical { margin-top: 5px; }
+.recipe-trace-technical summary,
+.recipe-trace-result summary { color: var(--secondary); cursor: default; width: fit-content; }
+.recipe-trace-technical summary:hover,
+.recipe-trace-result summary:hover { color: var(--label); }
+.recipe-trace-technical dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 3px 10px; margin: 7px 0 0; }
+.recipe-trace-technical dt { color: var(--secondary); }
+.recipe-trace-technical dd { min-width: 0; margin: 0; overflow-wrap: anywhere; }
+.recipe-trace-result { padding-top: 10px; border-top: 0.5px solid var(--separator); }
+.recipe-trace-result-labels { color: var(--secondary); }
+.recipe-trace-result pre {
+  max-height: 260px;
+  overflow: auto;
+  margin: 8px 0 0;
+  padding: 9px;
+  border-radius: 6px;
+  background: var(--fill);
+  font: 11px/1.45 ui-monospace, SFMono-Regular, monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

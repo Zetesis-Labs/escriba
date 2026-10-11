@@ -77,3 +77,13 @@ describe("Personas como en Swift", () => {
     expect(canBeginVoiceSample("Ana", "analyzing")).toBe(false);
   });
 });
+
+test("el color elegido prevalece y el automático es estable al reordenar personas", async () => {
+  const { personColor, personColors } = await import("../../src/core/people");
+  const people = [{ name: "Ana", color: "#123ABC", voices: [] }, { name: "Luis", voices: [] }];
+  expect(personColor("Ana", people)).toBe("#123ABC");
+  expect(personColor("Luis", people)).toBe(personColor("Luis", [...people].reverse()));
+  expect(personColors(["Ana", "Luis", "Otra"], people)).toEqual({ Ana: "#123ABC", Luis: personColor("Luis"), Otra: personColor("Otra") });
+  expect(personColor(null)).toBe("#8e8e93");
+  expect(personColor("Ana", [{ name: "Ana", color: "url(externo)", voices: [] }])).toMatch(/^#[0-9a-f]{6}$/);
+});

@@ -51,12 +51,17 @@ function rows(label: string, value: JSONValue, schema: JSONValue | undefined, de
     if (scalars.every((item) => item !== null))
       return scalars.length ? [{ label, depth, value: { kind: "list", items: scalars as string[] } }] : [];
     const itemSchema = solid(schema)?.items;
-    return value.flatMap((item, index) => rows(`${label} ${index + 1}`, item, itemSchema, depth));
+    return value.flatMap((item, index) => item === null
+      ? [{ label: `${label} ${index + 1}`, depth, value: { kind: "text" as const, text: emptyValue } }]
+      : rows(`${label} ${index + 1}`, item, itemSchema, depth));
   }
   return [{ label, depth, value: { kind: "text", text: scalarText(value) ?? emptyValue } }];
 }
 
 export function dataRows(value: JSONValue | undefined, schema?: JSONValue): DataRow[] {
-  if (!isObject(value)) return [];
-  return Object.entries(value).flatMap(([name, child]) => field(name, child, schema, 0));
+  if (value === undefined || value === null) return [];
+  if (isObject(value)) return Object.entries(value).flatMap(([name, child]) => field(name, child, schema, 0));
+  const label = titleOf(schema) ?? "Valor";
+  if (Array.isArray(value) && value.length === 0) return [{ label, depth: 0, value: { kind: "text", text: "Lista vacía" } }];
+  return rows(label, value, schema, 0);
 }

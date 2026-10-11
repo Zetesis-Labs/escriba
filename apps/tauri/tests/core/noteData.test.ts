@@ -40,4 +40,14 @@ describe("los datos de la nota en el detalle", () => {
       text("extra", 0, "1"),
     ]);
   });
+  test("muestra datos cuya raíz es una lista o un valor simple", () => {
+    expect(dataRows(["uno", "dos"], { type: "array", title: "Pasos" })).toEqual([
+      { label: "Pasos", depth: 0, value: { kind: "list", items: ["uno", "dos"] } },
+    ]);
+    expect(dataRows(3, { type: "number", title: "Puntuación" })).toEqual([
+      text("Puntuación", 0, "3"),
+    ]);
+    expect(dataRows(false)).toEqual([text("Valor", 0, "no")]);
+    expect(dataRows([])).toEqual([text("Valor", 0, "Lista vacía")]);
+  });
 });

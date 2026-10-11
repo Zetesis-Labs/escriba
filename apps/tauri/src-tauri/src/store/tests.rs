@@ -2103,3 +2103,433 @@ fn operacion_de_cuenta_incierta_sobrevive_reapertura_hasta_resolucion_manual() {
         false
     );
 }
+
+#[test]
+fn borrador_duradero_acumula_cambios_sin_crear_versiones() {
+    let dir = tempfile::tempdir().unwrap();
+    let audio = dir.path().join("sintetico.wav");
+    fs::write(&audio, b"audio sintetico").unwrap();
+    let root = dir.path().join("library");
+    let mut store = Store::open(root.clone()).unwrap();
+    let record = store.import(&audio, None).unwrap();
+    let key = record["id"].as_str().unwrap();
+    let version = store
+        .mutate(
+            "version_save",
+            &json!({"recordingId":key,"transcript":{"text":"original","segments":[]}}),
+        )
+        .unwrap();
+    let draft = store
+        .mutate("note_draft_begin", &json!({"recordingId":key}))
+        .unwrap();
+    let mut content = draft["content"].clone();
+    content["title"] = json!("Editado");
+    content["transcript"]["text"] = json!("corregido");
+    let saved = store.mutate("note_draft_save", &json!({"recordingId":key,"draftId":draft["id"],"expectedRevision":draft["revision"],"content":content})).unwrap();
+    let mut second_content = saved["content"].clone();
+    second_content["data"] = json!({"segundo":true});
+    let saved = store.mutate("note_draft_save", &json!({"recordingId":key,"draftId":draft["id"],"expectedRevision":1,"content":second_content})).unwrap();
+    assert_eq!(saved["revision"], 2);
+    drop(store);
+    let mut store = Store::open(root).unwrap();
+    assert_eq!(
+        store
+            .mutate("note_draft_get", &json!({"recordingId":key}))
+            .unwrap(),
+        saved
+    );
+    assert_eq!(store.recording(key).unwrap()["versions"], json!([version]));
+    assert!(!store.index_json().to_string().contains("corregido"));
+    assert!(!store.snapshot().unwrap().to_string().contains("corregido"));
+    assert!(!store
+        .runtime_context(Some(key))
+        .unwrap()
+        .to_string()
+        .contains("corregido"));
+}
+
+#[test]
+fn confirmar_borrador_crea_una_version_atomica_y_es_idempotente() {
+    let dir = tempfile::tempdir().unwrap();
+    let audio = dir.path().join("sintetico.wav");
+    fs::write(&audio, b"audio sintetico").unwrap();
+    let root = dir.path().join("library");
+    let mut store = Store::open(root.clone()).unwrap();
+    let record = store.import(&audio, None).unwrap();
+    let key = record["id"].as_str().unwrap();
+    let original = store.mutate("version_save", &json!({"recordingId":key,"recipeId":"sintetica","inputs":{"uno":1},"transcript":{"text":"original","segments":[]},"digest":{"title":"Original","summary":"Resumen","tags":[]},"data":{"uno":1}})).unwrap();
+    let draft = store
+        .mutate("note_draft_begin", &json!({"recordingId":key}))
+        .unwrap();
+    let mut content = draft["content"].clone();
+    content["title"] = json!("Editado");
+    content["transcript"]["text"] = json!("corregido");
+    content["digest"]["summary"] = json!("Resumen editado");
+    content["data"] = json!({"dos":2});
+    let saved = store.mutate("note_draft_save", &json!({"recordingId":key,"draftId":draft["id"],"expectedRevision":0,"content":content})).unwrap();
+    let params =
+        json!({"recordingId":key,"draftId":draft["id"],"expectedRevision":saved["revision"]});
+    let result = store.mutate("note_draft_commit", &params).unwrap();
+    assert_eq!(result["created"], true);
+    assert_eq!(result["version"]["digest"]["title"], "Editado");
+    assert_eq!(result["version"]["transcript"]["text"], "corregido");
+    assert_eq!(result["version"]["inputs"], json!({"uno":1}));
+    assert_eq!(result["version"]["recipeId"], "sintetica");
+    assert_eq!(result["version"]["data"], json!({"dos":2}));
+    drop(store);
+    let mut store = Store::open(root).unwrap();
+    assert_eq!(store.mutate("note_draft_commit", &params).unwrap(), result);
+    let detail = store.recording(key).unwrap();
+    assert_eq!(detail["versions"].as_array().unwrap().len(), 2);
+    assert_eq!(detail["versions"][0], original);
+    assert_eq!(detail["audioPath"], record["audioPath"]);
+    assert_eq!(
+        store
+            .mutate("note_draft_get", &json!({"recordingId":key}))
+            .unwrap(),
+        Value::Null
+    );
+    assert!(audio.exists());
+}
+
+fn note_draft_fixture() -> (tempfile::TempDir, Store, String, Value) {
+    let dir = tempfile::tempdir().unwrap();
+    let audio = dir.path().join("sintetico.wav");
+    fs::write(&audio, b"audio sintetico").unwrap();
+    let mut store = Store::open(dir.path().join("library")).unwrap();
+    let record = store.import(&audio, None).unwrap();
+    let key = record["id"].as_str().unwrap().to_owned();
+    store.mutate("version_save", &json!({"recordingId":key,"transcript":{"text":"original","segments":[{"start":0,"end":1,"text":"original","speaker":"A"}]}})).unwrap();
+    let draft = store
+        .mutate("note_draft_begin", &json!({"recordingId":key}))
+        .unwrap();
+    (dir, store, key, draft)
+}
+
+#[test]
+fn borrador_rechaza_carreras_y_base_modificada_sin_perder_ediciones() {
+    let (_dir, mut store, key, draft) = note_draft_fixture();
+    let mut content = draft["content"].clone();
+    content["title"] = json!("Edición local");
+    let params =
+        json!({"recordingId":key,"draftId":draft["id"],"expectedRevision":0,"content":content});
+    let saved = store.mutate("note_draft_save", &params).unwrap();
+    assert!(store.mutate("note_draft_save", &params).is_err());
+    assert!(store.mutate("note_draft_commit", &params).is_err());
+    assert!(store.mutate("note_draft_discard", &params).is_err());
+    store
+        .mutate(
+            "version_update",
+            &json!({"recordingId":key,"versionId":draft["baseVersionId"],"data":{"externo":true}}),
+        )
+        .unwrap();
+    let latest =
+        json!({"recordingId":key,"draftId":draft["id"],"expectedRevision":1,"content":content});
+    assert!(store.mutate("note_draft_commit", &latest).is_err());
+    assert!(store.mutate("note_draft_save", &latest).is_err());
+    assert_eq!(
+        store
+            .mutate("note_draft_get", &json!({"recordingId":key}))
+            .unwrap(),
+        saved
+    );
+    store.mutate("note_draft_discard", &latest).unwrap();
+    assert_eq!(
+        store.recording(&key).unwrap()["versions"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+}
+
+#[test]
+fn borrador_sin_cambios_se_cierra_sin_version_y_descartada_no_resucita() {
+    let (dir, mut store, key, draft) = note_draft_fixture();
+    let params = json!({"recordingId":key,"draftId":draft["id"],"expectedRevision":0});
+    let original = store.recording(&key).unwrap();
+    let result = store.mutate("note_draft_commit", &params).unwrap();
+    assert_eq!(result["created"], false);
+    assert_eq!(store.recording(&key).unwrap(), original);
+    assert_eq!(store.mutate("note_draft_commit", &params).unwrap(), result);
+    let draft = store
+        .mutate("note_draft_begin", &json!({"recordingId":key}))
+        .unwrap();
+    store
+        .mutate("recording_discard", &json!({"id":key}))
+        .unwrap();
+    drop(store);
+    let mut store = Store::open(dir.path().join("library")).unwrap();
+    for method in [
+        "note_draft_begin",
+        "note_draft_get",
+        "note_draft_save",
+        "note_draft_commit",
+    ] {
+        assert!(store.mutate(method, &json!({"recordingId":key,"draftId":draft["id"],"expectedRevision":0,"content":draft["content"]})).is_err());
+    }
+}
+
+#[test]
+fn borrador_rechaza_tiempos_y_tipos_invalidos_sin_reemplazarlo() {
+    let (_dir, mut store, key, draft) = note_draft_fixture();
+    for invalid in [json!(4), json!(false), Value::Null, json!([])] {
+        assert!(store.mutate("note_draft_save", &json!({"recordingId":key,"draftId":draft["id"],"expectedRevision":0,"content":invalid})).is_err());
+    }
+
+    for bad in [
+        json!({"start":2,"end":1,"text":"invalido"}),
+        json!({"start":-1,"end":1,"text":"invalido"}),
+        json!({"start":0,"end":1,"text":false}),
+    ] {
+        let mut content = draft["content"].clone();
+        content["transcript"]["segments"] = json!([bad]);
+        assert!(store.mutate("note_draft_save", &json!({"recordingId":key,"draftId":draft["id"],"expectedRevision":0,"content":content})).is_err());
+    }
+    assert_eq!(
+        store
+            .mutate("note_draft_get", &json!({"recordingId":key}))
+            .unwrap(),
+        draft
+    );
+}
+
+#[test]
+fn borrador_confirmado_falla_atomicamente_y_permite_reintentar() {
+    let (_dir, mut store, key, draft) = note_draft_fixture();
+    let original = store.recording(&key).unwrap();
+    let mut content = draft["content"].clone();
+    content["title"] = json!("Cambio");
+    let saved = store.mutate("note_draft_save", &json!({"recordingId":key,"draftId":draft["id"],"expectedRevision":0,"content":content})).unwrap();
+    store
+        .database
+        .query_test(
+            "DEFINE FIELD OVERWRITE payload ON TABLE note_draft_receipt TYPE object ASSERT false",
+        )
+        .unwrap();
+    let params = json!({"recordingId":key,"draftId":draft["id"],"expectedRevision":1});
+    assert!(store.mutate("note_draft_commit", &params).is_err());
+    assert_eq!(store.recording(&key).unwrap(), original);
+    assert_eq!(
+        store
+            .mutate("note_draft_get", &json!({"recordingId":key}))
+            .unwrap(),
+        saved
+    );
+    store
+        .database
+        .query_test("DEFINE FIELD OVERWRITE payload ON TABLE note_draft_receipt TYPE object")
+        .unwrap();
+    assert_eq!(
+        store.mutate("note_draft_commit", &params).unwrap()["created"],
+        true
+    );
+    assert_eq!(
+        store.recording(&key).unwrap()["versions"][0],
+        original["versions"][0]
+    );
+}
+
+#[test]
+fn borrador_asigna_fragmentos_sin_aprender_huellas_ambiguas() {
+    let (_dir, mut store, key, initial) = note_draft_fixture();
+    store
+        .mutate(
+            "note_draft_discard",
+            &json!({"recordingId":key,"draftId":initial["id"],"expectedRevision":0}),
+        )
+        .unwrap();
+    let transcript = store.recognize_transcription(&key, json!({"text":"uno dos tres","segments":[{"start":0,"end":1,"text":"uno","speaker":"A"},{"start":1,"end":2,"text":"dos","speaker":"A"},{"start":2,"end":3,"text":"tres","speaker":"B"}],"voices":[{"speaker":"A","model":"m","embedding":[1.0,0.0]},{"speaker":"B","model":"m","embedding":[0.0,1.0]}]})).unwrap();
+    let source = store
+        .mutate(
+            "version_save",
+            &json!({"recordingId":key,"transcript":transcript}),
+        )
+        .unwrap();
+    let draft = store
+        .mutate("note_draft_begin", &json!({"recordingId":key}))
+        .unwrap();
+    let mut content = draft["content"].clone();
+    content["transcript"]["segments"][0]["speaker"] = json!("Persona");
+    store.mutate("note_draft_save", &json!({"recordingId":key,"draftId":draft["id"],"expectedRevision":0,"content":content})).unwrap();
+    let committed = store
+        .mutate(
+            "note_draft_commit",
+            &json!({"recordingId":key,"draftId":draft["id"],"expectedRevision":1}),
+        )
+        .unwrap();
+    let copied = store
+        .database
+        .version_voices(committed["version"]["id"].as_str().unwrap())
+        .unwrap();
+    assert_eq!(copied.len(), 1);
+    assert_eq!(copied[0].speaker, "B");
+    assert!(store.known_voices().unwrap().is_empty());
+    assert_eq!(
+        store
+            .database
+            .version_voices(source["id"].as_str().unwrap())
+            .unwrap()
+            .len(),
+        2
+    );
+    assert!(!committed.to_string().contains("embedding"));
+    store
+        .mutate(
+            "version_select",
+            &json!({"recordingId":key,"versionId":source["id"]}),
+        )
+        .unwrap();
+    let draft = store
+        .mutate("note_draft_begin", &json!({"recordingId":key}))
+        .unwrap();
+    let mut content = draft["content"].clone();
+    content["transcript"]["segments"][0]["speaker"] = json!("B");
+    store.mutate("note_draft_save", &json!({"recordingId":key,"draftId":draft["id"],"expectedRevision":0,"content":content})).unwrap();
+    let committed = store
+        .mutate(
+            "note_draft_commit",
+            &json!({"recordingId":key,"draftId":draft["id"],"expectedRevision":1}),
+        )
+        .unwrap();
+    assert_eq!(committed["version"]["hasVoices"], false);
+}
+
+#[test]
+fn borrador_legacy_sin_version_vigente_usa_la_ultima_por_fecha_sin_duplicarla() {
+    for current_id in [Value::Null, json!("inexistente")] {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = Store::open(dir.path().join("library")).unwrap();
+        let mut legacy = store.data_json();
+        legacy["recordings"] = json!([{"id":"legacy","title":"Original","status":"done","currentVersionId":current_id,"versions":[
+            {"id":"reciente","createdAt":"2026-02-01","transcript":{"text":"reciente","segments":[]}},
+            {"id":"antigua","createdAt":"2026-01-01","transcript":{"text":"antigua","segments":[]}}
+        ],"publications":[]}]);
+        if current_id.is_null() {
+            legacy["recordings"][0]
+                .as_object_mut()
+                .unwrap()
+                .remove("currentVersionId");
+        }
+        store.replace(legacy).unwrap();
+        let before = store.recording("legacy").unwrap();
+        let draft = store
+            .mutate("note_draft_begin", &json!({"recordingId":"legacy"}))
+            .unwrap();
+        assert_eq!(draft["baseVersionId"], "reciente");
+        let params = json!({"recordingId":"legacy","draftId":draft["id"],"expectedRevision":0});
+        let result = store.mutate("note_draft_commit", &params).unwrap();
+        assert_eq!(result["created"], false);
+        assert_eq!(result["version"]["id"], "reciente");
+        assert_eq!(store.mutate("note_draft_commit", &params).unwrap(), result);
+        assert_eq!(store.recording("legacy").unwrap(), before);
+        let draft = store
+            .mutate("note_draft_begin", &json!({"recordingId":"legacy"}))
+            .unwrap();
+        let mut content = draft["content"].clone();
+        content["title"] = json!("Título manual");
+        store.mutate("note_draft_save", &json!({"recordingId":"legacy","draftId":draft["id"],"expectedRevision":0,"content":content})).unwrap();
+        let params = json!({"recordingId":"legacy","draftId":draft["id"],"expectedRevision":1});
+        let result = store.mutate("note_draft_commit", &params).unwrap();
+        assert_eq!(result["created"], true);
+        assert_eq!(result["version"]["transcript"]["text"], "reciente");
+        assert_eq!(store.mutate("note_draft_commit", &params).unwrap(), result);
+        let detail = store.recording("legacy").unwrap();
+        assert_eq!(detail["versions"].as_array().unwrap().len(), 3);
+        assert_eq!(detail["versions"][0], before["versions"][0]);
+        assert_eq!(detail["versions"][1], before["versions"][1]);
+    }
+}
+
+#[test]
+fn borrador_conserva_titulo_manual_tras_regenerar_resumen() {
+    let (_dir, mut store, key, draft) = note_draft_fixture();
+    let mut content = draft["content"].clone();
+    content["title"] = json!("Título manual");
+    store.mutate("note_draft_save", &json!({"recordingId":key,"draftId":draft["id"],"expectedRevision":0,"content":content})).unwrap();
+    let result = store
+        .mutate(
+            "note_draft_commit",
+            &json!({"recordingId":key,"draftId":draft["id"],"expectedRevision":1}),
+        )
+        .unwrap();
+    store.mutate("version_update", &json!({"recordingId":key,"versionId":result["version"]["id"],"digest":{"title":"Título regenerado","summary":"Resumen nuevo","tags":[]}})).unwrap();
+    let draft = store
+        .mutate("note_draft_begin", &json!({"recordingId":key}))
+        .unwrap();
+    assert_eq!(draft["content"]["title"], "Título manual");
+    assert_eq!(draft["content"]["digest"]["summary"], "Resumen nuevo");
+    store.mutate("note_draft_save", &json!({"recordingId":key,"draftId":draft["id"],"expectedRevision":0,"content":draft["content"]})).unwrap();
+    let result = store
+        .mutate(
+            "note_draft_commit",
+            &json!({"recordingId":key,"draftId":draft["id"],"expectedRevision":1}),
+        )
+        .unwrap();
+    assert_eq!(result["created"], false);
+}
+
+#[test]
+fn color_persona_se_conserva_al_anadir_huellas_reabrir_y_renombrar() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("library");
+    let store = Store::open(root.clone()).unwrap();
+    let voice = SpeakerVoice {
+        speaker: "S".into(),
+        model: "m".into(),
+        embedding: vec![1.0, 0.0],
+    };
+    store.add_person_voice("Ana", &voice, "sintetico").unwrap();
+    store.set_person_color("Ana", "#Ab12Cd").unwrap();
+    store.add_person_voice("Ana", &voice, "sintetico2").unwrap();
+    drop(store);
+    let store = Store::open(root).unwrap();
+    store.rename_person("Ana", "Alicia").unwrap();
+    let people = store.people().unwrap();
+    assert_eq!(people[0]["name"], "Alicia");
+    assert_eq!(people[0]["color"], "#Ab12Cd");
+    assert_eq!(people[0]["voices"].as_array().unwrap().len(), 2);
+    assert!(!people.to_string().contains("embedding"));
+    for invalid in ["red", "#abc", "#12345678", "#GG1234", "123456", "#12 456"] {
+        assert!(store.set_person_color("Alicia", invalid).is_err());
+    }
+    assert!(store.set_person_color("Desconocida", "#123456").is_err());
+    assert_eq!(store.people().unwrap(), people);
+    store.remove_person("Alicia").unwrap();
+    store
+        .add_person_voice("Alicia", &voice, "sintetico3")
+        .unwrap();
+    assert!(store.people().unwrap()[0].get("color").is_none());
+}
+
+#[test]
+fn color_persona_fusionada_prioriza_destino_y_hereda_si_no_tiene() {
+    for target_color in [None, Some("#112233")] {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("library");
+        let store = Store::open(root.clone()).unwrap();
+        let voice = SpeakerVoice {
+            speaker: "S".into(),
+            model: "m".into(),
+            embedding: vec![1.0, 0.0],
+        };
+        store
+            .add_person_voice("Origen", &voice, "sintetico")
+            .unwrap();
+        store
+            .add_person_voice("Destino", &voice, "sintetico")
+            .unwrap();
+        store.set_person_color("Origen", "#AABBCC").unwrap();
+        if let Some(color) = target_color {
+            store.set_person_color("Destino", color).unwrap();
+        }
+        store.rename_person("Origen", "Destino").unwrap();
+        drop(store);
+        let store = Store::open(root).unwrap();
+        let people = store.people().unwrap();
+        assert_eq!(people.as_array().unwrap().len(), 1);
+        assert_eq!(people[0]["name"], "Destino");
+        assert_eq!(people[0]["color"], target_color.unwrap_or("#AABBCC"));
+        assert_eq!(people[0]["voices"].as_array().unwrap().len(), 2);
+    }
+}

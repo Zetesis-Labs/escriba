@@ -44,7 +44,13 @@ impl Version {
             }),
             data: Field::Missing,
             inputs: Field::Missing,
-            extra: Map::from_iter([("revision".into(), json!(revision(self)))]),
+            extra: {
+                let mut extra = Map::from_iter([("revision".into(), json!(revision(self)))]);
+                if let Some(title) = self.extra.get("title").and_then(Value::as_str) {
+                    extra.insert("title".into(), json!(title));
+                }
+                extra
+            },
         }
     }
 }

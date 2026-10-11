@@ -1,4 +1,4 @@
-import type { Transcript, VoiceRegistration } from "../types";
+import type { Person, Transcript, VoiceRegistration } from "../types";
 
 export const personName = (value: string, current?: string) => {
   const name = value.trim();
@@ -39,3 +39,17 @@ export function forgottenRecognition(transcript: Transcript, visibleSpeaker: str
     recognitions: transcript.recognitions?.filter((item) => item !== recognition),
   };
 }
+
+const speakerPalette = ["#3178c6", "#a05bc7", "#c65b37", "#31806b", "#b74e78", "#82723a", "#5763be", "#397f96"];
+
+export function personColor(name: string | null | undefined, people: readonly Person[] = []) {
+  if (!name) return "#8e8e93";
+  const saved = people.find((person) => person.name === name)?.color;
+  if (saved && /^#[0-9a-f]{6}$/i.test(saved)) return saved;
+  let hash = 0;
+  for (const character of name) hash = (Math.imul(hash, 31) + character.codePointAt(0)!) >>> 0;
+  return speakerPalette[hash % speakerPalette.length];
+}
+
+export const personColors = (names: readonly string[], people: readonly Person[]) =>
+  Object.fromEntries([...new Set([...names, ...people.map((person) => person.name)])].map((name) => [name, personColor(name, people)]));

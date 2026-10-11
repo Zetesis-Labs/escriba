@@ -24,6 +24,13 @@ export function useAppData() {
   }, []);
 
   useEffect(() => {
+    if (!demo) return;
+    const updated = () => setData((window as { escribaDemo?: Snapshot }).escribaDemo ?? demoSnapshot);
+    window.addEventListener("escriba:demo-changed", updated);
+    return () => window.removeEventListener("escriba:demo-changed", updated);
+  }, []);
+
+  useEffect(() => {
     if (!desktop) return;
     void refresh();
     let unlisten: (() => void) | undefined;
