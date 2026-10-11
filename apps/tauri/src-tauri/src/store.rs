@@ -3,6 +3,7 @@ use recordings::{audio_copy_root, audio_copy_to_delete, references_audio};
 use settings::defaults;
 use settings::{canonical_folder, redacted_settings};
 mod configuration;
+mod drafts;
 mod import;
 mod model;
 mod mutations;

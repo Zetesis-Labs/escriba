@@ -2,6 +2,9 @@ use super::*;
 
 impl Store {
     pub fn mutate(&mut self, method: &str, p: &Value) -> Result<Value, String> {
+        if method.starts_with("note_draft_") {
+            return self.draft_command(method, p);
+        }
         let guarded = match method {
             "recording_update" | "recording_remove_audio" => Some(text(p, "id")?),
             "version_save"

@@ -1,0 +1,23 @@
+.note-data-editor { font: inherit; color: var(--label); }
+.note-editor-group { display: grid; gap: 12px; }
+.note-editor-row { display: grid; grid-template-columns: minmax(100px, 28%) minmax(0, 1fr); gap: 12px; align-items: start; }
+.note-editor-row > .note-editor-group, .note-editor-row > .note-editor-list { padding: 10px 0 2px; }
+.note-editor-label { padding-top: 7px; color: var(--secondary); line-height: 1.35; overflow-wrap: anywhere; }
+.note-editor-input, .note-editor-null select, .note-editor-list-add select { width: 100%; min-width: 0; box-sizing: border-box; border: 0.5px solid var(--separator); border-radius: 7px; background: var(--content); color: var(--label); padding: 6px 9px; }
+.note-editor-input:disabled, .note-data-editor button:disabled, .note-data-editor select:disabled { opacity: .55; }
+.note-editor-input[aria-invalid="true"] { border-color: var(--red); }
+.note-editor-text { display: block; min-height: 54px; max-height: 180px; resize: vertical; line-height: 1.4; }
+.note-editor-number-wrap { display: grid; gap: 3px; }
+.note-editor-error { color: var(--red); font-size: 11px; }
+.note-editor-checkbox { min-height: 28px; display: inline-flex; align-items: center; gap: 7px; width: fit-content; }
+.note-editor-checkbox input { accent-color: var(--accent); }
+.note-editor-list { display: grid; gap: 8px; min-width: 0; }
+.note-editor-list-item { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; gap: 8px; align-items: start; padding-bottom: 8px; border-bottom: 0.5px solid var(--separator); }
+.note-editor-list-item > .note-editor-group { padding-top: 0; }
+.note-editor-index { padding-top: 7px; color: var(--tertiary); font-variant-numeric: tabular-nums; }
+.note-editor-action, .note-editor-remove { border: 0; border-radius: 6px; background: var(--fill-strong); color: var(--label); padding: 6px 9px; font: inherit; width: fit-content; }
+.note-editor-action:hover:not(:disabled), .note-editor-remove:hover:not(:disabled) { background: var(--fill); }
+.note-editor-remove { color: var(--red); }
+.note-editor-list-add, .note-editor-null { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+.note-editor-null select, .note-editor-list-add select { width: auto; }
+.note-editor-muted { color: var(--secondary); margin: 0; }

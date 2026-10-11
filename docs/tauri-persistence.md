@@ -85,9 +85,56 @@ permanece tras el éxito. La cola bloquea la recuperación o el reintento autom�
 de esa operación; sólo el inicio de un nuevo reprocesado manual retira la marca.
 Esto cubre también un cierre entre el efecto externo y la confirmación del job.
 
+## Borradores de notas
+
+`note_draft` conserva un borrador por grabación, fuera del índice ligero, del
+snapshot y del contexto de recetas. Se lee sólo mediante los comandos de detalle
+`note_draft_get` y `note_draft_begin`. Sobrevive a cambiar de nota y al reinicio.
+Si una biblioteca antigua no identifica una versión vigente válida, el borrador
+usa la última por fecha, igual que la interfaz, sin modificar el original.
+El contenido editable está tipado: título, transcripción, resumen opcional y
+JSON de datos. Segmentos y palabras conservan las extensiones y los tiempos;
+los intervalos negativos o invertidos se rechazan antes de guardar.
+
+Guardar el borrador aumenta su revisión y no modifica versiones, grabación ni
+publicaciones. Cada escritura exige el id del borrador y su revisión esperada.
+Guardar y confirmar contrastan además la versión vigente y una huella del
+contenido completo de la versión base y del título de la grabación. Los
+conflictos se muestran como errores y conservan el borrador; descartarlo sigue
+siendo posible aunque haya cambiado la base.
+
+Confirmar copia la versión base, incluidos receta, entradas, esquema y otras
+extensiones, y aplica todos los cambios en una sola versión manual. Conserva las
+versiones originales y el audio. `version.title` fija el título de la nueva
+versión y se incluye en su proyección; si hay resumen, también actualiza
+`digest.title`. El título de la grabación cambia únicamente al confirmar. No se
+regeneran ni envían publicaciones. Una confirmación sin cambios cierra el
+borrador sin crear otra versión.
+
+La versión, sus proyecciones, las huellas conservadas, el borrado del borrador y
+un recibo mínimo en `note_draft_receipt` se confirman en una sola transacción.
+El recibo contiene id de versión y revisión, sin texto: repetir una confirmación,
+incluso después de reiniciar, no crea otra versión. Un fallo transaccional
+conserva el borrador y el estado previo de la biblioteca. Descartar la grabación
+elimina también sus borradores y recibos en la misma transacción que la lápida.
+
+Las correcciones manuales no enseñan huellas a Personas. Se copian sólo las
+huellas cuyos segmentos mantienen los intervalos y una correspondencia de
+hablante inequívoca. Si cambia la segmentación no se copian huellas; dividir,
+quitar o mezclar la asignación de un hablante retira las huellas afectadas de la
+nueva versión. Las versiones originales y las huellas ya aprendidas permanecen.
+
 ## Personas y huellas privadas
 
 `person` conserva los nombres; `person_voice`, las huellas aprendidas con su modelo, origen y fecha; `voice`, las huellas de cada versión de transcripción. Estas tablas se consultan en Rust y no forman parte del documento que recibe la WebView o el runtime. La interfaz obtiene nombres y metadatos de las huellas, `hasVoices` en las versiones y reconocimientos `{speaker, person, distance}`. Las respuestas a JavaScript rechazan cualquier campo de embedding.
+
+El color opcional pertenece a la persona, no a una versión ni a un hablante de
+una nota. `people_set_color` sólo acepta `#RRGGBB` y una persona existente; no
+crea perfiles implícitos. Añadir huellas y renombrar conserva el color. Al
+fusionar, prevalece el color del destino; si no tiene, hereda el del origen en
+la misma transacción que las huellas. Olvidar la persona o su última huella
+elimina también su color. Las entidades anteriores, sin color, siguen siendo
+legibles, y `people_list` devuelve sólo este metadato y los ya públicos.
 
 Al transcribir, Rust extrae las huellas del resultado nativo, reconoce por la huella más cercana del mismo modelo con umbral de distancia coseno 0,30 y conserva una asignación de persona por hablante, sin repetir persona en la nota. Las huellas quedan pendientes en Rust hasta guardar la versión. La versión y sus huellas se confirman juntas; las correcciones pueden enseñar la voz en esa misma transacción. `sourceVersionId` permite copiar las huellas al reutilizar una transcripción o corregir hablantes sin repetir reconocimiento. Una transcripción diarizada sin huellas se vuelve a diarizar.
 

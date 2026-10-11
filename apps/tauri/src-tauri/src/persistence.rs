@@ -31,10 +31,14 @@ struct Row {
 pub struct WriteScope {
     pub full_recordings: HashSet<String>,
     pub recipe_aliases: HashMap<String, String>,
+    pub draft_change: Option<(String, Option<Value>)>,
+    pub draft_receipt: Option<(String, String, Value)>,
 }
 
 #[derive(Clone, Deserialize, Serialize)]
 struct PersonRecord {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    color: Option<String>,
     id: String,
     name: String,
     created_at: String,
@@ -95,6 +99,7 @@ impl AudioDeletion {
 }
 
 enum Command {
+    DraftRead(String, String, mpsc::Sender<Result<Option<Value>, String>>),
     Load(mpsc::Sender<Result<Option<Value>, String>>),
     LoadIndex(mpsc::Sender<Result<Option<Value>, String>>),
     Recording(String, mpsc::Sender<Result<Option<Value>, String>>),
@@ -140,6 +145,7 @@ enum Command {
         String,
         mpsc::Sender<Result<(), String>>,
     ),
+    SetPersonColor(String, String, mpsc::Sender<Result<(), String>>),
     RenamePerson(String, String, mpsc::Sender<Result<(), String>>),
     RemovePersonVoice(String, mpsc::Sender<Result<(), String>>),
     RemovePerson(String, mpsc::Sender<Result<(), String>>),
@@ -184,6 +190,15 @@ impl Persistence {
                 let _ = ready_sender.send(Ok(()));
                 while let Some(command) = receiver.recv().await {
                     match command {
+                        Command::DraftRead(table, key, reply) => {
+                            let result = async {
+                                let row: Option<Row> =
+                                    db.select((table, key)).await.map_err(|e| e.to_string())?;
+                                Ok(row.map(|row| row.payload))
+                            }
+                            .await;
+                            let _ = reply.send(result);
+                        }
                         Command::Load(reply) => {
                             let _ = reply.send(load(&db).await);
                         }
@@ -285,6 +300,9 @@ impl Persistence {
                         Command::AddPersonVoice(name, voice, source, reply) => {
                             let _ = reply.send(add_person_voice(&db, &name, &voice, &source).await);
                         }
+                        Command::SetPersonColor(name, color, reply) => {
+                            let _ = reply.send(set_person_color(&db, &name, &color).await);
+                        }
                         Command::RenamePerson(name, new_name, reply) => {
                             let _ = reply.send(rename_person(&db, &name, &new_name).await);
                         }
@@ -367,6 +385,20 @@ impl Persistence {
     }
     pub fn load_index(&self) -> Result<Option<Value>, String> {
         self.request(Command::LoadIndex)
+    }
+    pub fn draft_read(&self, key: &str, receipt: bool) -> Result<Option<Value>, String> {
+        self.request(|reply| {
+            Command::DraftRead(
+                if receipt {
+                    "note_draft_receipt"
+                } else {
+                    "note_draft"
+                }
+                .into(),
+                key.into(),
+                reply,
+            )
+        })
     }
     pub fn recording(&self, id: &str) -> Result<Option<Value>, String> {
         self.request(|reply| Command::Recording(id.to_owned(), reply))
@@ -467,6 +499,9 @@ impl Persistence {
             Command::AddPersonVoice(name.to_owned(), voice.clone(), source.to_owned(), reply)
         })
     }
+    pub fn set_person_color(&self, name: &str, color: &str) -> Result<(), String> {
+        self.request(|reply| Command::SetPersonColor(name.into(), color.into(), reply))
+    }
     pub fn rename_person(&self, name: &str, new_name: &str) -> Result<(), String> {
         self.request(|reply| Command::RenamePerson(name.to_owned(), new_name.to_owned(), reply))
     }
@@ -532,6 +567,8 @@ async fn connect(path: &Path) -> Result<Surreal<Db>, String> {
         "person_voice",
         "voice",
         "audio_deletion",
+        "note_draft",
+        "note_draft_receipt",
     ] {
         db.query(format!("DEFINE TABLE IF NOT EXISTS {table} SCHEMALESS"))
             .await
@@ -555,6 +592,8 @@ async fn connect(path: &Path) -> Result<Surreal<Db>, String> {
             "trace",
             "person_voice",
             "voice",
+            "note_draft",
+            "note_draft_receipt",
         ]
         .contains(&table)
         {
@@ -587,6 +626,8 @@ async fn connect(path: &Path) -> Result<Surreal<Db>, String> {
         "person_voice",
         "voice",
         "audio_deletion",
+        "note_draft",
+        "note_draft_receipt",
     ] {
         db.query(format!(
             "DEFINE FIELD OVERWRITE payload ON TABLE {table} TYPE object"
@@ -981,6 +1022,7 @@ async fn save_version_mode(
         } else {
             let fresh = existing.is_none();
             let person = existing.unwrap_or_else(|| PersonRecord {
+                color: None,
                 id: Uuid::new_v4().to_string(),
                 name: teaching.person.clone(),
                 created_at: Utc::now().to_rfc3339(),
@@ -1075,7 +1117,7 @@ async fn save_with_aux_mode(
                         .bind(("table", child))
                         .await.map_err(|e| e.to_string())?.check().map_err(|e| e.to_string())?;
                 }
-                for child in ["memory", "trace", "job"] {
+                for child in ["memory", "trace", "job", "note_draft", "note_draft_receipt"] {
                     tx.query(format!("DELETE type::table($table) WHERE parent = {record_parent}"))
                         .bind(("table", child))
                         .await.map_err(|e| e.to_string())?.check().map_err(|e| e.to_string())?;
@@ -1104,7 +1146,7 @@ async fn save_with_aux_mode(
                         .bind(("table", child))
                         .await.map_err(|e| e.to_string())?.check().map_err(|e| e.to_string())?;
                 }
-                for child in ["memory", "trace", "job"] {
+                for child in ["memory", "trace", "job", "note_draft", "note_draft_receipt"] {
                     tx.query(format!("DELETE type::table($table) WHERE parent = {record_parent}"))
                         .bind(("table", child))
                         .await.map_err(|e| e.to_string())?.check().map_err(|e| e.to_string())?;
@@ -1126,6 +1168,21 @@ async fn save_with_aux_mode(
             }
         }
         if let Some(scope) = scope {
+            if let Some((key, value)) = &scope.draft_change {
+                if let Some(value) = value {
+                    tx.query("UPSERT type::record('note_draft', $key) SET key = $key, parent = $key, position = 0, payload = $payload")
+                        .bind(("key", key.clone())).bind(("payload", value.clone()))
+                        .await.map_err(|e| e.to_string())?.check().map_err(|e| e.to_string())?;
+                } else {
+                    tx.query("DELETE type::record('note_draft', $key)").bind(("key", key.clone()))
+                        .await.map_err(|e| e.to_string())?.check().map_err(|e| e.to_string())?;
+                }
+            }
+            if let Some((key, parent, receipt)) = &scope.draft_receipt {
+                tx.query("CREATE type::record('note_draft_receipt', $key) SET key = $key, parent = $parent, position = 0, payload = $payload")
+                    .bind(("key", key.clone())).bind(("parent", parent.clone())).bind(("payload", receipt.clone()))
+                    .await.map_err(|e| e.to_string())?.check().map_err(|e| e.to_string())?;
+            }
             if scope.recipe_aliases.iter().any(|(old, new)| old != new) {
                 let mut response = tx
                     .query("SELECT key, payload.recipeId AS recipe_id FROM version_preview")
@@ -1334,7 +1391,11 @@ async fn people(db: &Surreal<Db>) -> Result<Value, String> {
     Ok(Value::Array(people.into_iter().filter_map(|person| {
         let own: Vec<Value> = voices.iter().filter(|voice| voice.person_id == person.id)
             .map(|voice| json!({"id":voice.id,"model":voice.model,"source":voice.source,"addedAt":voice.added_at})).collect();
-        (!own.is_empty()).then(|| json!({"name":person.name,"voices":own}))
+        (!own.is_empty()).then(|| {
+            let mut value = json!({"name":person.name,"voices":own});
+            if let Some(color) = person.color { value["color"] = json!(color); }
+            value
+        })
     }).collect()))
 }
 
@@ -1374,6 +1435,7 @@ async fn add_person_voice(
         .into_iter()
         .find(|person| person.name == name)
         .unwrap_or_else(|| PersonRecord {
+            color: None,
             id: Uuid::new_v4().to_string(),
             name: name.to_owned(),
             created_at: Utc::now().to_rfc3339(),
@@ -1420,6 +1482,32 @@ async fn add_person_voice(
     }
 }
 
+async fn set_person_color(db: &Surreal<Db>, name: &str, color: &str) -> Result<(), String> {
+    if color.len() != 7
+        || !color.starts_with('#')
+        || !color.as_bytes()[1..].iter().all(u8::is_ascii_hexdigit)
+    {
+        return Err("El color debe tener formato #RRGGBB".into());
+    }
+    let mut person = person_records(db)
+        .await?
+        .into_iter()
+        .find(|person| person.name == name)
+        .ok_or("Persona no encontrada")?;
+    person.color = Some(color.into());
+    db.query("UPDATE type::record('person', $key) SET payload = $payload")
+        .bind(("key", person.id.clone()))
+        .bind((
+            "payload",
+            serde_json::to_value(person).map_err(|e| e.to_string())?,
+        ))
+        .await
+        .map_err(|e| e.to_string())?
+        .check()
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 async fn rename_person(db: &Surreal<Db>, name: &str, new_name: &str) -> Result<(), String> {
     if name == new_name {
         return Ok(());
@@ -1441,6 +1529,13 @@ async fn rename_person(db: &Surreal<Db>, name: &str, new_name: &str) -> Result<(
     let tx = db.clone().begin().await.map_err(|e| e.to_string())?;
     let result = async {
         if let Some(target) = target {
+            if target.color.is_none() && source.color.is_some() {
+                let mut inherited = target.clone();
+                inherited.color = source.color.clone();
+                tx.query("UPDATE type::record('person', $key) SET payload = $payload")
+                    .bind(("key", target.id.as_str())).bind(("payload", serde_json::to_value(inherited).map_err(|e| e.to_string())?))
+                    .await.map_err(|e| e.to_string())?.check().map_err(|e| e.to_string())?;
+            }
             for mut row in source_voices {
                 let mut voice: PersonVoiceRecord = serde_json::from_value(row.payload).map_err(|_| "Huella guardada inválida")?;
                 voice.person_id = target.id.clone();

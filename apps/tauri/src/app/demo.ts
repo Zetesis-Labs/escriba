@@ -209,3 +209,11 @@ export const demoSnapshot: Snapshot = {
     llm: { available: true },
   },
 };
+
+export function currentDemoPeople(): Person[] {
+  return (window as Window & { escribaDemoPeople?: Person[] }).escribaDemoPeople ?? demoPeople;
+}
+
+export function setDemoPeople(people: Person[]) {
+  (window as Window & { escribaDemoPeople?: Person[] }).escribaDemoPeople = people;
+}

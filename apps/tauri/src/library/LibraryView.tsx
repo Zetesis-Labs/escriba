@@ -10,19 +10,18 @@ import { reprocessChoice, reprocessDraft, reprocessTransition } from "../core/re
 import { recipeFormLoad } from "../core/recipeForm";
 import { okfPublicationFile } from "../core/publicationFiles";
 import { recordingRevision } from "../core/recordingDetail";
-import { Button, ContentUnavailable, FormRow, FormSection, LabeledRow, PopupButton, Sheet, Spinner, TextField, ToolbarButton, ToolbarMenu } from "../mac/controls";
+import { Button, ContentUnavailable, FormRow, FormSection, LabeledRow, PopupButton, Sheet, Spinner, ToolbarButton, ToolbarMenu } from "../mac/controls";
 import { alertMessage, chooseFiles, confirmDestructive, errorText, header, item, popupMenu, separator, submenu, type MenuEntry } from "../mac/native";
 import type { Destination, JobState, JSONObject, Recording, Snapshot } from "../types";
 import { currentVersion, currentVersionLabel, isPublished, libraryRecordings, liveDestinations, originName, providerLabel, versionsInOrder, versionTitle } from "./model";
 import * as operations from "./operations";
 import { displayTitle, RecordingRow } from "./RecordingRow";
-import { TranscriptDetail } from "./TranscriptDetail";
+import { TranscriptDetail, type NoteEditRequest } from "./TranscriptDetail";
 import { startRecording, stopRecording } from "../recording/useRecording";
 import { getRecipeSchema } from "../runtime";
 import { RecipeFormSections } from "../recipes/RecipeFormSections";
 import "./library.css";
 
-type Rename = { recording: Recording; speaker: string; name: string };
 
 function useRecordingDetail(recording: Recording | null, active: boolean) {
   const [loaded, setLoaded] = useState<{ key: string; detail: Recording | null; error: string | null } | null>(null);
@@ -73,7 +72,11 @@ export function LibraryView({
   const [notice, setNotice] = useState<string | null>(null);
   const [dropTargeted, setDropTargeted] = useState(false);
   const [reprocessing, setReprocessing] = useState<Recording | null>(null);
-  const [rename, setRename] = useState<Rename | null>(null);
+  const [editRequest, setEditRequest] = useState<NoteEditRequest | null>(null);
+  const [draftState, setDraftState] = useState<{ id: string; locked: boolean } | null>(null);
+  const draftLocked = draftState?.id !== selectedId || draftState.locked;
+  const onDraftState = useCallback((locked: boolean) => { if (selectedId) setDraftState({ id: selectedId, locked }); }, [selectedId]);
+  const requestEdit = (kind: NoteEditRequest["kind"], speaker?: string) => setEditRequest((previous) => ({ serial: (previous?.serial ?? 0) + 1, kind, speaker }));
   const selected = recordings.find((recording) => recording.id === selectedId) ?? null;
   const { detail, detailError } = useRecordingDetail(selected, active);
   const live = liveDestinations(data.destinations, data.accounts, data.providers);
@@ -84,7 +87,6 @@ export function LibraryView({
 
   useEffect(() => {
     if (!active) {
-      setRename(null);
       setReprocessing(null);
     }
   }, [active]);
@@ -216,10 +218,10 @@ export function LibraryView({
     const job = jobFor(recording);
     return [
       item("Copiar la transcripción", () => version && void perform(() => operations.copyTranscript(version.transcript)), { enabled: Boolean(version) }),
-      item(version?.digest ? "Rehacer el resumen" : "Resumir con el modelo del sistema", () => void perform(() => operations.summarize(recording)), {
-        enabled: canSummarize && Boolean(version) && !job,
+      item(version?.digest?.summary ? "Rehacer el resumen" : "Resumir con el modelo del sistema", () => void perform(() => operations.summarize(recording)), {
+        enabled: canSummarize && Boolean(version) && !job && !draftLocked,
       }),
-      item("Quitar el resumen", () => void perform(() => operations.forgetSummary(recording)), { enabled: Boolean(version?.digest) }),
+      item("Quitar el resumen", () => requestEdit("removeSummary"), { enabled: Boolean(version?.digest?.summary) && !job }),
       item("Copiar el JSON", () => version && void perform(() => operations.copyJSON(recording, version)), { enabled: Boolean(version) }),
       submenu(
         "Exportar",
@@ -253,32 +255,13 @@ export function LibraryView({
     const transcript = currentVersion(recording)?.transcript;
     const names = transcript ? speakers(transcript) : [];
     return [
-      header("Hablantes"),
-      ...names.map((speaker) =>
-        submenu(transcript ? speakerTitle(speaker, transcript) : speaker, [
-          ...(transcript?.recognitions?.some((recognition) => recognition.person === speaker)
-            ? [item(`No es ${speaker}`, () => void perform(() => operations.forgetSpeakerRecognition(recording, speaker))), separator]
-            : []),
-          item("Renombrar…", () => setRename({ recording, speaker, name: speaker })),
-          ...names
-            .filter((other) => other !== speaker)
-            .map((other) => item(`Fusionar con ${other}`, () => void perform(() => operations.mergeSpeaker(recording, speaker, other)))),
-        ]),
-      ),
+      header("Cambiar en toda la nota"),
+      ...names.map((speaker) => submenu(transcript ? speakerTitle(speaker, transcript) : speaker, [
+        item("Asignar a una persona…", () => requestEdit("speaker", speaker)),
+        ...(transcript?.recognitions?.some((recognition) => recognition.person === speaker)
+          ? [item(`No es ${speaker}`, () => requestEdit("forgetSpeaker", speaker))] : []),
+      ])),
     ];
-  };
-
-  const renameCurrent = () => {
-    if (!rename) return;
-    const target = rename;
-    setRename(null);
-    void perform(async () => {
-      const saved = await operations.renameSpeaker(target.recording, target.speaker, target.name);
-      if (saved?.learnedVoice === false) {
-        const name = target.name.trim();
-        await alertMessage("Renombrado, pero sin aprender su voz", `Esta versión no tiene huellas de voz: se transcribió antes de Personas o sin detectar hablantes. Para que Escriba reconozca a ${name} en otras grabaciones, reprocesa esta con «Detectar hablantes» y vuelve a renombrar, o registra su voz en Personas.`);
-      }
-    });
   };
 
   const move = (event: KeyboardEvent) => {
@@ -286,10 +269,11 @@ export function LibraryView({
     event.preventDefault();
     const index = recordings.findIndex((recording) => recording.id === selectedId);
     const next = recordings[Math.min(Math.max(index + (event.key === "ArrowDown" ? 1 : -1), 0), recordings.length - 1)];
-    if (next) setSelectedId(next.id);
+    if (next) { setEditRequest(null); setSelectedId(next.id); }
   };
   const contextMenu = (event: MouseEvent, recording: Recording) => {
     event.preventDefault();
+    setEditRequest(null);
     setSelectedId(recording.id);
     void popupMenu(rowMenu(recording), { x: event.clientX, y: event.clientY });
   };
@@ -301,7 +285,7 @@ export function LibraryView({
       {selected && (
         <>
           {selectedJob && <Spinner />}
-          <ToolbarMenu icon={History} label={currentVersionLabel(selected)} showsTitle menu={() => (detail ? versionsMenu(detail) : [])} disabled={!detail || Boolean(selectedJob)} />
+          <ToolbarMenu icon={History} label={currentVersionLabel(selected)} showsTitle menu={() => (detail ? versionsMenu(detail) : [])} disabled={!detail || Boolean(selectedJob) || draftLocked} />
           <ToolbarMenu icon={Users} label="Hablantes" menu={() => (detail ? speakersMenu(detail) : [])} disabled={!selectedSpeakers.length || Boolean(selectedJob)} />
           <ToolbarMenu icon={Ellipsis} label="Acciones" menu={() => (detail ? actionsMenu(detail) : [])} disabled={!detail} />
         </>
@@ -337,7 +321,7 @@ export function LibraryView({
               role="option"
               aria-selected={recording.id === selectedId}
               className={`list-row ${recording.id === selectedId ? "selected" : ""}`}
-              onMouseDown={() => setSelectedId(recording.id)}
+              onMouseDown={() => { setEditRequest(null); setSelectedId(recording.id); }}
               onContextMenu={(event) => contextMenu(event, recording)}
             >
               <RecordingRow recording={recording} origin={originName(recording, folders)} minute={minute} destinations={data.destinations} accounts={data.accounts} />
@@ -353,6 +337,10 @@ export function LibraryView({
               key={selected.id}
               recording={detail ?? selected}
               loading={!detail}
+              active={active}
+              editRequest={editRequest}
+              onDraftState={onDraftState}
+              onRefresh={refresh}
               origin={originName(selected, folders)}
               job={selectedJob}
               recipes={data.recipes}
@@ -392,28 +380,7 @@ export function LibraryView({
           }}
         />
       )}
-      {rename && (
-        <Sheet onCancel={() => setRename(null)}>
-          <div className="font-headline">Renombrar hablante</div>
-          <TextField
-            value={rename.name}
-            autoFocus
-            onChange={(name) => setRename({ ...rename, name })}
-            onSubmit={renameCurrent}
-            placeholder="Nombre"
-          />
-          <p className="font-callout secondary">Si la grabación tiene huellas de voz, Escriba recordará a esta persona y la reconocerá en las siguientes.</p>
-          <div className="sheet-actions">
-            <Button onClick={() => setRename(null)}>Cancelar</Button>
-            <Button
-              prominent
-              onClick={renameCurrent}
-            >
-              Renombrar
-            </Button>
-          </div>
-        </Sheet>
-      )}
+
     </Pane>
   );
 }

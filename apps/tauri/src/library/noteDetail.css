@@ -1,0 +1,56 @@
+.note-edit-bar { display: flex; align-items: center; gap: 8px; padding: 9px 20px; border-block: .5px solid var(--separator); background: var(--window); flex: none; }
+.draft-status { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; flex: 1; }
+.draft-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+.draft-error { display: flex; align-items: center; gap: 10px; padding: 10px 20px; color: var(--red); border-bottom: .5px solid var(--separator); }
+.draft-error > span { flex: 1; user-select: text; }
+.note-content { max-width: 920px; width: 100%; padding: 28px 32px 48px; gap: 26px; margin: 0 auto; }
+.note-content .detail-header { gap: 12px; }
+.note-metadata { line-height: 1.7; }
+.note-description { margin: 0; color: var(--secondary); line-height: 1.55; }
+.note-section-title { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; }
+.note-section-title > svg { color: var(--secondary); flex: none; }
+.note-section-title > span { margin-left: auto; font-weight: 400; }
+.note-summary { background: var(--fill); border-radius: 10px; padding: 16px 18px; gap: 12px; }
+.note-prose { white-space: pre-wrap; line-height: 1.65; }
+.note-empty { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 12px; }
+.note-data-section { padding-bottom: 24px; border-bottom: .5px solid var(--separator); gap: 14px; }
+.note-field-label { display: flex; flex-direction: column; gap: 5px; color: var(--secondary); font-size: 11px; }
+.note-tags { display: flex; flex-direction: column; gap: 7px; }
+.note-tags .note-field-label { flex-direction: row; align-items: center; }
+.note-title-input, .note-description-input, .note-summary-input, .transcript-text-input { width: 100%; display: block; resize: none; overflow: hidden; border: 1px solid transparent; border-radius: 5px; background: transparent; padding: 4px 6px; margin: -4px -6px; box-sizing: content-box; color: var(--label); }
+.note-title-input:hover, .note-description-input:hover, .note-summary-input:hover, .transcript-text-input:hover { border-color: var(--separator); }
+.note-title-input:focus, .note-description-input:focus, .note-summary-input:focus, .transcript-text-input:focus { background: var(--content); border-color: var(--accent); outline: none; }
+.note-description-input { font-size: 13px; line-height: 1.55; }
+.note-summary-input, .transcript-text-input { line-height: 1.65; }
+.editable-tag { display: inline-flex; align-items: center; gap: 4px; }
+.editable-tag button { border: 0; padding: 0 1px; background: transparent; color: var(--secondary); font-size: 14px; }
+.tag-input { background: transparent; border: 0; padding: 3px 5px; font-size: 11px; width: 135px; }
+.transcript-help { min-height: 27px; display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+.transcript-help > span { flex: 1; }
+.transcript-turns { display: flex; flex-direction: column; }
+.transcript-turn { border-left: 3px solid var(--speaker-color, var(--separator)); padding: 2px 0 3px 15px; margin-bottom: 17px; }
+.transcript-turn.playing { background: color-mix(in srgb, var(--speaker-color, var(--accent)) 5%, transparent); border-radius: 0 7px 7px 0; }
+.transcript-turn-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 7px; user-select: none; }
+.speaker-button { border: 0; background: color-mix(in srgb, var(--speaker-color, var(--fill)) 16%, var(--fill)); border-radius: 5px; padding: 4px 7px; display: inline-flex; align-items: center; gap: 5px; color: var(--label); font-size: 11px; font-weight: 600; max-width: 80%; }
+.speaker-button span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.speaker-button:hover { background: var(--fill-strong); }
+.turn-time { background: transparent; border: 0; padding: 3px; color: var(--secondary); flex: none; }
+.transcript-turn-text { white-space: pre-wrap; line-height: 1.65; margin: 0; }
+.transcript-fragment { position: relative; }
+.transcript-fragment.playing > .transcript-fragment-text { background: color-mix(in srgb, var(--speaker-color, var(--accent)) 12%, transparent); border-radius: 3px; }
+.transcript-fragment-tools { position: absolute; left: 0; top: 100%; z-index: 2; display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; border-radius: 5px; background: var(--content); box-shadow: 0 1px 6px color-mix(in srgb, var(--label) 12%, transparent); opacity: 0; pointer-events: none; }
+.transcript-fragment:hover .transcript-fragment-tools, .transcript-fragment:focus-within .transcript-fragment-tools { opacity: 1; pointer-events: auto; }
+.transcript-fragment-edit { display: block; margin: 5px 0; }
+.transcript-fragment-edit .turn-edit-button { margin-top: 4px; color: var(--accent); }
+.transcript-turn-text mark { background: color-mix(in srgb, var(--accent) 25%, transparent); color: inherit; border-radius: 3px; }
+.speaker-excerpt { margin: 0; border-left: 2px solid var(--accent); padding: 8px 12px; max-height: 100px; overflow-y: auto; white-space: pre-wrap; }
+.speaker-choices { display: flex; flex-direction: column; gap: 4px; max-height: 230px; overflow-y: auto; }
+.speaker-choices > .font-caption { margin: 6px 4px 3px; }
+.speaker-choice { background: color-mix(in srgb, var(--speaker-color, var(--fill)) 9%, var(--fill)); border: 0; border-left: 3px solid var(--speaker-color, transparent); border-radius: 6px; padding: 9px 10px; text-align: left; display: flex; align-items: center; gap: 8px; color: var(--label); }
+.speaker-choice:hover { background: var(--unemphasized); }
+.speaker-name-label { display: flex; flex-direction: column; gap: 5px; font-size: 12px; }
+@media (max-width: 1050px) { .note-content { padding: 22px 22px 40px; } .draft-status .secondary { display: block; width: 100%; } }
+
+.turn-actions { display: flex; align-items: center; gap: 8px; }
+.turn-edit-button { border: 0; background: transparent; color: var(--secondary); display: inline-flex; align-items: center; padding: 3px 5px; font-size: 11px; }
+.turn-edit-button:hover { color: var(--accent); }

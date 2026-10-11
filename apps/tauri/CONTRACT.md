@@ -27,6 +27,13 @@ Errores rechazan la promesa con texto legible; nunca éxitos vacíos.
 - version_save {recordingId, transcript, digest?, data?, backend, recipeId?, inputs?} -> Version (siempre nueva).
 - version_select {recordingId, versionId} -> void.
 - version_update {recordingId, versionId, digest?, data?} -> void.
+- people_list -> {name:string,color?:string,voices:VoiceMetadata[]}[] (sin vectores).
+- people_set_color {name,color} -> void (persona existente; color hexadecimal #RRGGBB, exclusivo de la UI).
+- note_draft_get {recordingId} -> NoteDraft | null (detalle privado de la UI).
+- note_draft_begin {recordingId} -> NoteDraft (recupera el existente o toma la versión vigente).
+- note_draft_save {recordingId,draftId,expectedRevision,content} -> NoteDraft (duradero; sin crear versión).
+- note_draft_discard {recordingId,draftId,expectedRevision} -> void (no altera la versión base).
+- note_draft_commit {recordingId,draftId,expectedRevision} -> {version:Version,created:boolean} (una versión por borrador, confirmación idempotente; no publica).
 - config_save {collection:'resolvers'|'recipes'|'accounts'|'destinations', item} -> item (upsert por id).
 - config_remove {collection,id} -> void (locales/base no se borran).
 - settings_save {settings: Partial<Settings>} -> Settings.
@@ -55,6 +62,23 @@ Errores rechazan la promesa con texto legible; nunca éxitos vacíos.
 - publication_remove {recordingId,destinationId} -> void.
 - watch_scan -> Recording[] (audio asentado, deduplicado; intervalos en host).
 - watch_folder_authorize {folderId?,name?,style?} -> WatchedFolder | null (panel nativo; cancelar no modifica configuración). Sin folderId incorpora la carpeta elegida; con folderId reautoriza esa fuente, conservando su identidad. Si la ruta anterior ya no existe, permite seleccionar su nueva ubicación. No disponible para recetas.
+
+`NoteDraft` contiene `{id,recordingId,baseVersionId,baseFingerprint,revision,
+createdAt,updatedAt,content}`. `content` es `{title:string,transcript:Transcript,
+digest:Digest|null,data:JSONValue}`. La revisión comienza en cero y aumenta en
+cada guardado. El título es canónico y se refleja en `digest.title` cuando hay
+resumen. Guardar y confirmar rechazan una revisión obsoleta o una versión base
+modificada; el borrador sigue disponible. Un commit sin cambios devuelve la
+versión base con `created:false` y cierra el borrador. Estos comandos no están
+habilitados para recetas ni trabajadores TypeScript, y sus datos no forman parte
+de `library`, `snapshot` o `runtime_context`.
+
+Tras un error al confirmar, `note_draft_get` permite comprobar si sigue abierto
+el mismo borrador: en ese caso la UI puede conservarlo o descartarlo respetando
+su revisión, y no debe quedar bloqueada en «confirmación pendiente». Si ya no
+está, repetir `note_draft_commit` con el id y la revisión originales recupera el
+recibo idempotente. Si tampoco se puede consultar, el estado sigue siendo
+incierto y se ofrece reintentar, sin inferir el resultado del texto del error.
 
 ## Trabajos y estado de la interfaz
 

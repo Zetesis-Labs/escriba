@@ -4,9 +4,9 @@ import { AudioLines, Mic, Minus, Plus, Trash2, Users, CircleDot, TriangleAlert }
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { call, desktop } from "../api";
 import { Pane } from "../app/Pane";
-import { demoPeople } from "../app/demo";
+import { currentDemoPeople, setDemoPeople } from "../app/demo";
 import { audioExtensions } from "../core/inbox";
-import { canBeginVoiceSample, personName, voiceCount } from "../core/people";
+import { canBeginVoiceSample, personName, voiceCount, personColor } from "../core/people";
 import { Button, ContentUnavailable, FormSection, ListBar, ListBarButton, Sheet, Spinner } from "../mac/controls";
 import { alertMessage, confirmDestructive, errorText, item, popupMenu } from "../mac/native";
 import type { Person, VoiceRegistration } from "../types";
@@ -17,7 +17,7 @@ const sampleSource = "muestra de voz";
 const voiceDate = new Intl.DateTimeFormat("es-ES", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
 
 export function PeoplePane({ active }: { active: boolean }) {
-  const [people, setPeople] = useState<Person[]>(desktop ? [] : demoPeople);
+  const [people, setPeople] = useState<Person[]>(desktop ? [] : currentDemoPeople());
   const [selected, setSelected] = useState<string | null>(null);
   const [registering, setRegistering] = useState<string | null>(null);
   const [sample, setSample] = useState<VoiceRegistration>(idle);
@@ -71,6 +71,16 @@ export function PeoplePane({ active }: { active: boolean }) {
       setSelected(newName);
     });
   };
+  const changeColor = (name: string, color: string) => void run(async () => {
+    if (desktop) {
+      await call("people_set_color", { name, color });
+      await reload();
+    } else {
+      const updated = people.map((person) => person.name === name ? { ...person, color } : person);
+      setDemoPeople(updated);
+      setPeople(updated);
+    }
+  });
   const remove = async () => {
     if (!selected) return;
     const confirmed = await confirmDestructive(`¿Olvidar a «${selected}»?`, "Se borran sus huellas. Las grabaciones donde sale conservan el nombre.", "Olvidar");
@@ -177,7 +187,7 @@ export function PeoplePane({ active }: { active: boolean }) {
         <div className="people-list">
           <div className="people-list-items" role="listbox" aria-label="Personas" tabIndex={0} onKeyDown={move}>
             {people.map((entry) => <div key={entry.name} role="option" aria-selected={entry.name === selected} className={`list-row people-row ${entry.name === selected ? "selected" : ""}`} onMouseDown={() => setSelected(entry.name)}>
-              <span>{entry.name}</span>
+              <span className="people-name"><span className="person-color-dot" style={{ backgroundColor: personColor(entry.name, people) }} />{entry.name}</span>
               <span className="font-caption secondary">{voiceCount(entry.voices.length)}</span>
             </div>)}
           </div>
@@ -188,8 +198,8 @@ export function PeoplePane({ active }: { active: boolean }) {
         </div>
         <div className="people-divider" />
         <div className="people-detail">
-          {person ? <PersonDetail key={person.name} person={person} others={people.map((entry) => entry.name).filter((name) => name !== person.name)} busy={busy} onRename={rename} onRemoveVoice={removeVoice} onRegister={openSample} />
-            : <ContentUnavailable title="Sin persona elegida" icon={Users} description="Una persona aparece al renombrar a un hablante en una grabación (Hablantes → Renombrar…) o al registrar su voz con +. Escriba la reconoce en las grabaciones siguientes." />}
+          {person ? <PersonDetail key={person.name} person={person} others={people.map((entry) => entry.name).filter((name) => name !== person.name)} busy={busy} onRename={rename} onColor={changeColor} onRemoveVoice={removeVoice} onRegister={openSample} />
+            : <ContentUnavailable title="Sin persona elegida" icon={Users} description="Registra la voz de una persona con + para reconocerla en las próximas grabaciones. También podrás elegirla al corregir los hablantes de una nota." />}
         </div>
       </div>
       {registering !== null && <SampleSheet initialName={registering} sample={sample} choosingAudio={choosingAudio} onStart={startSample} onStop={stopSample} onImport={importSample} onCancel={() => void cancelSample()} />}
@@ -197,16 +207,17 @@ export function PeoplePane({ active }: { active: boolean }) {
   );
 }
 
-function PersonDetail({ person, others, busy, onRename, onRemoveVoice, onRegister }: {
-  person: Person; others: string[]; busy: boolean; onRename: (name: string, raw: string) => void; onRemoveVoice: (id: string) => void; onRegister: (name: string) => void;
+function PersonDetail({ person, others, busy, onRename, onColor, onRemoveVoice, onRegister }: {
+  person: Person; others: string[]; busy: boolean; onRename: (name: string, raw: string) => void; onColor: (name: string, color: string) => void; onRemoveVoice: (id: string) => void; onRegister: (name: string) => void;
 }) {
   const [name, setName] = useState(person.name);
   return <div className="form-pane people-form">
     <FormSection footer="Pulsa Intro para cambiar el nombre. Si ya hay alguien con ese nombre, se juntan sus huellas.">
       <div className="form-row"><span className="form-label">Nombre</span><input className="inline-field selectable" aria-label="Nombre" value={name} onChange={(event) => setName(event.target.value)} onKeyDown={(event) => event.key === "Enter" && onRename(person.name, name)} disabled={busy} /></div>
+      <label className="form-row"><span className="form-label">Color</span><input type="color" className="person-color-well" aria-label="Color de la persona" value={personColor(person.name, [person])} disabled={busy} onChange={(event) => onColor(person.name, event.target.value)} /></label>
       {others.length > 0 && <div className="form-row form-row-free"><Button disabled={busy} onClick={() => void popupMenu(others.map((other) => item(other, () => onRename(person.name, other))))}>Juntar con…</Button></div>}
     </FormSection>
-    <FormSection header="Huellas" footer="Cada vez que renombras a alguien en una grabación o registras su voz se añade una huella, y Escriba compara con la más cercana. Las huellas no salen de este Mac.">
+    <FormSection header="Huellas" footer="Al registrar su voz se añade una huella, y Escriba compara con la más cercana. Las huellas no salen de este Mac.">
       {person.voices.map((voice) => <div className="form-row people-voice" key={voice.id}>
         {voice.source === sampleSource ? <Mic size={16} className="secondary" /> : <AudioLines size={16} className="secondary" />}
         <div className="people-voice-info"><span>{voice.source === sampleSource ? "Muestra de voz" : voice.source}</span><span className="font-caption secondary">{voiceDate.format(new Date(voice.addedAt))}</span></div>
