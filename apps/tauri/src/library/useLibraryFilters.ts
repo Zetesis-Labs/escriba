@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { call, desktop } from "../api";
-import type { LibraryFilter, SavedLibraryFilter } from "../core/libraryFilters";
+import type { LibraryFilter, SavedLibraryFilter, SaveLibraryFilter } from "../core/libraryFilters";
 import type { OntologyDefinition } from "../knowledge/model";
 import { errorText } from "../mac/native";
 import { demoFilterCommand } from "./demoFilters";
@@ -62,9 +62,9 @@ export function useLibraryFilters() {
     return () => { alive = false; stop?.(); window.clearTimeout(timer); };
   }, [apply, reloadSaved]);
   const selectSaved = useCallback((filter: SavedLibraryFilter) => {
-    void apply({ kind: "surrealql", ontologyId: filter.ontologyId, sql: filter.sql }, filter.name, filter.id);
+    void apply(filter.filter, filter.name, filter.id);
   }, [apply]);
-  const save = useCallback(async (filter: { id?: string; name: string; ontologyId: string; sql: string }) => {
+  const save = useCallback(async (filter: SaveLibraryFilter) => {
     const stored = await host<SavedLibraryFilter>("knowledge_filter_save", { filter });
     await reloadSaved();
     return stored;

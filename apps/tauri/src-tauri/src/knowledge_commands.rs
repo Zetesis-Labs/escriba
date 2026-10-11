@@ -385,7 +385,7 @@ mod tests {
             &knowledge,
             &store,
             "knowledge_filter_save",
-            json!({"filter":{"name":"Todas","ontologyId":"escriba","sql":filter["sql"]}}),
+            json!({"filter":{"name":"Todas","filter":filter}}),
         )
         .await
         .unwrap();
@@ -395,11 +395,34 @@ mod tests {
                 .unwrap(),
             json!([saved])
         );
+        let visual = dispatch(
+            &knowledge,
+            &store,
+            "knowledge_filter_save",
+            json!({"filter":{"name":"Visual","filter":{"kind":"visual","match":"any","conditions":[{"ontologyId":"escriba","table":"recording","field":"title","operator":"contains","value":"Sintético"}]}}}),
+        )
+        .await
+        .unwrap();
+        assert_eq!(visual["filter"]["kind"], "visual");
+        assert_eq!(
+            dispatch(&knowledge, &store, "knowledge_filters_list", json!({}))
+                .await
+                .unwrap(),
+            json!([saved, visual])
+        );
         dispatch(
             &knowledge,
             &store,
             "knowledge_filter_remove",
             json!({"id":saved["id"]}),
+        )
+        .await
+        .unwrap();
+        dispatch(
+            &knowledge,
+            &store,
+            "knowledge_filter_remove",
+            json!({"id":visual["id"]}),
         )
         .await
         .unwrap();

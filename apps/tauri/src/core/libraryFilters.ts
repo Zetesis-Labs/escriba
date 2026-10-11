@@ -3,7 +3,8 @@ import { recordTitle, type KnowledgeCollection, type KnowledgeField, type Ontolo
 export type FilterOperator = "eq" | "ne" | "contains" | "startsWith" | "gt" | "gte" | "lt" | "lte" | "empty" | "notEmpty";
 export type FilterCondition = { ontologyId: string; table: string; field: string; operator: FilterOperator; value?: unknown };
 export type LibraryFilter = { kind: "visual"; match: "all" | "any"; conditions: FilterCondition[] } | { kind: "surrealql"; ontologyId: string; sql: string };
-export type SavedLibraryFilter = { id: string; name: string; ontologyId: string; sql: string };
+export type SavedLibraryFilter = { id: string; name: string; filter: LibraryFilter };
+export type SaveLibraryFilter = Omit<SavedLibraryFilter, "id"> & { id?: string };
 export type RecordTarget = { ontologyId?: string; table: string; value: "id" | "reference" };
 export type FieldChoice = KnowledgeField & { recordTarget?: RecordTarget };
 
@@ -35,6 +36,11 @@ export function filterOperators(field: FieldChoice): { value: FilterOperator; la
   );
   choices.push({ value: "empty", label: "está vacío" }, { value: "notEmpty", label: "no está vacío" });
   return choices;
+}
+
+export function conditionText(field: FieldChoice | undefined, value: unknown): string {
+  if (field?.type === "json" && !field.recordTarget) return JSON.stringify(value) ?? "";
+  return value == null ? "" : typeof value === "string" ? value : JSON.stringify(value);
 }
 
 export function conditionValue(field: FieldChoice, operator: FilterOperator, raw: string): unknown {

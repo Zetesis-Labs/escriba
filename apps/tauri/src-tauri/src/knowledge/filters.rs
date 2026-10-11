@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use surrealdb::types::{Object, RecordId};
 
 const MAX_RESULTS: usize = 10_000;
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct FilterCondition {
     pub ontology_id: String,
@@ -13,7 +13,7 @@ pub struct FilterCondition {
     #[serde(default)]
     pub value: Value,
 }
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub enum FilterOperator {
     Eq,
@@ -27,13 +27,13 @@ pub enum FilterOperator {
     Empty,
     NotEmpty,
 }
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum FilterMatch {
     All,
     Any,
 }
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(tag = "kind", rename_all = "lowercase", deny_unknown_fields)]
 pub enum LibraryFilter {
     Visual {
@@ -172,7 +172,10 @@ async fn query(db: &Surreal<Db>, sql: &str, values: DbValue) -> Result<Vec<DbVal
     check_size(&rows)?;
     Ok(rows)
 }
-fn declared<'a>(definition: &'a Ontology, table: &str) -> Result<&'a Collection, String> {
+pub(super) fn declared<'a>(
+    definition: &'a Ontology,
+    table: &str,
+) -> Result<&'a Collection, String> {
     identifier(table)?;
     definition
         .collections
@@ -252,7 +255,7 @@ fn collect_ids(
     }
     Ok(())
 }
-fn predicate(
+pub(super) fn predicate(
     condition: &FilterCondition,
     collection: &Collection,
 ) -> Result<(String, DbValue), String> {

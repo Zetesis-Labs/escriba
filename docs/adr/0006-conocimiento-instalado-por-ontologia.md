@@ -75,7 +75,8 @@ descubre tablas raw ajenas al manifiesto. Alcance y criterios en
 `specs/escriba/mapas-conocimiento/functional-specs.md`.
 
 La ampliación de Biblioteca del 2026-10-11 permite filtrar visualmente cualquier
-colección declarada y guardar consultas SurrealQL con nombre bajo Biblioteca.
+colección declarada o consultar con SurrealQL. Ambos tipos de filtro se guardan
+con nombre bajo Biblioteca y conservan su definición editable original.
 La WebView envía criterios o texto de consulta; Rust valida el AST de lectura y
 ejecuta como principal de datos de la ontología, también para extensiones.
 Los resultados se resuelven contra la versión vigente de cada nota usando

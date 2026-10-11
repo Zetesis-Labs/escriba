@@ -1,7 +1,7 @@
 # Filtros de Biblioteca
 
 Encargo de Rubén del 2026-10-11: filtros visuales sencillos por cualquier entidad
-de las ontologías y consultas SurrealQL guardables. Los filtros guardados se
+de las ontologías y consultas SurrealQL, ambos guardables. Los filtros guardados se
 muestran en la barra lateral como hijos de Biblioteca. Ontologías permanece
 dentro de Recetas.
 
@@ -19,7 +19,10 @@ dentro de Recetas.
   Sus resultados identifican entidades cuyas notas relacionadas se muestran en
   Biblioteca. Puede devolver IDs, registros con `id` o referencias explícitas
   a la base; se rechazan resultados que no identifican entidades.
-- Una consulta SurrealQL se puede aplicar sin guardarla o guardar con un nombre.
+- Tanto un filtro visual como una consulta SurrealQL se pueden aplicar sin
+  guardarlos o guardar con un nombre. Al editar se recupera el modo original:
+  las condiciones visuales conservan ontología, entidad, campo, operador,
+  valores tipados y combinación todas/cualquiera; SurrealQL conserva su consulta.
   Los filtros guardados persisten al reiniciar y al cambiar de proyecto. Aparecen
   debajo de Biblioteca; seleccionarlos abre su lista de notas. Se pueden editar
   y eliminar. Eliminar el filtro no elimina ninguna nota.
@@ -58,7 +61,7 @@ La comprobación de tamaño usa un contador sin clonar ni serializar a un buffer
 Se comprueba mediante el interfaz público Knowledge y el despacho existente,
 con SurrealKV y datos sintéticos: entidades base y adicionales, tipos de campo,
 relaciones, combinaciones, personas, versiones antiguas, referencias a la base,
-persistencia de consultas, rechazo de escrituras incluso anidadas y aislamiento
+persistencia de ambos tipos de filtro, rechazo de escrituras incluso anidadas y aislamiento
 de tablas privadas. La revisión visual cubre barra lateral, filtros activos,
 errores, vacío y ventana mínima. Se instala al finalizar para validación de Rubén.
 
@@ -77,10 +80,15 @@ type FilterCondition = {
 type LibraryFilter =
   | { kind: "visual"; match: "all" | "any"; conditions: FilterCondition[] }
   | { kind: "surrealql"; ontologyId: string; sql: string };
-type SavedLibraryFilter = { id: string; name: string; ontologyId: string; sql: string };
+type SavedLibraryFilter = { id: string; name: string; filter: LibraryFilter };
 ```
 
 `knowledge_filters_list` devuelve `SavedLibraryFilter[]`.
-`knowledge_filter_save {filter:{id?,name,ontologyId,sql}}` devuelve el filtro
+`knowledge_filter_save {filter:{id?,name,filter:LibraryFilter}}` devuelve el filtro
 guardado; `knowledge_filter_remove {id}` lo elimina. Estos comandos pertenecen
 a la interfaz de usuario, no a las capacidades de las recetas.
+
+El registro privado sigue leyendo las consultas guardadas con el formato
+anterior `{id,name,ontologyId,sql}` y las presenta como filtros SurrealQL,
+conservando su identidad. Al editarlas se guarda el formato común. Guardar
+valida la definición sin ejecutar el filtro; un rechazo conserva el anterior.

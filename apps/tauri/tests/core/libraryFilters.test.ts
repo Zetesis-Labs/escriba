@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { conditionValue, defaultCondition, filterFields, filterOperators, filterRecordLabel } from "../../src/core/libraryFilters";
+import { conditionText, conditionValue, defaultCondition, filterFields, filterOperators, filterRecordLabel } from "../../src/core/libraryFilters";
 import type { OntologyDefinition } from "../../src/knowledge/model";
 
 const catalog: OntologyDefinition[] = [{ id: "base", name: "Base", version: 1, migrations: [], collections: [
@@ -8,6 +8,11 @@ const catalog: OntologyDefinition[] = [{ id: "base", name: "Base", version: 1, m
 ] }];
 
 describe("filtros de Biblioteca", () => {
+  it.each(["123", "null", "true", "urgente", "", null, false, 1.5, { estado: "abierto" }, ["uno", 2]])("conserva el tipo JSON al editar y volver a guardar %j", (value) => {
+    const field = { key: "tags", label: "Etiquetas", type: "json" as const };
+    expect(conditionValue(field, "eq", conditionText(field, value))).toEqual(value);
+    expect(conditionValue(field, "contains", conditionText(field, value))).toEqual(value);
+  });
   it("permite identidad en cualquier colección y extremos en relaciones", () => {
     expect(filterFields(catalog[0].collections[0], "base").map((field) => field.key)).toEqual(["id", "in", "out"]);
     expect(defaultCondition(catalog)?.field).toBe("id");

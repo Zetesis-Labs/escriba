@@ -53,7 +53,7 @@ _Evitar_: publicación, que se refiere a un destino externo.
 **Filtro de Biblioteca**: criterio que selecciona notas por las entidades y
 relaciones de su conocimiento. Se aplica al contenido confirmado vigente.
 
-**Filtro guardado**: consulta con nombre que la persona conserva para volver a
+**Filtro guardado**: criterio visual o consulta SurrealQL con nombre que la persona conserva para volver a
 seleccionar sus notas desde Biblioteca. Pertenece a la biblioteca y permanece
 disponible aunque cambie el proyecto de recetas.
 

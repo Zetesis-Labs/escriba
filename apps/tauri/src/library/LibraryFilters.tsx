@@ -1,7 +1,7 @@
 import { Plus, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { call, desktop } from "../api";
-import { conditionValue, defaultCondition, filterFields, filterOperators, filterRecordLabel, type FilterCondition, type FilterOperator, type LibraryFilter, type SavedLibraryFilter } from "../core/libraryFilters";
+import { conditionText, conditionValue, defaultCondition, filterFields, filterOperators, filterRecordLabel, type FilterCondition, type FilterOperator, type LibraryFilter, type SavedLibraryFilter } from "../core/libraryFilters";
 import { isRecordPage, type KnowledgeCollection, type OntologyDefinition } from "../knowledge/model";
 import type { GraphPage } from "../knowledge/graphTypes";
 import { demoFilterCommand } from "./demoFilters";
@@ -11,27 +11,31 @@ import type { LibraryFiltersController } from "./useLibraryFilters";
 import "./libraryFilters.css";
 
 type DraftCondition = Omit<FilterCondition, "value"> & { raw: string };
-const draftFrom = (condition: FilterCondition): DraftCondition => ({ ...condition, raw: condition.value == null ? "" : typeof condition.value === "string" ? condition.value : JSON.stringify(condition.value) });
+const draftFrom = (condition: FilterCondition, catalog: OntologyDefinition[]): DraftCondition => {
+  const collection = catalog.find((item) => item.id === condition.ontologyId)?.collections.find((item) => item.table === condition.table);
+  const field = collection && filterFields(collection, condition.ontologyId).find((item) => item.key === condition.field);
+  return { ...condition, raw: conditionText(field, condition.value) };
+};
 const defaultField = (collection: KnowledgeCollection, ontologyId: string) => (collection.fields.find((field) => field.key === collection.titleField) ?? collection.fields.find((field) => field.key === "name") ?? collection.fields[0] ?? filterFields(collection, ontologyId)[0]).key;
-const initialDraft = (catalog: OntologyDefinition[]): DraftCondition[] => { const first = defaultCondition(catalog); return first ? [draftFrom(first)] : []; };
+const initialDraft = (catalog: OntologyDefinition[]): DraftCondition[] => { const first = defaultCondition(catalog); return first ? [draftFrom(first, catalog)] : []; };
 
 export function LibraryFilters({ controller, editing, onClose }: { controller: LibraryFiltersController; editing: SavedLibraryFilter | null; onClose: () => void }) {
-  const active = controller.result?.filter;
-  const [mode, setMode] = useState<"visual" | "surrealql">(editing || active?.kind === "surrealql" ? "surrealql" : "visual");
+  const { catalog, catalogError, catalogLoading } = controller;
+  const active = editing?.filter ?? controller.result?.filter;
+  const [mode, setMode] = useState<"visual" | "surrealql">(active?.kind ?? "visual");
   const [match, setMatch] = useState<"all" | "any">(active?.kind === "visual" ? active.match : "all");
-  const [conditions, setConditions] = useState<DraftCondition[]>(active?.kind === "visual" ? active.conditions.map(draftFrom) : []);
-  const [ontologyId, setOntologyId] = useState(editing?.ontologyId ?? (active?.kind === "surrealql" ? active.ontologyId : ""));
-  const [sql, setSql] = useState(editing?.sql ?? (active?.kind === "surrealql" ? active.sql : ""));
+  const [conditions, setConditions] = useState<DraftCondition[]>(active?.kind === "visual" && catalog.length ? active.conditions.map((item) => draftFrom(item, catalog)) : []);
+  const [ontologyId, setOntologyId] = useState(active?.kind === "surrealql" ? active.ontologyId : "");
+  const [sql, setSql] = useState(active?.kind === "surrealql" ? active.sql : "");
   const [name, setName] = useState(editing?.name ?? controller.result?.name ?? "");
   const [problem, setProblem] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const { catalog, catalogError, catalogLoading } = controller;
   useEffect(() => { void controller.loadCatalog(); }, [controller.loadCatalog]);
   useEffect(() => {
     if (!catalog.length) return;
-    setConditions((current) => current.length ? current : initialDraft(catalog));
+    setConditions((current) => current.length ? current : active?.kind === "visual" ? active.conditions.map((item) => draftFrom(item, catalog)) : initialDraft(catalog));
     setOntologyId((current) => current || catalog[0].id);
-  }, [catalog]);
+  }, [catalog, active]);
 
   const update = (index: number, patch: Partial<DraftCondition>) => setConditions((current) => current.map((item, position) => position === index ? { ...item, ...patch } : item));
   const add = () => { const next = initialDraft(catalog)[0]; if (next) setConditions((current) => [...current, next]); };
@@ -56,11 +60,10 @@ export function LibraryFilters({ controller, editing, onClose }: { controller: L
   const save = async () => {
     try {
       setProblem(null);
-      if (mode !== "surrealql") throw new Error("Cambia a SurrealQL para guardar una consulta.");
       const filter = build();
-      if (filter.kind !== "surrealql" || !name.trim()) throw new Error("Ponle un nombre al filtro.");
+      if (!name.trim()) throw new Error("Ponle un nombre al filtro.");
       setBusy(true);
-      const stored = await controller.save({ id: editing?.id, name: name.trim(), ontologyId: filter.ontologyId, sql: filter.sql });
+      const stored = await controller.save({ id: editing?.id, name: name.trim(), filter });
       onClose();
       controller.selectSaved(stored);
     } catch (failure) { setProblem(errorText(failure)); }
@@ -90,16 +93,16 @@ export function LibraryFilters({ controller, editing, onClose }: { controller: L
           <textarea className="library-filter-sql selectable" value={sql} onChange={(event) => setSql(event.target.value)} rows={7} placeholder="SELECT id FROM entidad WHERE campo = 'valor'" spellCheck={false} />
         </label>
         <p className="font-caption secondary">La consulta debe devolver identidades de entidades. Escriba buscará sus notas relacionadas.</p>
-        <label className="library-filter-label">Nombre para guardar
-          <input value={name} onChange={(event) => setName(event.target.value)} placeholder="Por ejemplo, acuerdos pendientes" />
-        </label>
       </div>}
+      <label className="library-filter-label">Nombre para guardar
+        <input value={name} onChange={(event) => setName(event.target.value)} placeholder="Por ejemplo, acuerdos pendientes" />
+      </label>
       {problem && <div className="library-filter-error" role="alert">{problem}</div>}
       <div className="sheet-actions library-filter-actions">
         {editing && <Button icon={Trash2} onClick={() => void remove()} disabled={busy} title="Eliminar el filtro guardado">Eliminar</Button>}
         <span className="library-filter-spacer" />
         <Button onClick={onClose}>Cancelar</Button>
-        {mode === "surrealql" && <Button onClick={() => void save()} disabled={busy || !catalog.length}>Guardar</Button>}
+        <Button onClick={() => void save()} disabled={busy || !catalog.length}>Guardar</Button>
         <Button prominent onClick={() => void apply()} disabled={busy || !catalog.length}>Aplicar</Button>
       </div>
     </div>
