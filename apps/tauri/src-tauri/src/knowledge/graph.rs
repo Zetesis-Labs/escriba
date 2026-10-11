@@ -3,17 +3,18 @@ use serde_json::json;
 use surrealdb::types::{RecordId, ToSql};
 
 const PAGE_SIZE: usize = 40;
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct GraphDetail {
     pub id: String,
     pub ontology_id: String,
     pub table: String,
+    #[ts(type = "Record<string, unknown>")]
     pub values: Value,
     pub rev: String,
     pub truncated_fields: Vec<String>,
 }
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct GraphNode {
     pub key: String,
@@ -23,22 +24,31 @@ pub struct GraphNode {
     pub label: String,
     pub missing: bool,
 }
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct GraphEdge {
     pub key: String,
     pub source: String,
     pub target: String,
     pub label: String,
-    pub kind: String,
+    pub kind: EdgeKind,
     pub ontology_id: String,
     pub table: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub record_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub field: Option<String>,
 }
-#[derive(Debug, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, TS)]
+#[serde(rename_all = "lowercase")]
+pub enum EdgeKind {
+    Relation,
+    Reference,
+    Provenance,
+}
+#[derive(Debug, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct GraphPage {
     pub nodes: Vec<GraphNode>,
@@ -46,6 +56,7 @@ pub struct GraphPage {
     pub page: u32,
     pub has_more: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub root: Option<String>,
 }
 fn parse(value: &str) -> Result<RecordId, String> {
@@ -252,7 +263,7 @@ async fn add_relation(
         source,
         target,
         label: collection.label.clone(),
-        kind: "relation".into(),
+        kind: EdgeKind::Relation,
         ontology_id: ontology.into(),
         table: collection.table.clone(),
         record_id: Some(id.to_sql()),
@@ -296,7 +307,7 @@ async fn add_provenance(
         source,
         target,
         label: "Procedencia".into(),
-        kind: "provenance".into(),
+        kind: EdgeKind::Provenance,
         ontology_id: ontology.into(),
         table: id.table.to_string(),
         record_id: Some(id.to_sql()),
@@ -330,7 +341,7 @@ async fn add_reference(
         source,
         target: target_key,
         label: field.label.clone(),
-        kind: "reference".into(),
+        kind: EdgeKind::Reference,
         ontology_id: ontology.into(),
         table: collection.table.clone(),
         record_id: Some(id.to_sql()),

@@ -76,7 +76,7 @@ export async function flujo(audio, api) {
     .unwrap();
     let store = Arc::new(Mutex::new(store));
     let graph = Arc::new(Knowledge::open(&knowledge_path).await.unwrap());
-    knowledge_commands::dispatch(
+    knowledge_commands::call(
         &graph,
         &store,
         "knowledge_install",
@@ -94,7 +94,7 @@ export async function flujo(audio, api) {
             Box::pin(async move {
                 lease.ensure_active()?;
                 let response = if method.starts_with("knowledge_") {
-                    knowledge_commands::dispatch(&graph, &store, &method, params).await
+                    knowledge_commands::call(&graph, &store, &method, params).await
                 } else if method == "runtime_context" {
                     store
                         .lock()

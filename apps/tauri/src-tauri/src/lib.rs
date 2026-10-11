@@ -3,6 +3,7 @@
 mod appearance;
 mod capabilities;
 mod catalog;
+mod command;
 mod error;
 mod folder_access;
 mod jobs;
@@ -32,6 +33,7 @@ mod voice_registration;
 mod voices;
 mod watcher;
 
+use command::{AppCommand, Command, Request, Untyped};
 use notifications::Problem;
 use serde_json::{json, Value};
 use std::{
@@ -112,13 +114,15 @@ async fn app_command(
     params: Value,
 ) -> Result<Value, String> {
     let runtime = state.inner().clone();
-    let refresh = refreshes_library(&method, &params);
     let check_resolvers = notification_events::settings_changed(&method, &params);
-    let result = dispatch(&app, &runtime, &method, params)
+    let request = Request::parse(&method, params)?;
+    let refresh = request.policy().refreshes;
+    let event = request.event(refresh);
+    let result = dispatch(&app, &runtime, request)
         .await
         .and_then(voices::public_reply);
     if result.is_ok() {
-        if let Some(event) = change_event(&method, refresh) {
+        if let Some(event) = event {
             let _ = app.emit(event, ());
             state.knowledge_wake.notify_one();
         }
@@ -201,58 +205,6 @@ async fn whisper_model(state: &Arc<Runtime>, p: &Value) -> Result<Value, String>
     }
 }
 
-fn change_event(method: &str, changes_library: bool) -> Option<&'static str> {
-    match method {
-        "log" => Some("escriba://log"),
-        _ if changes_library => Some("escriba://changed"),
-        _ => None,
-    }
-}
-
-fn refreshes_library(method: &str, params: &Value) -> bool {
-    match method {
-        "runtime_run" => params["operation"]
-            .as_str()
-            .is_some_and(|operation| jobs::durable(operation) || operation == "rebuildProject"),
-        "import_audio"
-        | "recording_update"
-        | "recording_discard"
-        | "recording_remove_audio"
-        | "recording_stop"
-        | "note_draft_commit"
-        | "version_save"
-        | "version_select"
-        | "version_update"
-        | "settings_save"
-        | "config_save"
-        | "config_remove"
-        | "connector_save"
-        | "connector_remove"
-        | "people_set_color"
-        | "people_rename"
-        | "people_remove"
-        | "people_remove_voice"
-        | "credential_save"
-        | "publication_save"
-        | "publication_remove"
-        | "project_init"
-        | "project_install"
-        | "knowledge_install"
-        | "knowledge_save"
-        | "knowledge_delete"
-        | "knowledge_unlink"
-        | "knowledge_attach"
-        | "knowledge_filter_save"
-        | "knowledge_filter_remove"
-        | "project_write"
-        | "trace_save"
-        | "runtime_cancel"
-        | "watch_scan"
-        | "watch_folder_authorize" => true,
-        _ => false,
-    }
-}
-
 async fn dispatch_inference(
     state: &Arc<Runtime>,
     method: &str,
@@ -310,65 +262,64 @@ async fn dispatch_inference(
 fn dispatch<'a>(
     app: &'a tauri::AppHandle,
     state: &'a Arc<Runtime>,
-    method: &'a str,
-    p: Value,
+    request: Request,
 ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Value, String>> + Send + 'a>> {
     Box::pin(async move {
-        match method {
-            "knowledge_candidates" => Ok(json!(state
-                .store()?
-                .data
-                .settings
-                .project_ontologies
-                .as_ref()
-                .cloned()
-                .unwrap_or_default())),
-            "knowledge_list"
-            | "knowledge_install"
-            | "knowledge_open"
-            | "knowledge_query"
-            | "knowledge_link"
-            | "knowledge_records"
-            | "knowledge_save"
-            | "knowledge_delete"
-            | "knowledge_graph_roots"
-            | "knowledge_graph_expand"
-            | "knowledge_graph_detail"
-            | "knowledge_filter_notes"
-            | "knowledge_filters_list"
-            | "knowledge_filter_save"
-            | "knowledge_filter_remove"
-            | "knowledge_unlink"
-            | "knowledge_attach" => {
-                if matches!(method, "knowledge_list" | "knowledge_filters_list")
-                    && state.knowledge.get().is_none()
-                    && !state
-                        .knowledge_path
-                        .try_exists()
-                        .map_err(|error| format!("No se pudo acceder al conocimiento: {error}"))?
-                {
-                    return Ok(if method == "knowledge_list" {
-                        json!([knowledge::base_listing()])
-                    } else {
-                        json!([])
-                    });
-                }
-                let knowledge = state
-                    .knowledge
-                    .get_or_try_init(|| knowledge::Knowledge::open(&state.knowledge_path))
-                    .await?;
-                knowledge_commands::dispatch(knowledge, &state.store, method, p).await
-            }
-            "snapshot" => state.snapshot(),
-            "library" => state.library(),
-            "recording_detail" => state.store()?.recording(text(&p, "id")?),
-            "runtime_context" => state.store()?.runtime_context(
+        let Request { method, command } = request;
+        match command {
+            Command::Knowledge(command) => knowledge_commands::run(
+                &state.knowledge,
+                &state.knowledge_path,
+                &state.store,
+                command,
+            )
+            .await?
+            .into_value(&method),
+            Command::App(command) => dispatch_app(app, state, &method, command).await,
+        }
+    })
+}
+
+async fn cancel_recording(
+    app: &tauri::AppHandle,
+    state: &Arc<Runtime>,
+    recording: &str,
+) -> Result<(), String> {
+    let running = state
+        .jobs
+        .jobs()?
+        .iter()
+        .any(|j| j["recordingId"] == recording && j["state"] == "running");
+    let ids = state.jobs.cancel(recording)?;
+    if running {
+        state.inference.cancel();
+    }
+    for id in ids {
+        state.scripts.cancel(&id).await;
+    }
+    emit_jobs(app, state);
+    Ok(())
+}
+
+async fn dispatch_app(
+    app: &tauri::AppHandle,
+    state: &Arc<Runtime>,
+    method: &str,
+    command: AppCommand,
+) -> Result<Value, String> {
+    {
+        match command {
+            AppCommand::Snapshot(Untyped(_)) => state.snapshot(),
+            AppCommand::Library(Untyped(_)) => state.library(),
+            AppCommand::RecordingDetail(Untyped(p)) => state.store()?.recording(text(&p, "id")?),
+            AppCommand::RuntimeContext(Untyped(p)) => state.store()?.runtime_context(
                 p.get("recordingId")
                     .map(|_| text(&p, "recordingId"))
                     .transpose()?,
             ),
-            "account_effect_begin" | "account_effect_finish" => state.store()?.mutate(method, &p),
-            "runtime_run" => {
+            AppCommand::AccountEffectBegin(Untyped(p))
+            | AppCommand::AccountEffectFinish(Untyped(p)) => state.store()?.mutate(method, &p),
+            AppCommand::RuntimeRun(Untyped(p)) => {
                 let operation = text(&p, "operation")?;
                 let args = p.get("args").cloned().unwrap_or(json!({}));
                 if jobs::durable(operation) {
@@ -381,10 +332,10 @@ fn dispatch<'a>(
                         .map_err(|error| error.message)
                 }
             }
-            "runtime_jobs" => state.jobs.visible(),
-            "log_list" => state.store()?.log_list(&p),
-            "runtime_history" => Ok(json!(state.jobs.jobs()?)),
-            "memory_recall" => Ok(state
+            AppCommand::RuntimeJobs(Untyped(_)) => state.jobs.visible(),
+            AppCommand::LogList(Untyped(p)) => state.store()?.log_list(&p),
+            AppCommand::RuntimeHistory(Untyped(_)) => Ok(json!(state.jobs.jobs()?)),
+            AppCommand::MemoryRecall(Untyped(p)) => Ok(state
                 .store()?
                 .memory_recall(
                     text(&p, "recordingId")?,
@@ -392,7 +343,7 @@ fn dispatch<'a>(
                     text(&p, "fingerprint")?,
                 )?
                 .unwrap_or(Value::Null)),
-            "memory_keep" => {
+            AppCommand::MemoryKeep(Untyped(p)) => {
                 state.store()?.memory_keep(
                     text(&p, "recordingId")?,
                     text(&p, "versionId")?,
@@ -401,43 +352,22 @@ fn dispatch<'a>(
                 )?;
                 Ok(Value::Null)
             }
-            "trace_save" => {
+            AppCommand::TraceSave(Untyped(p)) => {
                 state.store()?.trace_save(&p)?;
                 Ok(Value::Null)
             }
-            "trace_list" => Ok(json!(state
+            AppCommand::TraceList(Untyped(p)) => Ok(json!(state
                 .store()?
                 .trace_list(p["recordingId"].as_str())?)),
-            "runtime_cancel" => {
-                let recording = text(&p, "recordingId")?;
-                let running = state
-                    .jobs
-                    .jobs()?
-                    .iter()
-                    .any(|j| j["recordingId"] == recording && j["state"] == "running");
-                let ids = state.jobs.cancel(recording)?;
-                if running {
-                    state.inference.cancel();
-                }
-                for id in ids {
-                    state.scripts.cancel(&id).await;
-                }
-                emit_jobs(app, state);
+            AppCommand::RuntimeCancel(Untyped(p)) => {
+                cancel_recording(app, state, text(&p, "recordingId")?).await?;
                 Ok(Value::Null)
             }
-            "recording_discard" => {
-                let recording = text(&p, "id")?;
-                dispatch(
-                    app,
-                    state,
-                    "runtime_cancel",
-                    json!({"recordingId":recording}),
-                )
-                .await?;
-                let result = state.store()?.mutate(method, &p)?;
-                Ok(result)
+            AppCommand::RecordingDiscard(Untyped(p)) => {
+                cancel_recording(app, state, text(&p, "id")?).await?;
+                state.store()?.mutate(method, &p)
             }
-            "recording_remove_audio" => {
+            AppCommand::RecordingRemoveAudio(Untyped(p)) => {
                 let recording = text(&p, "id")?;
                 if state.jobs.jobs()?.iter().any(|j| {
                     j["recordingId"] == recording
@@ -448,35 +378,36 @@ fn dispatch<'a>(
                 }
                 state.store()?.mutate(method, &p)
             }
-            "recording_status" => Ok(recorder::view(state)),
-            "recording_dismiss" => {
+            AppCommand::RecordingStatus(Untyped(_)) => Ok(recorder::view(state)),
+            AppCommand::RecordingDismiss(Untyped(_)) => {
                 recorder::dismiss(app, state);
                 Ok(recorder::view(state))
             }
-            "recording_cancel" => recorder::cancel(app, state).await,
-            "people_list" => state.store()?.people(),
-            "people_set_color" => {
+            AppCommand::RecordingCancel(Untyped(_)) => recorder::cancel(app, state).await,
+            AppCommand::PeopleList(Untyped(_)) => state.store()?.people(),
+            AppCommand::PeopleSetColor(Untyped(p)) => {
                 state
                     .store()?
                     .set_person_color(text(&p, "name")?, text(&p, "color")?)?;
                 Ok(Value::Null)
             }
-            "people_rename" => {
+            AppCommand::PeopleRename(Untyped(p)) => {
                 state
                     .store()?
                     .rename_person(text(&p, "name")?, text(&p, "newName")?)?;
                 Ok(Value::Null)
             }
-            "people_remove" => {
+            AppCommand::PeopleRemove(Untyped(p)) => {
                 state.store()?.remove_person(text(&p, "name")?)?;
                 Ok(Value::Null)
             }
-            "people_remove_voice" => {
+            AppCommand::PeopleRemoveVoice(Untyped(p)) => {
                 state.store()?.remove_person_voice(text(&p, "id")?)?;
                 Ok(Value::Null)
             }
-            "voice_registration_status" => state.voice_registration.view(),
-            "voice_registration_cancel" | "voice_registration_dismiss" => {
+            AppCommand::VoiceRegistrationStatus(Untyped(_)) => state.voice_registration.view(),
+            AppCommand::VoiceRegistrationCancel(Untyped(_))
+            | AppCommand::VoiceRegistrationDismiss(Untyped(_)) => {
                 let view = if method == "voice_registration_cancel" {
                     state.voice_registration.cancel()?
                 } else {
@@ -485,7 +416,7 @@ fn dispatch<'a>(
                 let _ = app.emit("escriba://voice-registration", &view);
                 Ok(view)
             }
-            "voice_registration_start" => {
+            AppCommand::VoiceRegistrationStart(Untyped(p)) => {
                 state
                     .voice_registration
                     .start(text(&p, "name")?, |view| {
@@ -493,7 +424,7 @@ fn dispatch<'a>(
                     })
                     .await
             }
-            "voice_registration_import" => {
+            AppCommand::VoiceRegistrationImport(Untyped(p)) => {
                 let view = state
                     .voice_registration
                     .import_audio(
@@ -511,7 +442,7 @@ fn dispatch<'a>(
                 }
                 Ok(view)
             }
-            "voice_registration_stop" => {
+            AppCommand::VoiceRegistrationStop(Untyped(_)) => {
                 let view = state
                     .voice_registration
                     .stop(&state.inference, &state.store, |view| {
@@ -521,7 +452,7 @@ fn dispatch<'a>(
                 let _ = app.emit("escriba://changed", ());
                 Ok(view)
             }
-            "import_audio" => {
+            AppCommand::ImportAudio(Untyped(p)) => {
                 let paths = p["paths"]
                     .as_array()
                     .ok_or("Faltan los audios")?
@@ -549,24 +480,24 @@ fn dispatch<'a>(
                 .await
                 .map_err(|e| e.to_string())?
             }
-            "credential_save" => {
+            AppCommand::CredentialSave(Untyped(p)) => {
                 state.store()?.save_credential(
                     text(&p, "id")?,
                     p["value"].as_str().ok_or("Falta la credencial")?,
                 )?;
                 Ok(Value::Null)
             }
-            "connector_remove" => {
+            AppCommand::ConnectorRemove(Untyped(p)) => {
                 state.store()?.remove_connector(text(&p, "id")?)?;
                 Ok(Value::Null)
             }
-            "connector_save" => {
+            AppCommand::ConnectorSave(Untyped(p)) => {
                 state
                     .store()?
                     .save_connector(&p["account"], &p["destination"])?;
                 Ok(Value::Null)
             }
-            "native" => {
+            AppCommand::Native(Untyped(p)) => {
                 let method = text(&p, "method")?;
                 if !["status", "downloadModel"].contains(&method) {
                     return Err("Esta capacidad se ejecuta a través de la biblioteca".into());
@@ -596,18 +527,20 @@ fn dispatch<'a>(
                     .await
                     .map_err(Into::into)
             }
-            "native_cancel" => {
+            AppCommand::NativeCancel(Untyped(_)) => {
                 state.inference.cancel();
                 Ok(Value::Null)
             }
-            "transcribe" | "summarize" | "ask" => dispatch_inference(state, method, p)
+            AppCommand::Transcribe(Untyped(p))
+            | AppCommand::Summarize(Untyped(p))
+            | AppCommand::Ask(Untyped(p)) => dispatch_inference(state, method, p)
                 .await
                 .map_err(|e| e.message),
-            "recording_start" => {
+            AppCommand::RecordingStart(Untyped(p)) => {
                 recorder::start(app, state, p["recipeId"].as_str().map(str::to_owned)).await
             }
-            "recording_stop" => recorder::stop(app, state).await,
-            "connector_http" => {
+            AppCommand::RecordingStop(Untyped(_)) => recorder::stop(app, state).await,
+            AppCommand::ConnectorHttp(Untyped(p)) => {
                 let (account, grant, secret, audio) = {
                     let store = state.store()?;
                     let key = text(&p, "accountId")?;
@@ -635,7 +568,7 @@ fn dispatch<'a>(
                 };
                 capabilities::http_with_grant(&account, &grant, secret, &p, audio).await
             }
-            "connector_files" => {
+            AppCommand::ConnectorFiles(Untyped(p)) => {
                 let account = {
                     let store = state.store()?;
                     let account = store.item("accounts", text(&p, "accountId")?)?;
@@ -651,7 +584,7 @@ fn dispatch<'a>(
                     .await
                     .map_err(|e| e.to_string())?
             }
-            "connector_audio" => {
+            AppCommand::ConnectorAudio(Untyped(p)) => {
                 let store = state.store()?;
                 let record = store.recording(text(&p, "recordingId")?)?;
                 if record["audioPath"].is_null() {
@@ -663,7 +596,7 @@ fn dispatch<'a>(
                     json!({"size":size,"type":audio_type(&path),"filename":path.file_name().unwrap_or_default().to_string_lossy()}),
                 )
             }
-            "project_init" => {
+            AppCommand::ProjectInit(Untyped(p)) => {
                 let _project_guard = state.project_lock.lock().await;
                 let path = PathBuf::from(text(&p, "path")?);
                 let accounts = {
@@ -677,7 +610,7 @@ fn dispatch<'a>(
                     .mutate("settings_save", &json!({"settings":{"projectPath":path}}))?;
                 Ok(json!({"hasDist":has_dist}))
             }
-            "project_build" => {
+            AppCommand::ProjectBuild(Untyped(_)) => {
                 let _project_guard = state.project_lock.lock().await;
                 let path = project_path(state)?;
                 let runtime = state.project_runtime.clone();
@@ -686,7 +619,7 @@ fn dispatch<'a>(
                     .await
                     .map_err(|e| e.to_string())?
             }
-            "project_load" => {
+            AppCommand::ProjectLoad(Untyped(_)) => {
                 let _project_guard = state.project_lock.lock().await;
                 let path = project_path(state)?;
                 let runtime = state.project_runtime.clone();
@@ -697,8 +630,8 @@ fn dispatch<'a>(
                 .await
                 .map_err(|e| e.to_string())?
             }
-            "project_list" => project::list(&project_path(state)?),
-            "project_open_vscode" => {
+            AppCommand::ProjectList(Untyped(_)) => project::list(&project_path(state)?),
+            AppCommand::ProjectOpenVscode(Untyped(_)) => {
                 let path = project_path(state)?
                     .canonicalize()
                     .map_err(|_| "La carpeta del proyecto no existe o no se puede abrir")?;
@@ -715,7 +648,7 @@ fn dispatch<'a>(
                 }
                 Ok(Value::Null)
             }
-            "project_tool" => {
+            AppCommand::ProjectTool(Untyped(p)) => {
                 let _project_guard = state.project_lock.lock().await;
                 let path = project_path(state)?;
                 let runtime = state.project_runtime.clone();
@@ -725,8 +658,10 @@ fn dispatch<'a>(
                     .await
                     .map_err(|e| e.to_string())?
             }
-            "project_read" => project::read(&project_path(state)?, text(&p, "entry")?),
-            "project_write" => {
+            AppCommand::ProjectRead(Untyped(p)) => {
+                project::read(&project_path(state)?, text(&p, "entry")?)
+            }
+            AppCommand::ProjectWrite(Untyped(p)) => {
                 let _project_guard = state.project_lock.lock().await;
                 let expected = p
                     .get("expectedSource")
@@ -746,17 +681,17 @@ fn dispatch<'a>(
                 )?;
                 Ok(Value::Null)
             }
-            "project_install" => {
+            AppCommand::ProjectInstall(Untyped(p)) => {
                 let mut store = state.store()?;
                 catalog::install(&mut store, &p)?;
                 Ok(Value::Null)
             }
-            "export_file" => {
+            AppCommand::ExportFile(Untyped(p)) => {
                 let path = PathBuf::from(text(&p, "path")?);
                 store::atomic_write(&path, text(&p, "contents")?.as_bytes())?;
                 Ok(Value::Null)
             }
-            "reveal" => {
+            AppCommand::Reveal(Untyped(p)) => {
                 let path = PathBuf::from(text(&p, "path")?);
                 if !path.exists() {
                     return Err("El archivo no existe".into());
@@ -771,7 +706,7 @@ fn dispatch<'a>(
                 }
                 Ok(Value::Null)
             }
-            "okf_file" => {
+            AppCommand::OkfFile(Untyped(p)) => {
                 let account = state.store()?.item("accounts", text(&p, "accountId")?)?;
                 let path = capabilities::authorized_okf_file(
                     &account,
@@ -791,7 +726,7 @@ fn dispatch<'a>(
                 }
                 Ok(Value::Null)
             }
-            "open_url" => {
+            AppCommand::OpenUrl(Untyped(p)) => {
                 let url = reqwest::Url::parse(text(&p, "url")?).map_err(|_| "Enlace inválido")?;
                 if !["http", "https"].contains(&url.scheme()) {
                     return Err("Solo se pueden abrir enlaces web".into());
@@ -805,12 +740,12 @@ fn dispatch<'a>(
                 }
                 Ok(Value::Null)
             }
-            "system_appearance" => Ok(json!({"accent": appearance::accent()})),
-            "resolver_models" => {
+            AppCommand::SystemAppearance(Untyped(_)) => Ok(json!({"accent": appearance::accent()})),
+            AppCommand::ResolverModels(Untyped(p)) => {
                 let (draft, secret) = resolver_draft(state, &p)?;
                 Ok(json!(remote::models(&draft, secret).await?))
             }
-            "resolver_try" => {
+            AppCommand::ResolverTry(Untyped(p)) => {
                 let (draft, secret) = resolver_draft(state, &p)?;
                 let llm = text(&p, "role")? == "llm";
                 let request = json!({"instructions": p["instructions"], "prompt": p["prompt"]});
@@ -833,8 +768,8 @@ fn dispatch<'a>(
                     }
                 }
             }
-            "whisper_model" => whisper_model(state, &p).await,
-            "open_privacy_settings" => {
+            AppCommand::WhisperModel(Untyped(p)) => whisper_model(state, &p).await,
+            AppCommand::OpenPrivacySettings(Untyped(p)) => {
                 let pane = match p["pane"].as_str() {
                     Some("microphone") => {
                         "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone"
@@ -853,9 +788,11 @@ fn dispatch<'a>(
                 }
                 Ok(Value::Null)
             }
-            "watch_scan" => scan(app, state).await,
-            "watch_folder_authorize" => authorize_watched_folder(app, state, &p).await,
-            "settings_save" => {
+            AppCommand::WatchScan(Untyped(_)) => scan(app, state).await,
+            AppCommand::WatchFolderAuthorize(Untyped(p)) => {
+                authorize_watched_folder(app, state, &p).await
+            }
+            AppCommand::SettingsSave(Untyped(p)) => {
                 if let Some(enabled) = p["settings"]["launchAtLogin"].as_bool() {
                     use tauri_plugin_autostart::ManagerExt;
                     let auto = app.autolaunch();
@@ -871,9 +808,22 @@ fn dispatch<'a>(
                 state.jobs.wake_all();
                 Ok(saved)
             }
-            _ => state.store()?.mutate(method, &p),
+            AppCommand::RecordingUpdate(Untyped(p))
+            | AppCommand::VersionSave(Untyped(p))
+            | AppCommand::VersionSelect(Untyped(p))
+            | AppCommand::VersionUpdate(Untyped(p))
+            | AppCommand::ConfigSave(Untyped(p))
+            | AppCommand::ConfigRemove(Untyped(p))
+            | AppCommand::PublicationSave(Untyped(p))
+            | AppCommand::PublicationRemove(Untyped(p))
+            | AppCommand::NoteDraftGet(Untyped(p))
+            | AppCommand::NoteDraftBegin(Untyped(p))
+            | AppCommand::NoteDraftSave(Untyped(p))
+            | AppCommand::NoteDraftDiscard(Untyped(p))
+            | AppCommand::NoteDraftCommit(Untyped(p))
+            | AppCommand::Log(Untyped(p)) => state.store()?.mutate(method, &p),
         }
-    })
+    }
 }
 fn project_path(state: &Runtime) -> Result<PathBuf, String> {
     state
@@ -1373,18 +1323,24 @@ async fn script_call(
         Box::pin(async move {
             let state = weak.upgrade().ok_or("La aplicación se cerró")?;
             lease.ensure_active()?;
-            let result = if matches!(method.as_str(), "transcribe" | "summarize" | "ask") {
-                dispatch_inference(&state, &method, params).await
-            } else {
-                dispatch(&handle, &state, &method, params)
+            let request = Request::parse(&method, params)?;
+            if !request.policy().recipes {
+                return Err("Capacidad no autorizada o trabajo terminado".into());
+            }
+            let event = request.event(!request.recipe_reads_only());
+            let result = match request.command {
+                Command::App(
+                    AppCommand::Transcribe(Untyped(params))
+                    | AppCommand::Summarize(Untyped(params))
+                    | AppCommand::Ask(Untyped(params)),
+                ) => dispatch_inference(&state, &method, params).await,
+                _ => dispatch(&handle, &state, request)
                     .await
-                    .map_err(error::AppError::from)
+                    .map_err(error::AppError::from),
             }
             .and_then(|value| voices::public_reply(value).map_err(Into::into));
             if result.is_ok() {
-                let writes = !["runtime_context", "connector_audio", "memory_recall"]
-                    .contains(&method.as_str());
-                if let Some(event) = change_event(&method, writes) {
+                if let Some(event) = event {
                     let _ = handle.emit(event, ());
                     state.knowledge_wake.notify_one();
                 }
@@ -1781,39 +1737,5 @@ mod command_events_tests {
             project_accounts(&accounts, &destinations).unwrap(),
             json!([accounts[1]])
         );
-    }
-
-    #[test]
-    fn polling_the_library_and_recorder_does_not_request_another_refresh() {
-        let refresh_cycle = [
-            "snapshot",
-            "recording_status",
-            "runtime_jobs",
-            "knowledge_filter_notes",
-            "knowledge_filters_list",
-            "knowledge_list",
-        ];
-        assert!(!refresh_cycle
-            .iter()
-            .any(|method| refreshes_library(method, &json!({}))));
-    }
-
-    #[test]
-    fn loading_a_recipe_form_does_not_invalidate_its_input_snapshot() {
-        assert!(!refreshes_library(
-            "runtime_run",
-            &json!({"operation":"getRecipeSchema"})
-        ));
-    }
-
-    #[test]
-    fn changes_to_recordings_and_recipe_catalogues_still_refresh_the_window() {
-        assert!(refreshes_library("recording_stop", &json!({})));
-        assert!(refreshes_library(
-            "runtime_run",
-            &json!({"operation":"rebuildProject"})
-        ));
-        assert!(refreshes_library("knowledge_filter_save", &json!({})));
-        assert!(refreshes_library("knowledge_filter_remove", &json!({})));
     }
 }

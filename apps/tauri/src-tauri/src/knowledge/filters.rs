@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use surrealdb::types::{Object, RecordId};
 
 const MAX_RESULTS: usize = 10_000;
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, TS)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct FilterCondition {
     pub ontology_id: String,
@@ -11,9 +11,10 @@ pub struct FilterCondition {
     pub field: String,
     pub operator: FilterOperator,
     #[serde(default)]
+    #[ts(optional, type = "unknown")]
     pub value: Value,
 }
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, TS)]
 #[serde(rename_all = "camelCase")]
 pub enum FilterOperator {
     Eq,
@@ -27,13 +28,13 @@ pub enum FilterOperator {
     Empty,
     NotEmpty,
 }
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, TS)]
 #[serde(rename_all = "lowercase")]
 pub enum FilterMatch {
     All,
     Any,
 }
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, TS)]
 #[serde(tag = "kind", rename_all = "lowercase", deny_unknown_fields)]
 pub enum LibraryFilter {
     Visual {
@@ -46,10 +47,13 @@ pub enum LibraryFilter {
         sql: String,
     },
 }
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct FilterResult {
     pub recording_ids: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub incomplete: Option<bool>,
 }
 
 impl Knowledge {
@@ -134,6 +138,7 @@ impl Knowledge {
         }
         Ok(FilterResult {
             recording_ids: result.into_iter().collect(),
+            incomplete: None,
         })
     }
 }

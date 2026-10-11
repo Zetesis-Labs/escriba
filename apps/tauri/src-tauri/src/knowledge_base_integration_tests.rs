@@ -1,5 +1,6 @@
 use crate::{
-    catalog, knowledge::Knowledge, knowledge_commands::dispatch, store::Store, voices::SpeakerVoice,
+    catalog, knowledge::Knowledge, knowledge_commands::call as dispatch, store::Store,
+    voices::SpeakerVoice,
 };
 use base64::Engine;
 use serde_json::{json, Value};

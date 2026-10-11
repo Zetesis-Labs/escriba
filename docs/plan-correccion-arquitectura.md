@@ -351,12 +351,26 @@ borrado y tipado y pueden ir en paralelo con ramas separadas una vez cerrada B.
   capturas usan una biblioteca aislada con `ESCRIBA_TAURI_DATA`. El test
   `surrealVersions` fija SDK 2.1.1, servidor emulado 3.3.2 y los crates de
   Rust `=3.3.2`, y falla si cambia uno solo.
+- **Fase C** (2026-10-12). `app_command` deserializa a `Request`: los 18
+  comandos de conocimiento con parámetros y respuestas tipados
+  (`KnowledgeCommand`, `KnowledgeReply`) y los 80 restantes en `AppCommand`,
+  exhaustivo, con parámetros aún en JSON. La política de cada variante
+  (refresca, recetas) sustituye a `refreshes_library` y a la lista `allowed`
+  de `scripts.rs`. Un método desconocido falla al deserializar, también
+  `recording_delete`, que antes era alcanzable desde la WebView por el
+  despacho de último recurso. ts-rs 12.0.1 genera `apps/tauri/src/generated`
+  y un test compara lo generado con lo versionado. La UI llama al grafo con
+  `knowledge(...)` tipado y pierde los validadores manuales de `model.ts`;
+  `checkedGraphPage` se queda porque comprueba invariantes, no forma. Queda
+  tipar los parámetros de `AppCommand` por módulos y llevar `Store::mutate`
+  a esas variantes; `Field<T>` no apareció en la parte tipada.
 
 ## Estado para retomar
 
 Ramas apiladas en `_worktrees/escriba-arquitectura`, sin push:
 `refactor/persistencia-por-entidad` (plan + A) → `refactor/cerrojos-y-colas`
-(B) → `refactor/grafo-incremental` (G) → `refactor/topologia-procesos` (F).
+(B) → `refactor/grafo-incremental` (G) → `refactor/topologia-procesos` (F)
+→ `refactor/contrato-tipado` (C).
 Cada siguiente fase sale de la última.
 El worktree reutiliza la caché de `escriba-tauri`: `apps/tauri/src-tauri/target`
 es un enlace a la suya, Bun 1.4.2 está en su `.build/bun` y SwiftPM usa
@@ -364,9 +378,9 @@ es un enlace a la suya, Bun 1.4.2 está en su `.build/bun` y SwiftPM usa
 Tras cambiar TypeScript del runtime, `node apps/tauri/scripts/prepare.mjs`
 recompila el binario antes de los tests de Rust.
 
-Pendiente, en este orden: C (contrato con enum y tipos generados, empezando
-por `knowledge`), D (una sola receta por defecto), E (retirar la pila de
-recetas Swift y los jobs Linux/WASI), H (ADR-0003, ADR-0007, CLAUDE.md).
+Pendiente, en este orden: D (una sola receta por defecto), E (retirar la
+pila de recetas Swift y los jobs Linux/WASI), H (ADR-0003, ADR-0007,
+CLAUDE.md).
 Las pruebas de runtime necesitan el Bun fijado en el `PATH`
 (`.build/bun/1.4.2/bun-darwin-aarch64`). Al final:
 prueba de compatibilidad con una copia privada de la biblioteca (pedir a Rubén

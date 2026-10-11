@@ -1,6 +1,9 @@
+import type { AppCommand } from "../generated/AppCommand";
+import type { KnowledgeCommand } from "../generated/KnowledgeCommand";
 import type { JSONObject, JSONValue, Snapshot } from "../types";
+export type HostMethod = AppCommand["method"] | KnowledgeCommand["method"];
 export interface RuntimeHost {
-  call(method: string, params?: Record<string, unknown>): Promise<unknown>;
+  call(method: HostMethod, params?: Record<string, unknown>): Promise<unknown>;
 }
 export interface WorkerTask {
   kind:
@@ -68,7 +71,7 @@ export function aborted(signal?: AbortSignal) {
 }
 export async function request<T>(
   host: RuntimeHost,
-  method: string,
+  method: HostMethod,
   params: Record<string, unknown> = {},
 ): Promise<T> {
   return (await host.call(method, params)) as T;

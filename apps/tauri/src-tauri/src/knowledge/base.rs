@@ -135,8 +135,21 @@ pub fn base_definition() -> Ontology {
         collections,
     }
 }
-pub fn base_listing() -> Value {
-    json!({"id":"escriba","name":"Escriba","version":1,"migrations":[],"collections":base_definition().collections,"builtIn":true})
+#[derive(Debug, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ListedOntology {
+    #[serde(flatten)]
+    pub ontology: Ontology,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub built_in: Option<bool>,
+}
+
+pub fn base_listing() -> ListedOntology {
+    ListedOntology {
+        ontology: base_definition(),
+        built_in: Some(true),
+    }
 }
 
 type Projection = BTreeMap<String, Vec<DbValue>>;

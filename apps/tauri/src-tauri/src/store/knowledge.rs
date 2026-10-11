@@ -200,7 +200,7 @@ mod tests {
         let graph = crate::knowledge::Knowledge::open(&dir.path().join("knowledge.surrealkv"))
             .await
             .unwrap();
-        let initial = crate::knowledge_commands::dispatch(
+        let initial = crate::knowledge_commands::call(
             &graph,
             &store,
             "knowledge_records",
@@ -222,7 +222,7 @@ mod tests {
                 ))
                 .unwrap();
             for _ in 0..2 {
-                let failure = crate::knowledge_commands::dispatch(
+                let failure = crate::knowledge_commands::call(
                     &graph,
                     &store,
                     "knowledge_records",

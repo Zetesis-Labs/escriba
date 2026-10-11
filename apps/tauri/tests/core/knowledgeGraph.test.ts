@@ -1,8 +1,8 @@
 import { describe, expect, test } from "vitest";
 import { schemaGraph, mergeGraph, checkedGraphPage, schemaKey } from "../../src/core/knowledgeGraph";
-import type { OntologyDefinition } from "../../src/knowledge/model";
+import type { InstalledOntology } from "../../src/knowledge/model";
 
-const ontologies: OntologyDefinition[] = [
+const ontologies: InstalledOntology[] = [
   { id: "escriba", name: "Escriba", version: 1, builtIn: true, migrations: [], collections: [{ table: "person", label: "Personas", titleField: "name", fields: [] }] },
   { id: "crm", name: "Clientes", version: 1, migrations: [], collections: [
     { table: "person", label: "Contactos", titleField: "name", fields: [{ key: "original", label: "Persona", type: "reference", reference: { ontologyId: "escriba", table: "person" } }] },

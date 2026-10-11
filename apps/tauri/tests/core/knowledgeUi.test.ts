@@ -2,7 +2,7 @@ import { describe, expect, test } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { OntologySummary } from "../../src/knowledge/OntologiesPanel";
-import { candidateStatus, editedFields, extensionOntologies, fieldInputText, isDefinition, isInstalledOntology, isRecordPage, parseField, recordTitle } from "../../src/knowledge/model";
+import { candidateStatus, editedFields, extensionOntologies, fieldInputText, parseField, recordTitle } from "../../src/knowledge/model";
 
 const collection = { table: "personas", label: "Personas", titleField: "nombre", fields: [{ key: "nombre", label: "Nombre", type: "text" as const, required: true }] };
 
@@ -51,16 +51,6 @@ describe("ontologías en la interfaz", () => {
     expect(editedFields({ ...collection, fields }, { ...raw, fecha: "2026-10-15", datos: '"changed"' }, original)).toEqual({ nombre: "Otro nombre", fecha: "2026-10-15T00:00:00.000Z", datos: "changed" });
   });
 
-  test("no acepta páginas incompletas como registros editables", () => {
-    expect(isRecordPage(null)).toBe(false);
-    expect(isRecordPage({ page: 0, hasMore: false, records: [null] })).toBe(false);
-    expect(isRecordPage({ page: 0, hasMore: false, records: [{ id: "personas:1", ontologyId: "crm", table: "personas", rev: "abc", values: null }] })).toBe(false);
-    expect(isRecordPage({ page: 0, hasMore: false, records: [{ id: "personas:1", ontologyId: "crm", table: "personas", values: { nombre: "Ada" } }] })).toBe(false);
-    expect(isRecordPage({ page: 0, hasMore: false, records: [{ id: "personas:1", ontologyId: "crm", table: "personas", rev: "abc", values: { nombre: "Ada" } }] })).toBe(true);
-    expect(isDefinition({ id: "crm", name: "CRM", version: 1, migrations: [], collections: [{ ...collection, relation: { from: "personas" } }] })).toBe(false);
-    expect(isInstalledOntology({ id: "crm", name: "CRM", version: 1, migrations: [], collections: [null] })).toBe(false);
-  });
-
   test("una referencia a la base conserva su identidad y los valores desaparecidos al editar", () => {
     const reference = { key: "persona", label: "Persona", type: "reference" as const, reference: { ontologyId: "escriba" as const, table: "person" } };
     const value = { ontologyId: "escriba", table: "person", id: "person:ada" };
@@ -70,14 +60,6 @@ describe("ontologías en la interfaz", () => {
     expect(() => parseField(reference, JSON.stringify({ ...value, table: "recording" }))).toThrow("Persona");
     expect(() => parseField(reference, JSON.stringify({ ...value, id: "recording:wrong" }))).toThrow("Persona");
     expect(() => parseField(reference, "person:ada")).toThrow("Persona");
-  });
-
-  test("valida metadatos de campos de referencia y la marca de base", () => {
-    const ontology = { id: "escriba", name: "Base", version: 1, builtIn: true, migrations: [], collections: [collection] };
-    expect(isInstalledOntology(ontology)).toBe(true);
-    expect(isInstalledOntology({ ...ontology, builtIn: "yes" })).toBe(false);
-    expect(isDefinition({ ...ontology, collections: [{ ...collection, fields: [{ key: "persona", label: "Persona", type: "reference" }] }] })).toBe(false);
-    expect(isDefinition({ ...ontology, collections: [{ ...collection, fields: [{ key: "persona", label: "Persona", type: "reference", reference: { ontologyId: "escriba", table: "person" } }] }] })).toBe(true);
   });
 
   test("presenta la base y sus relaciones sin acciones de instalación", () => {

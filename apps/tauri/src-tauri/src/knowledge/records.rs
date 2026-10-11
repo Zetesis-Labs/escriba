@@ -10,16 +10,17 @@ pub struct Source {
     #[serde(default)]
     pub recipe_id: Option<String>,
 }
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct GraphRecord {
     pub id: String,
     pub ontology_id: String,
     pub table: String,
+    #[ts(type = "Record<string, unknown>")]
     pub values: Value,
     pub rev: String,
 }
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct RecordPage {
     pub records: Vec<GraphRecord>,

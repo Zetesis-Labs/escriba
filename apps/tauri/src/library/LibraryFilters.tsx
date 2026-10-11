@@ -1,8 +1,8 @@
 import { Plus, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { call } from "../api";
+import { knowledge } from "../api";
 import { conditionText, conditionValue, defaultCondition, filterFields, filterOperators, filterRecordLabel, type FilterCondition, type FilterOperator, type LibraryFilter, type SavedLibraryFilter } from "../core/libraryFilters";
-import { isRecordPage, type KnowledgeCollection, type OntologyDefinition } from "../knowledge/model";
+import type { KnowledgeCollection, OntologyDefinition } from "../knowledge/model";
 import type { GraphPage } from "../knowledge/graphTypes";
 import { Button, Segmented, Sheet, Spinner } from "../mac/controls";
 import { errorText } from "../mac/native";
@@ -153,8 +153,7 @@ function RecordChoice({ field, condition, collection, ontology, catalog, onChang
     const request = generation.current;
     setLoading(true); setProblem(null);
     try {
-      const result: unknown = await call("knowledge_graph_roots", { ontologyId: targetOntology.id, table: targetTable, page: nextPage });
-      if (!isGraphPage(result)) throw new Error("La página de registros no es válida.");
+      const result = await knowledge("knowledge_graph_roots", { ontologyId: targetOntology.id, table: targetTable, page: nextPage });
       if (generation.current !== request) return;
       setRecords((current) => dedupeChoices([...current, ...pageChoices(result, Boolean(target?.relation))]));
       setPage(result.page); setMore(result.hasMore);
@@ -166,9 +165,8 @@ function RecordChoice({ field, condition, collection, ontology, catalog, onChang
     const request = ++generation.current;
     setRecords([]); setPage(0); setMore(false); setLoading(true); setProblem(null);
     if (!targetOntology || !targetTable) { setLoading(false); return; }
-    void call<unknown>("knowledge_graph_roots", { ontologyId: targetOntology.id, table: targetTable, page: 0 }).then((result) => {
+    void knowledge("knowledge_graph_roots", { ontologyId: targetOntology.id, table: targetTable, page: 0 }).then((result) => {
       if (!alive || generation.current !== request) return;
-      if (!isGraphPage(result)) throw new Error("La página de registros no es válida.");
       setRecords(pageChoices(result, Boolean(target?.relation))); setMore(result.hasMore); setPage(result.page);
     }).catch((failure) => { if (alive && generation.current === request) setProblem(errorText(failure)); }).finally(() => { if (alive && generation.current === request) setLoading(false); });
     return () => { alive = false; generation.current++; };
@@ -177,11 +175,7 @@ function RecordChoice({ field, condition, collection, ontology, catalog, onChang
     if (!selectedId || selectedOnPage || loading || !targetOntology || !target) { setSelectedPreview(null); return; }
     let alive = true;
     setSelectedPreview({ id: selectedId, loading: true });
-    const detail = async (recordId: string): Promise<Record<string, unknown>> => {
-      const result: unknown = await call("knowledge_graph_detail", { ontologyId: targetOntology.id, recordId });
-      if (!isRecordPage({ records: [result], page: 0, hasMore: false })) throw new Error("La vista del registro no es válida.");
-      return (result as { values: Record<string, unknown> }).values;
-    };
+    const detail = async (recordId: string) => (await knowledge("knowledge_graph_detail", { ontologyId: targetOntology.id, recordId })).values;
     void detail(selectedId).then((values) => filterRecordLabel(targetOntology, target, values, detail)).then((label) => {
       if (alive) setSelectedPreview({ id: selectedId, label, loading: false });
     }).catch((failure) => { if (alive) setSelectedPreview({ id: selectedId, error: errorText(failure), loading: false }); });
@@ -193,12 +187,6 @@ function RecordChoice({ field, condition, collection, ontology, catalog, onChang
     {selectedId && !selectedOnPage && <option value={selectedId}>{preview?.loading ? "Leyendo registro…" : preview?.label ?? (preview?.error ? "Registro no disponible" : "Leyendo registro…")}</option>}
     {records.map((record) => <option value={record.id} key={record.id}>{record.label}</option>)}
   </select>{loading && <Spinner />}{(problem || preview?.error) && <span className="library-filter-error" role="alert">{problem ?? preview?.error}</span>}{more && !loading && <Button small onClick={() => void load(page + 1)}>Más</Button>}</div>;
-}
-
-function isGraphPage(value: unknown): value is GraphPage {
-  if (!value || typeof value !== "object") return false;
-  const page = value as Partial<GraphPage>;
-  return Array.isArray(page.nodes) && page.nodes.every((node) => typeof node?.recordId === "string" && typeof node?.label === "string" && typeof node?.key === "string") && Array.isArray(page.edges) && page.edges.every((edge) => typeof edge?.source === "string" && typeof edge?.target === "string" && typeof edge?.label === "string") && typeof page.page === "number" && typeof page.hasMore === "boolean";
 }
 
 function pageChoices(page: GraphPage, relation: boolean): { id: string; label: string }[] {
