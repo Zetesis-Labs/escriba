@@ -7,7 +7,7 @@ import { errorText } from "../mac/native";
 import { demoFilterCommand } from "./demoFilters";
 
 const host = desktop ? call : demoFilterCommand;
-type Result = { filter: LibraryFilter; ids: Set<string> | null; loading: boolean; error: string | null; name: string | null };
+type Result = { filter: LibraryFilter; ids: Set<string> | null; loading: boolean; error: string | null; name: string | null; incomplete?: boolean };
 
 export function useLibraryFilters() {
   const [saved, setSaved] = useState<SavedLibraryFilter[]>([]);
@@ -37,12 +37,15 @@ export function useLibraryFilters() {
     const request = ++serial.current;
     activeFilter.current = { filter, name, savedId };
     setSelectedSavedId(savedId);
-    setResult({ filter, ids: null, loading: true, error: null, name });
+    setResult((previous) => previous?.incomplete && previous.filter === filter ? previous : { filter, ids: null, loading: true, error: null, name, incomplete: false });
     try {
-      const answer = await host<{ recordingIds: string[] }>("knowledge_filter_notes", { filter });
-      if (serial.current === request) setResult({ filter, ids: new Set(answer.recordingIds), loading: false, error: null, name });
+      const answer = await host<{ recordingIds: string[]; incomplete?: boolean }>("knowledge_filter_notes", { filter });
+      if (serial.current !== request) return;
+      const incomplete = answer.incomplete === true;
+      setResult({ filter, ids: new Set(answer.recordingIds), loading: false, error: null, name, incomplete });
+      if (incomplete) window.setTimeout(() => { if (serial.current === request) void apply(filter, name, savedId); }, 3000);
     } catch (failure) {
-      if (serial.current === request) setResult({ filter, ids: null, loading: false, error: errorText(failure), name });
+      if (serial.current === request) setResult({ filter, ids: null, loading: false, error: errorText(failure), name, incomplete: false });
     }
   }, []);
   const clear = useCallback(() => { ++serial.current; activeFilter.current = null; setResult(null); setSelectedSavedId(null); }, []);

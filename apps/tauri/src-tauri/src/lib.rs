@@ -46,6 +46,7 @@ use tauri::{Emitter, Manager};
 
 struct Runtime {
     knowledge: tokio::sync::OnceCell<knowledge::Knowledge>,
+    knowledge_wake: tokio::sync::Notify,
     knowledge_path: PathBuf,
     store: Arc<Mutex<Store>>,
     jobs: Arc<jobs::Queue>,
@@ -119,6 +120,7 @@ async fn app_command(
     if result.is_ok() {
         if let Some(event) = change_event(&method, refresh) {
             let _ = app.emit(event, ());
+            state.knowledge_wake.notify_one();
         }
     }
     if refresh {
@@ -1384,6 +1386,7 @@ async fn script_call(
                     .contains(&method.as_str());
                 if let Some(event) = change_event(&method, writes) {
                     let _ = handle.emit(event, ());
+                    state.knowledge_wake.notify_one();
                 }
             }
             result
@@ -1460,6 +1463,40 @@ async fn run_lane(app: tauri::AppHandle, state: Arc<Runtime>, lane: jobs::Lane) 
         }
     }
 }
+fn start_knowledge_sync(state: Arc<Runtime>) {
+    tauri::async_runtime::spawn(async move {
+        loop {
+            let available = state.knowledge.get().is_some()
+                || state.knowledge_path.try_exists().unwrap_or(false);
+            let step = if available {
+                match state
+                    .knowledge
+                    .get_or_try_init(|| knowledge::Knowledge::open(&state.knowledge_path))
+                    .await
+                {
+                    Ok(knowledge) => knowledge_commands::sync_step(knowledge, &state.store).await,
+                    Err(error) => Err(error),
+                }
+            } else {
+                Ok(true)
+            };
+            match step {
+                Ok(false) => tokio::time::sleep(Duration::from_millis(50)).await,
+                Ok(true) => {
+                    tokio::select! { _ = state.knowledge_wake.notified() => {}, _ = tokio::time::sleep(Duration::from_secs(30)) => {} }
+                }
+                Err(error) => {
+                    log_error(
+                        &state,
+                        &format!("No se pudo sincronizar la base de conocimiento: {error}"),
+                    );
+                    tokio::time::sleep(Duration::from_secs(30)).await;
+                }
+            }
+        }
+    });
+}
+
 fn start_project_watcher(app: tauri::AppHandle, state: Arc<Runtime>) {
     tauri::async_runtime::spawn(async move {
         let (sender, mut receiver) =
@@ -1612,6 +1649,7 @@ pub fn run() {
                 let (watch_wake, wake) = tokio::sync::mpsc::channel(1);
                 let state = Arc::new(Runtime {
                     knowledge: tokio::sync::OnceCell::new(),
+                    knowledge_wake: tokio::sync::Notify::new(),
                     knowledge_path: root.join("knowledge.surrealkv"),
                     store,
                     jobs,
@@ -1679,6 +1717,7 @@ pub fn run() {
                     }
                     warn_about_unusable(&handle, &state).await;
                     start_jobs(handle.clone(), state.clone());
+                    start_knowledge_sync(state.clone());
                     start_project_watcher(handle.clone(), state.clone());
                     start_watcher(handle, state, wake);
                 });

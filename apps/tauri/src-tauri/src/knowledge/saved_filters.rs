@@ -108,8 +108,8 @@ async fn validate_filter(db: &Surreal<Db>, filter: &mut LibraryFilter) -> Result
 
 impl Knowledge {
     pub async fn saved_filters(&self) -> Result<Vec<SavedLibraryFilter>, String> {
-        let root = self.root.lock().await;
-        listed(&root).await
+        let root = &self.root;
+        listed(root).await
     }
 
     pub async fn save_filter(
@@ -120,10 +120,10 @@ impl Knowledge {
         if name.is_empty() || name.chars().count() > 120 {
             return Err("El nombre del filtro debe tener entre 1 y 120 caracteres".into());
         }
-        let root = self.root.lock().await;
+        let root = &self.root;
         let mut filter = request.filter;
-        validate_filter(&root, &mut filter).await?;
-        let current = listed(&root).await?;
+        validate_filter(root, &mut filter).await?;
+        let current = listed(root).await?;
         if let Some(id) = &request.id {
             if !current.iter().any(|filter| filter.id == *id) {
                 return Err("El filtro guardado ya no existe".into());
@@ -157,8 +157,6 @@ impl Knowledge {
             return Err("Identificador de filtro inválido".into());
         }
         self.root
-            .lock()
-            .await
             .query("DELETE type::record('library_filter', $id)")
             .bind(("id", id.to_string()))
             .await
@@ -240,7 +238,7 @@ mod tests {
             .await
             .unwrap();
         let id = Uuid::new_v4().to_string();
-        knowledge.root.lock().await.query("UPSERT type::record('library_filter', $id) SET payload = $payload")
+        knowledge.root.query("UPSERT type::record('library_filter', $id) SET payload = $payload")
             .bind(("id", id.clone()))
             .bind(("payload", json!({"id":id,"name":"Anterior","ontologyId":"escriba","sql":"SELECT VALUE id FROM person"})))
             .await.unwrap().check().unwrap();
@@ -305,8 +303,6 @@ mod tests {
         assert_eq!(knowledge.saved_filters().await.unwrap(), vec![saved]);
         knowledge
             .root
-            .lock()
-            .await
             .query(
                 "UPSERT type::record('library_filter', 'corrupt') SET payload = { name: 'roto' }",
             )

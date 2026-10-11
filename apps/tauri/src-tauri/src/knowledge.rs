@@ -91,7 +91,8 @@ mod records;
 pub use records::{SaveRecord, Source};
 
 pub struct Knowledge {
-    root: Mutex<Surreal<Db>>,
+    root: Surreal<Db>,
+    install: Mutex<()>,
     pub(crate) base_sync: Mutex<()>,
     #[cfg(test)]
     path: std::path::PathBuf,
@@ -156,7 +157,8 @@ impl Knowledge {
             .check()
             .map_err(error)?;
         let knowledge = Self {
-            root: Mutex::new(root),
+            root,
+            install: Mutex::new(()),
             base_sync: Mutex::new(()),
             #[cfg(test)]
             path: path.to_path_buf(),
@@ -307,7 +309,7 @@ fn values(mut response: surrealdb::IndexedResults) -> Result<Vec<DbValue>, Strin
 }
 impl Knowledge {
     pub async fn list(&self) -> Result<Vec<Ontology>, String> {
-        let root = self.root.lock().await;
+        let root = &self.root;
         let mut rows = root
             .query("SELECT VALUE ontology_id FROM ontology")
             .await
@@ -317,7 +319,7 @@ impl Knowledge {
         let ids: Vec<String> = rows.take(0).map_err(error)?;
         let mut result = Vec::new();
         for id in ids {
-            if let Some(value) = manifest(&selected(&root, &id).await?).await? {
+            if let Some(value) = manifest(&selected(root, &id).await?).await? {
                 result.push(value);
             }
         }
@@ -326,8 +328,9 @@ impl Knowledge {
     }
     pub async fn apply(&self, ontology: Ontology) -> Result<Ontology, String> {
         validate_catalog(std::slice::from_ref(&ontology))?;
-        let root = self.root.lock().await;
-        let db = selected(&root, &ontology.id).await?;
+        let _installing = self.install.lock().await;
+        let root = &self.root;
+        let db = selected(root, &ontology.id).await?;
         db.query("DEFINE TABLE IF NOT EXISTS _escriba_manifest SCHEMALESS PERMISSIONS NONE; DEFINE TABLE IF NOT EXISTS _escriba_manual SCHEMALESS PERMISSIONS FOR select FULL FOR create, update, delete NONE; DEFINE TABLE IF NOT EXISTS _escriba_source SCHEMALESS PERMISSIONS FOR select FULL FOR create, update, delete NONE; DEFINE TABLE IF NOT EXISTS _escriba_principal SCHEMALESS PERMISSIONS NONE")
             .await
             .map_err(error)?
@@ -462,14 +465,14 @@ impl Knowledge {
         if !matches!(bindings, DbValue::Object(_)) {
             return Err("Los parámetros deben ser un objeto".into());
         }
-        let root = self.root.lock().await;
-        let current = manifest(&selected(&root, id).await?)
+        let root = &self.root;
+        let current = manifest(&selected(root, id).await?)
             .await?
             .ok_or("Ontología no instalada")?;
         if expected_version == 0 || current.version != expected_version {
             return Err("La versión instalada no satisface la dependencia".into());
         }
-        let db = runtime(&root, id).await?;
+        let db = runtime(root, id).await?;
         values(db.query(sql).bind(bindings).await.map_err(error)?)
     }
 }

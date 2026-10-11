@@ -7,7 +7,7 @@ async fn autentica_sesiones_de_registro_sin_escape_de_base() {
     let knowledge = Knowledge::open(&temp.path().join("knowledge.surrealkv"))
         .await
         .unwrap();
-    let root = knowledge.root.lock().await;
+    let root = knowledge.root.clone();
     root.use_ns("knowledge").use_db("one").await.unwrap();
     root.query("DEFINE TABLE thing SCHEMAFULL PERMISSIONS FULL; DEFINE FIELD title ON thing TYPE string; DEFINE TABLE principal PERMISSIONS NONE; CREATE principal:runtime; DEFINE ACCESS recipe ON DB TYPE RECORD SIGNIN (RETURN principal:runtime) DURATION FOR SESSION 1h; DEFINE USER migrator ON DB PASSWORD 'test' ROLES OWNER;").await.unwrap().check().unwrap();
     let session = root.clone();

@@ -136,8 +136,8 @@ impl Knowledge {
         recording_id: Option<&str>,
         version_id: Option<&str>,
     ) -> Result<RecordPage, String> {
-        let root = self.root.lock().await;
-        let db = selected(&root, id).await?;
+        let root = &self.root;
+        let db = selected(root, id).await?;
         collection(&db, table, None).await?;
         let mut response = db.query("SELECT * FROM type::table($table) WHERE ($recording = NONE OR ($base AND recordingId=$recording AND ($version=NONE OR versionId=$version)) OR (!$base AND id IN (SELECT VALUE record FROM _escriba_source WHERE recordingId = $recording AND ($version = NONE OR versionId = $version)))) ORDER BY id LIMIT 51 START $offset")
             .bind(("base",id=="escriba"))
@@ -156,8 +156,8 @@ impl Knowledge {
     }
     pub async fn save(&self, request: SaveRecord) -> Result<GraphRecord, String> {
         writable(&request.ontology_id)?;
-        let root = self.root.lock().await;
-        let db = selected(&root, &request.ontology_id).await?;
+        let root = &self.root;
+        let db = selected(root, &request.ontology_id).await?;
         let collection = collection(&db, &request.table, Some(request.expected_version)).await?;
         let id = match &request.record_id {
             Some(id) => record_id(id, Some(&request.table))?,
@@ -209,7 +209,7 @@ impl Knowledge {
                         before.clone().into_json_value().get(&key) == Some(&value)
                     });
                     if !unchanged
-                        && current(&selected(&root, "escriba").await?, &target_id)
+                        && current(&selected(root, "escriba").await?, &target_id)
                             .await?
                             .is_none()
                     {
@@ -284,8 +284,8 @@ impl Knowledge {
         expected_rev: &str,
     ) -> Result<(), String> {
         writable(ontology_id)?;
-        let root = self.root.lock().await;
-        let db = selected(&root, ontology_id).await?;
+        let root = &self.root;
+        let db = selected(root, ontology_id).await?;
         collection(&db, table, Some(expected_version)).await?;
         let id = record_id(id, Some(table))?;
         let row = current(&db, &id).await?.ok_or("El registro ya no existe")?;
@@ -308,8 +308,8 @@ impl Knowledge {
         source: Source,
     ) -> Result<(), String> {
         writable(ontology_id)?;
-        let root = self.root.lock().await;
-        let db = selected(&root, ontology_id).await?;
+        let root = &self.root;
+        let db = selected(root, ontology_id).await?;
         let id = record_id(id, None)?;
         let manifest = manifest(&db).await?.ok_or("Ontología no instalada")?;
         if expected_version != manifest.version {
@@ -340,8 +340,8 @@ impl Knowledge {
         recording_id: &str,
     ) -> Result<(), String> {
         writable(ontology_id)?;
-        let root = self.root.lock().await;
-        let db = selected(&root, ontology_id).await?;
+        let root = &self.root;
+        let db = selected(root, ontology_id).await?;
         let id = record_id(id, None)?;
         let manifest = manifest(&db).await?.ok_or("Ontología no instalada")?;
         if expected_version != manifest.version {

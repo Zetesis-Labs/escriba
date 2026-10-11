@@ -123,8 +123,8 @@ impl Knowledge {
         table: &str,
         page: u32,
     ) -> Result<GraphPage, String> {
-        let root = self.root.lock().await;
-        let db = selected(&root, ontology).await?;
+        let root = &self.root;
+        let db = selected(root, ontology).await?;
         let collection = declared(&db, table).await?;
         let endpoints = if collection.relation.is_some() {
             "in,out,"
@@ -143,7 +143,7 @@ impl Knowledge {
         };
         if collection.relation.is_some() {
             for row in found {
-                add_relation(&root, ontology, &collection, &row, &mut result).await?;
+                add_relation(root, ontology, &collection, &row, &mut result).await?;
             }
         } else {
             result.nodes = found
@@ -155,8 +155,8 @@ impl Knowledge {
     }
     pub async fn graph_detail(&self, ontology: &str, record: &str) -> Result<GraphDetail, String> {
         let id = parse(record)?;
-        let root = self.root.lock().await;
-        let db = selected(&root, ontology).await?;
+        let root = &self.root;
+        let db = selected(root, ontology).await?;
         let collection = declared(&db, id.table.as_str()).await?;
         if collection.fields.len() > 128 {
             return Err("El detalle admite hasta 128 campos declarados".into());
@@ -346,7 +346,7 @@ impl Knowledge {
         page: u32,
     ) -> Result<GraphPage, String> {
         let id = parse(record)?;
-        let root = self.root.lock().await;
+        let root = &self.root;
         let mut listed = root
             .query("SELECT VALUE ontology_id FROM ontology ORDER BY ontology_id LIMIT 129")
             .await
@@ -360,12 +360,12 @@ impl Knowledge {
         let mut catalog = vec![base_definition()];
         for installed in ids {
             catalog.push(
-                manifest(&selected(&root, &installed).await?)
+                manifest(&selected(root, &installed).await?)
                     .await?
                     .ok_or("Ontología instalada sin definición")?,
             );
         }
-        let db = selected(&root, ontology).await?;
+        let db = selected(root, ontology).await?;
         declared(&db, id.table.as_str()).await?;
         let definition = manifest(&db).await?.ok_or("Ontología no instalada")?;
         let mut groups = vec![];
@@ -447,10 +447,10 @@ impl Knowledge {
             has_more: false,
             root: Some(key(ontology, &id)),
         };
-        add_node(&root, ontology, &id, &mut result).await?;
+        add_node(root, ontology, &id, &mut result).await?;
         let mut offset = u64::from(page) * 40;
         for group in groups {
-            let db = selected(&root, &group.ontology).await?;
+            let db = selected(root, &group.ontology).await?;
             let bindings = json!({"table":group.collection.table,"record":id.to_sql(),"offset":offset,"limit":41-result.edges.len(),"ontology":ontology,"recordTable":id.table.as_str()});
             if offset > 0 {
                 let count = rows(
@@ -487,12 +487,12 @@ impl Knowledge {
                 }
                 match &group.connection {
                     Connection::Relation => {
-                        add_relation(&root, &group.ontology, &group.collection, &row, &mut result)
+                        add_relation(root, &group.ontology, &group.collection, &row, &mut result)
                             .await?
                     }
                     Connection::Reference(field) => {
                         add_reference(
-                            &root,
+                            root,
                             &group.ontology,
                             &group.collection,
                             field,
@@ -502,7 +502,7 @@ impl Knowledge {
                         .await?
                     }
                     Connection::Provenance => {
-                        add_provenance(&root, &group.ontology, &row, &mut result).await?
+                        add_provenance(root, &group.ontology, &row, &mut result).await?
                     }
                 }
             }
