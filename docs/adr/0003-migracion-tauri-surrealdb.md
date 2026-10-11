@@ -32,3 +32,8 @@ capacidades del runtime; tener Tauri no concede acceso libre a Node ni a la red.
 
 Se pueden añadir ventanas SwiftUI especializadas si una API Apple lo requiere.
 Las siete secciones actuales están en Tauri y no necesitan esas ventanas.
+
+Corrección del 2026-10-12: el ejecutable de orquestación es Bun compilado con
+`bun build --compile`, no Deno. Rust lo arranca, a él y a cada receta, bajo el
+perfil de `sandbox-exec` por proceso descrito en `apps/tauri/runtime-host/README.md`.
+El resto de esta decisión no cambia.

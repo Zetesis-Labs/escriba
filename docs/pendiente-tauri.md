@@ -680,7 +680,8 @@ no una integración encargada. Requisitos, límites y aceptación en
 - Notarizar una vez con los binarios externos.
 - `CLAUDE.md` con una sección por app; decidir con Rubén si vuelve la sonda WASI
   al CI o se retira la frase «El núcleo viaja»; cuando pasen las cinco puertas,
-  un ADR que declare la sustitución.
+  un ADR que declare la sustitución. Resuelto el 2026-10-12 en ADR-0007: Swift
+  solo en macOS, sin sonda WASI.
 
 ## 10. Lo que no se reabre
 
