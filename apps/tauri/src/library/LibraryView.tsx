@@ -1,5 +1,5 @@
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import { AudioLines, CircleStop, Ellipsis, FolderPlus, History, Mic, Users, X } from "lucide-react";
+import { AlertTriangle, AudioLines, CircleStop, Ellipsis, FolderPlus, History, Mic, Users, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState, type KeyboardEvent, type MouseEvent } from "react";
 import { call, desktop, native, recordingDetail } from "../api";
 import { Pane } from "../app/Pane";
@@ -9,6 +9,7 @@ import { speakerTitle } from "../core/people";
 import { reprocessChoice, reprocessDraft, reprocessTransition } from "../core/reprocessSheet";
 import { recipeFormLoad } from "../core/recipeForm";
 import { okfPublicationFile } from "../core/publicationFiles";
+import { recordingRevision } from "../core/recordingDetail";
 import { Button, ContentUnavailable, FormRow, FormSection, LabeledRow, PopupButton, Sheet, Spinner, TextField, ToolbarButton, ToolbarMenu } from "../mac/controls";
 import { alertMessage, chooseFiles, confirmDestructive, errorText, header, item, popupMenu, separator, submenu, type MenuEntry } from "../mac/native";
 import type { Destination, JobState, JSONObject, Recording, Snapshot } from "../types";
@@ -23,33 +24,35 @@ import "./library.css";
 
 type Rename = { recording: Recording; speaker: string; name: string };
 
-function revisionOf(recording: Recording) {
-  return JSON.stringify([
-    recording.status,
-    recording.error ?? null,
-    recording.audioPath,
-    recording.currentVersionId ?? null,
-    recording.versions.map((version) => [version.id, version.digest?.title ?? null, version.digest?.summary?.length ?? 0, Boolean(version.data)]),
-    recording.publications.map((publication) => [publication.destinationId, publication.updatedAt, publication.error ?? null]),
-  ]);
-}
-
-function useRecordingDetail(recording: Recording | null) {
-  const [detail, setDetail] = useState<Recording | null>(null);
+function useRecordingDetail(recording: Recording | null, active: boolean) {
+  const [loaded, setLoaded] = useState<{ key: string; detail: Recording | null; error: string | null } | null>(null);
   const id = recording?.id;
-  const revision = recording ? revisionOf(recording) : "";
+  const revision = recording ? recordingRevision(recording) : "";
+  const key = `${id ?? ""}:${revision}`;
   useEffect(() => {
-    if (!recording) return setDetail(null);
-    if (!desktop) return setDetail(recording);
+    if (!recording || !active) {
+      setLoaded(null);
+      return;
+    }
+    if (!desktop) {
+      setLoaded({ key, detail: recording, error: null });
+      return;
+    }
     let current = true;
+    setLoaded(null);
     void recordingDetail(recording.id)
-      .then((full) => current && setDetail(full))
-      .catch(() => current && setDetail(null));
+      .then((full) => {
+        if (current) setLoaded({ key, detail: full, error: null });
+      })
+      .catch((failure) => {
+        if (current) setLoaded({ key, detail: null, error: errorText(failure) });
+      });
     return () => {
       current = false;
     };
-  }, [id, revision]);
-  return detail && detail.id === id ? detail : null;
+  }, [id, revision, active]);
+  const current = active && loaded?.key === key ? loaded : null;
+  return { detail: current?.detail?.id === id ? current?.detail : null, detailError: current?.error ?? null };
 }
 
 export function LibraryView({
@@ -72,12 +75,19 @@ export function LibraryView({
   const [reprocessing, setReprocessing] = useState<Recording | null>(null);
   const [rename, setRename] = useState<Rename | null>(null);
   const selected = recordings.find((recording) => recording.id === selectedId) ?? null;
-  const detail = useRecordingDetail(selected);
+  const { detail, detailError } = useRecordingDetail(selected, active);
   const live = liveDestinations(data.destinations, data.accounts);
   const folders = data.settings.watchedFolders;
   const canSummarize = data.native?.llm?.available !== false;
   const minute = useMemo(() => Math.floor(Date.now() / 60_000), [data]);
   const jobFor = (recording: Recording) => jobs.find((job) => job.recordingId === recording.id);
+
+  useEffect(() => {
+    if (!active) {
+      setRename(null);
+      setReprocessing(null);
+    }
+  }, [active]);
 
   const perform = useCallback(
     async (work: () => Promise<unknown>) => {
@@ -291,9 +301,9 @@ export function LibraryView({
       {selected && (
         <>
           {selectedJob && <Spinner />}
-          <ToolbarMenu icon={History} label={currentVersionLabel(selected)} showsTitle menu={() => versionsMenu(selected)} disabled={Boolean(selectedJob)} />
+          <ToolbarMenu icon={History} label={currentVersionLabel(selected)} showsTitle menu={() => (detail ? versionsMenu(detail) : [])} disabled={!detail || Boolean(selectedJob)} />
           <ToolbarMenu icon={Users} label="Hablantes" menu={() => (detail ? speakersMenu(detail) : [])} disabled={!selectedSpeakers.length || Boolean(selectedJob)} />
-          <ToolbarMenu icon={Ellipsis} label="Acciones" menu={() => actionsMenu(detail ?? selected)} />
+          <ToolbarMenu icon={Ellipsis} label="Acciones" menu={() => (detail ? actionsMenu(detail) : [])} disabled={!detail} />
         </>
       )}
       <ToolbarMenu
@@ -336,7 +346,9 @@ export function LibraryView({
         </div>
         <div className="list-detail-divider" />
         <div className="detail-column">
-          {selected ? (
+          {selected && detailError ? (
+            <ContentUnavailable title="No se pudo abrir la grabación" icon={AlertTriangle} description={detailError} />
+          ) : selected ? (
             <TranscriptDetail
               key={selected.id}
               recording={detail ?? selected}

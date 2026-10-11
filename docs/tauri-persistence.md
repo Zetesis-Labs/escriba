@@ -4,13 +4,13 @@ Escriba guarda la biblioteca en SurrealDB 3.3 embebida con SurrealKV, bajo `libr
 
 ## Esquema
 
-La marca `meta:schema` vale `2`. Las tablas son `recording`, `version`, `publication`, `account`, `resolver`, `recipe`, `destination`, `log`, `setting`, `job`, `memory`, `trace`, `person`, `person_voice`, `voice` y la cola privada `audio_deletion`. Cada entidad tiene una fila, con `key`, `parent` cuando corresponde, `position` para conservar el orden y `payload` como valor nativo de SurrealDB. No existe un documento JSON global. Grabaciones, versiones y jobs exponen además campos consultables directamente: `title`, `status`, `createdAt`, `backend`, `state` y `recordingId`. Cada tabla tiene un índice único en `key`; versiones, recibos, jobs, memorias, trazas y huellas tienen índice en `parent`. [Los índices únicos y normales son parte del esquema SurrealQL](https://surrealdb.com/docs/reference/query-language/statements/define/indexes).
+La marca `meta:schema` vale `2`. Las tablas son `recording`, `version`, `publication`, `version_preview`, `publication_preview`, `account`, `resolver`, `recipe`, `destination`, `log`, `setting`, `job`, `memory`, `trace`, `person`, `person_voice`, `voice` y la cola privada `audio_deletion`. Cada entidad tiene una fila, con `key`, `parent` cuando corresponde, `position` para conservar el orden y `payload` como valor nativo de SurrealDB. No existe un documento JSON global. Grabaciones, versiones y jobs exponen además campos consultables directamente: `title`, `status`, `createdAt`, `backend`, `state` y `recordingId`. Cada tabla tiene un índice único en `key`; versiones, recibos, jobs, memorias, trazas y huellas tienen índice en `parent`. [Los índices únicos y normales son parte del esquema SurrealQL](https://surrealdb.com/docs/reference/query-language/statements/define/indexes).
 
-La caché en memoria de `Store` conserva el contrato del frontend, pero cada sustitución se traduce a diferencias entre filas. Grabación, versiones y recibos, junto con las memorias, trazas y jobs eliminados al descartar y la petición de borrar su audio, se confirman en una sola transacción. Si falla una sentencia, la transacción se cancela y la caché permanece sin cambios. SurrealKV 3.3 usa sincronización de WAL en cada commit por defecto; el código no configura un modo de sincronización más débil. [SurrealDB describe las transacciones del SDK](https://surrealdb.com/docs/reference/rust/concepts/transaction).
+La caché en memoria de `Store` conserva solo el índice ligero de la biblioteca; cada cambio se traduce a diferencias entre filas. Grabación, versiones y recibos, junto con las memorias, trazas y jobs eliminados al descartar y la petición de borrar su audio, se confirman en una sola transacción. Si falla una sentencia, la transacción se cancela y la caché permanece sin cambios. SurrealKV 3.3 usa sincronización de WAL en cada commit por defecto; el código no configura un modo de sincronización más débil. [SurrealDB describe las transacciones del SDK](https://surrealdb.com/docs/reference/rust/concepts/transaction).
 
 Descartar deja una lápida con solo `id`, `source`, `sourceKey`, `legacyKey` y `status: discarded`; no conserva título, transcripciones, versiones, resúmenes, datos, recibos ni la ruta de la copia. La biblioteca visible omite esas lápidas y la vigilancia las usa para no reincorporar el origen. La cola `audio_deletion`, separada del registro y de las respuestas a JavaScript, conserva la ruta de la copia y su identidad de dispositivo e inodo. Tras confirmar la transacción y al abrir la biblioteca, Rust comprueba que sigue siendo un archivo normal dentro de `audio`, con la misma identidad y sin referencias de otra grabación, antes de borrarlo y retirar la petición. Si el borrado falla, queda pendiente para otro arranque; el archivo de origen, las publicaciones externas y las huellas ya aprendidas por Personas permanecen intactos.
 
-`Store::open` convierte automáticamente el `library.json` de la primera versión cuando aún no hay datos en SurrealDB. Ese fichero solo se lee y queda intacto. Si encuentra filas SurrealDB del esquema `1`, convierte sus cadenas JSON a objetos nativos en una transacción y actualiza la marca a `2`. Un error de esquema o una fila corrupta detienen la apertura con un error visible; no se arranca con una biblioteca vacía.
+`Store::open` convierte automáticamente el `library.json` de la primera versión cuando aún no hay datos en SurrealDB. Ese fichero solo se lee y queda intacto. Si encuentra filas SurrealDB del esquema `1`, convierte sus cadenas JSON a objetos nativos en una transacción y actualiza la marca a `2`. Un error de esquema o del índice detiene la apertura con un error visible; no se arranca con una biblioteca vacía. El contenido completo de una versión se valida al construir su proyección inicial y al solicitar el detalle; los arranques siguientes no lo leen para validarlo de nuevo.
 
 Al actualizar, `Store::open` retira una sola vez las asignaciones de receta guardadas en grabaciones anteriores, cuya procedencia no constaba. La elección explícita hecha al incorporar una nota nueva se conserva; sin ella, el runtime consulta la receta por defecto vigente al procesarla. Cada versión y traza mantienen la receta que se ejecutó.
 
@@ -26,15 +26,40 @@ biblioteca. La recuperación no les asigna la fecha del reinicio.
 
 ## Modelo en memoria y trabajos
 
-La caché usa `LibraryData`, `Recording`, `Version` y `Settings` de serde, con
-segmentos, palabras y reconocimientos tipados. Conserva los campos opcionales
-ausentes, los valores nulos y las extensiones ya guardadas; un campo conocido de
-tipo incorrecto falla antes de confirmar el cambio. El JSON queda en los
-contratos de IPC, en los datos abiertos de recetas y en las filas de SurrealDB.
-Los módulos de `src-tauri/src/store/` separan grabaciones, versiones, ajustes,
-catálogos, personas, importación y vistas. La lista se construye directamente
-desde los tipos y omite las transcripciones completas y los programas antes de
-copiarlos.
+La caché usa `LibraryIndex`: metadatos de grabaciones y proyecciones de sus
+versiones y publicaciones. Cada versión conserva hasta 400 caracteres de texto,
+título, descripción breve, etiquetas, duración, idioma y una huella de revisión.
+No carga segmentos, palabras, reconocimientos, resumen completo, datos de receta
+ni programas y respuestas completas de publicación. Las extensiones arbitrarias
+se conservan en el documento completo, no se duplican en la lista.
+
+`version_preview` y `publication_preview` contienen filas pequeñas separadas
+del contenido completo y se confirman con él en la misma transacción. La lista
+no recorre las tablas de transcripciones ni de recibos completos. La marca `meta:preview_v1` indica que se han generado las
+proyecciones de bibliotecas anteriores: se recorre cada fila por separado y la
+marca solo se confirma tras validar el índice. El esquema sigue siendo `2`.
+
+`recording_detail` consulta solo la grabación seleccionada y sus hijos mediante
+el índice de `parent`, y contrasta sus identidades y orden con las proyecciones.
+El runtime
+hace lo mismo para la nota que está procesando. La WebView descarta el detalle al
+cambiar de selección o salir de Biblioteca; un cambio de revisión vuelve a
+cargarlo. `snapshot` conserva la lectura completa para solicitudes explícitas,
+pero no interviene en el arranque ni en los refrescos de la lista.
+
+Las mutaciones de versiones y recibos hidratan únicamente la grabación afectada.
+La persistencia recibe ese ámbito de escritura y nunca guarda proyecciones sobre
+transcripciones completas. Los cambios de ajustes, catálogo o metadatos no leen
+las transcripciones. Los alias de receta se aplican en la base de datos de forma
+simultánea, incluso en cadenas o intercambios de identificadores.
+
+Los datos completos usan `Recording`, `Version` y `Settings` de serde, con
+segmentos, palabras y reconocimientos tipados. Conservan campos opcionales
+ausentes, nulos y extensiones; un campo conocido de tipo incorrecto falla antes
+de confirmar el cambio. El JSON queda en IPC, datos abiertos de recetas y filas
+de SurrealDB. Los módulos de `src-tauri/src/store/` separan grabaciones, versiones,
+ajustes, catálogos, personas, importación, proyecciones y vistas; `persistence/`
+separa la lectura del índice y detalle de las transacciones del actor.
 
 Las carpetas vigiladas también están tipadas. Su bookmark de macOS se conserva
 como valor opaco y se valida al restaurar el acceso: una autorización antigua

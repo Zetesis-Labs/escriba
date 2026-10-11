@@ -16,7 +16,7 @@ impl Store {
             return Err("Estilo de carpeta desconocido".into());
         }
         let canonical = canonical_folder(path)?;
-        let mut next = self.data.clone();
+        let mut next = self.data.edit();
         let folders = next
             .settings
             .watched_folders
@@ -103,7 +103,7 @@ impl Store {
                     || same_folder(Path::new(&folder.path), path)
             });
         let seeds = !adopted && !present;
-        let mut next = self.data.clone();
+        let mut next = self.data.edit();
         if seeds {
             next.settings.watched_folders.as_mut()
                 .ok_or("Carpetas inválidas")?
@@ -155,7 +155,7 @@ impl Store {
         if replacement.is_some_and(|bytes| bytes.is_empty()) {
             return Err("La autorización renovada está vacía".into());
         }
-        let mut next = self.data.clone();
+        let mut next = self.data.edit();
         let folders = next
             .settings
             .watched_folders

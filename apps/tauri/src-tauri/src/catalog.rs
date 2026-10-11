@@ -9,7 +9,7 @@ pub fn install(store: &mut Store, package: &Value) -> Result<(), String> {
     let destinations = package["destinations"]
         .as_array()
         .ok_or("Destinos compilados inválidos")?;
-    let mut next = store.data_json();
+    let mut next = store.index_json();
     let previous = next["recipes"]
         .as_array()
         .ok_or("Recetas inválidas")?
@@ -106,7 +106,7 @@ pub fn install(store: &mut Store, package: &Value) -> Result<(), String> {
             }
         }
     }
-    store.replace(next)
+    store.replace_catalog(next, aliases)
 }
 
 #[cfg(test)]

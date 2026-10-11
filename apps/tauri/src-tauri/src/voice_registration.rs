@@ -446,7 +446,7 @@ for line in sys.stdin:
             store.people().unwrap()[0]["voices"][0]["source"],
             "muestra de voz"
         );
-        assert!(store.snapshot()["recordings"]
+        assert!(store.snapshot().unwrap()["recordings"]
             .as_array()
             .unwrap()
             .is_empty());
@@ -636,7 +636,7 @@ for line in sys.stdin:
             store.people().unwrap()[0]["voices"][0]["source"],
             "muestra de voz"
         );
-        assert!(store.snapshot()["recordings"]
+        assert!(store.snapshot().unwrap()["recordings"]
             .as_array()
             .unwrap()
             .is_empty());

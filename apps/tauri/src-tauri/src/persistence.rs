@@ -3,7 +3,12 @@ use chrono::Utc;
 use fs2::FileExt;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::{collections::BTreeMap, path::Path, sync::mpsc, thread};
+use std::{
+    collections::{BTreeMap, HashMap, HashSet},
+    path::Path,
+    sync::mpsc,
+    thread,
+};
 use surrealdb::{
     engine::local::{Db, SurrealKv},
     types::SurrealValue,
@@ -11,6 +16,8 @@ use surrealdb::{
 };
 use tokio::sync::mpsc as async_mpsc;
 use uuid::Uuid;
+mod index;
+use index::{load_index, preview_for, recording};
 
 #[derive(Clone, Debug, SurrealValue)]
 struct Row {
@@ -18,6 +25,12 @@ struct Row {
     parent: String,
     position: i64,
     payload: Value,
+}
+
+#[derive(Default)]
+pub struct WriteScope {
+    pub full_recordings: HashSet<String>,
+    pub recipe_aliases: HashMap<String, String>,
 }
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -83,7 +96,26 @@ impl AudioDeletion {
 
 enum Command {
     Load(mpsc::Sender<Result<Option<Value>, String>>),
+    LoadIndex(mpsc::Sender<Result<Option<Value>, String>>),
+    Recording(String, mpsc::Sender<Result<Option<Value>, String>>),
+    #[cfg(test)]
     Save(Value, Value, mpsc::Sender<Result<(), String>>),
+    SaveScoped(
+        Value,
+        Value,
+        WriteScope,
+        Vec<AudioDeletion>,
+        mpsc::Sender<Result<(), String>>,
+    ),
+    SaveScopedVersion(
+        Value,
+        Value,
+        WriteScope,
+        String,
+        Vec<SpeakerVoice>,
+        Option<Teaching>,
+        mpsc::Sender<Result<bool, String>>,
+    ),
     SaveWithAudioDeletions(
         Value,
         Value,
@@ -112,14 +144,6 @@ enum Command {
     RemovePersonVoice(String, mpsc::Sender<Result<(), String>>),
     RemovePerson(String, mpsc::Sender<Result<(), String>>),
     VersionVoices(String, mpsc::Sender<Result<Vec<SpeakerVoice>, String>>),
-    SaveVersion(
-        Value,
-        Value,
-        String,
-        Vec<SpeakerVoice>,
-        Option<Teaching>,
-        mpsc::Sender<Result<bool, String>>,
-    ),
     #[cfg(test)]
     Query(String, mpsc::Sender<Result<(), String>>),
     #[cfg(test)]
@@ -163,8 +187,52 @@ impl Persistence {
                         Command::Load(reply) => {
                             let _ = reply.send(load(&db).await);
                         }
+                        Command::LoadIndex(reply) => {
+                            let _ = reply.send(load_index(&db).await);
+                        }
+                        Command::Recording(id, reply) => {
+                            let _ = reply.send(recording(&db, &id).await);
+                        }
+                        #[cfg(test)]
                         Command::Save(before, after, reply) => {
                             let _ = reply.send(save(&db, &before, &after).await);
+                        }
+                        Command::SaveScoped(before, after, scope, deletions, reply) => {
+                            let _ = reply.send(
+                                save_scoped(
+                                    &db,
+                                    &before,
+                                    &after,
+                                    &scope,
+                                    SaveExtras {
+                                        audio_deletions: &deletions,
+                                        ..SaveExtras::default()
+                                    },
+                                )
+                                .await,
+                            );
+                        }
+                        Command::SaveScopedVersion(
+                            before,
+                            after,
+                            scope,
+                            id,
+                            voices,
+                            teaching,
+                            reply,
+                        ) => {
+                            let _ = reply.send(
+                                save_scoped_version(
+                                    &db,
+                                    &before,
+                                    &after,
+                                    &scope,
+                                    &id,
+                                    &voices,
+                                    teaching.as_ref(),
+                                )
+                                .await,
+                            );
                         }
                         Command::SaveWithAudioDeletions(before, after, deletions, reply) => {
                             let _ = reply.send(
@@ -228,12 +296,6 @@ impl Persistence {
                         }
                         Command::VersionVoices(id, reply) => {
                             let _ = reply.send(version_voices(&db, &id).await);
-                        }
-                        Command::SaveVersion(before, after, id, voices, teaching, reply) => {
-                            let _ = reply.send(
-                                save_version(&db, &before, &after, &id, &voices, teaching.as_ref())
-                                    .await,
-                            );
                         }
                         #[cfg(test)]
                         Command::Query(query, reply) => {
@@ -303,6 +365,51 @@ impl Persistence {
     pub fn load(&self) -> Result<Option<Value>, String> {
         self.request(Command::Load)
     }
+    pub fn load_index(&self) -> Result<Option<Value>, String> {
+        self.request(Command::LoadIndex)
+    }
+    pub fn recording(&self, id: &str) -> Result<Option<Value>, String> {
+        self.request(|reply| Command::Recording(id.to_owned(), reply))
+    }
+    pub fn save_scoped(
+        &self,
+        before: Value,
+        after: Value,
+        scope: WriteScope,
+    ) -> Result<(), String> {
+        self.request(|reply| Command::SaveScoped(before, after, scope, Vec::new(), reply))
+    }
+    pub fn save_scoped_with_audio_deletions(
+        &self,
+        before: Value,
+        after: Value,
+        scope: WriteScope,
+        deletions: &[AudioDeletion],
+    ) -> Result<(), String> {
+        self.request(|reply| Command::SaveScoped(before, after, scope, deletions.to_vec(), reply))
+    }
+    pub fn save_scoped_version(
+        &self,
+        before: Value,
+        after: Value,
+        scope: WriteScope,
+        id: &str,
+        voices: &[SpeakerVoice],
+        teaching: Option<Teaching>,
+    ) -> Result<bool, String> {
+        self.request(|reply| {
+            Command::SaveScopedVersion(
+                before,
+                after,
+                scope,
+                id.to_owned(),
+                voices.to_vec(),
+                teaching,
+                reply,
+            )
+        })
+    }
+    #[cfg(test)]
     pub fn save(&self, before: Value, after: Value) -> Result<(), String> {
         self.request(|reply| Command::Save(before, after, reply))
     }
@@ -372,25 +479,6 @@ impl Persistence {
     pub fn version_voices(&self, id: &str) -> Result<Vec<SpeakerVoice>, String> {
         self.request(|reply| Command::VersionVoices(id.to_owned(), reply))
     }
-    pub fn save_version(
-        &self,
-        before: Value,
-        after: Value,
-        id: &str,
-        voices: &[SpeakerVoice],
-        teaching: Option<Teaching>,
-    ) -> Result<bool, String> {
-        self.request(|reply| {
-            Command::SaveVersion(
-                before,
-                after,
-                id.to_owned(),
-                voices.to_vec(),
-                teaching,
-                reply,
-            )
-        })
-    }
     #[cfg(test)]
     pub fn query_test(&self, query: &str) -> Result<(), String> {
         self.request(|reply| Command::Query(query.to_owned(), reply))
@@ -428,6 +516,8 @@ async fn connect(path: &Path) -> Result<Surreal<Db>, String> {
         "recording",
         "version",
         "publication",
+        "version_preview",
+        "publication_preview",
         "account",
         "resolver",
         "recipe",
@@ -457,6 +547,8 @@ async fn connect(path: &Path) -> Result<Surreal<Db>, String> {
         if [
             "version",
             "publication",
+            "version_preview",
+            "publication_preview",
             "job",
             "memory",
             "trace",
@@ -479,6 +571,8 @@ async fn connect(path: &Path) -> Result<Surreal<Db>, String> {
         "recording",
         "version",
         "publication",
+        "version_preview",
+        "publication_preview",
         "account",
         "resolver",
         "recipe",
@@ -603,6 +697,9 @@ fn table_names() -> [&'static str; 9] {
     ]
 }
 
+#[cfg(test)]
+mod tests;
+
 async fn rows(db: &Surreal<Db>, table: &str) -> Result<Vec<Row>, String> {
     let mut response = db
         .query("SELECT key, parent, position, payload FROM type::table($table)")
@@ -614,17 +711,22 @@ async fn rows(db: &Surreal<Db>, table: &str) -> Result<Vec<Row>, String> {
 }
 
 async fn rows_for_parent(db: &Surreal<Db>, table: &str, parent: &str) -> Result<Vec<Row>, String> {
+    let parent = parent_literal(parent)?;
     let mut response = db
-        .query(
-            "SELECT key, parent, position, payload FROM type::table($table) WHERE parent = $parent",
-        )
+        .query(format!(
+            "SELECT key, parent, position, payload FROM type::table($table) WHERE parent = {parent}"
+        ))
         .bind(("table", table))
-        .bind(("parent", parent))
         .await
         .map_err(|e| e.to_string())?
         .check()
         .map_err(|e| e.to_string())?;
     response.take(0).map_err(|e| e.to_string())
+}
+
+fn parent_literal(parent: &str) -> Result<String, String> {
+    // SurrealDB 3.3 no usa idx_*_parent cuando el predicado compara con un parámetro.
+    serde_json::to_string(parent).map_err(|e| e.to_string())
 }
 
 async fn load(db: &Surreal<Db>) -> Result<Option<Value>, String> {
@@ -709,7 +811,10 @@ async fn load(db: &Surreal<Db>) -> Result<Option<Value>, String> {
     Ok(Some(data))
 }
 
-fn flatten(data: &Value) -> Result<BTreeMap<(String, String), Row>, String> {
+fn flatten_with_scope(
+    data: &Value,
+    scope: Option<&WriteScope>,
+) -> Result<BTreeMap<(String, String), Row>, String> {
     let mut output = BTreeMap::new();
     for (table, field) in [
         ("recording", "recordings"),
@@ -747,6 +852,9 @@ fn flatten(data: &Value) -> Result<BTreeMap<(String, String), Row>, String> {
                 payload,
             )?;
             if table == "recording" {
+                if scope.is_some_and(|scope| !scope.full_recordings.contains(key)) {
+                    continue;
+                }
                 for (child_table, field, id_field) in [
                     ("version", "versions", "id"),
                     ("publication", "publications", "destinationId"),
@@ -806,8 +914,19 @@ fn insert(
     Ok(())
 }
 
+#[cfg(test)]
 async fn save(db: &Surreal<Db>, before: &Value, after: &Value) -> Result<(), String> {
     save_with_aux(db, before, after, SaveExtras::default()).await
+}
+
+async fn save_scoped(
+    db: &Surreal<Db>,
+    before: &Value,
+    after: &Value,
+    scope: &WriteScope,
+    extras: SaveExtras<'_>,
+) -> Result<(), String> {
+    save_with_aux_mode(db, before, after, extras, Some(scope)).await
 }
 
 #[derive(Default)]
@@ -817,10 +936,23 @@ struct SaveExtras<'a> {
     teaching: Option<&'a TeachingPlan>,
 }
 
-async fn save_version(
+async fn save_scoped_version(
     db: &Surreal<Db>,
     before: &Value,
     after: &Value,
+    scope: &WriteScope,
+    id: &str,
+    voices: &[SpeakerVoice],
+    teaching: Option<&Teaching>,
+) -> Result<bool, String> {
+    save_version_mode(db, before, after, scope, id, voices, teaching).await
+}
+
+async fn save_version_mode(
+    db: &Surreal<Db>,
+    before: &Value,
+    after: &Value,
+    scope: &WriteScope,
     id: &str,
     voices: &[SpeakerVoice],
     teaching: Option<&Teaching>,
@@ -860,7 +992,7 @@ async fn save_version(
     } else {
         None
     };
-    save_with_aux(
+    save_with_aux_mode(
         db,
         before,
         after,
@@ -869,6 +1001,7 @@ async fn save_version(
             teaching: plan.as_ref(),
             ..SaveExtras::default()
         },
+        Some(scope),
     )
     .await?;
     Ok(plan.is_some())
@@ -880,12 +1013,23 @@ async fn save_with_aux(
     after: &Value,
     extras: SaveExtras<'_>,
 ) -> Result<(), String> {
-    let old = flatten(before)?;
-    let new = flatten(after)?;
+    save_with_aux_mode(db, before, after, extras, None).await
+}
+
+async fn save_with_aux_mode(
+    db: &Surreal<Db>,
+    before: &Value,
+    after: &Value,
+    extras: SaveExtras<'_>,
+    scope: Option<&WriteScope>,
+) -> Result<(), String> {
+    let old = flatten_with_scope(before, scope)?;
+    let new = flatten_with_scope(after, scope)?;
     let tx = db.clone().begin().await.map_err(|e| e.to_string())?;
     let result = async {
         for ((table, key), row) in &new {
             if old.get(&(table.clone(), key.clone())).is_some_and(|previous| previous.parent == row.parent && previous.position == row.position && previous.payload == row.payload) { continue; }
+            let preview = if table == "version" || table == "publication" { preview_for(table, &row.payload)? } else { Value::Null };
             tx.query("UPSERT type::record($table, $key) SET key = $key, parent = $parent, position = $position, payload = $payload, title = $title, status = $status, createdAt = $createdAt, backend = $backend, state = $state, recordingId = $recordingId")
                 .bind(("table", table.as_str())).bind(("key", key.as_str()))
                 .bind(("parent", row.parent.as_str())).bind(("position", row.position))
@@ -895,10 +1039,34 @@ async fn save_with_aux(
                 .bind(("state", row.payload["state"].clone())).bind(("recordingId", row.payload["recordingId"].clone()))
                 .await.map_err(|e| e.to_string())?
                 .check().map_err(|e| e.to_string())?;
+            if table == "version" || table == "publication" {
+                let preview_table = format!("{table}_preview");
+                tx.query("UPSERT type::record($table, $key) SET key = $key, parent = $parent, position = $position, payload = $payload")
+                    .bind(("table", preview_table)).bind(("key", key.as_str()))
+                    .bind(("parent", row.parent.as_str())).bind(("position", row.position))
+                    .bind(("payload", preview)).await.map_err(|e| e.to_string())?
+                    .check().map_err(|e| e.to_string())?;
+            }
             if table == "recording" && row.payload["status"] == "discarded" {
+                let record_parent = parent_literal(key)?;
+                let mut versions = tx.query(format!("SELECT payload.id AS version_id FROM version_preview WHERE parent = {record_parent}"))
+                    .await.map_err(|e| e.to_string())?
+                    .check().map_err(|e| e.to_string())?;
+                let ids: Vec<Value> = versions.take(0).map_err(|e| e.to_string())?;
+                for version in ids {
+                    let id = version["version_id"].as_str().ok_or("Versión guardada sin ID")?;
+                    let voice_parent = parent_literal(id)?;
+                    tx.query(format!("DELETE voice WHERE parent = {voice_parent}"))
+                        .await.map_err(|e| e.to_string())?.check().map_err(|e| e.to_string())?;
+                }
+                for child in ["version", "publication", "version_preview", "publication_preview"] {
+                    tx.query(format!("DELETE type::table($table) WHERE parent = {record_parent}"))
+                        .bind(("table", child))
+                        .await.map_err(|e| e.to_string())?.check().map_err(|e| e.to_string())?;
+                }
                 for child in ["memory", "trace", "job"] {
-                    tx.query("DELETE type::table($table) WHERE parent = $parent")
-                        .bind(("table", child)).bind(("parent", key.as_str()))
+                    tx.query(format!("DELETE type::table($table) WHERE parent = {record_parent}"))
+                        .bind(("table", child))
                         .await.map_err(|e| e.to_string())?.check().map_err(|e| e.to_string())?;
                 }
             }
@@ -909,9 +1077,25 @@ async fn save_with_aux(
                 .bind(("table", table.as_str())).bind(("key", key.as_str()))
                 .await.map_err(|e| e.to_string())?.check().map_err(|e| e.to_string())?;
             if table == "recording" {
+                let record_parent = parent_literal(key)?;
+                let mut versions = tx.query(format!("SELECT payload.id AS version_id FROM version_preview WHERE parent = {record_parent}"))
+                    .await.map_err(|e| e.to_string())?
+                    .check().map_err(|e| e.to_string())?;
+                let ids: Vec<Value> = versions.take(0).map_err(|e| e.to_string())?;
+                for version in ids {
+                    let id = version["version_id"].as_str().ok_or("Versión guardada sin ID")?;
+                    let voice_parent = parent_literal(id)?;
+                    tx.query(format!("DELETE voice WHERE parent = {voice_parent}"))
+                        .await.map_err(|e| e.to_string())?.check().map_err(|e| e.to_string())?;
+                }
+                for child in ["version", "publication", "version_preview", "publication_preview"] {
+                    tx.query(format!("DELETE type::table($table) WHERE parent = {record_parent}"))
+                        .bind(("table", child))
+                        .await.map_err(|e| e.to_string())?.check().map_err(|e| e.to_string())?;
+                }
                 for child in ["memory", "trace", "job"] {
-                    tx.query("DELETE type::table($table) WHERE parent = $parent")
-                        .bind(("table", child)).bind(("parent", key.as_str()))
+                    tx.query(format!("DELETE type::table($table) WHERE parent = {record_parent}"))
+                        .bind(("table", child))
                         .await.map_err(|e| e.to_string())?.check().map_err(|e| e.to_string())?;
                 }
             }
@@ -919,8 +1103,42 @@ async fn save_with_aux(
                 let version_id = old.get(&(table.clone(), key.clone()))
                     .and_then(|row| row.payload["id"].as_str())
                     .ok_or("Versión sin ID")?;
-                tx.query("DELETE type::table('voice') WHERE parent = $parent")
-                    .bind(("parent", version_id)).await.map_err(|e| e.to_string())?.check().map_err(|e| e.to_string())?;
+                let voice_parent = parent_literal(version_id)?;
+                tx.query(format!("DELETE type::table('voice') WHERE parent = {voice_parent}"))
+                    .await.map_err(|e| e.to_string())?.check().map_err(|e| e.to_string())?;
+            }
+            if table == "version" || table == "publication" {
+                let preview_table = format!("{table}_preview");
+                tx.query("DELETE type::record($table, $key)")
+                    .bind(("table", preview_table)).bind(("key", key.as_str()))
+                    .await.map_err(|e| e.to_string())?.check().map_err(|e| e.to_string())?;
+            }
+        }
+        if let Some(scope) = scope {
+            if scope.recipe_aliases.iter().any(|(old, new)| old != new) {
+                let mut response = tx
+                    .query("SELECT key, payload.recipeId AS recipe_id FROM version_preview")
+                    .await.map_err(|e| e.to_string())?.check().map_err(|e| e.to_string())?;
+                let rows: Vec<Value> = response.take(0).map_err(|e| e.to_string())?;
+                let mut updates = Vec::new();
+                for row in rows {
+                    if let Some(old_recipe) = row["recipe_id"].as_str() {
+                        if let Some(new_recipe) = scope.recipe_aliases.get(old_recipe) {
+                            if new_recipe != old_recipe {
+                                let key = row["key"].as_str().ok_or("Proyección de versión sin clave")?;
+                                updates.push((key.to_owned(), new_recipe.as_str()));
+                            }
+                        }
+                    }
+                }
+                for (key, new_recipe) in updates {
+                    for table in ["version", "version_preview"] {
+                        tx.query("UPDATE type::record($table, $key) SET payload.recipeId = $replacement")
+                            .bind(("table", table)).bind(("key", key.as_str()))
+                            .bind(("replacement", new_recipe))
+                            .await.map_err(|e| e.to_string())?.check().map_err(|e| e.to_string())?;
+                    }
+                }
             }
         }
         if let Some((version_id, voices)) = extras.version_voices {

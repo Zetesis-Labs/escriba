@@ -11,6 +11,12 @@ TypeScript/Bun/CodeMirror y TypeScript 7 son ampliaciones aprobadas. Las
 comprobaciones técnicas y manuales aún pendientes no cambian por retirar la
 coexistencia.
 
+Ampliación confirmada por Rubén el 2026-10-11: proveedores instalables desde el
+proyecto, formularios y credenciales gestionados por Escriba, y uso de SDK desde
+las recetas con cuentas autorizadas. Está pendiente; criterios de aceptación en
+[objetivo-extensibilidad-recetas.md](objetivo-extensibilidad-recetas.md). Este
+encargo amplía expresamente la paridad y el contrato del apartado 8.
+
 ## 0. La única directriz
 
 **La app Tauri tiene que tener la misma interfaz y el mismo comportamiento que
@@ -637,6 +643,19 @@ Release instalada en `/Applications/Escriba.app`, con firma estricta y copia
 idéntica al bundle construido; anterior conservada en `.build/Escriba-anterior.app`.
 Pendiente de confirmación manual de Rubén sobre esta instalación.
 
+### Siguiente bloque: proveedores y SDK desde las recetas
+
+Generalizar los conectores para añadir un proveedor sin modificar Escriba y
+permitir que una receta use su SDK con una cuenta autorizada, conservando los
+secretos en el host. Hoy los formularios de conectores y parte del transporte
+están limitados a Notion/OKF, y la receta sólo puede ordenar `publicar(nota)`.
+
+Este bloque está pendiente de implementación. Se comprueba con dos recorridos:
+un proveedor de prueba definido enteramente en un proyecto externo y SDK de
+Notion utilizado directamente desde una receta. Monday era sólo un ejemplo,
+no una integración encargada. Requisitos, límites y aceptación en
+[objetivo-extensibilidad-recetas.md](objetivo-extensibilidad-recetas.md).
+
 ## 9. Puertas 5 y 6: tamaño, empaquetado y documentación
 
 - Perfil de release con `strip`, `lto` y `codegen-units = 1`, midiendo tamaño y
@@ -648,6 +667,15 @@ Pendiente de confirmación manual de Rubén sobre esta instalación.
   Procedimiento, desglose, RSS y límites de la comparación en
   [rendimiento-escriba.md](rendimiento-escriba.md). Medidor reproducible en
   `scripts/measure-app.py`.
+  Ampliación del 2026-10-11: lista basada en proyecciones persistidas y detalle
+  cargado bajo demanda; sin transcripciones completas retenidas en `Store`.
+  Las mutaciones hidratan solo la nota afectada y conservan el documento
+  original. Verificación: 203 pruebas Rust y 199 TypeScript, tipos, formato y
+  Clippy; copia privada con 242 grabaciones y 218 versiones intactas.
+  Sonda del almacén sobre copia privada: 1.184,36 → 55,36 MiB;
+  release instalada: 274,16 MiB totales y 137,81 MiB de Rust tras cinco minutos;
+  pico de Rust de 337,6 MiB frente a ~1,8 GiB. Detalle de las medidas y límites
+  en `rendimiento-escriba.md`. Pendiente de validación manual de Rubén.
 - Notarizar una vez con los binarios externos.
 - `CLAUDE.md` con una sección por app; decidir con Rubén si vuelve la sonda WASI
   al CI o se retira la frase «El núcleo viaja»; cuando pasen las cinco puertas,

@@ -201,7 +201,7 @@ impl Store {
                 .filter(|_| !changed || prior.status == RecordingStatus::Discarded)
             {
                 fs::remove_file(&temp).map_err(|e| e.to_string())?;
-                let mut next = self.data.clone();
+                let mut next = self.data.edit();
                 let existing = record_mut(&mut next, &key)?;
                 existing.source = source_text.to_string().into();
                 existing.source_key = source_key.to_owned().into();
@@ -232,9 +232,9 @@ impl Store {
             }
         }
         if metadata_from_watcher.is_none() && abandoned.is_none() {
-            if let Ok(existing) = self.recording(&key) {
+            if let Some(existing) = self.data.recordings.iter().find(|record| record.id == key) {
                 fs::remove_file(&temp).map_err(|e| e.to_string())?;
-                return Ok(existing);
+                return existing.write();
             }
         }
         let filename = if metadata_from_watcher.is_some() {
@@ -271,7 +271,7 @@ impl Store {
                 return Err(format!("No se pudo guardar el audio: {error}"));
             }
         };
-        let mut next = self.data.clone();
+        let mut next = self.data.edit();
         let records = &mut next.recordings;
         let old_audio = prior
             .as_ref()

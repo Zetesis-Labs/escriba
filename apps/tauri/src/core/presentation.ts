@@ -121,6 +121,7 @@ export function recordingTitle(digest: Digest | null | undefined, preview: strin
 }
 
 export function recordingExcerpt(digest: Digest | null | undefined, preview: string | null | undefined) {
+  if (digest?.description) return digest.description;
   const summary = noteDescription(digest?.summary);
   if (summary) return summary;
   const flat = preview?.split(/\r?\n/).join(" ").trim();

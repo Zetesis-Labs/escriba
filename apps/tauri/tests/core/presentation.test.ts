@@ -76,6 +76,10 @@ describe("cómo se presenta cada grabación en la biblioteca", () => {
     expect(recordingExcerpt(null, "Probando, probando.\nUn, dos, tres.")).toBe("Probando, probando. Un, dos, tres.");
     expect(recordingExcerpt(null, null)).toBeNull();
   });
+  test("el extracto usa la descripción breve de la lista cuando existe", () => {
+    expect(recordingExcerpt({ title: "T", description: "Descripción preparada", summary: "Resumen completo.", tags: [] }, "Probando"))
+      .toBe("Descripción preparada");
+  });
   test("la fecha se dice como la diría una persona: hoy, ayer, el día, y el año solo si no es este", () => {
     const ahora = fecha("2026-10-08 01:30");
     expect(recordingWhen(fecha("2026-10-08 00:18"), ahora, madrid)).toBe("hoy, 00:18");

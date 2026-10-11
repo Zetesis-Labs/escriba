@@ -80,7 +80,7 @@ impl Runtime {
     }
 
     fn snapshot(&self) -> Result<Value, String> {
-        let snapshot = self.store()?.snapshot();
+        let snapshot = self.store()?.snapshot()?;
         self.decorate(snapshot)
     }
 

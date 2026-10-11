@@ -968,7 +968,7 @@ mod tests {
         let mut store = crate::store::Store::open(directory.path().join("library")).unwrap();
         data["schemaVersion"] = json!(1);
         store.replace(data.clone()).unwrap();
-        assert!(store.snapshot().to_string().len() > MAX_FRAME as usize);
+        assert!(store.snapshot().unwrap().to_string().len() > MAX_FRAME as usize);
         let library = store.root.clone();
         let store = Arc::new(StdMutex::new(store));
         let capability = store_host(store.clone(), None);
