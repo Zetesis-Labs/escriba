@@ -55,6 +55,5 @@ export const snapshot: Snapshot = {
     whisperModel: "large",
     launchAtLogin: false,
   },
-  logs: [],
   dataPath: "/library",
 };

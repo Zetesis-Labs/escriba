@@ -16,10 +16,17 @@ use surrealdb::{
 };
 use tokio::sync::mpsc as async_mpsc;
 use uuid::Uuid;
+mod changes;
 mod index;
 mod knowledge;
+mod logs;
+pub use changes::{changes, Children, RowOp};
+use changes::{RowWrite, Table};
 use index::{load_index, preview_for, recording};
 pub use knowledge::CoreChange;
+pub use logs::LogQuery;
+#[cfg(test)]
+pub use logs::RETAINED as LOG_RETAINED;
 
 #[derive(Clone, Debug, SurrealValue)]
 struct Row {
@@ -35,6 +42,30 @@ pub struct WriteScope {
     pub recipe_aliases: HashMap<String, String>,
     pub draft_change: Option<(String, Option<Value>)>,
     pub draft_receipt: Option<(String, String, Value)>,
+}
+
+#[derive(Default)]
+pub struct LibraryWrite {
+    pub ops: Vec<RowOp>,
+    pub recipe_aliases: HashMap<String, String>,
+    pub draft_change: Option<(String, Option<Value>)>,
+    pub draft_receipt: Option<(String, String, Value)>,
+    pub audio_deletions: Vec<AudioDeletion>,
+    pub version_voices: Option<(String, Vec<SpeakerVoice>)>,
+    pub teaching: Option<Teaching>,
+    pub logs: Vec<Value>,
+}
+
+impl WriteScope {
+    pub fn into_write(self, ops: Vec<RowOp>) -> LibraryWrite {
+        LibraryWrite {
+            ops,
+            recipe_aliases: self.recipe_aliases,
+            draft_change: self.draft_change,
+            draft_receipt: self.draft_receipt,
+            ..LibraryWrite::default()
+        }
+    }
 }
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -108,30 +139,9 @@ enum Command {
     Load(mpsc::Sender<Result<Option<Value>, String>>),
     LoadIndex(mpsc::Sender<Result<Option<Value>, String>>),
     Recording(String, mpsc::Sender<Result<Option<Value>, String>>),
-    #[cfg(test)]
-    Save(Value, Value, mpsc::Sender<Result<(), String>>),
-    SaveScoped(
-        Value,
-        Value,
-        WriteScope,
-        Vec<AudioDeletion>,
-        mpsc::Sender<Result<(), String>>,
-    ),
-    SaveScopedVersion(
-        Value,
-        Value,
-        WriteScope,
-        String,
-        Vec<SpeakerVoice>,
-        Option<Teaching>,
-        mpsc::Sender<Result<bool, String>>,
-    ),
-    SaveWithAudioDeletions(
-        Value,
-        Value,
-        Vec<AudioDeletion>,
-        mpsc::Sender<Result<(), String>>,
-    ),
+    Write(Box<LibraryWrite>, mpsc::Sender<Result<bool, String>>),
+    AppendLog(Value, mpsc::Sender<Result<(), String>>),
+    LogList(LogQuery, mpsc::Sender<Result<Vec<Value>, String>>),
     PendingAudioDeletions(mpsc::Sender<Result<Vec<AudioDeletion>, String>>),
     CompleteAudioDeletion(String, mpsc::Sender<Result<(), String>>),
     Jobs(mpsc::Sender<Result<Vec<Value>, String>>),
@@ -222,60 +232,14 @@ impl Persistence {
                         Command::Recording(id, reply) => {
                             let _ = reply.send(recording(&db, &id).await);
                         }
-                        #[cfg(test)]
-                        Command::Save(before, after, reply) => {
-                            let _ = reply.send(save(&db, &before, &after).await);
+                        Command::Write(write, reply) => {
+                            let _ = reply.send(apply(&db, &write).await);
                         }
-                        Command::SaveScoped(before, after, scope, deletions, reply) => {
-                            let _ = reply.send(
-                                save_scoped(
-                                    &db,
-                                    &before,
-                                    &after,
-                                    &scope,
-                                    SaveExtras {
-                                        audio_deletions: &deletions,
-                                        ..SaveExtras::default()
-                                    },
-                                )
-                                .await,
-                            );
+                        Command::AppendLog(entry, reply) => {
+                            let _ = reply.send(logs::append(&db, &entry).await);
                         }
-                        Command::SaveScopedVersion(
-                            before,
-                            after,
-                            scope,
-                            id,
-                            voices,
-                            teaching,
-                            reply,
-                        ) => {
-                            let _ = reply.send(
-                                save_scoped_version(
-                                    &db,
-                                    &before,
-                                    &after,
-                                    &scope,
-                                    &id,
-                                    &voices,
-                                    teaching.as_ref(),
-                                )
-                                .await,
-                            );
-                        }
-                        Command::SaveWithAudioDeletions(before, after, deletions, reply) => {
-                            let _ = reply.send(
-                                save_with_aux(
-                                    &db,
-                                    &before,
-                                    &after,
-                                    SaveExtras {
-                                        audio_deletions: &deletions,
-                                        ..SaveExtras::default()
-                                    },
-                                )
-                                .await,
-                            );
+                        Command::LogList(query, reply) => {
+                            let _ = reply.send(logs::list(&db, &query).await);
                         }
                         Command::PendingAudioDeletions(reply) => {
                             let _ = reply.send(pending_audio_deletions(&db).await);
@@ -426,57 +390,36 @@ impl Persistence {
     pub fn recording(&self, id: &str) -> Result<Option<Value>, String> {
         self.request(|reply| Command::Recording(id.to_owned(), reply))
     }
+    pub fn write(&self, write: LibraryWrite) -> Result<bool, String> {
+        self.request(|reply| Command::Write(Box::new(write), reply))
+    }
+    pub fn append_log(&self, entry: &Value) -> Result<(), String> {
+        self.request(|reply| Command::AppendLog(entry.clone(), reply))
+    }
+    pub fn log_list(&self, query: LogQuery) -> Result<Vec<Value>, String> {
+        self.request(|reply| Command::LogList(query, reply))
+    }
+    #[cfg(test)]
+    pub fn save(&self, before: Value, after: Value) -> Result<(), String> {
+        let before = crate::store::LibraryData::read(&before)?;
+        let after = crate::store::LibraryData::read(&after)?;
+        self.write(LibraryWrite {
+            ops: changes(&before, &after, Children::All)?,
+            ..LibraryWrite::default()
+        })
+        .map(|_| ())
+    }
+    #[cfg(test)]
     pub fn save_scoped(
         &self,
         before: Value,
         after: Value,
         scope: WriteScope,
     ) -> Result<(), String> {
-        self.request(|reply| Command::SaveScoped(before, after, scope, Vec::new(), reply))
-    }
-    pub fn save_scoped_with_audio_deletions(
-        &self,
-        before: Value,
-        after: Value,
-        scope: WriteScope,
-        deletions: &[AudioDeletion],
-    ) -> Result<(), String> {
-        self.request(|reply| Command::SaveScoped(before, after, scope, deletions.to_vec(), reply))
-    }
-    pub fn save_scoped_version(
-        &self,
-        before: Value,
-        after: Value,
-        scope: WriteScope,
-        id: &str,
-        voices: &[SpeakerVoice],
-        teaching: Option<Teaching>,
-    ) -> Result<bool, String> {
-        self.request(|reply| {
-            Command::SaveScopedVersion(
-                before,
-                after,
-                scope,
-                id.to_owned(),
-                voices.to_vec(),
-                teaching,
-                reply,
-            )
-        })
-    }
-    #[cfg(test)]
-    pub fn save(&self, before: Value, after: Value) -> Result<(), String> {
-        self.request(|reply| Command::Save(before, after, reply))
-    }
-    pub fn save_with_audio_deletions(
-        &self,
-        before: Value,
-        after: Value,
-        deletions: &[AudioDeletion],
-    ) -> Result<(), String> {
-        self.request(|reply| {
-            Command::SaveWithAudioDeletions(before, after, deletions.to_vec(), reply)
-        })
+        let before = crate::store::LibraryData::read(&before)?;
+        let after = crate::store::LibraryData::read(&after)?;
+        let ops = changes(&before, &after, Children::Only(&scope.full_recordings))?;
+        self.write(scope.into_write(ops)).map(|_| ())
     }
     pub fn pending_audio_deletions(&self) -> Result<Vec<AudioDeletion>, String> {
         self.request(Command::PendingAudioDeletions)
@@ -661,6 +604,7 @@ async fn connect(path: &Path) -> Result<Surreal<Db>, String> {
         .map_err(|e| e.to_string())?;
     }
     knowledge::initialize(&db).await?;
+    logs::trim(&db).await?;
     Ok(db)
 }
 
@@ -797,6 +741,15 @@ fn parent_literal(parent: &str) -> Result<String, String> {
     serde_json::to_string(parent).map_err(|e| e.to_string())
 }
 
+fn order_recordings(rows: &mut [Row]) {
+    rows.sort_by(|left, right| {
+        let created = |row: &Row| row.payload["createdAt"].as_str().map(str::to_owned);
+        created(right)
+            .cmp(&created(left))
+            .then_with(|| left.key.cmp(&right.key))
+    });
+}
+
 async fn load(db: &Surreal<Db>) -> Result<Option<Value>, String> {
     let metadata = rows(db, "meta").await?;
     if !metadata
@@ -816,58 +769,51 @@ async fn load(db: &Surreal<Db>) -> Result<Option<Value>, String> {
     {
         return Err("Versión de esquema SurrealDB incompatible".into());
     }
-    let mut data = json!({"schemaVersion":1,"recordings":[],"accounts":[],"resolvers":[],"recipes":[],"destinations":[],"providers":[],"logs":[],"settings":{}});
+    let mut data = json!({"schemaVersion":1,"recordings":[],"accounts":[],"resolvers":[],"recipes":[],"destinations":[],"providers":[],"settings":{}});
     type OrderedChildren = (Vec<(i64, Value)>, Vec<(i64, Value)>);
     let mut children: BTreeMap<String, OrderedChildren> = BTreeMap::new();
-    for table in table_names() {
+    for table in table_names().into_iter().filter(|table| *table != "log") {
         let mut items = rows(db, table).await?;
-        items.sort_by_key(|row| row.position);
+        if table == "recording" {
+            order_recordings(&mut items);
+        } else {
+            items.sort_by_key(|row| row.position);
+        }
         for row in items {
             let item = row.payload;
-            match table {
-                "version" => children
-                    .entry(row.parent)
-                    .or_default()
-                    .0
-                    .push((row.position, item)),
-                "publication" => children
-                    .entry(row.parent)
-                    .or_default()
-                    .1
-                    .push((row.position, item)),
+            let field = match table {
+                "version" => {
+                    children
+                        .entry(row.parent)
+                        .or_default()
+                        .0
+                        .push((row.position, item));
+                    continue;
+                }
+                "publication" => {
+                    children
+                        .entry(row.parent)
+                        .or_default()
+                        .1
+                        .push((row.position, item));
+                    continue;
+                }
                 "setting" => {
                     data["settings"][&row.key] = item;
+                    continue;
                 }
-                "recording" => data["recordings"]
-                    .as_array_mut()
-                    .ok_or("Estado inválido")?
-                    .push(item),
-                "account" => data["accounts"]
-                    .as_array_mut()
-                    .ok_or("Estado inválido")?
-                    .push(item),
-                "resolver" => data["resolvers"]
-                    .as_array_mut()
-                    .ok_or("Estado inválido")?
-                    .push(item),
-                "recipe" => data["recipes"]
-                    .as_array_mut()
-                    .ok_or("Estado inválido")?
-                    .push(item),
-                "destination" => data["destinations"]
-                    .as_array_mut()
-                    .ok_or("Estado inválido")?
-                    .push(item),
-                "provider" => data["providers"]
-                    .as_array_mut()
-                    .ok_or("Estado inválido")?
-                    .push(item),
-                "log" => data["logs"]
-                    .as_array_mut()
-                    .ok_or("Estado inválido")?
-                    .push(item),
-                _ => unreachable!(),
-            }
+                "recording" => "recordings",
+                "account" => "accounts",
+                "resolver" => "resolvers",
+                "recipe" => "recipes",
+                "destination" => "destinations",
+                "provider" => "providers",
+                _ => return Err(format!("Tabla inesperada: {table}")),
+            };
+            data[field]
+                .as_array_mut()
+                .ok_or("Estado inválido")?
+                .push(item);
         }
     }
     for recording in data["recordings"].as_array_mut().ok_or("Estado inválido")? {
@@ -883,387 +829,262 @@ async fn load(db: &Surreal<Db>) -> Result<Option<Value>, String> {
     Ok(Some(data))
 }
 
-fn flatten_with_scope(
-    data: &Value,
-    scope: Option<&WriteScope>,
-) -> Result<BTreeMap<(String, String), Row>, String> {
-    let mut output = BTreeMap::new();
-    for (table, field) in [
-        ("recording", "recordings"),
-        ("account", "accounts"),
-        ("resolver", "resolvers"),
-        ("recipe", "recipes"),
-        ("destination", "destinations"),
-        ("provider", "providers"),
-        ("log", "logs"),
-    ] {
-        let empty = Vec::new();
-        for (position, item) in data
-            .get(field)
-            .and_then(Value::as_array)
-            .or_else(|| (field == "providers").then_some(&empty))
-            .ok_or(format!("{field} inválido"))?
-            .iter()
-            .enumerate()
-        {
-            let key = item["id"].as_str().ok_or(format!("{field} sin ID"))?;
-            let payload = if table == "recording" {
-                Value::Object(
-                    item.as_object()
-                        .ok_or("Grabación inválida")?
-                        .iter()
-                        .filter(|(key, _)| !["versions", "publications"].contains(&key.as_str()))
-                        .map(|(key, value)| (key.clone(), value.clone()))
-                        .collect(),
-                )
-            } else {
-                item.clone()
-            };
-            insert(
-                &mut output,
-                table,
-                key.to_owned(),
-                String::new(),
-                position as i64,
-                payload,
-            )?;
-            if table == "recording" {
-                if scope.is_some_and(|scope| !scope.full_recordings.contains(key)) {
-                    continue;
-                }
-                for (child_table, field, id_field) in [
-                    ("version", "versions", "id"),
-                    ("publication", "publications", "destinationId"),
-                ] {
-                    let children = match item[field].as_array() {
-                        Some(children) => children.as_slice(),
-                        None if item["status"] == "discarded" => &[],
-                        None => return Err(format!("{field} inválido")),
-                    };
-                    for (child_position, child) in children.iter().enumerate() {
-                        let id = child[id_field]
-                            .as_str()
-                            .ok_or(format!("{field} sin {id_field}"))?;
-                        insert(
-                            &mut output,
-                            child_table,
-                            json!([key, id]).to_string(),
-                            key.to_owned(),
-                            child_position as i64,
-                            child.clone(),
-                        )?;
-                    }
-                }
-            }
-        }
+async fn teaching_plan(
+    db: &Surreal<Db>,
+    teaching: Option<&Teaching>,
+) -> Result<Option<TeachingPlan>, String> {
+    let Some(teaching) = teaching.filter(|teaching| !teaching.voices.is_empty()) else {
+        return Ok(None);
+    };
+    if teaching.person.trim().is_empty() {
+        return Err("Escribe un nombre".into());
     }
-    for (key, value) in data["settings"].as_object().ok_or("Ajustes inválidos")? {
-        insert(
-            &mut output,
-            "setting",
-            key.clone(),
-            String::new(),
-            0,
-            value.clone(),
-        )?;
+    let existing = person_records(db)
+        .await?
+        .into_iter()
+        .find(|person| person.name == teaching.person);
+    if teaching.existing_only && existing.is_none() {
+        return Ok(None);
     }
-    Ok(output)
+    let fresh = existing.is_none();
+    let person = existing.unwrap_or_else(|| PersonRecord {
+        color: None,
+        id: Uuid::new_v4().to_string(),
+        name: teaching.person.clone(),
+        created_at: Utc::now().to_rfc3339(),
+    });
+    let start_position = rows(db, "person_voice")
+        .await?
+        .iter()
+        .map(|row| row.position)
+        .max()
+        .unwrap_or(-1)
+        + 1;
+    Ok(Some(TeachingPlan {
+        person,
+        fresh,
+        voices: teaching.voices.clone(),
+        source: teaching.source.clone(),
+        start_position,
+    }))
 }
 
-fn insert(
-    rows: &mut BTreeMap<(String, String), Row>,
-    table: &str,
-    key: String,
-    parent: String,
-    position: i64,
-    payload: Value,
+async fn run(tx: &surrealdb::method::Transaction<Db>, query: String) -> Result<(), String> {
+    tx.query(query)
+        .await
+        .map_err(|e| e.to_string())?
+        .check()
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+async fn delete_recording_children(
+    tx: &surrealdb::method::Transaction<Db>,
+    key: &str,
 ) -> Result<(), String> {
-    let row = Row {
-        key: key.clone(),
-        parent,
-        position,
-        payload,
-    };
-    if rows.insert((table.to_owned(), key), row).is_some() {
-        return Err("Identificador duplicado en la biblioteca".into());
+    let record_parent = parent_literal(key)?;
+    let mut versions = tx
+        .query(format!(
+            "SELECT payload.id AS version_id FROM version_preview WHERE parent = {record_parent}"
+        ))
+        .await
+        .map_err(|e| e.to_string())?
+        .check()
+        .map_err(|e| e.to_string())?;
+    let ids: Vec<Value> = versions.take(0).map_err(|e| e.to_string())?;
+    for version in ids {
+        let id = version["version_id"]
+            .as_str()
+            .ok_or("Versión guardada sin ID")?;
+        run(
+            tx,
+            format!("DELETE voice WHERE parent = {}", parent_literal(id)?),
+        )
+        .await?;
+    }
+    for child in [
+        "version",
+        "publication",
+        "version_preview",
+        "publication_preview",
+        "memory",
+        "trace",
+        "job",
+        "note_draft",
+        "note_draft_receipt",
+    ] {
+        run(tx, format!("DELETE {child} WHERE parent = {record_parent}")).await?;
     }
     Ok(())
 }
 
-#[cfg(test)]
-async fn save(db: &Surreal<Db>, before: &Value, after: &Value) -> Result<(), String> {
-    save_with_aux(db, before, after, SaveExtras::default()).await
+async fn upsert_row(tx: &surrealdb::method::Transaction<Db>, row: &RowWrite) -> Result<(), String> {
+    let table = row.table.name();
+    tx.query("UPSERT type::record($table, $key) SET key = $key, parent = $parent, position = $position, payload = $payload, title = $title, status = $status, createdAt = $createdAt, backend = $backend, state = $state, recordingId = $recordingId")
+        .bind(("table", table))
+        .bind(("key", row.key.clone()))
+        .bind(("parent", row.parent.clone()))
+        .bind(("position", row.position))
+        .bind(("payload", row.payload.clone()))
+        .bind(("title", row.payload["title"].clone()))
+        .bind(("status", row.payload["status"].clone()))
+        .bind(("createdAt", row.payload["createdAt"].clone()))
+        .bind(("backend", row.payload["backend"].clone()))
+        .bind(("state", row.payload["state"].clone()))
+        .bind(("recordingId", row.payload["recordingId"].clone()))
+        .await
+        .map_err(|e| e.to_string())?
+        .check()
+        .map_err(|e| e.to_string())?;
+    if let Some(preview_table) = row.table.preview() {
+        tx.query("UPSERT type::record($table, $key) SET key = $key, parent = $parent, position = $position, payload = $payload")
+            .bind(("table", preview_table))
+            .bind(("key", row.key.clone()))
+            .bind(("parent", row.parent.clone()))
+            .bind(("position", row.position))
+            .bind(("payload", preview_for(table, &row.payload)?))
+            .await
+            .map_err(|e| e.to_string())?
+            .check()
+            .map_err(|e| e.to_string())?;
+    }
+    if row.table == Table::Recording && row.payload["status"] == "discarded" {
+        delete_recording_children(tx, &row.key).await?;
+    }
+    Ok(())
 }
 
-async fn save_scoped(
-    db: &Surreal<Db>,
-    before: &Value,
-    after: &Value,
-    scope: &WriteScope,
-    extras: SaveExtras<'_>,
+async fn delete_row(
+    tx: &surrealdb::method::Transaction<Db>,
+    table: Table,
+    key: &str,
+    id: &str,
 ) -> Result<(), String> {
-    save_with_aux_mode(db, before, after, extras, Some(scope)).await
-}
-
-#[derive(Default)]
-struct SaveExtras<'a> {
-    audio_deletions: &'a [AudioDeletion],
-    version_voices: Option<(&'a str, &'a [SpeakerVoice])>,
-    teaching: Option<&'a TeachingPlan>,
-}
-
-async fn save_scoped_version(
-    db: &Surreal<Db>,
-    before: &Value,
-    after: &Value,
-    scope: &WriteScope,
-    id: &str,
-    voices: &[SpeakerVoice],
-    teaching: Option<&Teaching>,
-) -> Result<bool, String> {
-    save_version_mode(db, before, after, scope, id, voices, teaching).await
-}
-
-async fn save_version_mode(
-    db: &Surreal<Db>,
-    before: &Value,
-    after: &Value,
-    scope: &WriteScope,
-    id: &str,
-    voices: &[SpeakerVoice],
-    teaching: Option<&Teaching>,
-) -> Result<bool, String> {
-    let plan = if let Some(teaching) = teaching.filter(|teaching| !teaching.voices.is_empty()) {
-        if teaching.person.trim().is_empty() {
-            return Err("Escribe un nombre".into());
-        }
-        let existing = person_records(db)
+    tx.query("DELETE type::record($table, $key)")
+        .bind(("table", table.name()))
+        .bind(("key", key.to_owned()))
+        .await
+        .map_err(|e| e.to_string())?
+        .check()
+        .map_err(|e| e.to_string())?;
+    match table {
+        Table::Recording => delete_recording_children(tx, key).await?,
+        Table::Version => {
+            run(
+                tx,
+                format!("DELETE voice WHERE parent = {}", parent_literal(id)?),
+            )
             .await?
-            .into_iter()
-            .find(|person| person.name == teaching.person);
-        if teaching.existing_only && existing.is_none() {
-            None
-        } else {
-            let fresh = existing.is_none();
-            let person = existing.unwrap_or_else(|| PersonRecord {
-                color: None,
-                id: Uuid::new_v4().to_string(),
-                name: teaching.person.clone(),
-                created_at: Utc::now().to_rfc3339(),
-            });
-            let start_position = rows(db, "person_voice")
-                .await?
-                .iter()
-                .map(|row| row.position)
-                .max()
-                .unwrap_or(-1)
-                + 1;
-            Some(TeachingPlan {
-                person,
-                fresh,
-                voices: teaching.voices.clone(),
-                source: teaching.source.clone(),
-                start_position,
-            })
         }
-    } else {
-        None
-    };
-    save_with_aux_mode(
-        db,
-        before,
-        after,
-        SaveExtras {
-            version_voices: Some((id, voices)),
-            teaching: plan.as_ref(),
-            ..SaveExtras::default()
-        },
-        Some(scope),
-    )
-    .await?;
-    Ok(plan.is_some())
+        _ => {}
+    }
+    if let Some(preview_table) = table.preview() {
+        tx.query("DELETE type::record($table, $key)")
+            .bind(("table", preview_table))
+            .bind(("key", key.to_owned()))
+            .await
+            .map_err(|e| e.to_string())?
+            .check()
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
 }
 
-async fn save_with_aux(
-    db: &Surreal<Db>,
-    before: &Value,
-    after: &Value,
-    extras: SaveExtras<'_>,
+async fn apply_aliases(
+    tx: &surrealdb::method::Transaction<Db>,
+    aliases: &HashMap<String, String>,
 ) -> Result<(), String> {
-    save_with_aux_mode(db, before, after, extras, None).await
+    if !aliases.iter().any(|(old, new)| old != new) {
+        return Ok(());
+    }
+    let mut response = tx
+        .query("SELECT key, payload.recipeId AS recipe_id FROM version_preview")
+        .await
+        .map_err(|e| e.to_string())?
+        .check()
+        .map_err(|e| e.to_string())?;
+    let rows: Vec<Value> = response.take(0).map_err(|e| e.to_string())?;
+    for row in rows {
+        let Some(old_recipe) = row["recipe_id"].as_str() else {
+            continue;
+        };
+        let Some(new_recipe) = aliases.get(old_recipe).filter(|new| *new != old_recipe) else {
+            continue;
+        };
+        let key = row["key"]
+            .as_str()
+            .ok_or("Proyección de versión sin clave")?;
+        for table in ["version", "version_preview"] {
+            tx.query("UPDATE type::record($table, $key) SET payload.recipeId = $replacement")
+                .bind(("table", table))
+                .bind(("key", key.to_owned()))
+                .bind(("replacement", new_recipe.clone()))
+                .await
+                .map_err(|e| e.to_string())?
+                .check()
+                .map_err(|e| e.to_string())?;
+        }
+    }
+    Ok(())
 }
 
-async fn save_with_aux_mode(
-    db: &Surreal<Db>,
-    before: &Value,
-    after: &Value,
-    extras: SaveExtras<'_>,
-    scope: Option<&WriteScope>,
-) -> Result<(), String> {
-    let old = flatten_with_scope(before, scope)?;
-    let new = flatten_with_scope(after, scope)?;
+async fn apply(db: &Surreal<Db>, write: &LibraryWrite) -> Result<bool, String> {
+    let plan = teaching_plan(db, write.teaching.as_ref()).await?;
     let tx = db.clone().begin().await.map_err(|e| e.to_string())?;
     let result = async {
-        for ((table, key), row) in &new {
-            if old.get(&(table.clone(), key.clone())).is_some_and(|previous| previous.parent == row.parent && previous.position == row.position && previous.payload == row.payload) { continue; }
-            let preview = if table == "version" || table == "publication" { preview_for(table, &row.payload)? } else { Value::Null };
-            tx.query("UPSERT type::record($table, $key) SET key = $key, parent = $parent, position = $position, payload = $payload, title = $title, status = $status, createdAt = $createdAt, backend = $backend, state = $state, recordingId = $recordingId")
-                .bind(("table", table.as_str())).bind(("key", key.as_str()))
-                .bind(("parent", row.parent.as_str())).bind(("position", row.position))
-                .bind(("payload", row.payload.clone()))
-                .bind(("title", row.payload["title"].clone())).bind(("status", row.payload["status"].clone()))
-                .bind(("createdAt", row.payload["createdAt"].clone())).bind(("backend", row.payload["backend"].clone()))
-                .bind(("state", row.payload["state"].clone())).bind(("recordingId", row.payload["recordingId"].clone()))
-                .await.map_err(|e| e.to_string())?
-                .check().map_err(|e| e.to_string())?;
-            if table == "version" || table == "publication" {
-                let preview_table = format!("{table}_preview");
-                tx.query("UPSERT type::record($table, $key) SET key = $key, parent = $parent, position = $position, payload = $payload")
-                    .bind(("table", preview_table)).bind(("key", key.as_str()))
-                    .bind(("parent", row.parent.as_str())).bind(("position", row.position))
-                    .bind(("payload", preview)).await.map_err(|e| e.to_string())?
-                    .check().map_err(|e| e.to_string())?;
-            }
-            if table == "recording" && row.payload["status"] == "discarded" {
-                let record_parent = parent_literal(key)?;
-                let mut versions = tx.query(format!("SELECT payload.id AS version_id FROM version_preview WHERE parent = {record_parent}"))
-                    .await.map_err(|e| e.to_string())?
-                    .check().map_err(|e| e.to_string())?;
-                let ids: Vec<Value> = versions.take(0).map_err(|e| e.to_string())?;
-                for version in ids {
-                    let id = version["version_id"].as_str().ok_or("Versión guardada sin ID")?;
-                    let voice_parent = parent_literal(id)?;
-                    tx.query(format!("DELETE voice WHERE parent = {voice_parent}"))
-                        .await.map_err(|e| e.to_string())?.check().map_err(|e| e.to_string())?;
-                }
-                for child in ["version", "publication", "version_preview", "publication_preview"] {
-                    tx.query(format!("DELETE type::table($table) WHERE parent = {record_parent}"))
-                        .bind(("table", child))
-                        .await.map_err(|e| e.to_string())?.check().map_err(|e| e.to_string())?;
-                }
-                for child in ["memory", "trace", "job", "note_draft", "note_draft_receipt"] {
-                    tx.query(format!("DELETE type::table($table) WHERE parent = {record_parent}"))
-                        .bind(("table", child))
-                        .await.map_err(|e| e.to_string())?.check().map_err(|e| e.to_string())?;
-                }
+        for op in &write.ops {
+            match op {
+                RowOp::Upsert(row) => upsert_row(&tx, row).await?,
+                RowOp::Delete { table, key, id } => delete_row(&tx, *table, key, id).await?,
             }
         }
-        for (table, key) in old.keys() {
-            if new.contains_key(&(table.clone(), key.clone())) { continue; }
-            tx.query("DELETE type::record($table, $key)")
-                .bind(("table", table.as_str())).bind(("key", key.as_str()))
+        if let Some((key, value)) = &write.draft_change {
+            if let Some(value) = value {
+                tx.query("UPSERT type::record('note_draft', $key) SET key = $key, parent = $key, position = 0, payload = $payload")
+                    .bind(("key", key.clone())).bind(("payload", value.clone()))
+                    .await.map_err(|e| e.to_string())?.check().map_err(|e| e.to_string())?;
+            } else {
+                tx.query("DELETE type::record('note_draft', $key)").bind(("key", key.clone()))
+                    .await.map_err(|e| e.to_string())?.check().map_err(|e| e.to_string())?;
+            }
+        }
+        if let Some((key, parent, receipt)) = &write.draft_receipt {
+            tx.query("CREATE type::record('note_draft_receipt', $key) SET key = $key, parent = $parent, position = 0, payload = $payload")
+                .bind(("key", key.clone())).bind(("parent", parent.clone())).bind(("payload", receipt.clone()))
                 .await.map_err(|e| e.to_string())?.check().map_err(|e| e.to_string())?;
-            if table == "recording" {
-                let record_parent = parent_literal(key)?;
-                let mut versions = tx.query(format!("SELECT payload.id AS version_id FROM version_preview WHERE parent = {record_parent}"))
-                    .await.map_err(|e| e.to_string())?
-                    .check().map_err(|e| e.to_string())?;
-                let ids: Vec<Value> = versions.take(0).map_err(|e| e.to_string())?;
-                for version in ids {
-                    let id = version["version_id"].as_str().ok_or("Versión guardada sin ID")?;
-                    let voice_parent = parent_literal(id)?;
-                    tx.query(format!("DELETE voice WHERE parent = {voice_parent}"))
-                        .await.map_err(|e| e.to_string())?.check().map_err(|e| e.to_string())?;
-                }
-                for child in ["version", "publication", "version_preview", "publication_preview"] {
-                    tx.query(format!("DELETE type::table($table) WHERE parent = {record_parent}"))
-                        .bind(("table", child))
-                        .await.map_err(|e| e.to_string())?.check().map_err(|e| e.to_string())?;
-                }
-                for child in ["memory", "trace", "job", "note_draft", "note_draft_receipt"] {
-                    tx.query(format!("DELETE type::table($table) WHERE parent = {record_parent}"))
-                        .bind(("table", child))
-                        .await.map_err(|e| e.to_string())?.check().map_err(|e| e.to_string())?;
-                }
-            }
-            if table == "version" {
-                let version_id = old.get(&(table.clone(), key.clone()))
-                    .and_then(|row| row.payload["id"].as_str())
-                    .ok_or("Versión sin ID")?;
-                let voice_parent = parent_literal(version_id)?;
-                tx.query(format!("DELETE type::table('voice') WHERE parent = {voice_parent}"))
-                    .await.map_err(|e| e.to_string())?.check().map_err(|e| e.to_string())?;
-            }
-            if table == "version" || table == "publication" {
-                let preview_table = format!("{table}_preview");
-                tx.query("DELETE type::record($table, $key)")
-                    .bind(("table", preview_table)).bind(("key", key.as_str()))
-                    .await.map_err(|e| e.to_string())?.check().map_err(|e| e.to_string())?;
-            }
         }
-        if let Some(scope) = scope {
-            if let Some((key, value)) = &scope.draft_change {
-                if let Some(value) = value {
-                    tx.query("UPSERT type::record('note_draft', $key) SET key = $key, parent = $key, position = 0, payload = $payload")
-                        .bind(("key", key.clone())).bind(("payload", value.clone()))
-                        .await.map_err(|e| e.to_string())?.check().map_err(|e| e.to_string())?;
-                } else {
-                    tx.query("DELETE type::record('note_draft', $key)").bind(("key", key.clone()))
-                        .await.map_err(|e| e.to_string())?.check().map_err(|e| e.to_string())?;
-                }
-            }
-            if let Some((key, parent, receipt)) = &scope.draft_receipt {
-                tx.query("CREATE type::record('note_draft_receipt', $key) SET key = $key, parent = $parent, position = 0, payload = $payload")
-                    .bind(("key", key.clone())).bind(("parent", parent.clone())).bind(("payload", receipt.clone()))
-                    .await.map_err(|e| e.to_string())?.check().map_err(|e| e.to_string())?;
-            }
-            if scope.recipe_aliases.iter().any(|(old, new)| old != new) {
-                let mut response = tx
-                    .query("SELECT key, payload.recipeId AS recipe_id FROM version_preview")
-                    .await.map_err(|e| e.to_string())?.check().map_err(|e| e.to_string())?;
-                let rows: Vec<Value> = response.take(0).map_err(|e| e.to_string())?;
-                let mut updates = Vec::new();
-                for row in rows {
-                    if let Some(old_recipe) = row["recipe_id"].as_str() {
-                        if let Some(new_recipe) = scope.recipe_aliases.get(old_recipe) {
-                            if new_recipe != old_recipe {
-                                let key = row["key"].as_str().ok_or("Proyección de versión sin clave")?;
-                                updates.push((key.to_owned(), new_recipe.as_str()));
-                            }
-                        }
-                    }
-                }
-                for (key, new_recipe) in updates {
-                    for table in ["version", "version_preview"] {
-                        tx.query("UPDATE type::record($table, $key) SET payload.recipeId = $replacement")
-                            .bind(("table", table)).bind(("key", key.as_str()))
-                            .bind(("replacement", new_recipe))
-                            .await.map_err(|e| e.to_string())?.check().map_err(|e| e.to_string())?;
-                    }
-                }
-            }
-        }
-        if let Some((version_id, voices)) = extras.version_voices {
+        apply_aliases(&tx, &write.recipe_aliases).await?;
+        if let Some((version_id, voices)) = &write.version_voices {
             for (position, voice) in voices.iter().enumerate() {
-                let record = VersionVoiceRecord { id: format!("{version_id}:{position}"), version_id: version_id.to_owned(), speaker: voice.speaker.clone(), model: voice.model.clone(), embedding: voice.embedding.clone() };
+                let record = VersionVoiceRecord { id: format!("{version_id}:{position}"), version_id: version_id.clone(), speaker: voice.speaker.clone(), model: voice.model.clone(), embedding: voice.embedding.clone() };
                 tx.query("CREATE type::record('voice', $key) SET key = $key, parent = $parent, position = $position, payload = $payload")
-                    .bind(("key", record.id.as_str())).bind(("parent", version_id))
+                    .bind(("key", record.id.clone())).bind(("parent", version_id.clone()))
                     .bind(("position", position as i64)).bind(("payload", serde_json::to_value(record).map_err(|e| e.to_string())?))
                     .await.map_err(|e| e.to_string())?.check().map_err(|e| e.to_string())?;
             }
         }
-        if let Some(teaching) = extras.teaching {
+        if let Some(teaching) = &plan {
             if teaching.fresh {
                 tx.query("CREATE type::record('person', $key) SET key = $key, parent = '', position = 0, payload = $payload")
-                    .bind(("key", teaching.person.id.as_str())).bind(("payload", serde_json::to_value(&teaching.person).map_err(|e| e.to_string())?))
+                    .bind(("key", teaching.person.id.clone())).bind(("payload", serde_json::to_value(&teaching.person).map_err(|e| e.to_string())?))
                     .await.map_err(|e| e.to_string())?.check().map_err(|e| e.to_string())?;
             }
             for (index, voice) in teaching.voices.iter().enumerate() {
                 let record = PersonVoiceRecord { id: Uuid::new_v4().to_string(), person_id: teaching.person.id.clone(), model: voice.model.clone(), embedding: voice.embedding.clone(), source: teaching.source.clone(), added_at: Utc::now().to_rfc3339() };
                 tx.query("CREATE type::record('person_voice', $key) SET key = $key, parent = $parent, position = $position, payload = $payload")
-                    .bind(("key", record.id.as_str())).bind(("parent", teaching.person.id.as_str()))
+                    .bind(("key", record.id.clone())).bind(("parent", teaching.person.id.clone()))
                     .bind(("position", teaching.start_position + index as i64)).bind(("payload", serde_json::to_value(record).map_err(|e| e.to_string())?))
                     .await.map_err(|e| e.to_string())?.check().map_err(|e| e.to_string())?;
             }
         }
-        for deletion in extras.audio_deletions {
+        for deletion in &write.audio_deletions {
             tx.query("UPSERT type::record('audio_deletion', $key) SET key = $key, parent = '', position = 0, payload = $payload")
-                .bind(("key", deletion.id.as_str()))
+                .bind(("key", deletion.id.clone()))
                 .bind(("payload", serde_json::to_value(deletion).map_err(|e| e.to_string())?))
-                .await
-                .map_err(|e| e.to_string())?
-                .check()
-                .map_err(|e| e.to_string())?;
+                .await.map_err(|e| e.to_string())?.check().map_err(|e| e.to_string())?;
+        }
+        for entry in &write.logs {
+            logs::insert(&tx, entry).await?;
         }
         tx.query("UPSERT meta:initialized SET key = 'initialized', parent = '', position = 0, payload = '1'")
             .await.map_err(|e| e.to_string())?.check().map_err(|e| e.to_string())?;
@@ -1274,7 +1095,7 @@ async fn save_with_aux_mode(
     match result {
         Ok(()) => {
             tx.commit().await.map_err(|e| e.to_string())?;
-            Ok(())
+            Ok(plan.is_some())
         }
         Err(error) => {
             tx.cancel().await.map_err(|e| e.to_string())?;

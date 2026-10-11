@@ -38,7 +38,8 @@ Errores rechazan la promesa con texto legible; nunca éxitos vacíos.
 - config_remove {collection,id} -> void (locales/base no se borran).
 - settings_save {settings: Partial<Settings>} -> Settings.
 - credential_save {id, value} -> void (vacío elimina; nunca lectura a JS).
-- log {message,level?,recordingId?,recipeId?} -> void.
+- log {message,level?,recordingId?,recipeId?} -> void (`level` info, warn o error; emite `escriba://log`, no `escriba://changed`).
+- log_list {recordingId?,before?,limit?} -> LogEntry[] (más recientes primero, hasta 3000; `before` pagina por `at`). `library` y `snapshot` no incluyen el registro.
 - native {method,params} -> resultado sidecar; native_cancel -> void (interrumpe proceso y se reinicia a demanda).
 - transcribe {recordingId,resolverId,language?,diarize?,speakers?} -> Transcript (local Swift/remoto Rust).
 - summarize {resolverId,instructions,prompt} -> Digest (una petición; troceo TS).

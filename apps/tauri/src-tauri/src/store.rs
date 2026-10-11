@@ -15,7 +15,9 @@ mod settings;
 mod versions;
 mod views;
 mod work;
-use crate::persistence::{AudioDeletion, Persistence, Teaching, WriteScope};
+use crate::persistence::{
+    changes, AudioDeletion, Children, LibraryWrite, LogQuery, Persistence, Teaching, WriteScope,
+};
 use crate::voices::{recognize, KnownVoice, SpeakerVoice};
 use chrono::Utc;
 use fs2::FileExt;
@@ -162,6 +164,13 @@ impl Store {
         if data.get("providers").is_none() {
             data["providers"] = json!([]);
         }
+        let imported_logs = match data
+            .as_object_mut()
+            .and_then(|fields| fields.remove("logs"))
+        {
+            Some(Value::Array(lines)) if stored.is_none() => importable_logs(lines),
+            _ => Vec::new(),
+        };
         data = migrate_recipe_assignments(data)?;
         let mut discarded_audio = Vec::new();
         for record in data["recordings"]
@@ -194,20 +203,26 @@ impl Store {
             .flatten()
             .collect::<Vec<_>>();
         let stored_is_new = stored.is_none();
-        let mut previous = stored.unwrap_or_else(|| json!({"schemaVersion":1,"recordings":[],"accounts":[],"resolvers":[],"recipes":[],"destinations":[],"providers":[],"logs":[],"settings":{}}));
-        if previous.get("providers").is_none() {
-            previous["providers"] = json!([]);
-        }
-        if stored_is_new {
-            database.save_with_audio_deletions(previous, data, &discarded_audio)?;
-        } else {
-            database.save_scoped_with_audio_deletions(
-                previous,
-                data,
-                WriteScope::default(),
-                &discarded_audio,
-            )?;
-        }
+        let before = match stored.as_ref() {
+            Some(saved) => LibraryData::read(saved)?,
+            None => LibraryData::read(&empty_library())?,
+        };
+        let no_children = std::collections::HashSet::new();
+        let ops = changes(
+            &before,
+            &typed,
+            if stored_is_new {
+                Children::All
+            } else {
+                Children::Only(&no_children)
+            },
+        )?;
+        database.write(LibraryWrite {
+            ops,
+            audio_deletions: discarded_audio,
+            logs: imported_logs,
+            ..LibraryWrite::default()
+        })?;
         let data = if stored_is_new {
             LibraryIndex::new(typed)?
         } else {
@@ -287,8 +302,13 @@ impl Store {
         if typed.schema_version != 1 {
             return Err("Versión de biblioteca incompatible".into());
         }
+        let before = LibraryData::read(&self.full_data_json()?)?;
+        let ops = changes(&before, &typed, Children::All)?;
         let index = LibraryIndex::new(typed)?;
-        self.database.save(self.full_data_json()?, data)?;
+        self.database.write(LibraryWrite {
+            ops,
+            ..LibraryWrite::default()
+        })?;
         self.data = index;
         Ok(())
     }
@@ -298,33 +318,74 @@ impl Store {
         aliases: HashMap<String, String>,
     ) -> Result<(), String> {
         let next = LibraryData::read(&data)?;
-        let index = LibraryIndex::from_index(next);
-        self.database.save_scoped(
-            self.index_json(),
-            data,
-            WriteScope {
-                recipe_aliases: aliases,
-                ..WriteScope::default()
-            },
-        )?;
-        self.data = index;
+        let ops = changes(&self.data, &next, Children::Only(&Default::default()))?;
+        self.database.write(LibraryWrite {
+            ops,
+            recipe_aliases: aliases,
+            ..LibraryWrite::default()
+        })?;
+        self.data = LibraryIndex::from_index(next);
         Ok(())
     }
     fn commit(&mut self, data: LibraryData) -> Result<(), String> {
         if data.schema_version != 1 {
             return Err("Versión de biblioteca incompatible".into());
         }
-        let index = LibraryIndex::from_index(data.clone());
-        self.database
-            .save_scoped(self.index_json(), json!(data), WriteScope::default())?;
-        self.data = index;
+        let ops = changes(&self.data, &data, Children::Only(&Default::default()))?;
+        self.database.write(LibraryWrite {
+            ops,
+            ..LibraryWrite::default()
+        })?;
+        self.data = LibraryIndex::from_index(data);
         Ok(())
+    }
+    fn scoped_write(
+        before: &LibraryData,
+        after: &LibraryData,
+        scope: WriteScope,
+    ) -> Result<LibraryWrite, String> {
+        let ops = changes(before, after, Children::Only(&scope.full_recordings))?;
+        Ok(scope.into_write(ops))
+    }
+    pub fn append_log(&self, p: &Value) -> Result<(), String> {
+        let level = p["level"].as_str().unwrap_or("info");
+        if !["info", "warn", "error"].contains(&level) {
+            return Err("Nivel de registro no válido".into());
+        }
+        self.database.append_log(&json!({
+            "id": id(),
+            "at": now(),
+            "message": text(p, "message")?,
+            "level": level,
+            "recordingId": p["recordingId"],
+            "recipeId": p["recipeId"],
+        }))
+    }
+    pub fn log_list(&self, p: &Value) -> Result<Value, String> {
+        let query: LogQuery =
+            serde_json::from_value(p.clone()).map_err(|_| "Consulta del registro inválida")?;
+        Ok(Value::Array(self.database.log_list(query)?))
     }
     fn recording_edit(&self, key: &str) -> Result<LibraryData, String> {
         let mut data = self.data.edit();
         *record_mut(&mut data, key)? = Recording::read(&self.recording(key)?)?;
         Ok(data)
     }
+}
+fn empty_library() -> Value {
+    json!({"schemaVersion":1,"recordings":[],"accounts":[],"resolvers":[],"recipes":[],"destinations":[],"providers":[],"settings":{}})
+}
+fn importable_logs(lines: Vec<Value>) -> Vec<Value> {
+    lines
+        .into_iter()
+        .filter(|line| line["message"].is_string() && line["at"].is_string())
+        .map(|mut line| {
+            if line["id"].as_str().is_none_or(str::is_empty) {
+                line["id"] = json!(id());
+            }
+            line
+        })
+        .collect()
 }
 fn collection(p: &Value) -> Result<&str, String> {
     let c = text(p, "collection")?;

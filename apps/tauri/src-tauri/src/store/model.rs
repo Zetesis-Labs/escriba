@@ -55,7 +55,7 @@ pub enum RecordingStatus {
     Discarded,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Recording {
     pub id: String,
@@ -90,7 +90,7 @@ pub struct Recording {
     pub extra: Map<String, Value>,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize, Hash)]
+#[derive(Clone, Debug, Deserialize, Serialize, Hash, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Version {
     pub id: String,
@@ -114,7 +114,7 @@ pub struct Version {
     pub extra: Map<String, Value>,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize, Hash)]
+#[derive(Clone, Debug, Deserialize, Serialize, Hash, PartialEq)]
 pub struct Transcript {
     pub text: String,
     pub segments: Vec<Segment>,
@@ -185,7 +185,6 @@ pub struct LibraryData {
     pub destinations: Value,
     #[serde(default = "empty_catalog")]
     pub providers: Value,
-    pub logs: Value,
     #[serde(flatten)]
     pub extra: Map<String, Value>,
 }
@@ -311,7 +310,7 @@ impl LibraryData {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize, Hash)]
+#[derive(Clone, Debug, Deserialize, Serialize, Hash, PartialEq)]
 pub struct Segment {
     pub start: serde_json::Number,
     pub end: serde_json::Number,
@@ -324,7 +323,7 @@ pub struct Segment {
     pub extra: Map<String, Value>,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize, Hash)]
+#[derive(Clone, Debug, Deserialize, Serialize, Hash, PartialEq)]
 pub struct Word {
     pub start: serde_json::Number,
     pub end: serde_json::Number,
@@ -333,7 +332,7 @@ pub struct Word {
     pub extra: Map<String, Value>,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize, Hash)]
+#[derive(Clone, Debug, Deserialize, Serialize, Hash, PartialEq)]
 pub struct Recognition {
     pub speaker: String,
     pub person: String,

@@ -186,7 +186,6 @@ pub fn typed_library(data: &crate::store::LibraryIndex) -> Value {
     fields.insert("settings".into(), json!(data.settings));
     fields.insert("accounts".into(), data.accounts.clone());
     fields.insert("resolvers".into(), data.resolvers.clone());
-    fields.insert("logs".into(), data.logs.clone());
     fields.insert(
         "recipes".into(),
         without_program(&data.recipes, "bundle", "bundleFingerprint"),

@@ -5,6 +5,10 @@ impl Store {
         if method.starts_with("note_draft_") {
             return self.draft_command(method, p);
         }
+        if method == "log" {
+            self.append_log(p)?;
+            return Ok(Value::Null);
+        }
         let guarded = match method {
             "recording_update" | "recording_remove_audio" => Some(text(p, "id")?),
             "version_save"
@@ -63,13 +67,6 @@ impl Store {
                 next.settings.update(&p["settings"])?;
                 redacted_settings(&json!(&next.settings))
             }
-            "log" => {
-                let entry = json!({"id":id(),"at":now(),"message":text(p,"message")?,"level":p["level"].as_str().unwrap_or("info"),"recordingId":p["recordingId"],"recipeId":p["recipeId"]});
-                let logs = next.logs.as_array_mut().ok_or("Registro inválido")?;
-                logs.insert(0, entry);
-                logs.truncate(3000);
-                Value::Null
-            }
             "publication_save" => {
                 let r = record_mut(&mut next, text(p, "recordingId")?)?;
                 let key = text(p, "destinationId")?;
@@ -110,33 +107,21 @@ impl Store {
             _ => return Err(format!("Operación desconocida: {method}")),
         };
         let index = LibraryIndex::from_edit(next.clone(), &scope.full_recordings)?;
+        let mut write = Self::scoped_write(&before, &next, scope)?;
+        let mut taught = None;
         if let Some((recording_id, version_id, voices, teaching)) = voice_save {
-            let report_learning = teaching.is_some();
-            let learned = self.database.save_scoped_version(
-                json!(before),
-                json!(&next),
-                scope,
-                &version_id,
-                &voices,
-                teaching,
-            )?;
-            self.data = index;
+            taught = Some((recording_id, teaching.is_some()));
+            write.version_voices = Some((version_id, voices));
+            write.teaching = teaching;
+        }
+        write.audio_deletions = audio_to_delete;
+        let learned = self.database.write(write)?;
+        self.data = index;
+        if let Some((recording_id, report_learning)) = taught {
             self.pending_voices.remove(&recording_id);
             if report_learning {
                 result["learnedVoice"] = json!(learned);
             }
-        } else if method == "recording_discard" {
-            self.database.save_scoped_with_audio_deletions(
-                json!(before),
-                json!(&next),
-                scope,
-                &audio_to_delete,
-            )?;
-            self.data = index;
-        } else {
-            self.database
-                .save_scoped(json!(before), json!(next), scope)?;
-            self.data = index;
         }
         if method == "recording_discard" {
             self.pending_voices.remove(text(p, "id")?);
