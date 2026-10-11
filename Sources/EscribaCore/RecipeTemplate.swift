@@ -106,6 +106,7 @@ interface Nota {
   datos: Record<string, unknown> | null
   resumir(opciones?: OpcionesDeResumen): Promise<Nota>
   guardar(cambios?: { datos?: Record<string, unknown> | null }): Promise<Nota>
+  vincular(ontologiaId: string, registroId: string): Promise<void>
 }
 
 interface Conector {
@@ -137,8 +138,45 @@ interface Escriba<P = null> extends ListasDeEscriba {
   preguntar(pedido: Pregunta): Promise<string>
   conector(claveONombre: string): Conector
   cuenta(claveONombre: string): Cuenta
+  grafo(ontologiaId: string): Promise<import("surrealdb").Surreal>
   receta(claveONombre: string): Receta
   log(texto: string): void
+}
+
+interface DependenciaDeOntologia {
+  readonly id: string
+  readonly minVersion: number
+  readonly maxVersion: number
+}
+
+interface ReferenciaDeConocimiento {
+  readonly ontologyId: "escriba"
+  readonly table: string
+  readonly id: string
+}
+
+interface CampoDeConocimiento {
+  readonly key: string
+  readonly label: string
+  readonly type: "text" | "number" | "boolean" | "date" | "json" | "reference"
+  readonly required?: boolean
+  readonly reference?: { readonly ontologyId: "escriba"; readonly table: ReferenciaDeConocimiento["table"] }
+}
+
+interface ColeccionDeConocimiento {
+  readonly table: string
+  readonly label: string
+  readonly titleField: string
+  readonly fields: readonly CampoDeConocimiento[]
+  readonly relation?: { readonly from: string; readonly to: string }
+}
+
+interface Ontologia {
+  readonly id: string
+  readonly name: string
+  readonly version: number
+  readonly migrations: readonly { readonly version: number; readonly sql: string }[]
+  readonly collections: readonly ColeccionDeConocimiento[]
 }
 
 interface ErrorDeEscriba extends Error {
@@ -462,7 +500,7 @@ export async function flujo(audio: Audio, escriba: Escriba<Parametros>): Promise
     try {
       await escriba.conector(clave).publicar(nota)
     } catch (error) {
-      escriba.log(`no se pudo publicar en ${clave}: ${error}`)
+      console.warn(`no se pudo publicar en ${clave}: ${error}`)
     }
   }
 }

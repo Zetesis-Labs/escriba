@@ -60,6 +60,12 @@ y tuberías exclusivas. Este modo consume `start/resolve/reject` y produce
 sus mensajes al controlador, que valida cada operación en el contexto de la
 nota y cuenta autorizadas. Máximo ocho workers simultáneos. Rust debe terminar
 sus procesos al cerrar/reiniciar el host y aplicar el límite total del trabajo.
+
+El worker siempre ejecuta un programa compilado. Sin proyecto, ejecuta la
+receta por defecto: `build.mjs` compila `recetas/por-defecto/receta.ts` a
+`__DEFAULT_RECIPE__` con Zod compartido con el worker, y el formulario toma el
+idioma de los ajustes. Es el mismo fichero que Rust copia al iniciar un
+proyecto; un test lo comprueba.
 El tiempo de espera de capacidades no consume el presupuesto CPU del adaptador.
 
 Los códigos `backend_unavailable`, `recipe_unavailable` y `runtime_unavailable`
