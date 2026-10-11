@@ -97,6 +97,14 @@ ni el SDK pueden elegirlas. `nota.vincular(ontologiaId, recordId)` llama a
 registros de tablas declaradas en `collections`. Una consulta raw sí puede usar
 otras tablas de esa base si sus permisos SurrealQL lo permiten.
 
+`api.grafo("escriba")` usa el mismo SDK y RPC para la base interna v1, instalada
+implícitamente y de solo lectura. La receta puede consultar grabaciones,
+personas, versiones, transcripciones, hablantes, segmentos y palabras; la
+biblioteca se sincroniza antes de leer. Una dependencia explícita incompatible
+falla al abrir. `nota.vincular("escriba", …)` se rechaza porque esa base ya se
+deriva de la biblioteca. Un campo `reference` en otra ontología guarda
+`{ontologyId:"escriba",table,id}` como objeto, sin recorrido SQL entre bases.
+
 Rust verifica en cada operación el ID, el intervalo de versiones persistido en
 el catálogo de la receta y la versión exacta devuelta al abrir la conexión. La
 consulta se ejecuta como `RECORD` en una sola base lógica de ontología, con

@@ -317,6 +317,7 @@ async fn crea_relaciones_con_extremos_y_fechas_nativos() {
         label: "Conoce".into(),
         title_field: "since".into(),
         fields: vec![Field {
+            reference: None,
             key: "since".into(),
             label: "Desde".into(),
             kind: FieldType::Date,
@@ -504,11 +505,50 @@ async fn instala_el_ejemplo_de_reuniones_y_acuerdos() {
     let db = Knowledge::open(&temp.path().join("knowledge.surrealkv"))
         .await
         .unwrap();
+    db.sync_base_change(&crate::persistence::CoreChange {
+        key: "recording:note1".into(),
+        revision: "one".into(),
+        kind: "recording".into(),
+        id: "note1".into(),
+        value: Some(json!({
+            "id": "note1",
+            "title": "Meeting",
+            "versions": [{
+                "id": "version1",
+                "transcript": {"text": "Agreed", "segments": [{"text": "Agreed", "start": 0, "end": 1}]}
+            }]
+        })),
+    })
+    .await
+    .unwrap();
+    let segment_id = db
+        .records("escriba", "segment", 0, None, None)
+        .await
+        .unwrap()
+        .records[0]
+        .id
+        .clone();
     let mut definition = ontology("meeting");
     definition.collections.clear();
     definition.migrations[0].sql="DEFINE TABLE reunion SCHEMAFULL PERMISSIONS FULL; DEFINE FIELD titulo ON reunion TYPE string; DEFINE FIELD fecha ON reunion TYPE datetime; DEFINE TABLE acuerdo SCHEMAFULL PERMISSIONS FULL; DEFINE FIELD titulo ON acuerdo TYPE string; DEFINE FIELD estado ON acuerdo TYPE string; DEFINE TABLE surgio_en TYPE RELATION IN acuerdo OUT reunion ENFORCED SCHEMAFULL PERMISSIONS FULL;".into();
+    definition.version = 2;
+    definition.migrations.push(Migration {
+        version: 2,
+        sql: "DEFINE FIELD segmento ON acuerdo TYPE option<object>; DEFINE FIELD segmento.ontologyId ON acuerdo TYPE string; DEFINE FIELD segmento.table ON acuerdo TYPE string; DEFINE FIELD segmento.id ON acuerdo TYPE string;".into(),
+    });
     db.apply(definition).await.unwrap();
-    db.query("meeting",1,"CREATE reunion:a SET titulo='Meeting',fecha=d'2024-01-02T03:04:05Z'; CREATE acuerdo:a SET titulo='Agree',estado='pending'; RELATE acuerdo:a->surgio_en->reunion:a",json!({})).await.unwrap();
+    let reference = json!({"ontologyId": "escriba", "table": "segment", "id": segment_id});
+    db.query("meeting",2,"CREATE reunion:a SET titulo='Meeting',fecha=d'2024-01-02T03:04:05Z'; CREATE acuerdo:a SET titulo='Agree',estado='pending',segmento=$segmento; RELATE acuerdo:a->surgio_en->reunion:a",json!({"segmento": reference})).await.unwrap();
+    let agreement = db
+        .query(
+            "meeting",
+            2,
+            "SELECT VALUE segmento FROM acuerdo:a",
+            json!({}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(agreement, vec![json!([reference])]);
 }
 
 #[tokio::test]
@@ -520,6 +560,7 @@ async fn desvincula_una_nota_sin_borrar_el_registro_compartido_y_limpia_campos_o
     let mut definition = ontology("unlink");
     definition.migrations[0].sql.push_str(" DEFINE FIELD age ON person TYPE option<number>; DEFINE FIELD derived ON person TYPE option<string>;");
     definition.collections[0].fields.push(Field {
+        reference: None,
         key: "age".into(),
         label: "Edad".into(),
         kind: FieldType::Number,
@@ -744,6 +785,7 @@ async fn conserva_json_null_y_distingue_la_omision_del_campo() {
         .sql
         .push_str(" DEFINE FIELD details ON person TYPE any;");
     definition.collections[0].fields.push(Field {
+        reference: None,
         key: "details".into(),
         label: "Detalles".into(),
         kind: FieldType::Json,

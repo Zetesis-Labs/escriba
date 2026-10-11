@@ -5,6 +5,7 @@ use settings::{canonical_folder, redacted_settings};
 mod configuration;
 mod drafts;
 mod import;
+mod knowledge;
 mod model;
 mod mutations;
 mod people;

@@ -130,8 +130,8 @@ que el watcher y el botón Construir no se adelanten entre sí.
 definición tiene `id` estable, `name`, `version`, `migrations` y `collections`.
 Una colección declara su tabla, etiqueta, campo de título y campos de formulario;
 una colección de relación indica además las tablas `from` y `to`. El formulario
-de Escriba usa tipos `text`, `number`, `boolean`, `date` y `json`, pero no limita
-el esquema SurrealQL a esos cinco tipos. La definición aparece como candidata
+de Escriba usa tipos `text`, `number`, `boolean`, `date`, `json` y `reference`, pero no limita
+el esquema SurrealQL a esos tipos. La definición aparece como candidata
 al construir o cargar el proyecto. **Instalar** o **Actualizar** aplica sus
 migraciones; ejecutar una receta nunca migra el esquema. Las ontologías instaladas
 son de la biblioteca y permanecen al cambiar de proyecto.
@@ -170,6 +170,24 @@ La sesión de receta tiene permisos de registro (`RECORD`), sin DDL, `USE` ni
 administración de autenticación. No hay cruces automáticos entre bases de
 ontologías; la receta abre cada ontología declarada por separado.
 
+La base `escriba` v1 está instalada de serie y se abre con
+`await api.grafo("escriba")` sin declararla en `ontologias`. Si la receta declara
+un intervalo explícito para `escriba`, se respeta y falla si no admite v1. Esta
+base expone en solo lectura `person`, `recording`, `version`, `transcript`,
+`speaker`, `segment` y `word`. Escriba sincroniza sus registros desde la
+biblioteca antes de cada lectura. Los IDs de `recording` y `person` usan sus UUID
+reales; los de `version` y `transcript` usan `[recordingId, versionId]`, los de
+`speaker` usan `[recordingId, versionId, label]`, los de `segment` añaden su
+índice y los de `word` añaden los índices de segmento y palabra. No se exponen
+rutas, credenciales, huellas biométricas ni embeddings. La base no requiere
+migraciones del proyecto.
+
+Una colección de otra ontología puede declarar un campo `reference` con
+`reference: { ontologyId: "escriba", table: "segment" }`. El valor almacenado es
+un objeto `{ ontologyId: "escriba", table: "segment", id: "segment:..." }`,
+con el ID obtenido de una consulta real al SDK. Es una referencia lógica: no
+permite un recorrido SurrealQL entre bases. Véase el ejemplo de acuerdos.
+
 `await nota.vincular(ontologiaId, recordId)` asocia un registro existente con
 la versión activa de la nota. La asociación conserva la grabación, versión y
 receta de origen; un registro puede compartirse entre notas. Solo se pueden
@@ -181,10 +199,14 @@ existente o desvincularlo. Escriba usa formularios JSON para esas ediciones,
 independientes de la representación CBOR del SDK; un guardado comprueba la
 revisión previa y las correcciones manuales quedan protegidas de escrituras
 posteriores de una receta. Véase el [ejemplo completo](../examples/conocimiento/).
+La base `escriba` ya se deriva de la biblioteca; `nota.vincular("escriba", …)`
+se rechaza.
 
 La prueba de receta (`dryRun`) deniega el grafo, incluso las consultas de solo
-lectura. Como SurrealQL puede mezclar lecturas y escrituras, iniciar cualquier
-consulta marca la grabación para evitar un reintento automático incierto; un
+lectura. En una ontología de usuario, SurrealQL puede mezclar lecturas y
+escrituras: iniciar una consulta marca la grabación para evitar un reintento
+automático incierto. Las consultas a la base `escriba` son de solo lectura y no
+activan ese marcador; un
 reprocesado manual puede iniciar otra ejecución. No se incluyen embeddings,
 búsqueda vectorial gestionada ni un canvas de grafos.
 

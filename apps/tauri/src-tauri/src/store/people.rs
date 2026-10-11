@@ -54,6 +54,13 @@ impl Store {
             return Err("Huellas de voz inválidas".into());
         }
         strip_embeddings(&mut transcript);
+        if let Some(segments) = transcript["segments"].as_array_mut() {
+            for segment in segments {
+                if let Some(fields) = segment.as_object_mut() {
+                    fields.remove("personId");
+                }
+            }
+        }
         let mut recognized = Vec::new();
         if !voices.is_empty()
             && transcript["segments"]
@@ -76,6 +83,7 @@ impl Store {
                 {
                     if segment["speaker"] == recognition.speaker {
                         segment["speaker"] = json!(recognition.person);
+                        segment["personId"] = json!(recognition.person_id);
                     }
                 }
                 for voice in &mut voices {
@@ -83,7 +91,7 @@ impl Store {
                         voice.speaker = recognition.person.clone();
                     }
                 }
-                recognized.push(json!({"speaker":recognition.speaker,"person":recognition.person,"distance":recognition.distance}));
+                recognized.push(json!({"speaker":recognition.speaker,"person":recognition.person,"personId":recognition.person_id,"distance":recognition.distance}));
             }
         }
         transcript["recognitions"] = Value::Array(recognized);

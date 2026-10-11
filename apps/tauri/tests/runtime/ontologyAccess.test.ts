@@ -83,3 +83,29 @@ test("vincular usa únicamente la versión activa de la grabación", async () =>
     expectedVersion: 1, versionId: "v", recordId: "topic:a",
   });
 });
+
+test("la base de Escriba se abre de forma implícita y rechaza vínculos manuales", async () => {
+  const f = fixture();
+  f.state.recipes[0].ontologies = [];
+  const runtime = createRuntime(f.host, { run: async (_, context) => {
+    assert.deepEqual(await context.call("graph.open", { ontologyId: "escriba" }), { version: 1 });
+    assert.equal(await context.call("graph.query", { ontologyId: "escriba", expectedVersion: 1, sql: "SELECT id FROM segment", bindings: "oA==" }), "gA==");
+    await assert.rejects(context.call("graph.link", { ontologyId: "escriba", expectedVersion: 1, recordId: "segment:sample", noteId: "v" }), /base de Escriba/);
+    await context.call("transcribe", {});
+    return null;
+  } });
+  await runtime.processRecording("r");
+  assert.deepEqual(f.calls.find((c) => c.method === "knowledge_open")?.params, {
+    recipeId: "graph", recordingId: "r", ontologyId: "escriba", dependency: { id: "escriba", minVersion: 1, maxVersion: 1 },
+  });
+  assert.equal(f.calls.some((c) => c.method === "knowledge_link"), false);
+  assert.equal(f.calls.some((c) => c.method === "account_effect_begin"), false);
+});
+
+test("la prueba de receta tampoco abre la base de Escriba", async () => {
+  const f = fixture();
+  f.state.recipes[0].ontologies = [];
+  const runtime = createRuntime(f.host, { run: async (_, context) => context.call("graph.open", { ontologyId: "escriba" }) });
+  await assert.rejects(runtime.processRecording("r", { dryRun: true }), /prueba de receta/);
+  assert.equal(f.calls.some((c) => c.method.startsWith("knowledge_")), false);
+});

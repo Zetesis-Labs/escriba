@@ -121,12 +121,12 @@ export function TranscriptDetail({ recording, origin, job, recipes, canSummarize
       }
     });
   }, [editRequest, loading]);
-  const chooseSpeaker = (name: string) => {
+  const chooseSpeaker = (name: string, personId?: string) => {
     const latest = session.getState().content;
     if (!latest || !picker) return;
     if (latest.transcript !== picker.transcript) { setPicker(null); setActionError("La transcripción cambió. Vuelve a seleccionar el fragmento."); return; }
     const segmented = transcriptWithSegments(latest.transcript);
-    const changed = picker.target.kind === "speaker" ? renameSpeaker(segmented, picker.target.speaker, name) : assignSelectedSpeaker(segmented, picker.target.ranges, name);
+    const changed = picker.target.kind === "speaker" ? renameSpeaker(segmented, picker.target.speaker, name, personId) : assignSelectedSpeaker(segmented, picker.target.ranges, name, personId);
     update({ transcript: changed });
     setPicker(null);
   };

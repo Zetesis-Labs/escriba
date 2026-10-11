@@ -28,6 +28,17 @@ sus dependencias para utilizarlos en Escriba.
 estable, colecciones y una versión. Pertenece a la biblioteca y sigue disponible
 aunque se cambie o retire el proyecto de recetas que la propuso.
 
+**Ontología base**: vocabulario común de Escriba para las personas, grabaciones,
+versiones, transcripciones, hablantes, segmentos y palabras de la biblioteca y
+sus relaciones. Siempre está disponible y la mantiene Escriba.
+
+**Extensión de conocimiento**: ontología adicional que aporta conceptos y
+relaciones propios, y puede referenciar entidades de la ontología base.
+
+**Referencia a la base**: identidad de una entidad existente de Escriba usada
+por una extensión. Conserva su identidad aunque el origen deje de estar
+disponible; no crea otra persona ni otra nota.
+
 **Colección de conocimiento**: clase de registros de una ontología, incluida una
 relación entre dos clases cuando corresponde. Su declaración describe también
 los campos que Escriba puede presentar en un formulario.

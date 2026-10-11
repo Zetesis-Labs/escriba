@@ -49,6 +49,31 @@ fn record_id(value: &str, table: Option<&str>) -> Result<RecordId, String> {
     }
     Ok(id)
 }
+fn writable(id: &str) -> Result<(), String> {
+    if id == "escriba" {
+        Err(
+            "La ontología base es de solo lectura; edita sus datos desde la biblioteca o Personas"
+                .into(),
+        )
+    } else {
+        Ok(())
+    }
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct BaseReference {
+    ontology_id: String,
+    table: String,
+    id: String,
+}
+fn reference(value: &Value, target: &ReferenceTarget) -> Result<RecordId, String> {
+    let reference: BaseReference =
+        serde_json::from_value(value.clone()).map_err(|_| "Referencia a la base inválida")?;
+    if reference.ontology_id != target.ontology_id || reference.table != target.table {
+        return Err("La referencia no pertenece a la colección declarada".into());
+    }
+    record_id(&reference.id, Some(&target.table))
+}
 fn graph_record(ontology_id: &str, row: DbValue) -> Result<GraphRecord, String> {
     let DbValue::Object(mut object) = row.clone() else {
         return Err("Registro inválido".into());
@@ -114,7 +139,8 @@ impl Knowledge {
         let root = self.root.lock().await;
         let db = selected(&root, id).await?;
         collection(&db, table, None).await?;
-        let mut response = db.query("SELECT * FROM type::table($table) WHERE ($recording = NONE OR id IN (SELECT VALUE record FROM _escriba_source WHERE recordingId = $recording AND ($version = NONE OR versionId = $version))) ORDER BY id LIMIT 51 START $offset")
+        let mut response = db.query("SELECT * FROM type::table($table) WHERE ($recording = NONE OR ($base AND recordingId=$recording AND ($version=NONE OR versionId=$version)) OR (!$base AND id IN (SELECT VALUE record FROM _escriba_source WHERE recordingId = $recording AND ($version = NONE OR versionId = $version)))) ORDER BY id LIMIT 51 START $offset")
+            .bind(("base",id=="escriba"))
             .bind(("table",table.to_string())).bind(("recording",recording_id.map(str::to_string))).bind(("version",version_id.map(str::to_string))).bind(("offset",u64::from(page)*50)).await.map_err(error)?.check().map_err(error)?;
         let mut rows: Vec<DbValue> = response.take(0).map_err(error)?;
         let has_more = rows.len() > 50;
@@ -129,6 +155,7 @@ impl Knowledge {
         })
     }
     pub async fn save(&self, request: SaveRecord) -> Result<GraphRecord, String> {
+        writable(&request.ontology_id)?;
         let root = self.root.lock().await;
         let db = selected(&root, &request.ontology_id).await?;
         let collection = collection(&db, &request.table, Some(request.expected_version)).await?;
@@ -167,9 +194,27 @@ impl Knowledge {
                         FieldType::Number => value.is_number(),
                         FieldType::Boolean => value.is_boolean(),
                         FieldType::Json => true,
+                        FieldType::Reference => value.is_object(),
                     };
                 if !valid {
                     return Err(format!("Tipo inválido para {}", definition.label));
+                }
+                if definition.kind == FieldType::Reference && !value.is_null() {
+                    let target = definition
+                        .reference
+                        .as_ref()
+                        .ok_or("Referencia sin destino")?;
+                    let target_id = reference(&value, target)?;
+                    let unchanged = before.as_ref().is_some_and(|before| {
+                        before.clone().into_json_value().get(&key) == Some(&value)
+                    });
+                    if !unchanged
+                        && current(&selected(&root, "escriba").await?, &target_id)
+                            .await?
+                            .is_none()
+                    {
+                        return Err("La entidad base ya no existe; elige otra referencia".into());
+                    }
                 }
                 let native = if value.is_null() {
                     if definition.kind == FieldType::Json {
@@ -238,6 +283,7 @@ impl Knowledge {
         id: &str,
         expected_rev: &str,
     ) -> Result<(), String> {
+        writable(ontology_id)?;
         let root = self.root.lock().await;
         let db = selected(&root, ontology_id).await?;
         collection(&db, table, Some(expected_version)).await?;
@@ -261,6 +307,7 @@ impl Knowledge {
         id: &str,
         source: Source,
     ) -> Result<(), String> {
+        writable(ontology_id)?;
         let root = self.root.lock().await;
         let db = selected(&root, ontology_id).await?;
         let id = record_id(id, None)?;
@@ -292,6 +339,7 @@ impl Knowledge {
         id: &str,
         recording_id: &str,
     ) -> Result<(), String> {
+        writable(ontology_id)?;
         let root = self.root.lock().await;
         let db = selected(&root, ontology_id).await?;
         let id = record_id(id, None)?;

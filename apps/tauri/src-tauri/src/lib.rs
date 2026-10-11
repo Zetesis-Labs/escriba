@@ -7,6 +7,8 @@ mod error;
 mod folder_access;
 mod jobs;
 mod knowledge;
+#[cfg(test)]
+mod knowledge_base_integration_tests;
 mod knowledge_commands;
 #[cfg(test)]
 mod knowledge_integration_tests;
@@ -317,7 +319,7 @@ fn dispatch<'a>(
                         .try_exists()
                         .map_err(|error| format!("No se pudo acceder al conocimiento: {error}"))?
                 {
-                    return Ok(json!([]));
+                    return Ok(json!([knowledge::base_listing()]));
                 }
                 let knowledge = state
                     .knowledge

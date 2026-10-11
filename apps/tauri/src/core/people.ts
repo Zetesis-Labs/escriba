@@ -1,4 +1,9 @@
-import type { Person, Transcript, VoiceRegistration } from "../types";
+import type { Person, Segment, Transcript, VoiceRegistration } from "../types";
+
+function withSpeakerLabel(segment: Segment, speaker: string): Segment {
+  const { personId: _personId, ...rest } = segment;
+  return { ...rest, speaker };
+}
 
 export const personName = (value: string, current?: string) => {
   const name = value.trim();
@@ -21,7 +26,7 @@ export function correctedSpeaker(transcript: Transcript, visibleSpeaker: string,
   return {
     transcript: {
       ...transcript,
-      segments: transcript.segments.map((segment) => (segment.speaker === visibleSpeaker ? { ...segment, speaker: person } : segment)),
+      segments: transcript.segments.map((segment) => segment.speaker === visibleSpeaker ? withSpeakerLabel(segment, person) : segment),
       recognitions: transcript.recognitions?.filter((item) => item.person !== visibleSpeaker && item.person !== person),
     },
     teaching: { speaker: visibleSpeaker, person, ...(existingOnly ? { existingOnly: true } : {}) },
@@ -34,7 +39,7 @@ export function forgottenRecognition(transcript: Transcript, visibleSpeaker: str
   return {
     ...transcript,
     segments: transcript.segments.map((segment) =>
-      segment.speaker === visibleSpeaker ? { ...segment, speaker: recognition.speaker } : segment,
+      segment.speaker === visibleSpeaker ? withSpeakerLabel(segment, recognition.speaker) : segment,
     ),
     recognitions: transcript.recognitions?.filter((item) => item !== recognition),
   };

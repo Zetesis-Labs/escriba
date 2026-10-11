@@ -2,7 +2,7 @@ export const ontologias = [
   {
     id: "ejemplo.reuniones",
     name: "Reuniones y acuerdos",
-    version: 1,
+    version: 2,
     migrations: [
       {
         version: 1,
@@ -14,6 +14,15 @@ export const ontologias = [
           DEFINE FIELD titulo ON acuerdo TYPE string;
           DEFINE FIELD estado ON acuerdo TYPE string;
           DEFINE TABLE surgio_en TYPE RELATION IN acuerdo OUT reunion ENFORCED SCHEMAFULL PERMISSIONS FULL;
+        `,
+      },
+      {
+        version: 2,
+        sql: `
+          DEFINE FIELD segmento ON acuerdo TYPE option<object>;
+          DEFINE FIELD segmento.ontologyId ON acuerdo TYPE string;
+          DEFINE FIELD segmento.table ON acuerdo TYPE string;
+          DEFINE FIELD segmento.id ON acuerdo TYPE string;
         `,
       },
     ],
@@ -34,6 +43,7 @@ export const ontologias = [
         fields: [
           { key: "titulo", label: "Título", type: "text", required: true },
           { key: "estado", label: "Estado", type: "text" },
+          { key: "segmento", label: "Segmento de la nota", type: "reference", reference: { ontologyId: "escriba", table: "segment" } },
         ],
       },
       {

@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { call } from "../api";
 import { Button, Sheet, Spinner } from "../mac/controls";
 import { confirmDestructive, errorText } from "../mac/native";
-import { editedFields, fieldInputText, fieldText, isInstalledOntology, isRecordPage, recordTitle, type InstalledOntology, type KnowledgeCollection, type KnowledgeRecord, type RuntimeHost } from "./model";
+import { editedFields, extensionOntologies, fieldInputText, fieldText, isInstalledOntology, isKnowledgeReference, isRecordPage, recordTitle, type InstalledOntology, type KnowledgeCollection, type KnowledgeRecord, type RuntimeHost } from "./model";
 import "./knowledge.css";
 
 type Group = { ontology: InstalledOntology; collection: KnowledgeCollection; records: KnowledgeRecord[]; page: number; hasMore: boolean; loading: boolean; error: string | null };
@@ -19,6 +19,7 @@ export function KnowledgeCard({ recordingId, versionId, host = call }: { recordi
   const [editor, setEditor] = useState<Editor | null>(null);
   const [attach, setAttach] = useState<Attach | null>(null);
   const [endpoints, setEndpoints] = useState<Record<string, Endpoints>>({});
+  const [baseOntology, setBaseOntology] = useState<InstalledOntology | null>(null);
   const generation = useRef(0);
   const editorGeneration = useRef(0);
   const attachGeneration = useRef(0);
@@ -47,7 +48,8 @@ export function KnowledgeCard({ recordingId, versionId, host = call }: { recordi
     void host<unknown>("knowledge_list").then((result) => {
       if (!current) return;
       if (!Array.isArray(result) || !result.every(isInstalledOntology)) throw new Error("La lista de ontologías instaladas no es válida.");
-      for (const ontology of result) for (const collection of ontology.collections) void loadPage(ontology, collection, 0, false, scope);
+      setBaseOntology(result.find((ontology) => ontology.builtIn === true) ?? null);
+      for (const ontology of extensionOntologies(result)) for (const collection of ontology.collections) void loadPage(ontology, collection, 0, false, scope);
     }).catch((failure) => { if (current) setError(errorText(failure)); }).finally(() => { if (current) setLoading(false); });
     return () => { current = false; generation.current++; editorGeneration.current++; attachGeneration.current++; };
   }, [host, recordingId, loadPage]);
@@ -55,15 +57,16 @@ export function KnowledgeCard({ recordingId, versionId, host = call }: { recordi
   const loadEndpoint = useCallback(async (ontology: InstalledOntology, table: string, page = 0, scope = editorGeneration.current) => {
     const collection = ontology.collections.find((candidate) => candidate.table === table);
     if (!collection || scope !== editorGeneration.current) return;
-    setEndpoints((current) => ({ ...current, [table]: { records: page ? current[table]?.records ?? [] : [], page, hasMore: false, loading: true, error: null } }));
+    const key = groupKey(ontology.id, table);
+    setEndpoints((current) => ({ ...current, [key]: { records: page ? current[key]?.records ?? [] : [], page, hasMore: false, loading: true, error: null } }));
     try {
       const result = await host<unknown>("knowledge_records", { id: ontology.id, table, page });
       if (scope !== editorGeneration.current) return;
       if (!isRecordPage(result)) throw new Error("La página de registros no es válida.");
-      setEndpoints((current) => ({ ...current, [table]: { records: page ? [...(current[table]?.records ?? []), ...result.records] : result.records, page: result.page, hasMore: result.hasMore, loading: false, error: null } }));
+      setEndpoints((current) => ({ ...current, [key]: { records: page ? [...(current[key]?.records ?? []), ...result.records] : result.records, page: result.page, hasMore: result.hasMore, loading: false, error: null } }));
     } catch (failure) {
       if (scope !== editorGeneration.current) return;
-      setEndpoints((current) => ({ ...current, [table]: { records: current[table]?.records ?? [], page: current[table]?.page ?? page, hasMore: current[table]?.hasMore ?? false, loading: false, error: errorText(failure) } }));
+      setEndpoints((current) => ({ ...current, [key]: { records: current[key]?.records ?? [], page: current[key]?.page ?? page, hasMore: current[key]?.hasMore ?? false, loading: false, error: errorText(failure) } }));
     }
   }, [host]);
 
@@ -77,6 +80,7 @@ export function KnowledgeCard({ recordingId, versionId, host = call }: { recordi
     setEndpoints({});
     setEditor({ groupKey: key, record, raw, error: null, busy: false });
     if (group.collection.relation) for (const table of new Set([group.collection.relation.from, group.collection.relation.to])) void loadEndpoint(group.ontology, table, 0, scope);
+    if (baseOntology) for (const table of new Set(group.collection.fields.filter((field) => field.type === "reference" && field.reference?.ontologyId === "escriba").map((field) => field.reference?.table).filter((table): table is string => !!table))) void loadEndpoint(baseOntology, table, 0, scope);
   };
 
   const loadAttach = async (ontology: InstalledOntology, table: string, page = 0, scope = attachGeneration.current) => {
@@ -153,7 +157,7 @@ export function KnowledgeCard({ recordingId, versionId, host = call }: { recordi
   return <section className="detail-section knowledge-card"><div className="knowledge-card-head"><h2 className="note-section-title"><ListTree size={15} />Conocimiento</h2></div>
     {error && <div className="knowledge-error" role="alert">No se pudieron cargar las ontologías: {error}</div>}
     {loading && <div className="knowledge-loading"><Spinner /> Cargando conocimiento…</div>}
-    {!loading && !error && !entries.length && <p className="knowledge-card-empty">No hay ontologías instaladas. Se instalan desde Recetas.</p>}
+    {!loading && !error && !entries.length && <p className="knowledge-card-empty">No hay extensiones de conocimiento instaladas. Se instalan desde Recetas.</p>}
     {!loading && entries.length > 0 && !hasRecords && <p className="knowledge-card-empty">Esta nota aún no tiene registros relacionados.</p>}
     {entries.map(([key, group]) => <div className="knowledge-group" key={key}><div className="knowledge-group-title"><span><strong>{group.collection.label}</strong> · {group.ontology.name}</span><div className="knowledge-group-actions"><Button small disabled={!versionId} onClick={() => openAttach(key)}>Vincular existente…</Button>{(group.collection.fields.length > 0 || group.collection.relation) && <Button small icon={Plus} onClick={() => openEditor(key, null)}>Añadir</Button>}</div></div>
       {group.error && <div className="knowledge-error" role="alert">{group.error} <button type="button" className="knowledge-row-action" onClick={() => void loadPage(group.ontology, group.collection)}>Reintentar</button></div>}
@@ -162,9 +166,24 @@ export function KnowledgeCard({ recordingId, versionId, host = call }: { recordi
       {group.hasMore && !group.loading && <div className="knowledge-record-row"><Button small onClick={() => void loadPage(group.ontology, group.collection, group.page + 1, true)}>Mostrar más</Button></div>}
     </div>)}
     {editor && selected && <Sheet onCancel={() => !editor.busy && setEditor(null)}><div className="knowledge-sheet"><h3>{editor.record ? "Editar" : "Nuevo registro"} · {selected.collection.label}</h3>{editor.record && <p className="font-caption secondary knowledge-shared-note">Los cambios de este registro también se verán en otras notas que lo tengan vinculado.</p>}
-      {selected.collection.fields.map((field) => <label className={`knowledge-field ${field.type === "boolean" ? "knowledge-field-boolean" : ""}`} key={field.key}>{field.label}{field.required ? " *" : ""}{field.type === "boolean" ? <input type="checkbox" checked={editor.raw[field.key] === true} disabled={editor.busy} onChange={(event) => setEditor({ ...editor, raw: { ...editor.raw, [field.key]: event.target.checked } })} /> : field.type === "json" ? <textarea value={String(editor.raw[field.key] ?? "")} disabled={editor.busy} onChange={(event) => setEditor({ ...editor, raw: { ...editor.raw, [field.key]: event.target.value } })} /> : <input type={field.type === "date" ? "date" : "text"} value={String(editor.raw[field.key] ?? "")} disabled={editor.busy} onChange={(event) => setEditor({ ...editor, raw: { ...editor.raw, [field.key]: event.target.value } })} />}</label>)}
+      {selected.collection.fields.map((field) => {
+        if (field.type === "reference") {
+          const table = field.reference?.table ?? "";
+          const state = endpoints[groupKey("escriba", table)];
+          const collection = baseOntology?.collections.find((item) => item.table === table);
+          const chosen = String(editor.raw[field.key] ?? "");
+          const choices = state?.records.map((record) => ({ value: JSON.stringify({ ontologyId: "escriba", table, id: record.id }), title: recordTitle(collection ?? selected.collection, record.values) })) ?? [];
+          const missing = chosen && !choices.some((choice) => choice.value === chosen);
+          let missingLabel = "Referencia guardada · no disponible en esta página";
+          if (missing) {
+            try { const value: unknown = JSON.parse(chosen); if (isKnowledgeReference(value)) missingLabel = `Referencia guardada · ${value.id} (no disponible en esta página)`; } catch { missingLabel = "Referencia guardada · no disponible en esta página"; }
+          }
+          return <div className="knowledge-endpoint" key={field.key}><label className="knowledge-field">{field.label}{field.required ? " *" : ""}<select value={chosen} disabled={editor.busy || !collection} onChange={(event) => setEditor({ ...editor, raw: { ...editor.raw, [field.key]: event.target.value } })}><option value="">Selecciona un registro…</option>{missing && <option value={chosen}>{missingLabel}</option>}{choices.map((choice) => <option key={choice.value} value={choice.value}>{choice.title}</option>)}</select></label>{!collection && <div className="knowledge-error" role="alert">La colección «{table}» no está disponible en la base de Escriba.</div>}{state?.loading && <span className="font-caption secondary">Cargando registros…</span>}{state?.error && <div className="knowledge-error" role="alert">{state.error} <button type="button" className="knowledge-row-action" onClick={() => baseOntology && void loadEndpoint(baseOntology, table)}>Reintentar</button></div>}{state?.hasMore && !state.loading && <Button small onClick={() => baseOntology && void loadEndpoint(baseOntology, table, state.page + 1)}>Mostrar más</Button>}</div>;
+        }
+        return <label className={`knowledge-field ${field.type === "boolean" ? "knowledge-field-boolean" : ""}`} key={field.key}>{field.label}{field.required ? " *" : ""}{field.type === "boolean" ? <input type="checkbox" checked={editor.raw[field.key] === true} disabled={editor.busy} onChange={(event) => setEditor({ ...editor, raw: { ...editor.raw, [field.key]: event.target.checked } })} /> : field.type === "json" ? <textarea value={String(editor.raw[field.key] ?? "")} disabled={editor.busy} onChange={(event) => setEditor({ ...editor, raw: { ...editor.raw, [field.key]: event.target.value } })} /> : <input type={field.type === "date" ? "date" : "text"} value={String(editor.raw[field.key] ?? "")} disabled={editor.busy} onChange={(event) => setEditor({ ...editor, raw: { ...editor.raw, [field.key]: event.target.value } })} />}</label>;
+      })}
       {selected.collection.relation && ([{ key: "in", table: selected.collection.relation.from, label: "Origen" }, { key: "out", table: selected.collection.relation.to, label: "Destino" }]).map((endpoint) => {
-        const state = endpoints[endpoint.table];
+        const state = endpoints[groupKey(selected.ontology.id, endpoint.table)];
         const collection = selected.ontology.collections.find((candidate) => candidate.table === endpoint.table);
         const chosen = String(editor.raw[endpoint.key] ?? "");
         return <div className="knowledge-endpoint" key={endpoint.key}><label className="knowledge-field">{endpoint.label} · {collection?.label ?? endpoint.table} *<select value={chosen} disabled={editor.busy || !collection} onChange={(event) => setEditor({ ...editor, raw: { ...editor.raw, [endpoint.key]: event.target.value } })}><option value="">Selecciona un registro…</option>{chosen && !state?.records.some((record) => record.id === chosen) && <option value={chosen}>{chosen}</option>}{state?.records.map((record) => <option value={record.id} key={record.id}>{recordTitle(collection ?? selected.collection, record.values)}</option>)}</select></label>{!collection && <div className="knowledge-error" role="alert">La colección «{endpoint.table}» no está declarada en esta ontología.</div>}{state?.loading && <span className="font-caption secondary">Cargando registros…</span>}{state?.error && <div className="knowledge-error" role="alert">{state.error} <button type="button" className="knowledge-row-action" onClick={() => void loadEndpoint(selected.ontology, endpoint.table)}>Reintentar</button></div>}{state?.hasMore && !state.loading && <Button small onClick={() => void loadEndpoint(selected.ontology, endpoint.table, state.page + 1)}>Mostrar más</Button>}</div>;

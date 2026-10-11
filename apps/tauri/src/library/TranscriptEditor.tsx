@@ -145,7 +145,7 @@ export function TranscriptEditor({ transcript, editing, disabled, position, onSe
 
 export function SpeakerPicker({ people, speakers, target, excerpt, onChoose, onCancel, error, speakerColors }: {
   people: Person[]; speakers: string[]; target: SpeakerTarget; excerpt: string; error: string | null;
-  onChoose(name: string): void; onCancel(): void;
+  onChoose(name: string, personId?: string): void; onCancel(): void;
   speakerColors?: Readonly<Record<string, string>>;
 }) {
   const [name, setName] = useState("");
@@ -157,7 +157,7 @@ export function SpeakerPicker({ people, speakers, target, excerpt, onChoose, onC
     {excerpt && <blockquote className="speaker-excerpt selectable">{excerpt}</blockquote>}
     <div className="speaker-choices">
       <div className="font-caption secondary">Personas guardadas</div>
-      {people.length ? people.map((person) => <button type="button" className="speaker-choice" style={speakerStyle(person.name, speakerColors)} key={person.name} onClick={() => onChoose(person.name)}><UserRound size={15} />{person.name}</button>) : <p className="secondary font-callout">Aún no hay personas guardadas.</p>}
+      {people.length ? people.map((person) => <button type="button" className="speaker-choice" style={speakerStyle(person.name, speakerColors)} key={person.id ?? person.name} onClick={() => onChoose(person.name, person.id)}><UserRound size={15} />{person.name}</button>) : <p className="secondary font-callout">Aún no hay personas guardadas.</p>}
       {error && <p className="warning" role="alert">{error}</p>}
       {!!others.length && <><div className="font-caption secondary">Hablantes de esta nota</div>{others.map((speaker) => <button type="button" className="speaker-choice" style={speakerStyle(speaker, speakerColors)} key={speaker} onClick={() => onChoose(speaker)}><UserRound size={15} />{speaker}</button>)}</>}
     </div>

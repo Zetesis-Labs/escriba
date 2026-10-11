@@ -68,6 +68,12 @@ describe("Personas como en Swift", () => {
     expect(correctedSpeaker(transcript, "Ana", "Luis", true)?.transcript.recognitions).toEqual([]);
   });
 
+  test("renombrar o deshacer reconocimiento limpia una identidad de persona anterior", () => {
+    const transcript: Transcript = { text: "hola", segments: [{ start: 0, end: 1, text: "hola", speaker: "Nuria", personId: "person:nuria" }], recognitions: [{ speaker: "Speaker 1", person: "Nuria", distance: 0.1 }] };
+    expect(correctedSpeaker(transcript, "Nuria", "Otro")?.transcript.segments[0]).toEqual({ start: 0, end: 1, text: "hola", speaker: "Otro" });
+    expect(forgottenRecognition(transcript, "Nuria")?.segments[0]).toEqual({ start: 0, end: 1, text: "hola", speaker: "Speaker 1" });
+  });
+
   test("elegir un audio o grabar exige nombre y una muestra inactiva o fallida", () => {
     expect(canBeginVoiceSample(" Ana ", "idle")).toBe(true);
     expect(canBeginVoiceSample("Ana", "failed")).toBe(true);
