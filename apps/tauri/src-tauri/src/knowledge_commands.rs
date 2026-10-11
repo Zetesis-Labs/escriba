@@ -107,11 +107,21 @@ fn version(p: &Value) -> Result<u32, String> {
         .ok_or_else(|| "Versión de ontología inválida".into())
 }
 
+const UI_SYNC_BUDGET: std::time::Duration = std::time::Duration::from_secs(2);
+const BACKGROUND_SYNC_BUDGET: std::time::Duration = std::time::Duration::from_millis(500);
+
+struct Synchronized<'a> {
+    _guard: tokio::sync::MutexGuard<'a, ()>,
+    complete: bool,
+}
+
 async fn synchronize_base<'a>(
     knowledge: &'a Knowledge,
     store: &Arc<Mutex<Store>>,
-) -> Result<tokio::sync::MutexGuard<'a, ()>, String> {
+    budget: Option<std::time::Duration>,
+) -> Result<Synchronized<'a>, String> {
     let guard = knowledge.base_sync.lock().await;
+    let started = std::time::Instant::now();
     let epoch = knowledge.base_epoch().await?;
     store
         .lock()
@@ -123,14 +133,31 @@ async fn synchronize_base<'a>(
             .map_err(|_| "Biblioteca no disponible")?
             .knowledge_change()?;
         let Some(change) = change else {
-            return Ok(guard);
+            return Ok(Synchronized {
+                _guard: guard,
+                complete: true,
+            });
         };
+        if budget.is_some_and(|budget| started.elapsed() >= budget) {
+            return Ok(Synchronized {
+                _guard: guard,
+                complete: false,
+            });
+        }
         knowledge.sync_base_change(&change).await?;
         store
             .lock()
             .map_err(|_| "Biblioteca no disponible")?
             .knowledge_ack(&change.key, &change.revision)?;
     }
+}
+
+pub async fn sync_step(knowledge: &Knowledge, store: &Arc<Mutex<Store>>) -> Result<bool, String> {
+    Ok(
+        synchronize_base(knowledge, store, Some(BACKGROUND_SYNC_BUDGET))
+            .await?
+            .complete,
+    )
 }
 
 pub async fn dispatch(
@@ -143,8 +170,12 @@ pub async fn dispatch(
         "knowledge_filter_notes" => {
             let filter: LibraryFilter = serde_json::from_value(p["filter"].clone())
                 .map_err(|e| format!("Filtro de Biblioteca inválido: {e}"))?;
-            let _base_guard = synchronize_base(knowledge, store).await?;
-            Ok(json!(knowledge.filter_notes(filter).await?))
+            let synchronized = synchronize_base(knowledge, store, Some(UI_SYNC_BUDGET)).await?;
+            let mut result = json!(knowledge.filter_notes(filter).await?);
+            if !synchronized.complete {
+                result["incomplete"] = json!(true);
+            }
+            Ok(result)
         }
         "knowledge_filters_list" => Ok(json!(knowledge.saved_filters().await?)),
         "knowledge_filter_save" => {
@@ -208,7 +239,7 @@ pub async fn dispatch(
             }
             if method == "knowledge_query" {
                 let _base_guard = if required.id == "escriba" {
-                    Some(synchronize_base(knowledge, store).await?)
+                    Some(synchronize_base(knowledge, store, None).await?)
                 } else {
                     None
                 };
@@ -248,7 +279,7 @@ pub async fn dispatch(
                 })
                 .transpose()?
                 .unwrap_or(0);
-            let _base_guard = synchronize_base(knowledge, store).await?;
+            let _base_guard = synchronize_base(knowledge, store, Some(UI_SYNC_BUDGET)).await?;
             match method {
                 "knowledge_graph_roots" => Ok(json!(
                     knowledge
@@ -269,7 +300,7 @@ pub async fn dispatch(
         }
         "knowledge_records" => {
             let _base_guard = if text(&p, "id")? == "escriba" {
-                Some(synchronize_base(knowledge, store).await?)
+                Some(synchronize_base(knowledge, store, Some(UI_SYNC_BUDGET)).await?)
             } else {
                 None
             };
@@ -295,7 +326,7 @@ pub async fn dispatch(
             ))
         }
         "knowledge_save" => {
-            let _base_guard = synchronize_base(knowledge, store).await?;
+            let _base_guard = synchronize_base(knowledge, store, None).await?;
             let provenance = if p.get("recordingId").is_some() {
                 let store = store.lock().map_err(|_| "Biblioteca no disponible")?;
                 Some(source(&store, &p, None)?)

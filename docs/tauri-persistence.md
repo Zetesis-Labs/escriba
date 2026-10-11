@@ -245,3 +245,21 @@ Para carpetas vigiladas, `sourceKey` incluye la carpeta y la identidad estable d
 ## Comprobaciones
 
 `cargo test --lib store::tests` ejercita datos sintéticos: reinicio, versiones, recibos, ajustes, jobs, memorias, trazas, consulta de campos nativos, conversión del esquema anterior, rollback ante una restricción real de SurrealDB, borrado transaccional, identidad estable de una nota de voz renombrada y recuperación tras matar el proceso inmediatamente después de un commit. No usa bibliotecas ni credenciales reales.
+
+## Proyección incremental de la base
+
+La base `escriba` se proyecta por unidades: la fila de la grabación y cada
+versión con su transcripción, segmentos, hablantes, palabras y aristas. Cada
+unidad guarda una huella de su contenido en `_escriba_projection` (sin
+permisos para recetas). Al sincronizar una grabación solo se reescriben las
+unidades cuya huella cambió: editar el título no toca versiones y corregir una
+versión no reescribe las demás. Una grabación proyectada por una versión
+anterior, sin huellas, se rehace entera una vez.
+
+La sincronización corre en segundo plano en tramos de medio segundo y se
+despierta con cada cambio de la biblioteca. Filtros y mapas esperan como
+máximo dos segundos; las consultas de recetas a la base y los formularios de
+registros sincronizan del todo. La conexión raíz del grafo no tiene un cerrojo
+global: cada operación clona su sesión y solo las instalaciones de ontologías
+se serializan. Las consultas SurrealQL de los filtros se ejecutan dentro de una
+transacción que siempre se descarta, además de pasar el validador de lectura.

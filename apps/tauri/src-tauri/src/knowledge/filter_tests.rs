@@ -453,3 +453,31 @@ async fn las_comparaciones_ordenadas_no_incluyen_campos_ausentes() {
         );
     }
 }
+
+#[tokio::test]
+async fn una_escritura_que_esquive_el_validador_se_descarta_con_la_transaccion() {
+    let (_temp, graph) = sample().await;
+    extension(&graph).await;
+    let session = runtime(&graph.root, "test").await.unwrap();
+    session
+        .query("CREATE topic:uno SET name = 'original'")
+        .await
+        .unwrap()
+        .check()
+        .unwrap();
+    let results = filters::discarded_read(
+        &session,
+        "UPDATE topic:uno SET name = 'cambiado'; SELECT VALUE name FROM topic:uno",
+    )
+    .await
+    .unwrap();
+    assert!(format!("{:?}", results.last().unwrap()).contains("cambiado"));
+    let mut response = session
+        .query("SELECT VALUE name FROM topic:uno")
+        .await
+        .unwrap()
+        .check()
+        .unwrap();
+    let names: Vec<String> = response.take(0).unwrap();
+    assert_eq!(names, vec!["original"]);
+}

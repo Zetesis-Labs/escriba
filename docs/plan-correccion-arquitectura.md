@@ -337,3 +337,27 @@ borrado y tipado y pueden ir en paralelo con ramas separadas una vez cerrada B.
   que un `Mutex` de tokio no acorta; convertir 55 llamadas y 2.600 líneas de
   tests no cambiaba nada observable. La sincronización del grafo en segundo
   plano va con la fase G.
+- **Fase G** (2026-10-12). Proyección por unidades con huellas
+  (`knowledge/base.rs`), sincronización en segundo plano con presupuesto y
+  aviso de resultado incompleto en el filtro, sin cerrojo global del grafo, y
+  SurrealQL de filtros en transacción descartada. **Se mantiene** la
+  fijación `=3.3.2` de `surrealdb-core`/`surrealdb-expr`: el validador sigue
+  siendo útil y la transacción descartada ya no depende de él.
+
+## Estado para retomar
+
+Ramas apiladas en `_worktrees/escriba-arquitectura`, sin push:
+`refactor/persistencia-por-entidad` (plan + A) → `refactor/cerrojos-y-colas`
+(B) → `refactor/grafo-incremental` (G). Cada siguiente fase sale de la última.
+El worktree reutiliza la caché de `escriba-tauri`: `apps/tauri/src-tauri/target`
+es un enlace a la suya, Bun 1.4.2 está en su `.build/bun` y SwiftPM usa
+`ESCRIBA_SWIFT_SCRATCH` apuntando a su `.build`. Node 22.12+ desde nvm.
+Tras cambiar TypeScript del runtime, `node apps/tauri/scripts/prepare.mjs`
+recompila el binario antes de los tests de Rust.
+
+Pendiente, en este orden: C (contrato con enum y tipos generados, empezando
+por `knowledge`), D (una sola receta por defecto), F (Worker de navegador y
+modo demo fuera; test de versiones del SDK), E (retirar la pila de recetas
+Swift y los jobs Linux/WASI), H (ADR-0003, ADR-0007, CLAUDE.md). Al final:
+prueba de compatibilidad con una copia privada de la biblioteca (pedir a Rubén
+que cierre la app), release, instalación y validación en pantalla por Rubén.

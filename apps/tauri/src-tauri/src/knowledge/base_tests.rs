@@ -66,3 +66,182 @@ async fn la_base_expone_la_biblioteca_y_solo_permite_consultarla() {
         vec![json!([]), json!([])]
     );
 }
+
+fn note(title: &str, versions: Value) -> crate::persistence::CoreChange {
+    crate::persistence::CoreChange {
+        key: "recording:nota".into(),
+        revision: Uuid::new_v4().to_string(),
+        kind: "recording".into(),
+        id: "nota".into(),
+        value: Some(
+            json!({"id":"nota","title":title,"status":"done","currentVersionId":"v1","versions":versions}),
+        ),
+    }
+}
+
+fn version(id: &str, summary: &str) -> Value {
+    json!({"id":id,"digest":{"title":format!("Versión {id}"),"summary":summary,"tags":[]},"transcript":{"text":"Hola Ana","segments":[{"start":0,"end":2,"text":"Hola Ana","speaker":"S1","personId":"ana","words":[{"text":"Hola","start":0,"end":1},{"text":"Ana","start":1,"end":2}]}]}})
+}
+
+async fn marked(graph: &Knowledge) -> Vec<String> {
+    let db = selected(&graph.root, "escriba").await.unwrap();
+    let mut response = db
+        .query("SELECT VALUE versionId FROM word WHERE marca = true ORDER BY versionId")
+        .await
+        .unwrap()
+        .check()
+        .unwrap();
+    let mut versions: Vec<String> = response.take(0).unwrap();
+    versions.dedup();
+    versions
+}
+
+async fn mark(graph: &Knowledge) {
+    selected(&graph.root, "escriba")
+        .await
+        .unwrap()
+        .query("UPDATE word SET marca = true")
+        .await
+        .unwrap()
+        .check()
+        .unwrap();
+}
+
+#[tokio::test]
+async fn editar_el_titulo_no_reproyecta_las_versiones_y_corregir_una_solo_rehace_esa() {
+    let temp = tempfile::tempdir().unwrap();
+    let graph = Knowledge::open(&temp.path().join("knowledge.surrealkv"))
+        .await
+        .unwrap();
+    graph
+        .sync_base_change(&crate::persistence::CoreChange {
+            key: "person:ana".into(),
+            revision: "p".into(),
+            kind: "person".into(),
+            id: "ana".into(),
+            value: Some(json!({"id":"ana","name":"Ana"})),
+        })
+        .await
+        .unwrap();
+    let three = json!([
+        version("v1", "uno"),
+        version("v2", "dos"),
+        version("v3", "tres")
+    ]);
+    graph
+        .sync_base_change(&note("Primera", three.clone()))
+        .await
+        .unwrap();
+    mark(&graph).await;
+    graph
+        .sync_base_change(&note("Retitulada", three))
+        .await
+        .unwrap();
+    assert_eq!(marked(&graph).await, vec!["v1", "v2", "v3"]);
+    assert_eq!(
+        graph
+            .query("escriba", 1, "SELECT VALUE title FROM recording", json!({}))
+            .await
+            .unwrap(),
+        vec![json!(["Retitulada"])]
+    );
+    let corrected = json!([
+        version("v1", "uno"),
+        version("v2", "corregida"),
+        version("v3", "tres")
+    ]);
+    graph
+        .sync_base_change(&note("Retitulada", corrected))
+        .await
+        .unwrap();
+    assert_eq!(marked(&graph).await, vec!["v1", "v3"]);
+    assert_eq!(
+        graph
+            .query(
+                "escriba",
+                1,
+                "SELECT count() FROM identified_as GROUP ALL",
+                json!({})
+            )
+            .await
+            .unwrap(),
+        vec![json!([{"count":3}])]
+    );
+    let reprocessed = json!([
+        version("v1", "uno"),
+        version("v2", "corregida"),
+        version("v4", "cuatro")
+    ]);
+    graph
+        .sync_base_change(&note("Retitulada", reprocessed))
+        .await
+        .unwrap();
+    assert_eq!(marked(&graph).await, vec!["v1"]);
+    assert_eq!(
+        graph
+            .query(
+                "escriba",
+                1,
+                "SELECT VALUE versionId FROM version ORDER BY versionId",
+                json!({})
+            )
+            .await
+            .unwrap(),
+        vec![json!(["v1", "v2", "v4"])]
+    );
+    assert_eq!(
+        graph
+            .query(
+                "escriba",
+                1,
+                "SELECT count() FROM word WHERE versionId = 'v3' GROUP ALL",
+                json!({})
+            )
+            .await
+            .unwrap(),
+        vec![json!([])]
+    );
+}
+
+#[tokio::test]
+async fn una_proyeccion_anterior_sin_huellas_se_rehace_entera_una_vez() {
+    let temp = tempfile::tempdir().unwrap();
+    let graph = Knowledge::open(&temp.path().join("knowledge.surrealkv"))
+        .await
+        .unwrap();
+    let versions = json!([version("v1", "uno")]);
+    graph
+        .sync_base_change(&note("Nota", versions.clone()))
+        .await
+        .unwrap();
+    let db = selected(&graph.root, "escriba").await.unwrap();
+    db.query("DELETE _escriba_projection; CREATE segment:huerfano SET recordingId = 'nota', versionId = 'antigua', text = 'resto'")
+        .await
+        .unwrap()
+        .check()
+        .unwrap();
+    mark(&graph).await;
+    graph
+        .sync_base_change(&note("Nota", versions.clone()))
+        .await
+        .unwrap();
+    assert!(marked(&graph).await.is_empty());
+    assert_eq!(
+        graph
+            .query(
+                "escriba",
+                1,
+                "SELECT VALUE text FROM segment ORDER BY text",
+                json!({})
+            )
+            .await
+            .unwrap(),
+        vec![json!(["Hola Ana"])]
+    );
+    mark(&graph).await;
+    graph
+        .sync_base_change(&note("Nota", versions))
+        .await
+        .unwrap();
+    assert_eq!(marked(&graph).await, vec!["v1"]);
+}

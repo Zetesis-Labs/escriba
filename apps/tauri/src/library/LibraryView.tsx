@@ -324,6 +324,7 @@ export function LibraryView({
         <ListFilter size={13} /><strong>{filters.result.name ?? "Filtro activo"}</strong>
         <button type="button" onClick={() => setFilterEditorOpen(true)}>Editar</button>
         <button type="button" onClick={filters.clear}>Quitar filtro</button>
+        {filters.result.incomplete && <span className="tertiary" role="status">Preparando la biblioteca para filtrar; el resultado puede estar incompleto.</span>}
       </div>}
       <div className="list-detail">
         <div className="recording-list" role="listbox" aria-label="Grabaciones" tabIndex={0} onKeyDown={move}>

@@ -235,7 +235,7 @@ async fn base_safety_rechaza_extension_legada_escriba_sin_alterar_su_esquema_ni_
     let graph = Knowledge::open(&path).await.unwrap();
     let legacy = json!({"id":"escriba","name":"Extensión anterior","version":1,"migrations":[{"version":1,"sql":"DEFINE TABLE person SCHEMAFULL PERMISSIONS FULL; DEFINE FIELD name ON person TYPE string;"}],"collections":[{"table":"person","label":"Legado","titleField":"name","fields":[{"key":"name","label":"Nombre","type":"text"}]}]});
     let before = {
-        let root = graph.root.lock().await;
+        let root = graph.root.clone();
         let db = selected(&root, "escriba").await.unwrap();
         db.query("DEFINE TABLE OVERWRITE person SCHEMAFULL PERMISSIONS FULL; DEFINE FIELD name ON person TYPE string; CREATE person:legacy SET name = 'Persona sintética anterior'; UPSERT _escriba_manifest:current SET definition=$definition, epoch='epoch-anterior';")
             .bind(("definition",legacy)).await.unwrap().check().unwrap();

@@ -102,7 +102,7 @@ incierto y se ofrece reintentar, sin inferir el resultado del texto del error.
 - knowledge_save {id,expectedVersion,table,recordId?,expectedRev?,values,recordingId?,versionId?} -> registro; formulario JSON con control de revisión y procedencia opcional.
 - knowledge_delete {id,expectedVersion,table,recordId,expectedRev} -> void; knowledge_unlink {id,expectedVersion,recordId,recordingId} -> void.
 - knowledge_attach {id,expectedVersion,recordId,recordingId,versionId} -> void; vínculo de una nota con un registro ya existente desde la UI.
-- knowledge_filter_notes {filter} -> {recordingIds}; aplica condiciones visuales sobre campos declarados o una consulta SurrealQL de lectura. Sincroniza la base y devuelve identidades de notas vigentes, sin descargar sus transcripciones a la interfaz.
+- knowledge_filter_notes {filter} -> {recordingIds,incomplete?}; `incomplete` indica que la base aún se está sincronizando tras dos segundos y la UI repite el filtro. Aplica condiciones visuales sobre campos declarados o una consulta SurrealQL de lectura. Sincroniza la base y devuelve identidades de notas vigentes, sin descargar sus transcripciones a la interfaz.
 - knowledge_filters_list -> SavedLibraryFilter[]; knowledge_filter_save {filter:{id?,name,filter:LibraryFilter}} -> SavedLibraryFilter; knowledge_filter_remove {id} -> void. `SavedLibraryFilter` contiene `id,name,filter`; conserva la definición visual (condiciones tipadas y todas/cualquiera) o SurrealQL. Los filtros permanecen en el registro privado de conocimiento al cambiar de proyecto. Las consultas del formato anterior se leen como SurrealQL conservando su ID. Estos comandos son exclusivos de la UI.
 
 Los filtros se ejecutan con el principal de datos de la ontología, tras validar

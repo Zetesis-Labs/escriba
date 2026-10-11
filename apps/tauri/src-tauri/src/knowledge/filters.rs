@@ -59,17 +59,17 @@ impl Knowledge {
             .map_err(|_| "El filtro superó el límite de 10 segundos".to_string())?
     }
     async fn run_filter(&self, filter: LibraryFilter) -> Result<FilterResult, String> {
-        let root = self.root.lock().await;
+        let root = &self.root;
         let result = match filter {
             LibraryFilter::Surrealql { ontology_id, sql } => {
                 if sql.trim().is_empty() || sql.len() > 1_000_000 {
                     return Err("Consulta vacía o demasiado grande".into());
                 }
                 base_query::validate(&sql)?;
-                let db = selected(&root, &ontology_id).await?;
+                let db = selected(root, &ontology_id).await?;
                 let definition = manifest(&db).await?.ok_or("Ontología no instalada")?;
-                let session = runtime(&root, &ontology_id).await?;
-                let mut results = values(session.query(sql).await.map_err(error)?)?;
+                let session = runtime(root, &ontology_id).await?;
+                let mut results = discarded_read(&session, &sql).await?;
                 check_size(&results)?;
                 let mut identities = BTreeMap::<String, Vec<RecordId>>::new();
                 let last = results
@@ -79,9 +79,9 @@ impl Knowledge {
                 let mut result = BTreeSet::new();
                 for (ontology, ids) in identities {
                     if ontology == "escriba" {
-                        result.extend(base_notes(&root, ids).await?);
+                        result.extend(base_notes(root, ids).await?);
                     } else {
-                        result.extend(extension_notes(&root, &db, &definition, ids).await?);
+                        result.extend(extension_notes(root, &db, &definition, ids).await?);
                     }
                 }
                 result
@@ -95,11 +95,11 @@ impl Knowledge {
                 }
                 let mut combined: Option<BTreeSet<String>> = None;
                 for condition in conditions {
-                    let db = selected(&root, &condition.ontology_id).await?;
+                    let db = selected(root, &condition.ontology_id).await?;
                     let definition = manifest(&db).await?.ok_or("Ontología no instalada")?;
                     let collection = declared(&definition, &condition.table)?;
                     let (predicate, value) = predicate(&condition, collection)?;
-                    let session = runtime(&root, &condition.ontology_id).await?;
+                    let session = runtime(root, &condition.ontology_id).await?;
                     let rows = query(
                         &session,
                         &format!(
@@ -114,9 +114,9 @@ impl Knowledge {
                         .map(native_id)
                         .collect::<Result<Vec<_>, _>>()?;
                     let found = if condition.ontology_id == "escriba" {
-                        base_notes(&root, ids).await?
+                        base_notes(root, ids).await?
                     } else {
-                        extension_notes(&root, &db, &definition, ids).await?
+                        extension_notes(root, &db, &definition, ids).await?
                     };
                     combined = Some(match combined {
                         None => found,
@@ -136,6 +136,18 @@ impl Knowledge {
             recording_ids: result.into_iter().collect(),
         })
     }
+}
+pub(super) async fn discarded_read(
+    session: &Surreal<Db>,
+    sql: &str,
+) -> Result<Vec<DbValue>, String> {
+    let tx = session.clone().begin().await.map_err(error)?;
+    let outcome = match tx.query(sql.to_owned()).await {
+        Ok(response) => values(response),
+        Err(failure) => Err(error(failure)),
+    };
+    tx.cancel().await.map_err(error)?;
+    outcome
 }
 fn bindings<const N: usize>(items: [(&str, DbValue); N]) -> DbValue {
     DbValue::Object(items.into_iter().map(|(k, v)| (k.to_string(), v)).collect())
