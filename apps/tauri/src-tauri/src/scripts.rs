@@ -1460,6 +1460,10 @@ mod tests {
             "note_draft_save",
             "note_draft_discard",
             "note_draft_commit",
+            "knowledge_filter_notes",
+            "knowledge_filters_list",
+            "knowledge_filter_save",
+            "knowledge_filter_remove",
         ] {
             assert!(!allowed(forbidden));
         }

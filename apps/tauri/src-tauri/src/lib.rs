@@ -229,6 +229,8 @@ fn refreshes_library(method: &str, params: &Value) -> bool {
         | "knowledge_delete"
         | "knowledge_unlink"
         | "knowledge_attach"
+        | "knowledge_filter_save"
+        | "knowledge_filter_remove"
         | "project_write"
         | "log"
         | "trace_save"
@@ -320,16 +322,24 @@ fn dispatch<'a>(
             | "knowledge_graph_roots"
             | "knowledge_graph_expand"
             | "knowledge_graph_detail"
+            | "knowledge_filter_notes"
+            | "knowledge_filters_list"
+            | "knowledge_filter_save"
+            | "knowledge_filter_remove"
             | "knowledge_unlink"
             | "knowledge_attach" => {
-                if method == "knowledge_list"
+                if matches!(method, "knowledge_list" | "knowledge_filters_list")
                     && state.knowledge.get().is_none()
                     && !state
                         .knowledge_path
                         .try_exists()
                         .map_err(|error| format!("No se pudo acceder al conocimiento: {error}"))?
                 {
-                    return Ok(json!([knowledge::base_listing()]));
+                    return Ok(if method == "knowledge_list" {
+                        json!([knowledge::base_listing()])
+                    } else {
+                        json!([])
+                    });
                 }
                 let knowledge = state
                     .knowledge
@@ -1689,7 +1699,14 @@ mod command_events_tests {
 
     #[test]
     fn polling_the_library_and_recorder_does_not_request_another_refresh() {
-        let refresh_cycle = ["snapshot", "recording_status", "runtime_jobs"];
+        let refresh_cycle = [
+            "snapshot",
+            "recording_status",
+            "runtime_jobs",
+            "knowledge_filter_notes",
+            "knowledge_filters_list",
+            "knowledge_list",
+        ];
         assert!(!refresh_cycle
             .iter()
             .any(|method| refreshes_library(method, &json!({}))));
@@ -1710,5 +1727,7 @@ mod command_events_tests {
             "runtime_run",
             &json!({"operation":"rebuildProject"})
         ));
+        assert!(refreshes_library("knowledge_filter_save", &json!({})));
+        assert!(refreshes_library("knowledge_filter_remove", &json!({})));
     }
 }

@@ -1,9 +1,10 @@
-import { Users } from "lucide-react";
-import { useEffect, useState, type KeyboardEvent } from "react";
+import { Filter, Users } from "lucide-react";
+import { Fragment, useEffect, useState, type KeyboardEvent } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { ask } from "@tauri-apps/plugin-dialog";
 import { call, desktop } from "../api";
 import { LibraryView } from "../library/LibraryView";
+import { useLibraryFilters } from "../library/useLibraryFilters";
 import { ResolversPane } from "../resolvers/ResolversPane";
 import { RecipesPane } from "../recipes/RecipesPane";
 import { LogPane } from "../log/LogPane";
@@ -82,6 +83,7 @@ export function MainWindow() {
   const [section, setSection] = useState<MainSection>(() => initialSection(window.location.search));
   const active = useWindowActive();
   const recorder = useRecorderStatus();
+  const filters = useLibraryFilters();
   useSystemAccent();
   useNavigation(setSection);
   useRecorderAlert(recorder.problem);
@@ -89,9 +91,13 @@ export function MainWindow() {
   const move = (event: KeyboardEvent) => {
     if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
     event.preventDefault();
-    const index = sections.findIndex((item) => item.id === section);
-    const next = sections[Math.min(Math.max(index + (event.key === "ArrowDown" ? 1 : -1), 0), sections.length - 1)];
-    setSection(next.id);
+    const entries = [sections[0], ...filters.saved.map((filter) => ({ id: filter.id, label: filter.name })), ...sections.slice(1)];
+    const current = filters.selectedSavedId && section === "library" ? filters.selectedSavedId : section;
+    const index = entries.findIndex((item) => item.id === current);
+    const next = entries[Math.min(Math.max(index + (event.key === "ArrowDown" ? 1 : -1), 0), entries.length - 1)];
+    const saved = filters.saved.find((filter) => filter.id === next.id);
+    if (saved) { setSection("library"); filters.selectSaved(saved); }
+    else { setSection(next.id as MainSection); if (next.id === "library") filters.clear(); }
   };
 
   const label = sections.find((item) => item.id === section)?.label ?? "";
@@ -117,23 +123,40 @@ export function MainWindow() {
         <div className="sidebar-top" data-tauri-drag-region />
         <nav className="sidebar-list" role="listbox" aria-label="Secciones" tabIndex={0} onKeyDown={move}>
           {sections.map(({ id, label: title, icon: Icon }) => (
-            <div
-              key={id}
-              role="option"
-              aria-selected={id === section}
-              className={`sidebar-row ${id === section ? "selected" : ""}`}
-              onMouseDown={() => setSection(id)}
-            >
-              <Icon size={16} strokeWidth={1.7} className="sidebar-icon" />
-              <span>{title}</span>
-            </div>
+            <Fragment key={id}>
+              <div
+                role="option"
+                aria-selected={id === section && (id !== "library" || !filters.selectedSavedId)}
+                className={`sidebar-row ${id === section && (id !== "library" || !filters.selectedSavedId) ? "selected" : ""}`}
+                onMouseDown={() => { setSection(id); if (id === "library") filters.clear(); }}
+              >
+                <Icon size={16} strokeWidth={1.7} className="sidebar-icon" />
+                <span>{title}</span>
+              </div>
+              {id === "library" && <>
+                {filters.saved.map((filter) => (
+                  <div
+                    key={filter.id}
+                    role="option"
+                    aria-selected={section === "library" && filters.selectedSavedId === filter.id}
+                    className={`sidebar-row sidebar-child ${section === "library" && filters.selectedSavedId === filter.id ? "selected" : ""}`}
+                    onMouseDown={() => { setSection("library"); filters.selectSaved(filter); }}
+                    title={filter.name}
+                  >
+                    <Filter size={13} strokeWidth={1.7} className="sidebar-icon" />
+                    <span>{filter.name}</span>
+                  </div>
+                ))}
+                {filters.savedError && <div className="sidebar-error" role="alert" title={filters.savedError}>No se pudieron cargar los filtros</div>}
+              </>}
+            </Fragment>
           ))}
         </nav>
       </aside>
       <section className="detail">
         {data && (
           <div className="section-host" hidden={section !== "library"}>
-            <LibraryView data={data} jobs={jobs} refresh={refresh} active={section === "library"} isRecording={recorder.active} />
+            <LibraryView data={data} jobs={jobs} refresh={refresh} active={section === "library"} isRecording={recorder.active} filters={filters} />
           </div>
         )}
         {data && (

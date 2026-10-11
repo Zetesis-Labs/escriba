@@ -1,5 +1,5 @@
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import { AlertTriangle, AudioLines, CircleStop, Ellipsis, FolderPlus, History, Mic, Users, X } from "lucide-react";
+import { AlertTriangle, AudioLines, CircleStop, Ellipsis, FolderPlus, History, ListFilter, Mic, Users, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState, type KeyboardEvent, type MouseEvent } from "react";
 import { call, desktop, native, recordingDetail } from "../api";
 import { Pane } from "../app/Pane";
@@ -16,6 +16,8 @@ import type { Destination, JobState, JSONObject, Recording, Snapshot } from "../
 import { currentVersion, currentVersionLabel, isPublished, libraryRecordings, liveDestinations, originName, providerLabel, versionsInOrder, versionTitle } from "./model";
 import * as operations from "./operations";
 import { displayTitle, RecordingRow } from "./RecordingRow";
+import { LibraryFilters } from "./LibraryFilters";
+import type { LibraryFiltersController } from "./useLibraryFilters";
 import { TranscriptDetail, type NoteEditRequest } from "./TranscriptDetail";
 import { startRecording, stopRecording } from "../recording/useRecording";
 import { getRecipeSchema } from "../runtime";
@@ -60,14 +62,18 @@ export function LibraryView({
   refresh,
   active,
   isRecording,
+  filters,
 }: {
   data: Snapshot;
   jobs: JobState[];
   refresh: () => Promise<void>;
   active: boolean;
   isRecording: boolean;
+  filters: LibraryFiltersController;
 }) {
-  const recordings = useMemo(() => libraryRecordings(data), [data]);
+  const allRecordings = useMemo(() => libraryRecordings(data), [data]);
+  const recordings = useMemo(() => filters.result?.ids ? allRecordings.filter((recording) => filters.result?.ids?.has(recording.id)) : filters.result ? [] : allRecordings, [allRecordings, filters.result]);
+  const [filterEditorOpen, setFilterEditorOpen] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [dropTargeted, setDropTargeted] = useState(false);
@@ -290,6 +296,7 @@ export function LibraryView({
           <ToolbarMenu icon={Ellipsis} label="Acciones" menu={() => (detail ? actionsMenu(detail) : [])} disabled={!detail} />
         </>
       )}
+      <ToolbarButton icon={ListFilter} label="Filtrar" help="Filtrar la Biblioteca" onClick={() => setFilterEditorOpen(true)} />
       <ToolbarMenu
         icon={FolderPlus}
         label="Añadir audio…"
@@ -312,10 +319,15 @@ export function LibraryView({
   );
 
   return (
-    <Pane title={selected ? displayTitle(selected) : "Biblioteca"} toolbar={toolbar}>
+    <Pane title={selected ? displayTitle(selected) : filters.result?.name ?? "Biblioteca"} toolbar={toolbar}>
+      {filters.result && <div className="library-filter-banner">
+        <ListFilter size={13} /><strong>{filters.result.name ?? "Filtro activo"}</strong>
+        <button type="button" onClick={() => setFilterEditorOpen(true)}>Editar</button>
+        <button type="button" onClick={filters.clear}>Quitar filtro</button>
+      </div>}
       <div className="list-detail">
         <div className="recording-list" role="listbox" aria-label="Grabaciones" tabIndex={0} onKeyDown={move}>
-          {recordings.map((recording) => (
+          {filters.result?.loading ? <div className="library-filter-list-state">Buscando notas…</div> : filters.result?.error ? <div className="library-filter-list-state warning" role="alert">{filters.result.error}</div> : filters.result && !recordings.length ? <div className="library-filter-list-state">No hay notas para este filtro.</div> : recordings.map((recording) => (
             <div
               key={recording.id}
               role="option"
@@ -370,6 +382,7 @@ export function LibraryView({
           <div className="drop-hint-label font-title3">Suelta para transcribir</div>
         </div>
       )}
+      {filterEditorOpen && <LibraryFilters key={filters.selectedSavedId ?? "new"} controller={filters} editing={filters.saved.find((item) => item.id === filters.selectedSavedId) ?? null} onClose={() => setFilterEditorOpen(false)} />}
       {reprocessing && (
         <ReprocessSheet
           data={data}

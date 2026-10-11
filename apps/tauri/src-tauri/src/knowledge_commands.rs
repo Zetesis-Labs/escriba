@@ -1,5 +1,5 @@
 use crate::{
-    knowledge::{Knowledge, Ontology, SaveRecord, Source},
+    knowledge::{Knowledge, LibraryFilter, Ontology, SaveLibraryFilter, SaveRecord, Source},
     store::{text, Store},
 };
 use serde::{Deserialize, Serialize};
@@ -140,6 +140,22 @@ pub async fn dispatch(
     p: Value,
 ) -> Result<Value, String> {
     match method {
+        "knowledge_filter_notes" => {
+            let filter: LibraryFilter = serde_json::from_value(p["filter"].clone())
+                .map_err(|e| format!("Filtro de Biblioteca inválido: {e}"))?;
+            let _base_guard = synchronize_base(knowledge, store).await?;
+            Ok(json!(knowledge.filter_notes(filter).await?))
+        }
+        "knowledge_filters_list" => Ok(json!(knowledge.saved_filters().await?)),
+        "knowledge_filter_save" => {
+            let filter: SaveLibraryFilter = serde_json::from_value(p["filter"].clone())
+                .map_err(|e| format!("Filtro guardado inválido: {e}"))?;
+            Ok(json!(knowledge.save_filter(filter).await?))
+        }
+        "knowledge_filter_remove" => {
+            knowledge.remove_filter(text(&p, "id")?).await?;
+            Ok(Value::Null)
+        }
         "knowledge_list" => {
             let mut listed = vec![crate::knowledge::base_listing()];
             for ontology in knowledge.list().await? {
@@ -342,6 +358,59 @@ pub async fn dispatch(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn filtra_con_la_proyeccion_actual_y_guarda_consultas_desde_la_interfaz() {
+        let temp = tempfile::tempdir().unwrap();
+        let audio = temp.path().join("prueba.wav");
+        std::fs::write(&audio, b"audio sintetico").unwrap();
+        let mut store = Store::open(temp.path().join("library")).unwrap();
+        let record = store.import(&audio, None).unwrap();
+        store.mutate("version_save", &json!({"recordingId":record["id"],"backend":"test","transcript":{"text":"Sintético","segments":[]}})).unwrap();
+        let store = Arc::new(Mutex::new(store));
+        let knowledge = Knowledge::open(&temp.path().join("knowledge.surrealkv"))
+            .await
+            .unwrap();
+        let filter = json!({"kind":"surrealql","ontologyId":"escriba","sql":"SELECT VALUE id FROM recording"});
+        let result = dispatch(
+            &knowledge,
+            &store,
+            "knowledge_filter_notes",
+            json!({"filter":filter}),
+        )
+        .await
+        .unwrap();
+        assert_eq!(result, json!({"recordingIds":[record["id"]]}));
+        let saved = dispatch(
+            &knowledge,
+            &store,
+            "knowledge_filter_save",
+            json!({"filter":{"name":"Todas","ontologyId":"escriba","sql":filter["sql"]}}),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            dispatch(&knowledge, &store, "knowledge_filters_list", json!({}))
+                .await
+                .unwrap(),
+            json!([saved])
+        );
+        dispatch(
+            &knowledge,
+            &store,
+            "knowledge_filter_remove",
+            json!({"id":saved["id"]}),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            dispatch(&knowledge, &store, "knowledge_filters_list", json!({}))
+                .await
+                .unwrap(),
+            json!([])
+        );
+        knowledge.close().await.unwrap();
+    }
 
     #[tokio::test]
     async fn valida_dependencias_persistidas_version_y_origen_antes_de_abrir_el_grafo() {
