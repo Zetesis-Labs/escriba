@@ -1,6 +1,6 @@
 import { demoClientsOntology, demoOntology, demoKnowledgeHost } from "../knowledge/demo";
 import type { OntologyDefinition } from "../knowledge/model";
-import type { LibraryFilter, SavedLibraryFilter } from "../core/libraryFilters";
+import type { LibraryFilter, SavedLibraryFilter, SaveLibraryFilter } from "../core/libraryFilters";
 
 const base: OntologyDefinition = { id: "escriba", name: "Escriba", version: 1, builtIn: true, migrations: [], collections: [
   { table: "person", label: "Personas", titleField: "name", fields: [{ key: "name", label: "Nombre", type: "text" }] },
@@ -8,7 +8,7 @@ const base: OntologyDefinition = { id: "escriba", name: "Escriba", version: 1, b
   { table: "identified_as", label: "Asignado a persona", titleField: "id", fields: [], relation: { from: "speaker", to: "person" } },
 ] };
 const knowledgeDemo = demoKnowledgeHost("demo-1");
-let saved: SavedLibraryFilter[] = [{ id: "demo-saved", name: "Cliente Aurora", ontologyId: "demo.clientes", sql: "SELECT id FROM cliente WHERE nombre = 'Cliente Aurora'" }];
+let saved: SavedLibraryFilter[] = [{ id: "demo-saved", name: "Cliente Aurora", filter: { kind: "surrealql", ontologyId: "demo.clientes", sql: "SELECT id FROM cliente WHERE nombre = 'Cliente Aurora'" } }];
 
 export async function demoFilterCommand<T>(method: string, params: Record<string, unknown> = {}): Promise<T> {
   if (method === "knowledge_graph_roots" && params.ontologyId === "escriba" && (params.table === "person" || params.table === "recording")) {
@@ -19,7 +19,7 @@ export async function demoFilterCommand<T>(method: string, params: Record<string
   if (method === "knowledge_list") return [base, demoClientsOntology, demoOntology] as T;
   if (method === "knowledge_filters_list") return [...saved] as T;
   if (method === "knowledge_filter_save") {
-    const filter = params.filter as Omit<SavedLibraryFilter, "id"> & { id?: string };
+    const filter = params.filter as SaveLibraryFilter;
     const result = { ...filter, id: filter.id ?? `demo-${Date.now()}` };
     saved = [...saved.filter((item) => item.id !== result.id), result];
     return result as T;
