@@ -66,6 +66,7 @@ struct Runtime {
     menubar: Mutex<menubar::Bar>,
     quitting: AtomicBool,
     vendor: PathBuf,
+    library_root: PathBuf,
     project_runtime: PathBuf,
     project_lock: tokio::sync::Mutex<()>,
 }
@@ -121,7 +122,7 @@ async fn app_command(
         }
     }
     if refresh {
-        state.jobs.wake.notify_one();
+        state.jobs.wake_all();
     }
     if result.is_ok() && check_resolvers {
         tauri::async_runtime::spawn(async move { warn_about_unusable(&app, &runtime).await });
@@ -532,10 +533,14 @@ fn dispatch<'a>(
                 let recipe = p["recipeId"].as_str().map(str::to_owned);
                 let state = state.clone();
                 tokio::task::spawn_blocking(move || {
-                    let mut store = state.store()?;
                     paths
                         .iter()
-                        .map(|path| store.import(path, recipe.as_deref()))
+                        .map(|path| {
+                            let staged = store::stage_audio(&state.library_root, path, false)?;
+                            state
+                                .store()?
+                                .import_staged(staged, path, recipe.as_deref())
+                        })
                         .collect::<Result<Vec<_>, _>>()
                         .map(|v| json!(v))
                 })
@@ -861,7 +866,7 @@ fn dispatch<'a>(
                 }
                 let saved = state.store()?.mutate(method, &p)?;
                 let _ = state.watch_wake.try_send(());
-                state.jobs.wake.notify_one();
+                state.jobs.wake_all();
                 Ok(saved)
             }
             _ => state.store()?.mutate(method, &p),
@@ -1158,13 +1163,22 @@ async fn scan(app: &tauri::AppHandle, state: &Arc<Runtime>) -> Result<Value, Str
             }
             continue;
         }
-        let result = state.store()?.import_with_metadata(
-            &candidate.path,
-            None,
-            &candidate.title,
-            candidate.started_at,
-            &candidate.source_key,
-        );
+        let staged = {
+            let root = state.library_root.clone();
+            let path = candidate.path.clone();
+            tokio::task::spawn_blocking(move || store::stage_audio(&root, &path, false))
+                .await
+                .map_err(|e| e.to_string())?
+        };
+        let result = staged.and_then(|staged| {
+            state.store()?.import_staged_with_metadata(
+                staged,
+                &candidate.path,
+                &candidate.title,
+                candidate.started_at,
+                &candidate.source_key,
+            )
+        });
         match result {
             Ok(record) => {
                 state
@@ -1212,7 +1226,7 @@ async fn scan(app: &tauri::AppHandle, state: &Arc<Runtime>) -> Result<Value, Str
         }
     }
     recover_captures(state).await?;
-    state.jobs.wake.notify_one();
+    state.jobs.wake_all();
     Ok(json!(added))
 }
 async fn recover_captures(state: &Arc<Runtime>) -> Result<(), String> {
@@ -1235,7 +1249,14 @@ async fn recover_captures(state: &Arc<Runtime>) -> Result<(), String> {
         if metadata.len() == 0 {
             continue;
         }
-        let result = state.store()?.import_recovered_capture(&path);
+        let staged = {
+            let root = state.library_root.clone();
+            let path = path.clone();
+            tokio::task::spawn_blocking(move || store::stage_audio(&root, &path, true))
+                .await
+                .map_err(|e| e.to_string())?
+        };
+        let result = staged.and_then(|staged| state.store()?.import_staged(staged, &path, None));
         match result {
             Ok(record) => {
                 state.store()?.mutate("log", &json!({"level":"warn","recordingId":record["id"],"message":"Recuperada una captura pendiente de guardar"}))?;
@@ -1386,46 +1407,58 @@ async fn script_call(
         .await
 }
 fn start_jobs(app: tauri::AppHandle, state: Arc<Runtime>) {
-    tauri::async_runtime::spawn(async move {
-        loop {
+    for lane in jobs::Lane::ALL {
+        for _ in 0..lane.capacity() {
+            let app = app.clone();
+            let state = state.clone();
+            tauri::async_runtime::spawn(async move { run_lane(app, state, lane).await });
+        }
+    }
+}
+
+async fn run_lane(app: tauri::AppHandle, state: Arc<Runtime>, lane: jobs::Lane) {
+    loop {
+        if lane == jobs::Lane::Inference {
             if let Err(error) = state.jobs.automatic() {
                 log_error(&state, &error);
             }
-            match state.jobs.claim() {
-                Ok(Some(job)) => {
-                    emit_jobs(&app, &state);
-                    let id = job["id"].as_str().unwrap_or("");
-                    let result = script_call(
-                        &app,
-                        &state,
-                        id,
-                        job["operation"].as_str().unwrap_or(""),
-                        job["args"].clone(),
-                    )
-                    .await;
-                    let notice = job_notification(&state, &job, &result);
-                    match state.jobs.finish(id, result) {
-                        Ok(true) => match notice {
-                            Ok(Some(notice)) => notify(&state, notice),
-                            Err(error) => log_error(&state, &error),
-                            _ => {}
-                        },
-                        Ok(false) => {}
+        }
+        match state.jobs.claim(lane) {
+            Ok(Some(job)) => {
+                emit_jobs(&app, &state);
+                let id = job["id"].as_str().unwrap_or("");
+                let result = script_call(
+                    &app,
+                    &state,
+                    id,
+                    job["operation"].as_str().unwrap_or(""),
+                    job["args"].clone(),
+                )
+                .await;
+                let notice = job_notification(&state, &job, &result);
+                match state.jobs.finish(id, result) {
+                    Ok(true) => match notice {
+                        Ok(Some(notice)) => notify(&state, notice),
                         Err(error) => log_error(&state, &error),
-                    }
-                    emit_jobs(&app, &state);
+                        _ => {}
+                    },
+                    Ok(false) => {}
+                    Err(error) => log_error(&state, &error),
                 }
-                Ok(None) => {
+                emit_jobs(&app, &state);
+            }
+            Ok(None) => {
+                if lane == jobs::Lane::Inference {
                     state.inference.unload_if_idle(Duration::from_secs(300));
-                    tokio::select! { _ = state.jobs.wake.notified() => {}, _ = tokio::time::sleep(Duration::from_secs(5)) => {} }
                 }
-                Err(error) => {
-                    log_error(&state, &error);
-                    tokio::time::sleep(Duration::from_secs(5)).await;
-                }
+                state.jobs.idle(lane).await;
+            }
+            Err(error) => {
+                log_error(&state, &error);
+                tokio::time::sleep(Duration::from_secs(5)).await;
             }
         }
-    });
+    }
 }
 fn start_project_watcher(app: tauri::AppHandle, state: Arc<Runtime>) {
     tauri::async_runtime::spawn(async move {
@@ -1605,6 +1638,7 @@ pub fn run() {
                     menubar: Mutex::new(menubar::Bar::default()),
                     quitting: AtomicBool::new(false),
                     vendor,
+                    library_root: root.clone(),
                     project_runtime: native::binary("escriba-runtime")
                         .map_err(std::io::Error::other)?,
                     project_lock: tokio::sync::Mutex::new(()),

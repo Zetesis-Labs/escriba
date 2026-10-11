@@ -2779,3 +2779,39 @@ fn la_lista_ordena_por_fecha_al_reabrir_aunque_se_incorpore_fuera_de_orden() {
         .collect();
     assert_eq!(titles, vec!["c", "b", "a"]);
 }
+
+#[test]
+fn preparar_el_audio_no_toca_la_biblioteca_y_limpia_su_copia() {
+    let (dir, mut store, _) = synthetic_library(0);
+    let audio = dir.path().join("preparada.wav");
+    fs::write(&audio, b"audio sintetico preparado").unwrap();
+    let temporaries = |root: &Path| {
+        fs::read_dir(root.join("audio"))
+            .unwrap()
+            .filter(|entry| {
+                entry
+                    .as_ref()
+                    .unwrap()
+                    .file_name()
+                    .to_string_lossy()
+                    .ends_with(".import")
+            })
+            .count()
+    };
+    let staged = stage_audio(&store.root, &audio, false).unwrap();
+    assert_eq!(temporaries(&store.root), 1);
+    assert!(drain_knowledge(&store).is_empty());
+    let other = dir.path().join("otra.wav");
+    fs::write(&other, b"otro audio").unwrap();
+    assert!(store.import_staged(staged, &other, None).is_err());
+    assert_eq!(temporaries(&store.root), 0);
+    let staged = stage_audio(&store.root, &audio, false).unwrap();
+    let record = store.import_staged(staged, &audio, None).unwrap();
+    assert_eq!(temporaries(&store.root), 0);
+    assert_eq!(
+        store.recording(record["id"].as_str().unwrap()).unwrap()["status"],
+        "pending"
+    );
+    drop(stage_audio(&store.root, &audio, false).unwrap());
+    assert_eq!(temporaries(&store.root), 0);
+}

@@ -21,6 +21,7 @@ use crate::persistence::{
 use crate::voices::{recognize, KnownVoice, SpeakerVoice};
 use chrono::Utc;
 use fs2::FileExt;
+pub use import::stage_audio;
 pub use model::LibraryIndex;
 pub use model::{Field, LibraryData, Recording, RecordingStatus, Settings, Version, WatchedFolder};
 use serde_json::{json, Value};

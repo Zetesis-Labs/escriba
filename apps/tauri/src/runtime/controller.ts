@@ -165,7 +165,6 @@ export function createRuntime(
     runner,
     options.builtinProgram,
   );
-  let queue: Promise<unknown> = Promise.resolve();
   let projectQueue: Promise<void> = Promise.resolve();
   let nativeOwner: { id: string } | undefined;
   let nativeCancellation: Promise<unknown> = Promise.resolve();
@@ -196,18 +195,12 @@ export function createRuntime(
       abort,
     });
     notify();
-    const work = queue
-      .catch(() => {})
-      .then(async () => {
-        const cancellation = nativeCancellation;
-        nativeCancellation = Promise.resolve();
-        await cancellation;
-        aborted(abort.signal);
-        return await operation(abort.signal);
-      });
-    queue = work;
     try {
-      return await work;
+      const cancellation = nativeCancellation;
+      nativeCancellation = Promise.resolve();
+      await cancellation;
+      aborted(abort.signal);
+      return await operation(abort.signal);
     } finally {
       jobs.delete(id);
       notify();
