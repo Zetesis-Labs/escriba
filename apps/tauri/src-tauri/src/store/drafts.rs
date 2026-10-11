@@ -250,42 +250,46 @@ fn conservative_voices(
     corrected: &Transcript,
     voices: Vec<SpeakerVoice>,
 ) -> Vec<SpeakerVoice> {
-    if source.segments.len() != corrected.segments.len()
-        || source
-            .segments
-            .iter()
-            .zip(&corrected.segments)
-            .any(|(a, b)| a.start != b.start || a.end != b.end)
-    {
-        return Vec::new();
-    }
-    let mut labels: HashMap<&str, Option<&str>> = HashMap::new();
-    for (before, after) in source.segments.iter().zip(&corrected.segments) {
-        if let Some(speaker) = before.speaker.as_ref() {
-            let label = after.speaker.as_ref().map(String::as_str);
-            labels
-                .entry(speaker)
-                .and_modify(|previous| {
-                    if *previous != label {
-                        *previous = None;
-                    }
-                })
-                .or_insert(label);
+    let unique_intervals = |transcript: &Transcript| {
+        let mut intervals = HashMap::new();
+        for (index, segment) in transcript.segments.iter().enumerate() {
+            intervals
+                .entry((segment.start.clone(), segment.end.clone()))
+                .and_modify(|entry| *entry = None)
+                .or_insert(Some(index));
+        }
+        intervals
+    };
+    let source_intervals = unique_intervals(source);
+    let corrected_intervals = unique_intervals(corrected);
+    let mut label_counts = HashMap::new();
+    for segment in &corrected.segments {
+        if let Some(label) = segment.speaker.as_ref() {
+            *label_counts.entry(label.as_str()).or_insert(0usize) += 1;
         }
     }
     voices
         .into_iter()
         .filter_map(|mut voice| {
-            let label = labels.get(voice.speaker.as_str()).copied().flatten()?;
-            if source
+            let mut label = None;
+            let mut matched = 0;
+            for segment in source
                 .segments
                 .iter()
-                .zip(&corrected.segments)
-                .any(|(before, after)| {
-                    before.speaker.as_ref() != Some(&voice.speaker)
-                        && after.speaker.as_ref().map(String::as_str) == Some(label)
-                })
+                .filter(|segment| segment.speaker.as_ref() == Some(&voice.speaker))
             {
+                let interval = (segment.start.clone(), segment.end.clone());
+                source_intervals.get(&interval).copied().flatten()?;
+                let index = corrected_intervals.get(&interval).copied().flatten()?;
+                let next_label = corrected.segments[index].speaker.as_ref()?.as_str();
+                if label.is_some_and(|previous| previous != next_label) {
+                    return None;
+                }
+                label = Some(next_label);
+                matched += 1;
+            }
+            let label = label?;
+            if label_counts.get(label).copied() != Some(matched) {
                 return None;
             }
             voice.speaker = label.into();
