@@ -201,7 +201,6 @@ export interface Snapshot {
   accounts: Account[];
   destinations: Destination[];
   settings: Settings;
-  logs: LogEntry[];
   dataPath: string;
   native?: NativeStatus;
   watchIssues?: Array<{

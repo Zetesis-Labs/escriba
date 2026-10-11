@@ -1432,7 +1432,7 @@ fn committed_surreal_rows_survive_forced_process_termination() {
     child.wait().unwrap();
     let store = Store::open(root).unwrap();
     assert_eq!(
-        store.data_json()["logs"][0]["message"],
+        store.log_list(&json!({})).unwrap()[0]["message"],
         "committed before kill"
     );
 }
@@ -1718,7 +1718,19 @@ fn imports_previous_experiment_json_once_and_keeps_it_untouched() {
     let store = Store::open(root).unwrap();
     assert_eq!(store.data_json()["settings"]["language"], "gl");
     assert_eq!(store.data_json()["settings"]["launchAtLogin"], true);
-    assert_eq!(store.data_json()["logs"][0]["message"], "original");
+    assert_eq!(
+        store.log_list(&json!({})).unwrap()[0]["message"],
+        "original"
+    );
+    assert_eq!(
+        store
+            .log_list(&json!({}))
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
 }
 #[test]
 fn removing_account_removes_its_credential() {
@@ -2615,4 +2627,155 @@ fn dividir_hablante_conserva_solo_huellas_con_intervalos_inequivocos() {
         assert!(store.known_voices().unwrap().is_empty());
         assert!(!result.to_string().contains("embedding"));
     }
+}
+
+fn drain_knowledge(store: &Store) -> Vec<String> {
+    let mut changed = Vec::new();
+    while let Some(change) = store.knowledge_change().unwrap() {
+        changed.push(change.id.clone());
+        store.knowledge_ack(&change.key, &change.revision).unwrap();
+    }
+    changed
+}
+
+fn synthetic_library(count: usize) -> (tempfile::TempDir, Store, Vec<String>) {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = Store::open(dir.path().join("library")).unwrap();
+    let mut ids = Vec::new();
+    for index in 0..count {
+        let audio = dir.path().join(format!("nota-{index}.wav"));
+        fs::write(&audio, format!("audio sintético {index}")).unwrap();
+        let recording = store.import(&audio, None).unwrap();
+        ids.push(recording["id"].as_str().unwrap().to_owned());
+    }
+    drain_knowledge(&store);
+    (dir, store, ids)
+}
+
+#[test]
+fn incorporar_una_nota_solo_reescribe_esa_nota() {
+    let (dir, mut store, ids) = synthetic_library(12);
+    let audio = dir.path().join("nueva.wav");
+    fs::write(&audio, b"audio sintetico nuevo").unwrap();
+    let recording = store.import(&audio, None).unwrap();
+    assert_eq!(
+        drain_knowledge(&store),
+        vec![recording["id"].as_str().unwrap().to_owned()]
+    );
+    store
+        .mutate(
+            "recording_update",
+            &json!({"id":ids[5],"title":"Otro título"}),
+        )
+        .unwrap();
+    assert_eq!(drain_knowledge(&store), vec![ids[5].clone()]);
+}
+
+#[test]
+fn registrar_una_linea_no_toca_la_biblioteca_y_se_lee_aparte() {
+    let (_dir, mut store, ids) = synthetic_library(3);
+    store
+        .mutate(
+            "log",
+            &json!({"message":"primera","level":"warn","recordingId":ids[1]}),
+        )
+        .unwrap();
+    store.mutate("log", &json!({"message":"segunda"})).unwrap();
+    assert!(drain_knowledge(&store).is_empty());
+    assert!(store.library().get("logs").is_none());
+    assert!(store.snapshot().unwrap().get("logs").is_none());
+    let lines = store.log_list(&json!({})).unwrap();
+    let messages: Vec<_> = lines
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|line| line["message"].as_str().unwrap())
+        .collect();
+    assert_eq!(messages, vec!["segunda", "primera"]);
+    let only = store.log_list(&json!({"recordingId":ids[1]})).unwrap();
+    assert_eq!(only.as_array().unwrap().len(), 1);
+    assert_eq!(only[0]["level"], "warn");
+    let first_at = lines[0]["at"].as_str().unwrap();
+    let older = store
+        .log_list(&json!({"before":first_at,"limit":5}))
+        .unwrap();
+    assert_eq!(older[0]["message"], "primera");
+    assert!(store
+        .mutate("log", &json!({"message":"x","level":"grave"}))
+        .is_err());
+    assert!(store.log_list(&json!({"desconocido":true})).is_err());
+}
+
+#[test]
+fn los_registros_anteriores_se_leen_por_fecha_sin_reescribirse() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("library");
+    let store = Store::open(root.clone()).unwrap();
+    for (position, (id, at)) in [
+        ("antigua", "2026-10-01T08:00:00+00:00"),
+        ("reciente", "2026-10-03T08:00:00+00:00"),
+        ("media", "2026-10-02T08:00:00+00:00"),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        store
+            .database
+            .query_test(&format!("CREATE log:{id} SET key = '{id}', parent = '', position = {position}, payload = {{ id: '{id}', at: '{at}', message: '{id}', level: 'info' }}"))
+            .unwrap();
+    }
+    drop(store);
+    let store = Store::open(root).unwrap();
+    let lines = store.log_list(&json!({})).unwrap();
+    let ids: Vec<_> = lines
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|line| line["id"].as_str().unwrap())
+        .collect();
+    assert_eq!(ids, vec!["reciente", "media", "antigua"]);
+    assert!(store.library().get("logs").is_none());
+}
+
+#[test]
+fn el_registro_conserva_las_ultimas_lineas() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("library");
+    let store = Store::open(root.clone()).unwrap();
+    let total = crate::persistence::LOG_RETAINED + 70;
+    store
+        .database
+        .query_test(&format!("FOR $index IN 0..{total} {{ LET $id = 'l' + <string> $index; CREATE type::record('log', $id) SET key = $id, parent = '', position = 0, payload = {{ id: $id, at: '2026-10-11T00:00:00.' + string::slice('000000' + <string> $index, -6) + '+00:00', message: 'línea', level: 'info' }}; }}"))
+        .unwrap();
+    drop(store);
+    let store = Store::open(root).unwrap();
+    let stored = store.database.select_test("SELECT key FROM log").unwrap();
+    assert!(stored.len() <= crate::persistence::LOG_RETAINED);
+    let lines = store.log_list(&json!({})).unwrap();
+    assert_eq!(lines[0]["id"], format!("l{}", total - 1));
+}
+
+#[test]
+fn la_lista_ordena_por_fecha_al_reabrir_aunque_se_incorpore_fuera_de_orden() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("library");
+    let mut store = Store::open(root.clone()).unwrap();
+    for (name, day) in [("b", 2), ("c", 3), ("a", 1)] {
+        let audio = dir.path().join(format!("{name}.m4a"));
+        fs::write(&audio, format!("audio {name}")).unwrap();
+        let started =
+            std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_790_000_000 + day * 86_400);
+        store
+            .import_with_metadata(&audio, None, name, started, &format!("clave-{name}"))
+            .unwrap();
+    }
+    drop(store);
+    let store = Store::open(root).unwrap();
+    let titles: Vec<_> = store
+        .data
+        .recordings
+        .iter()
+        .map(|record| record.title.as_ref().unwrap().clone())
+        .collect();
+    assert_eq!(titles, vec!["c", "b", "a"]);
 }

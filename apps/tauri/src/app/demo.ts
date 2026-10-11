@@ -193,15 +193,6 @@ export const demoSnapshot: Snapshot = {
     whisperModel: "openai_whisper-large-v3_turbo",
     launchAtLogin: false,
   },
-  logs: [
-    {
-      id: "log-1",
-      at: "2026-10-09T09:48:00Z",
-      level: "info",
-      message: "Publicada en Notas de trabajo",
-      recordingId: "demo-1",
-    },
-  ],
   dataPath: "Vista de muestra",
   native: {
     protocolVersion: 1,

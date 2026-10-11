@@ -113,15 +113,15 @@ impl Store {
                 content: content(record, base)?,
             };
             let result = json!(draft);
-            self.database.save_scoped(
-                json!(&before),
-                json!(&before),
+            self.database.write(Self::scoped_write(
+                &before,
+                &before,
                 WriteScope {
                     draft_change: Some((key.into(), Some(result.clone()))),
                     full_recordings: [key.into()].into_iter().collect(),
                     ..WriteScope::default()
                 },
-            )?;
+            )?)?;
             return Ok(result);
         }
         let draft_id = text(p, "draftId")?;
@@ -158,7 +158,7 @@ impl Store {
         if method == "note_draft_discard" {
             scope.draft_change = Some((key.into(), None));
             self.database
-                .save_scoped(json!(&before), json!(&before), scope)?;
+                .write(Self::scoped_write(&before, &before, scope)?)?;
             return Ok(Value::Null);
         }
         if draft.base_version_id != base.id
@@ -182,7 +182,7 @@ impl Store {
             let result = json!(draft);
             scope.draft_change = Some((key.into(), Some(result.clone())));
             self.database
-                .save_scoped(json!(&before), json!(&before), scope)?;
+                .write(Self::scoped_write(&before, &before, scope)?)?;
             return Ok(result);
         }
         if method == "note_draft_commit" {
@@ -225,19 +225,11 @@ impl Store {
                 target.append_version(version.clone())?;
             }
             let index = LibraryIndex::from_edit(next.clone(), &scope.full_recordings)?;
+            let mut write = Self::scoped_write(&before, &next, scope)?;
             if created {
-                self.database.save_scoped_version(
-                    json!(before),
-                    json!(next),
-                    scope,
-                    &version.id,
-                    &voices,
-                    None,
-                )?;
-            } else {
-                self.database
-                    .save_scoped(json!(before), json!(next), scope)?;
+                write.version_voices = Some((version.id.clone(), voices));
             }
+            self.database.write(write)?;
             self.data = index;
             return Ok(result);
         }

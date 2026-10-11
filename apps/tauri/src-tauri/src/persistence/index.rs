@@ -123,7 +123,7 @@ pub(super) async fn load_index(db: &Surreal<Db>) -> Result<Option<Value>, String
         return Err("Versión de esquema SurrealDB incompatible".into());
     }
     let needs_preview_mark = backfill_previews(db).await?;
-    let mut data = json!({"schemaVersion":1,"recordings":[],"accounts":[],"resolvers":[],"recipes":[],"destinations":[],"providers":[],"logs":[],"settings":{}});
+    let mut data = json!({"schemaVersion":1,"recordings":[],"accounts":[],"resolvers":[],"recipes":[],"destinations":[],"providers":[],"settings":{}});
     let mut parents = HashSet::new();
     for table in [
         "recording",
@@ -132,11 +132,14 @@ pub(super) async fn load_index(db: &Surreal<Db>) -> Result<Option<Value>, String
         "recipe",
         "destination",
         "provider",
-        "log",
         "setting",
     ] {
         let mut items = rows(db, table).await?;
-        items.sort_by_key(|row| row.position);
+        if table == "recording" {
+            order_recordings(&mut items);
+        } else {
+            items.sort_by_key(|row| row.position);
+        }
         for row in items {
             if table == "setting" {
                 data["settings"][&row.key] = row.payload;
@@ -149,8 +152,7 @@ pub(super) async fn load_index(db: &Surreal<Db>) -> Result<Option<Value>, String
                 "recipe" => "recipes",
                 "destination" => "destinations",
                 "provider" => "providers",
-                "log" => "logs",
-                _ => unreachable!(),
+                _ => return Err(format!("Tabla inesperada: {table}")),
             };
             let mut item = row.payload;
             if table == "recording" {

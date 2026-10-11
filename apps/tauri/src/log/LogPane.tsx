@@ -1,3 +1,4 @@
+import { listen } from "@tauri-apps/api/event";
 import { ScrollText } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { call, desktop } from "../api";
@@ -28,7 +29,7 @@ export function LogPane({ data }: { data: Snapshot }) {
           />
         </div>
         <div className="detail-divider" />
-        {tab === "runs" ? <RunsLog data={data} /> : <AppLog logs={data.logs} />}
+        {tab === "runs" ? <RunsLog data={data} /> : <AppLog />}
       </div>
     </Pane>
   );
@@ -108,7 +109,36 @@ const stamp = (value: string) => {
 
 export const logPlainText = (lines: LogEntry[]) => lines.map((line) => `${stamp(line.at)} ${line.message}`).join("\n");
 
-function AppLog({ logs }: { logs: LogEntry[] }) {
+function useAppLog() {
+  const [logs, setLogs] = useState<LogEntry[]>([]);
+  const [problem, setProblem] = useState<string | null>(null);
+  useEffect(() => {
+    if (!desktop) return;
+    let current = true;
+    let pending: Promise<unknown> = Promise.resolve();
+    const load = () => {
+      pending = pending.then(() =>
+        call<LogEntry[]>("log_list", {})
+          .then((lines) => {
+            if (!current) return;
+            setLogs(lines);
+            setProblem(null);
+          })
+          .catch((error) => current && setProblem(error instanceof Error ? error.message : String(error))),
+      );
+    };
+    load();
+    const stops = ["escriba://log", "escriba://changed"].map((event) => listen(event, load));
+    return () => {
+      current = false;
+      for (const stop of stops) void stop.then((unlisten) => unlisten());
+    };
+  }, []);
+  return { logs, problem };
+}
+
+function AppLog() {
+  const { logs, problem } = useAppLog();
   const [text, setText] = useState("");
   const [onlyErrors, setOnlyErrors] = useState(false);
   const query = text.trim().toLocaleLowerCase("es");
@@ -127,6 +157,7 @@ function AppLog({ logs }: { logs: LogEntry[] }) {
         </Button>
       </div>
       <div className="detail-divider" />
+      {problem && <div className="warning log-problem">{problem}</div>}
       <pre className="app-log selectable">
         {visible.map((line) => (
           <div key={line.id} className={`log-line ${line.level}`}>

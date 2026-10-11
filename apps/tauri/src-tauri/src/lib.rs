@@ -115,8 +115,10 @@ async fn app_command(
     let result = dispatch(&app, &runtime, &method, params)
         .await
         .and_then(voices::public_reply);
-    if result.is_ok() && refresh {
-        let _ = app.emit("escriba://changed", ());
+    if result.is_ok() {
+        if let Some(event) = change_event(&method, refresh) {
+            let _ = app.emit(event, ());
+        }
     }
     if refresh {
         state.jobs.wake.notify_one();
@@ -196,6 +198,14 @@ async fn whisper_model(state: &Arc<Runtime>, p: &Value) -> Result<Value, String>
     }
 }
 
+fn change_event(method: &str, changes_library: bool) -> Option<&'static str> {
+    match method {
+        "log" => Some("escriba://log"),
+        _ if changes_library => Some("escriba://changed"),
+        _ => None,
+    }
+}
+
 fn refreshes_library(method: &str, params: &Value) -> bool {
     match method {
         "runtime_run" => params["operation"]
@@ -232,7 +242,6 @@ fn refreshes_library(method: &str, params: &Value) -> bool {
         | "knowledge_filter_save"
         | "knowledge_filter_remove"
         | "project_write"
-        | "log"
         | "trace_save"
         | "runtime_cancel"
         | "watch_scan"
@@ -370,6 +379,7 @@ fn dispatch<'a>(
                 }
             }
             "runtime_jobs" => state.jobs.visible(),
+            "log_list" => state.store()?.log_list(&p),
             "runtime_history" => Ok(json!(state.jobs.jobs()?)),
             "memory_recall" => Ok(state
                 .store()?
@@ -1348,9 +1358,12 @@ async fn script_call(
                     .map_err(error::AppError::from)
             }
             .and_then(|value| voices::public_reply(value).map_err(Into::into));
-            if result.is_ok() && !["runtime_context", "connector_audio"].contains(&method.as_str())
-            {
-                let _ = handle.emit("escriba://changed", ());
+            if result.is_ok() {
+                let writes = !["runtime_context", "connector_audio", "memory_recall"]
+                    .contains(&method.as_str());
+                if let Some(event) = change_event(&method, writes) {
+                    let _ = handle.emit(event, ());
+                }
             }
             result
         })
