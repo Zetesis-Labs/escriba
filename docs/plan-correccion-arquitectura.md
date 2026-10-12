@@ -405,6 +405,16 @@ borrado y tipado y pueden ir en paralelo con ramas separadas una vez cerrada B.
   `*.surrealkv.convertida`: biblioteca 96 → 19 MB, grafo 81 → 10 MB. Hecha
   la conversión, el conversor y SurrealKV salieron del binario. La batería de
   Rust pasa de 229 s a 38 s.
+- **Garantías que daba ir en serie** (2026-10-12), señaladas en una revisión
+  externa de B y G. Retitular una nota borraba y recreaba su nodo, y SurrealDB
+  se llevaba sus aristas (`has_version`): ahora se actualiza, y el formato de
+  proyección 2 rehace la base una vez para recuperar las perdidas. Sin el
+  cerrojo del grafo, guardar o borrar un registro comprobaba la revisión
+  fuera de su transacción y una edición podía pisar a otra: la lectura va
+  dentro y el conflicto de RocksDB se devuelve como «Conflicto». Cancelar una
+  nota mataba el proceso nativo aunque solo se estuviera publicando, cortando
+  la transcripción de otra nota del carril de inferencia: solo se corta si
+  el trabajo cancelado es de inferencia.
 
 ## Estado para retomar
 

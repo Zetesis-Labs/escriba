@@ -106,16 +106,27 @@ async fn collection(
         .find(|c| c.table == table)
         .ok_or("Colección no declarada".into())
 }
-async fn current(db: &Surreal<Db>, id: &RecordId) -> Result<Option<DbValue>, String> {
-    let mut rows = db
-        .query("SELECT * FROM $id")
-        .bind(("id", id.clone()))
-        .await
-        .map_err(error)?
-        .check()
-        .map_err(error)?;
+async fn first(query: surrealdb::method::Query<'_, Db>) -> Result<Option<DbValue>, String> {
+    let mut rows = query.await.map_err(error)?.check().map_err(error)?;
     let rows: Vec<DbValue> = rows.take(0).map_err(error)?;
     Ok(rows.into_iter().next())
+}
+async fn current(db: &Surreal<Db>, id: &RecordId) -> Result<Option<DbValue>, String> {
+    first(db.query("SELECT * FROM $id").bind(("id", id.clone()))).await
+}
+async fn locked(
+    tx: &surrealdb::method::Transaction<Db>,
+    id: &RecordId,
+) -> Result<Option<DbValue>, String> {
+    first(tx.query("SELECT * FROM $id").bind(("id", id.clone()))).await
+}
+fn conflict(e: surrealdb::Error, action: &str) -> String {
+    let message = e.to_string();
+    if message.contains("Transaction conflict") {
+        format!("Conflicto: el registro cambió; recarga antes de {action}")
+    } else {
+        message
+    }
 }
 fn source_id(record: &RecordId, source: &Source) -> String {
     format!(
@@ -164,96 +175,98 @@ impl Knowledge {
             Some(id) => record_id(id, Some(&request.table))?,
             None => RecordId::new(request.table.clone(), Uuid::new_v4().to_string()),
         };
-        let before = current(&db, &id).await?;
-        match (&before, &request.expected_rev, &request.record_id) {
-            (Some(row), Some(rev), _)
-                if graph_record(&request.ontology_id, row.clone())?.rev == *rev => {}
-            (None, None, None) => {}
-            _ => return Err("Conflicto: el registro cambió; recarga antes de guardar".into()),
-        }
-        let Value::Object(input) = request.values else {
-            return Err("Los valores deben ser un objeto".into());
-        };
-        let mut fields = surrealdb::types::Object::new();
-        for definition in &collection.fields {
-            if !input.contains_key(&definition.key) {
-                if definition.required {
-                    return Err(format!("El campo {} es obligatorio", definition.label));
-                }
-                fields.insert(definition.key.clone(), DbValue::None);
-            }
-        }
-        for (key, value) in input {
-            let definition = collection.fields.iter().find(|f| f.key == key);
-            if let Some(definition) = definition {
-                if value.is_null() && definition.required {
-                    return Err(format!("El campo {} es obligatorio", definition.label));
-                }
-                let valid = value.is_null()
-                    || match definition.kind {
-                        FieldType::Text | FieldType::Date => value.is_string(),
-                        FieldType::Number => value.is_number(),
-                        FieldType::Boolean => value.is_boolean(),
-                        FieldType::Json => true,
-                        FieldType::Reference => value.is_object(),
-                    };
-                if !valid {
-                    return Err(format!("Tipo inválido para {}", definition.label));
-                }
-                if definition.kind == FieldType::Reference && !value.is_null() {
-                    let target = definition
-                        .reference
-                        .as_ref()
-                        .ok_or("Referencia sin destino")?;
-                    let target_id = reference(&value, target)?;
-                    let unchanged = before.as_ref().is_some_and(|before| {
-                        before.clone().into_json_value().get(&key) == Some(&value)
-                    });
-                    if !unchanged
-                        && current(&selected(root, "escriba").await?, &target_id)
-                            .await?
-                            .is_none()
-                    {
-                        return Err("La entidad base ya no existe; elige otra referencia".into());
-                    }
-                }
-                let native = if value.is_null() {
-                    if definition.kind == FieldType::Json {
-                        DbValue::Null
-                    } else {
-                        DbValue::None
-                    }
-                } else if definition.kind == FieldType::Date {
-                    let date = chrono::DateTime::parse_from_rfc3339(
-                        value.as_str().ok_or("Fecha inválida")?,
-                    )
-                    .map_err(error)?
-                    .with_timezone(&chrono::Utc);
-                    DbValue::Datetime(date.into())
-                } else {
-                    value.into_value()
-                };
-                fields.insert(key, native);
-            } else if let Some(relation) = collection
-                .relation
-                .as_ref()
-                .filter(|_| key == "in" || key == "out")
-            {
-                let endpoint = record_id(
-                    value.as_str().ok_or("Extremo de relación inválido")?,
-                    Some(if key == "in" {
-                        &relation.from
-                    } else {
-                        &relation.to
-                    }),
-                )?;
-                fields.insert(key, DbValue::RecordId(endpoint));
-            } else {
-                return Err(format!("Campo no editable: {key}"));
-            }
-        }
         let tx = db.clone().begin().await.map_err(error)?;
-        let outcome:Result<GraphRecord,String>=async {
+        let outcome: Result<GraphRecord, String> = async {
+            let before = locked(&tx, &id).await?;
+            match (&before, &request.expected_rev, &request.record_id) {
+                (Some(row), Some(rev), _)
+                    if graph_record(&request.ontology_id, row.clone())?.rev == *rev => {}
+                (None, None, None) => {}
+                _ => return Err("Conflicto: el registro cambió; recarga antes de guardar".into()),
+            }
+            #[cfg(test)]
+            super::tests::save_checkpoint(&id).await;
+            let Value::Object(input) = request.values else {
+                return Err("Los valores deben ser un objeto".into());
+            };
+            let mut fields = surrealdb::types::Object::new();
+            for definition in &collection.fields {
+                if !input.contains_key(&definition.key) {
+                    if definition.required {
+                        return Err(format!("El campo {} es obligatorio", definition.label));
+                    }
+                    fields.insert(definition.key.clone(), DbValue::None);
+                }
+            }
+            for (key, value) in input {
+                let definition = collection.fields.iter().find(|f| f.key == key);
+                if let Some(definition) = definition {
+                    if value.is_null() && definition.required {
+                        return Err(format!("El campo {} es obligatorio", definition.label));
+                    }
+                    let valid = value.is_null()
+                        || match definition.kind {
+                            FieldType::Text | FieldType::Date => value.is_string(),
+                            FieldType::Number => value.is_number(),
+                            FieldType::Boolean => value.is_boolean(),
+                            FieldType::Json => true,
+                            FieldType::Reference => value.is_object(),
+                        };
+                    if !valid {
+                        return Err(format!("Tipo inválido para {}", definition.label));
+                    }
+                    if definition.kind == FieldType::Reference && !value.is_null() {
+                        let target = definition
+                            .reference
+                            .as_ref()
+                            .ok_or("Referencia sin destino")?;
+                        let target_id = reference(&value, target)?;
+                        let unchanged = before.as_ref().is_some_and(|before| {
+                            before.clone().into_json_value().get(&key) == Some(&value)
+                        });
+                        if !unchanged
+                            && current(&selected(root, "escriba").await?, &target_id)
+                                .await?
+                                .is_none()
+                        {
+                            return Err("La entidad base ya no existe; elige otra referencia".into());
+                        }
+                    }
+                    let native = if value.is_null() {
+                        if definition.kind == FieldType::Json {
+                            DbValue::Null
+                        } else {
+                            DbValue::None
+                        }
+                    } else if definition.kind == FieldType::Date {
+                        let date = chrono::DateTime::parse_from_rfc3339(
+                            value.as_str().ok_or("Fecha inválida")?,
+                        )
+                        .map_err(error)?
+                        .with_timezone(&chrono::Utc);
+                        DbValue::Datetime(date.into())
+                    } else {
+                        value.into_value()
+                    };
+                    fields.insert(key, native);
+                } else if let Some(relation) = collection
+                    .relation
+                    .as_ref()
+                    .filter(|_| key == "in" || key == "out")
+                {
+                    let endpoint = record_id(
+                        value.as_str().ok_or("Extremo de relación inválido")?,
+                        Some(if key == "in" {
+                            &relation.from
+                        } else {
+                            &relation.to
+                        }),
+                    )?;
+                    fields.insert(key, DbValue::RecordId(endpoint));
+                } else {
+                    return Err(format!("Campo no editable: {key}"));
+                }
+            }
             let sql=if collection.relation.is_some() && before.is_none() {"RELATE ($data.in)->$id->($data.out) CONTENT $data RETURN AFTER"} else {"UPSERT $id MERGE $data RETURN AFTER"};
             let mut response=tx.query(sql).bind(("id",id.clone())).bind(("data",DbValue::Object(fields))).await.map_err(error)?.check().map_err(error)?;
             let rows:Vec<DbValue>=response.take(0).map_err(error)?;
@@ -264,10 +277,11 @@ impl Knowledge {
                     .bind(("key",source_id(&id,&source))).bind(("record",id)).bind(("recording",source.recording_id)).bind(("version",source.version_id)).bind(("recipe",source.recipe_id)).await.map_err(error)?.check().map_err(error)?;
             }
             graph_record(&request.ontology_id,row)
-        }.await;
+        }
+        .await;
         match outcome {
             Ok(row) => {
-                tx.commit().await.map_err(error)?;
+                tx.commit().await.map_err(|e| conflict(e, "guardar"))?;
                 Ok(row)
             }
             Err(e) => {
@@ -289,17 +303,32 @@ impl Knowledge {
         let db = selected(root, ontology_id).await?;
         collection(&db, table, Some(expected_version)).await?;
         let id = record_id(id, Some(table))?;
-        let row = current(&db, &id).await?.ok_or("El registro ya no existe")?;
-        if graph_record(ontology_id, row)?.rev != expected_rev {
-            return Err("Conflicto: el registro cambió; recarga antes de borrar".into());
+        let tx = db.begin().await.map_err(error)?;
+        let outcome: Result<(), String> = async {
+            let row = locked(&tx, &id).await?.ok_or("El registro ya no existe")?;
+            if graph_record(ontology_id, row)?.rev != expected_rev {
+                return Err("Conflicto: el registro cambió; recarga antes de borrar".into());
+            }
+            tx.query("DELETE $id; DELETE _escriba_source WHERE record=$id; DELETE _escriba_manual WHERE record=$id;")
+                .bind(("id", id))
+                .await
+                .map_err(error)?
+                .check()
+                .map_err(error)?;
+            Ok(())
         }
-        db.query("BEGIN; DELETE $id; DELETE _escriba_source WHERE record=$id; DELETE _escriba_manual WHERE record=$id; COMMIT;")
-            .bind(("id", id))
-            .await
-            .map_err(error)?
-            .check()
-            .map_err(error)?;
-        Ok(())
+        .await;
+        match outcome {
+            Ok(()) => tx
+                .commit()
+                .await
+                .map(|_| ())
+                .map_err(|e| conflict(e, "borrar")),
+            Err(e) => {
+                tx.cancel().await.map_err(error)?;
+                Err(e)
+            }
+        }
     }
     pub async fn link(
         &self,

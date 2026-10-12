@@ -682,6 +682,26 @@ async fn consulta_tablas_internas_pero_solo_vincula_colecciones_presentables() {
     );
 }
 
+type Gate = std::sync::Arc<(tokio::sync::Notify, tokio::sync::Notify)>;
+
+static SAVE_GATE: std::sync::Mutex<Option<(String, Gate)>> = std::sync::Mutex::new(None);
+
+pub(super) async fn save_checkpoint(id: &surrealdb::types::RecordId) {
+    let gate = {
+        let mut slot = SAVE_GATE.lock().unwrap();
+        match slot.as_ref() {
+            Some((target, _)) if *target == surrealdb::types::ToSql::to_sql(id) => {
+                slot.take().map(|(_, gate)| gate)
+            }
+            _ => None,
+        }
+    };
+    if let Some(gate) = gate {
+        gate.0.notify_one();
+        gate.1.notified().await;
+    }
+}
+
 pub(super) async fn migration_checkpoint(version: u32) -> Result<(), String> {
     if version == 2 {
         if let Some(path) = std::env::var_os("ESCRIBA_KNOWLEDGE_CRASH_CHECKPOINT") {
@@ -934,4 +954,65 @@ async fn editar_y_vincular_manualmente_conserva_la_receta_de_origen() {
         .unwrap(),
         vec![json!(["new-recipe"])]
     );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn dos_ediciones_simultaneas_con_la_misma_revision_no_se_pisan() {
+    let temp = tempfile::tempdir().unwrap();
+    let db = std::sync::Arc::new(
+        Knowledge::open(&temp.path().join("knowledge.rocksdb"))
+            .await
+            .unwrap(),
+    );
+    db.apply(ontology("crm")).await.unwrap();
+    let person = |id: Option<String>, rev: Option<String>, name: &str| SaveRecord {
+        ontology_id: "crm".into(),
+        expected_version: 1,
+        table: "person".into(),
+        record_id: id,
+        expected_rev: rev,
+        values: json!({ "name": name }),
+        source: None,
+    };
+    let saved = db.save(person(None, None, "Ada")).await.unwrap();
+    let edit = |rev: &str, name: &str| person(Some(saved.id.clone()), Some(rev.to_owned()), name);
+    let save = |request: SaveRecord| {
+        let db = db.clone();
+        tokio::spawn(async move { db.save(request).await })
+    };
+    let gate = std::sync::Arc::new((tokio::sync::Notify::new(), tokio::sync::Notify::new()));
+    *SAVE_GATE.lock().unwrap() = Some((saved.id.clone(), gate.clone()));
+    let paused = save(edit(&saved.rev, "Comprobada antes"));
+    gate.0.notified().await;
+    let winner = db
+        .save(edit(&saved.rev, "Confirmada en medio"))
+        .await
+        .unwrap();
+    gate.1.notify_one();
+    let lost = paused.await.unwrap().unwrap_err();
+    assert!(lost.contains("Conflicto"), "{lost}");
+    let mut rev = winner.rev;
+    for round in 0..20 {
+        let (first, second) = tokio::join!(
+            save(edit(&rev, &format!("A{round}"))),
+            save(edit(&rev, &format!("B{round}")))
+        );
+        let (winner, lost) = match (first.unwrap(), second.unwrap()) {
+            (Ok(winner), Err(lost)) | (Err(lost), Ok(winner)) => (winner, lost),
+            other => panic!("Debe ganar exactamente una edición: {other:?}"),
+        };
+        assert!(lost.contains("Conflicto"), "{lost}");
+        rev = winner.rev;
+    }
+    let (edited, deleted) = tokio::join!(
+        save(edit(&rev, "Tarde")),
+        db.delete("crm", 1, "person", &saved.id, &rev)
+    );
+    let edited = edited.unwrap();
+    assert!(
+        edited.is_ok() != deleted.is_ok(),
+        "Editar y borrar a la vez no pueden ganar los dos: {edited:?} {deleted:?}"
+    );
+    let lost = edited.err().or(deleted.err()).unwrap();
+    assert!(lost.contains("Conflicto"), "{lost}");
 }

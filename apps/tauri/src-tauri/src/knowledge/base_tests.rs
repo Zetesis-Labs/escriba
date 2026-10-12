@@ -410,3 +410,90 @@ async fn una_proyeccion_anterior_sin_huellas_se_rehace_entera_una_vez() {
         .unwrap();
     assert_eq!(marked(&graph).await, vec!["v1"]);
 }
+
+#[tokio::test]
+async fn cambiar_el_titulo_conserva_las_aristas_de_la_nota() {
+    let temp = tempfile::tempdir().unwrap();
+    let graph = Knowledge::open(&temp.path().join("knowledge.rocksdb"))
+        .await
+        .unwrap();
+    let versions = json!([version("v1", "uno")]);
+    graph
+        .sync_base_change(&note("Primera", versions.clone()))
+        .await
+        .unwrap();
+    graph
+        .sync_base_change(&note("Retitulada", versions))
+        .await
+        .unwrap();
+    assert_eq!(
+        graph
+            .query(
+                "escriba",
+                1,
+                "SELECT VALUE ->has_version->version.versionId FROM recording",
+                json!({})
+            )
+            .await
+            .unwrap(),
+        vec![json!([["v1"]])]
+    );
+    let mut units = selected(&graph.root, "escriba")
+        .await
+        .unwrap()
+        .query("SELECT VALUE unit FROM _escriba_projection ORDER BY unit")
+        .await
+        .unwrap()
+        .check()
+        .unwrap();
+    let units: Vec<String> = units.take(0).unwrap();
+    assert_eq!(units, vec!["recording", "v1"]);
+}
+
+#[tokio::test]
+async fn un_formato_de_proyeccion_anterior_se_rehace_una_vez_y_recupera_las_aristas() {
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("knowledge.rocksdb");
+    let graph = Knowledge::open(&path).await.unwrap();
+    let versions = json!([version("v1", "uno")]);
+    graph
+        .sync_base_change(&note("Nota", versions.clone()))
+        .await
+        .unwrap();
+    let epoch = graph.base_epoch().await.unwrap();
+    selected(&graph.root, "escriba")
+        .await
+        .unwrap()
+        .query("DELETE has_version; UPDATE _escriba_manifest:current SET projection = 1")
+        .await
+        .unwrap()
+        .check()
+        .unwrap();
+    graph.close().await.unwrap();
+    let graph = Knowledge::open(&path).await.unwrap();
+    let renewed = graph.base_epoch().await.unwrap();
+    assert_ne!(
+        renewed, epoch,
+        "La época nueva vuelve a encolar todas las notas"
+    );
+    graph
+        .sync_base_change(&note("Nota", versions))
+        .await
+        .unwrap();
+    assert_eq!(
+        graph
+            .query(
+                "escriba",
+                1,
+                "SELECT VALUE ->has_version->version.versionId FROM recording",
+                json!({})
+            )
+            .await
+            .unwrap(),
+        vec![json!([["v1"]])]
+    );
+    graph.close().await.unwrap();
+    let graph = Knowledge::open(&path).await.unwrap();
+    assert_eq!(graph.base_epoch().await.unwrap(), renewed);
+    graph.close().await.unwrap();
+}

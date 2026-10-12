@@ -286,16 +286,11 @@ async fn cancel_recording(
     state: &Arc<Runtime>,
     recording: &str,
 ) -> Result<(), String> {
-    let running = state
-        .jobs
-        .jobs()?
-        .iter()
-        .any(|j| j["recordingId"] == recording && j["state"] == "running");
-    let ids = state.jobs.cancel(recording)?;
-    if running {
+    let cancellation = state.jobs.cancel(recording)?;
+    if cancellation.inference {
         state.inference.cancel();
     }
-    for id in ids {
+    for id in cancellation.ids {
         state.scripts.cancel(&id).await;
     }
     emit_jobs(app, state);
