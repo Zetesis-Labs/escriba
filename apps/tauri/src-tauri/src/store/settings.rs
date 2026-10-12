@@ -188,6 +188,16 @@ impl Settings {
         if !update.notify_every_note.is_missing() {
             self.notify_every_note = update.notify_every_note;
         }
+        if !update.job_history_days.is_missing() {
+            if update
+                .job_history_days
+                .as_ref()
+                .is_some_and(|days| ![7, 30, 90].contains(days))
+            {
+                return Err("El historial de trabajos se guarda 7, 30 o 90 días, o siempre".into());
+            }
+            self.job_history_days = update.job_history_days;
+        }
         if !update.watched_folders.is_missing() {
             let sanitized = sanitize_watched_folders(
                 &json!(update.watched_folders),
@@ -281,13 +291,14 @@ pub(super) fn sanitize_watched_folders(
     Ok(json!(result))
 }
 
-pub(super) const SETTABLE: [&str; 6] = [
+pub(super) const SETTABLE: [&str; 7] = [
     "defaultRecipeId",
     "projectPath",
     "watchedFolders",
     "whisperModel",
     "launchAtLogin",
     "notifyEveryNote",
+    "jobHistoryDays",
 ];
 
 pub(super) fn defaults() -> Value {

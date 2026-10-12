@@ -178,6 +178,7 @@ export interface Settings {
   whisperModel: string;
   notifyEveryNote?: boolean;
   launchAtLogin: boolean;
+  jobHistoryDays?: number | null;
 }
 export interface LogEntry {
   id: string;

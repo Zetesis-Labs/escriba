@@ -146,6 +146,8 @@ pub struct Settings {
     #[serde(default, skip_serializing_if = "Field::is_missing")]
     pub notify_every_note: Field<bool>,
     #[serde(default, skip_serializing_if = "Field::is_missing")]
+    pub job_history_days: Field<u32>,
+    #[serde(default, skip_serializing_if = "Field::is_missing")]
     pub language: Field<String>,
     #[serde(default, skip_serializing_if = "Field::is_missing")]
     pub recipe_selection_migrated: Field<bool>,

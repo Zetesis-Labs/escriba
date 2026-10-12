@@ -1486,6 +1486,24 @@ async fn run_lane(app: tauri::AppHandle, state: Arc<Runtime>, lane: jobs::Lane) 
         }
     }
 }
+fn start_job_history_sweep(state: Arc<Runtime>) {
+    tauri::async_runtime::spawn(async move {
+        let mut last: Option<i64> = None;
+        loop {
+            let now = chrono::Utc::now().timestamp_millis();
+            if last.is_none_or(|last| now - last >= 86_400_000) {
+                last = Some(now);
+                if let Err(error) = state.jobs.purge(now).await {
+                    log_error(
+                        &state,
+                        &format!("No se pudo repasar el historial de trabajos: {error}"),
+                    );
+                }
+            }
+            tokio::time::sleep(Duration::from_secs(3_600)).await;
+        }
+    });
+}
 fn start_knowledge_sync(state: Arc<Runtime>) {
     tauri::async_runtime::spawn(async move {
         loop {
@@ -1729,6 +1747,7 @@ pub fn run() {
                     }
                     warn_about_unusable(&handle, &state).await;
                     start_jobs(handle.clone(), state.clone());
+                    start_job_history_sweep(state.clone());
                     start_knowledge_sync(state.clone());
                     start_project_watcher(handle.clone(), state.clone());
                     start_watcher(handle, state, wake);
