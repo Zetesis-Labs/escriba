@@ -336,7 +336,8 @@ borrado y tipado y pueden ir en paralelo con ramas separadas una vez cerrada B.
   asíncrono `Store`**: la espera dominante es el commit de SurrealKV (~30 ms),
   que un `Mutex` de tokio no acorta; convertir 55 llamadas y 2.600 líneas de
   tests no cambiaba nada observable. La sincronización del grafo en segundo
-  plano va con la fase G.
+  plano va con la fase G. Revisado el 2026-10-12: el problema es el patrón,
+  no la latencia; ver `docs/plan-biblioteca-actor.md`.
 - **Fase G** (2026-10-12). Proyección por unidades con huellas
   (`knowledge/base.rs`), sincronización en segundo plano con presupuesto y
   aviso de resultado incompleto en el filtro, sin cerrojo global del grafo, y
