@@ -1,16 +1,12 @@
 use crate::voices::{KnownVoice, SpeakerVoice};
 use chrono::Utc;
-use fs2::FileExt;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
     path::Path,
-    sync::mpsc,
-    thread,
 };
 use surrealdb::{engine::local::Db, types::SurrealValue, Surreal};
-use tokio::sync::mpsc as async_mpsc;
 use uuid::Uuid;
 mod changes;
 mod index;
@@ -127,298 +123,70 @@ impl AudioDeletion {
     }
 }
 
-enum Command {
-    KnowledgePrepare(String, mpsc::Sender<Result<(), String>>),
-    KnowledgeChange(mpsc::Sender<Result<Option<CoreChange>, String>>),
-    KnowledgeAck(String, String, mpsc::Sender<Result<(), String>>),
-    DraftRead(String, String, mpsc::Sender<Result<Option<Value>, String>>),
-    Load(mpsc::Sender<Result<Option<Value>, String>>),
-    LoadIndex(mpsc::Sender<Result<Option<Value>, String>>),
-    Recording(String, mpsc::Sender<Result<Option<Value>, String>>),
-    Write(Box<LibraryWrite>, mpsc::Sender<Result<bool, String>>),
-    AppendLog(Value, mpsc::Sender<Result<(), String>>),
-    LogList(LogQuery, mpsc::Sender<Result<Vec<Value>, String>>),
-    PendingAudioDeletions(mpsc::Sender<Result<Vec<AudioDeletion>, String>>),
-    CompleteAudioDeletion(String, mpsc::Sender<Result<(), String>>),
-    Jobs(mpsc::Sender<Result<Vec<Value>, String>>),
-    JobsActive(mpsc::Sender<Result<Vec<Value>, String>>),
-    JobsFor(String, mpsc::Sender<Result<Vec<Value>, String>>),
-    Job(String, mpsc::Sender<Result<Option<Value>, String>>),
-    SaveJob(Value, mpsc::Sender<Result<(), String>>),
-    #[cfg(test)]
-    RemoveJob(String, mpsc::Sender<Result<(), String>>),
-    Recall(String, mpsc::Sender<Result<Option<Value>, String>>),
-    Keep(String, String, Value, mpsc::Sender<Result<(), String>>),
-    TraceSave(Value, mpsc::Sender<Result<(), String>>),
-    TraceList(Option<String>, mpsc::Sender<Result<Vec<Value>, String>>),
-    People(mpsc::Sender<Result<Value, String>>),
-    KnownVoices(mpsc::Sender<Result<Vec<KnownVoice>, String>>),
-    AddPersonVoice(
-        String,
-        SpeakerVoice,
-        String,
-        mpsc::Sender<Result<(), String>>,
-    ),
-    SetPersonColor(String, String, mpsc::Sender<Result<(), String>>),
-    RenamePerson(String, String, mpsc::Sender<Result<(), String>>),
-    RemovePersonVoice(String, mpsc::Sender<Result<(), String>>),
-    RemovePerson(String, mpsc::Sender<Result<(), String>>),
-    VersionVoices(String, mpsc::Sender<Result<Vec<SpeakerVoice>, String>>),
-    #[cfg(test)]
-    Query(String, mpsc::Sender<Result<(), String>>),
-    #[cfg(test)]
-    Select(String, mpsc::Sender<Result<Vec<Value>, String>>),
-    #[cfg(test)]
-    Downgrade(mpsc::Sender<Result<(), String>>),
-}
-
+#[derive(Clone)]
 pub struct Persistence {
-    sender: Option<async_mpsc::UnboundedSender<Command>>,
-    worker: Option<thread::JoinHandle<()>>,
+    db: Surreal<Db>,
 }
 
 impl Persistence {
-    pub fn open(path: &Path) -> Result<Self, String> {
-        let (sender, mut receiver) = async_mpsc::unbounded_channel();
-        let (ready_sender, ready_receiver) = mpsc::channel();
-        let path = path.to_owned();
-        let worker = thread::spawn(move || {
-            let runtime = match tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-            {
-                Ok(value) => value,
-                Err(error) => {
-                    let _ = ready_sender.send(Err(error.to_string()));
-                    return;
-                }
-            };
-            runtime.block_on(async move {
-                let db = match connect(&path).await {
-                    Ok(value) => value,
-                    Err(error) => {
-                        let _ = ready_sender.send(Err(error));
-                        return;
-                    }
-                };
-                let _ = ready_sender.send(Ok(()));
-                while let Some(command) = receiver.recv().await {
-                    match command {
-                        Command::KnowledgePrepare(epoch, reply) => {
-                            let _ = reply.send(knowledge::prepare(&db, &epoch).await);
-                        }
-                        Command::KnowledgeChange(reply) => {
-                            let _ = reply.send(knowledge::change(&db).await);
-                        }
-                        Command::KnowledgeAck(key, revision, reply) => {
-                            let _ = reply.send(knowledge::ack(&db, &key, &revision).await);
-                        }
-                        Command::DraftRead(table, key, reply) => {
-                            let result = async {
-                                let row: Option<Row> =
-                                    db.select((table, key)).await.map_err(|e| e.to_string())?;
-                                Ok(row.map(|row| row.payload))
-                            }
-                            .await;
-                            let _ = reply.send(result);
-                        }
-                        Command::Load(reply) => {
-                            let _ = reply.send(load(&db).await);
-                        }
-                        Command::LoadIndex(reply) => {
-                            let _ = reply.send(load_index(&db).await);
-                        }
-                        Command::Recording(id, reply) => {
-                            let _ = reply.send(recording(&db, &id).await);
-                        }
-                        Command::Write(write, reply) => {
-                            let _ = reply.send(apply(&db, &write).await);
-                        }
-                        Command::AppendLog(entry, reply) => {
-                            let _ = reply.send(logs::append(&db, &entry).await);
-                        }
-                        Command::LogList(query, reply) => {
-                            let _ = reply.send(logs::list(&db, &query).await);
-                        }
-                        Command::PendingAudioDeletions(reply) => {
-                            let _ = reply.send(pending_audio_deletions(&db).await);
-                        }
-                        Command::CompleteAudioDeletion(id, reply) => {
-                            let _ = reply.send(complete_audio_deletion(&db, &id).await);
-                        }
-                        Command::Jobs(reply) => {
-                            let _ = reply.send(jobs(&db).await);
-                        }
-                        Command::JobsActive(reply) => {
-                            let _ = reply.send(jobs_active(&db).await);
-                        }
-                        Command::JobsFor(recording, reply) => {
-                            let _ = reply.send(jobs_for(&db, &recording).await);
-                        }
-                        Command::Job(id, reply) => {
-                            let _ = reply.send(job(&db, &id).await);
-                        }
-                        Command::SaveJob(job, reply) => {
-                            let _ = reply.send(save_job(&db, &job).await);
-                        }
-                        #[cfg(test)]
-                        Command::RemoveJob(id, reply) => {
-                            let _ = reply.send(remove_job(&db, &id).await);
-                        }
-                        Command::Recall(key, reply) => {
-                            let _ = reply.send(recall(&db, &key).await);
-                        }
-                        Command::Keep(key, parent, value, reply) => {
-                            let _ = reply.send(keep(&db, &key, &parent, &value).await);
-                        }
-                        Command::TraceSave(value, reply) => {
-                            let _ = reply.send(trace_save(&db, &value).await);
-                        }
-                        Command::TraceList(parent, reply) => {
-                            let _ = reply.send(trace_list(&db, parent.as_deref()).await);
-                        }
-                        Command::People(reply) => {
-                            let _ = reply.send(people(&db).await);
-                        }
-                        Command::KnownVoices(reply) => {
-                            let _ = reply.send(known_voices(&db).await);
-                        }
-                        Command::AddPersonVoice(name, voice, source, reply) => {
-                            let _ = reply.send(add_person_voice(&db, &name, &voice, &source).await);
-                        }
-                        Command::SetPersonColor(name, color, reply) => {
-                            let _ = reply.send(set_person_color(&db, &name, &color).await);
-                        }
-                        Command::RenamePerson(name, new_name, reply) => {
-                            let _ = reply.send(rename_person(&db, &name, &new_name).await);
-                        }
-                        Command::RemovePersonVoice(id, reply) => {
-                            let _ = reply.send(remove_person_voice(&db, &id).await);
-                        }
-                        Command::RemovePerson(name, reply) => {
-                            let _ = reply.send(remove_person(&db, &name).await);
-                        }
-                        Command::VersionVoices(id, reply) => {
-                            let _ = reply.send(version_voices(&db, &id).await);
-                        }
-                        #[cfg(test)]
-                        Command::Query(query, reply) => {
-                            let result = db.query(query).await.map_err(|e| e.to_string()).and_then(
-                                |response| response.check().map(|_| ()).map_err(|e| e.to_string()),
-                            );
-                            let _ = reply.send(result);
-                        }
-                        #[cfg(test)]
-                        Command::Select(query, reply) => {
-                            let result = async {
-                                let mut response = db
-                                    .query(query)
-                                    .await
-                                    .map_err(|e| e.to_string())?
-                                    .check()
-                                    .map_err(|e| e.to_string())?;
-                                response.take(0).map_err(|e| e.to_string())
-                            }
-                            .await;
-                            let _ = reply.send(result);
-                        }
-                        #[cfg(test)]
-                        Command::Downgrade(reply) => {
-                            let _ = reply.send(downgrade_v1_test(&db).await);
-                        }
-                    }
-                }
-                drop(db);
-                let lock = path.join("LOCK");
-                for _ in 0..200 {
-                    if let Ok(file) = std::fs::OpenOptions::new()
-                        .read(true)
-                        .write(true)
-                        .open(&lock)
-                    {
-                        if file.try_lock_exclusive().is_ok() {
-                            let _ = file.unlock();
-                            break;
-                        }
-                    }
-                    tokio::time::sleep(std::time::Duration::from_millis(25)).await;
-                }
-            });
-        });
-        ready_receiver
-            .recv()
-            .map_err(|_| "No se pudo iniciar SurrealDB".to_owned())??;
+    pub async fn open(path: &Path) -> Result<Self, String> {
         Ok(Self {
-            sender: Some(sender),
-            worker: Some(worker),
+            db: connect(path).await?,
         })
     }
-
-    fn request<T>(
-        &self,
-        command: impl FnOnce(mpsc::Sender<Result<T, String>>) -> Command,
-    ) -> Result<T, String> {
-        let (reply, receiver) = mpsc::channel();
-        self.sender
-            .as_ref()
-            .ok_or("SurrealDB está cerrada")?
-            .send(command(reply))
-            .map_err(|_| "SurrealDB dejó de responder")?;
-        receiver.recv().map_err(|_| "SurrealDB dejó de responder")?
+    pub async fn knowledge_prepare(&self, epoch: &str) -> Result<(), String> {
+        knowledge::prepare(&self.db, epoch).await
     }
-    pub fn knowledge_prepare(&self, epoch: &str) -> Result<(), String> {
-        self.request(|reply| Command::KnowledgePrepare(epoch.into(), reply))
+    pub async fn knowledge_change(&self) -> Result<Option<CoreChange>, String> {
+        knowledge::change(&self.db).await
     }
-    pub fn knowledge_change(&self) -> Result<Option<CoreChange>, String> {
-        self.request(Command::KnowledgeChange)
+    pub async fn knowledge_ack(&self, key: &str, revision: &str) -> Result<(), String> {
+        knowledge::ack(&self.db, key, revision).await
     }
-    pub fn knowledge_ack(&self, key: &str, revision: &str) -> Result<(), String> {
-        self.request(|reply| Command::KnowledgeAck(key.into(), revision.into(), reply))
+    pub async fn load(&self) -> Result<Option<Value>, String> {
+        load(&self.db).await
     }
-    pub fn load(&self) -> Result<Option<Value>, String> {
-        self.request(Command::Load)
+    pub async fn load_index(&self) -> Result<Option<Value>, String> {
+        load_index(&self.db).await
     }
-    pub fn load_index(&self) -> Result<Option<Value>, String> {
-        self.request(Command::LoadIndex)
+    pub async fn draft_read(&self, key: &str, receipt: bool) -> Result<Option<Value>, String> {
+        let table = if receipt {
+            "note_draft_receipt"
+        } else {
+            "note_draft"
+        };
+        let row: Option<Row> = self
+            .db
+            .select((table, key))
+            .await
+            .map_err(|e| e.to_string())?;
+        Ok(row.map(|row| row.payload))
     }
-    pub fn draft_read(&self, key: &str, receipt: bool) -> Result<Option<Value>, String> {
-        self.request(|reply| {
-            Command::DraftRead(
-                if receipt {
-                    "note_draft_receipt"
-                } else {
-                    "note_draft"
-                }
-                .into(),
-                key.into(),
-                reply,
-            )
-        })
+    pub async fn recording(&self, id: &str) -> Result<Option<Value>, String> {
+        recording(&self.db, id).await
     }
-    pub fn recording(&self, id: &str) -> Result<Option<Value>, String> {
-        self.request(|reply| Command::Recording(id.to_owned(), reply))
+    pub async fn write(&self, write: LibraryWrite) -> Result<bool, String> {
+        apply(&self.db, &write).await
     }
-    pub fn write(&self, write: LibraryWrite) -> Result<bool, String> {
-        self.request(|reply| Command::Write(Box::new(write), reply))
+    pub async fn append_log(&self, entry: &Value) -> Result<(), String> {
+        logs::append(&self.db, entry).await
     }
-    pub fn append_log(&self, entry: &Value) -> Result<(), String> {
-        self.request(|reply| Command::AppendLog(entry.clone(), reply))
-    }
-    pub fn log_list(&self, query: LogQuery) -> Result<Vec<Value>, String> {
-        self.request(|reply| Command::LogList(query, reply))
+    pub async fn log_list(&self, query: LogQuery) -> Result<Vec<Value>, String> {
+        logs::list(&self.db, &query).await
     }
     #[cfg(test)]
-    pub fn save(&self, before: Value, after: Value) -> Result<(), String> {
+    pub async fn save(&self, before: Value, after: Value) -> Result<(), String> {
         let before = crate::store::LibraryData::read(&before)?;
         let after = crate::store::LibraryData::read(&after)?;
         self.write(LibraryWrite {
             ops: changes(&before, &after, Children::All)?,
             ..LibraryWrite::default()
         })
+        .await
         .map(|_| ())
     }
     #[cfg(test)]
-    pub fn save_scoped(
+    pub async fn save_scoped(
         &self,
         before: Value,
         after: Value,
@@ -427,96 +195,98 @@ impl Persistence {
         let before = crate::store::LibraryData::read(&before)?;
         let after = crate::store::LibraryData::read(&after)?;
         let ops = changes(&before, &after, Children::Only(&scope.full_recordings))?;
-        self.write(scope.into_write(ops)).map(|_| ())
+        self.write(scope.into_write(ops)).await.map(|_| ())
     }
-    pub fn pending_audio_deletions(&self) -> Result<Vec<AudioDeletion>, String> {
-        self.request(Command::PendingAudioDeletions)
+    pub async fn pending_audio_deletions(&self) -> Result<Vec<AudioDeletion>, String> {
+        pending_audio_deletions(&self.db).await
     }
-    pub fn complete_audio_deletion(&self, id: &str) -> Result<(), String> {
-        self.request(|reply| Command::CompleteAudioDeletion(id.to_owned(), reply))
+    pub async fn complete_audio_deletion(&self, id: &str) -> Result<(), String> {
+        complete_audio_deletion(&self.db, id).await
     }
-    pub fn jobs(&self) -> Result<Vec<Value>, String> {
-        self.request(Command::Jobs)
+    pub async fn jobs(&self) -> Result<Vec<Value>, String> {
+        jobs(&self.db).await
     }
-    pub fn jobs_active(&self) -> Result<Vec<Value>, String> {
-        self.request(Command::JobsActive)
+    pub async fn jobs_active(&self) -> Result<Vec<Value>, String> {
+        jobs_active(&self.db).await
     }
-    pub fn jobs_for(&self, recording: &str) -> Result<Vec<Value>, String> {
-        self.request(|reply| Command::JobsFor(recording.to_owned(), reply))
+    pub async fn jobs_for(&self, recording: &str) -> Result<Vec<Value>, String> {
+        jobs_for(&self.db, recording).await
     }
-    pub fn job(&self, id: &str) -> Result<Option<Value>, String> {
-        self.request(|reply| Command::Job(id.to_owned(), reply))
+    pub async fn job(&self, id: &str) -> Result<Option<Value>, String> {
+        job(&self.db, id).await
     }
-    pub fn save_job(&self, job: &Value) -> Result<(), String> {
-        self.request(|reply| Command::SaveJob(job.clone(), reply))
+    pub async fn save_job(&self, job: &Value) -> Result<(), String> {
+        save_job(&self.db, job).await
     }
     #[cfg(test)]
-    pub fn remove_job(&self, id: &str) -> Result<(), String> {
-        self.request(|reply| Command::RemoveJob(id.to_owned(), reply))
+    pub async fn remove_job(&self, id: &str) -> Result<(), String> {
+        remove_job(&self.db, id).await
     }
-    pub fn recall(&self, key: &str) -> Result<Option<Value>, String> {
-        self.request(|reply| Command::Recall(key.to_owned(), reply))
+    pub async fn recall(&self, key: &str) -> Result<Option<Value>, String> {
+        recall(&self.db, key).await
     }
-    pub fn keep(&self, key: &str, parent: &str, value: &Value) -> Result<(), String> {
-        self.request(|reply| Command::Keep(key.to_owned(), parent.to_owned(), value.clone(), reply))
+    pub async fn keep(&self, key: &str, parent: &str, value: &Value) -> Result<(), String> {
+        keep(&self.db, key, parent, value).await
     }
-    pub fn trace_save(&self, value: &Value) -> Result<(), String> {
-        self.request(|reply| Command::TraceSave(value.clone(), reply))
+    pub async fn trace_save(&self, value: &Value) -> Result<(), String> {
+        trace_save(&self.db, value).await
     }
-    pub fn trace_list(&self, recording_id: Option<&str>) -> Result<Vec<Value>, String> {
-        self.request(|reply| Command::TraceList(recording_id.map(str::to_owned), reply))
+    pub async fn trace_list(&self, recording_id: Option<&str>) -> Result<Vec<Value>, String> {
+        trace_list(&self.db, recording_id).await
     }
-    pub fn people(&self) -> Result<Value, String> {
-        self.request(Command::People)
+    pub async fn people(&self) -> Result<Value, String> {
+        people(&self.db).await
     }
-    pub fn known_voices(&self) -> Result<Vec<KnownVoice>, String> {
-        self.request(Command::KnownVoices)
+    pub async fn known_voices(&self) -> Result<Vec<KnownVoice>, String> {
+        known_voices(&self.db).await
     }
-    pub fn add_person_voice(
+    pub async fn add_person_voice(
         &self,
         name: &str,
         voice: &SpeakerVoice,
         source: &str,
     ) -> Result<(), String> {
-        self.request(|reply| {
-            Command::AddPersonVoice(name.to_owned(), voice.clone(), source.to_owned(), reply)
-        })
+        add_person_voice(&self.db, name, voice, source).await
     }
-    pub fn set_person_color(&self, name: &str, color: &str) -> Result<(), String> {
-        self.request(|reply| Command::SetPersonColor(name.into(), color.into(), reply))
+    pub async fn set_person_color(&self, name: &str, color: &str) -> Result<(), String> {
+        set_person_color(&self.db, name, color).await
     }
-    pub fn rename_person(&self, name: &str, new_name: &str) -> Result<(), String> {
-        self.request(|reply| Command::RenamePerson(name.to_owned(), new_name.to_owned(), reply))
+    pub async fn rename_person(&self, name: &str, new_name: &str) -> Result<(), String> {
+        rename_person(&self.db, name, new_name).await
     }
-    pub fn remove_person_voice(&self, id: &str) -> Result<(), String> {
-        self.request(|reply| Command::RemovePersonVoice(id.to_owned(), reply))
+    pub async fn remove_person_voice(&self, id: &str) -> Result<(), String> {
+        remove_person_voice(&self.db, id).await
     }
-    pub fn remove_person(&self, name: &str) -> Result<(), String> {
-        self.request(|reply| Command::RemovePerson(name.to_owned(), reply))
+    pub async fn remove_person(&self, name: &str) -> Result<(), String> {
+        remove_person(&self.db, name).await
     }
-    pub fn version_voices(&self, id: &str) -> Result<Vec<SpeakerVoice>, String> {
-        self.request(|reply| Command::VersionVoices(id.to_owned(), reply))
+    pub async fn version_voices(&self, id: &str) -> Result<Vec<SpeakerVoice>, String> {
+        version_voices(&self.db, id).await
     }
     #[cfg(test)]
-    pub fn query_test(&self, query: &str) -> Result<(), String> {
-        self.request(|reply| Command::Query(query.to_owned(), reply))
+    pub async fn query_test(&self, query: &str) -> Result<(), String> {
+        self.db
+            .query(query)
+            .await
+            .map_err(|e| e.to_string())?
+            .check()
+            .map(|_| ())
+            .map_err(|e| e.to_string())
     }
     #[cfg(test)]
-    pub fn select_test(&self, query: &str) -> Result<Vec<Value>, String> {
-        self.request(|reply| Command::Select(query.to_owned(), reply))
+    pub async fn select_test(&self, query: &str) -> Result<Vec<Value>, String> {
+        let mut response = self
+            .db
+            .query(query)
+            .await
+            .map_err(|e| e.to_string())?
+            .check()
+            .map_err(|e| e.to_string())?;
+        response.take(0).map_err(|e| e.to_string())
     }
     #[cfg(test)]
-    pub fn downgrade_v1_test(&self) -> Result<(), String> {
-        self.request(Command::Downgrade)
-    }
-}
-
-impl Drop for Persistence {
-    fn drop(&mut self) {
-        self.sender.take();
-        if let Some(worker) = self.worker.take() {
-            let _ = worker.join();
-        }
+    pub async fn downgrade_v1_test(&self) -> Result<(), String> {
+        downgrade_v1_test(&self.db).await
     }
 }
 

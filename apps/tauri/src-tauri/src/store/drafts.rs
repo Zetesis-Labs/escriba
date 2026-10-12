@@ -73,12 +73,13 @@ fn content(record: &Recording, version: &Version) -> Result<DraftContent, String
 }
 
 impl Store {
-    pub(super) fn draft_command(&mut self, method: &str, p: &Value) -> Result<Value, String> {
+    pub(super) async fn draft_command(&mut self, method: &str, p: &Value) -> Result<Value, String> {
         let key = text(p, "recordingId")?;
         self.recording_for_write(key)?;
         let stored = self
             .database
-            .draft_read(key, false)?
+            .draft_read(key, false)
+            .await?
             .map(serde_json::from_value::<NoteDraft>)
             .transpose()
             .map_err(|_| "Borrador guardado inválido")?;
@@ -91,7 +92,7 @@ impl Store {
         if method == "note_draft_get" {
             return Ok(json!(stored));
         }
-        let before = self.recording_edit(key)?;
+        let before = self.recording_edit(key).await?;
         let record = before
             .recordings
             .iter()
@@ -113,15 +114,17 @@ impl Store {
                 content: content(record, base)?,
             };
             let result = json!(draft);
-            self.database.write(Self::scoped_write(
-                &before,
-                &before,
-                WriteScope {
-                    draft_change: Some((key.into(), Some(result.clone()))),
-                    full_recordings: [key.into()].into_iter().collect(),
-                    ..WriteScope::default()
-                },
-            )?)?;
+            self.database
+                .write(Self::scoped_write(
+                    &before,
+                    &before,
+                    WriteScope {
+                        draft_change: Some((key.into(), Some(result.clone()))),
+                        full_recordings: [key.into()].into_iter().collect(),
+                        ..WriteScope::default()
+                    },
+                )?)
+                .await?;
             return Ok(result);
         }
         let draft_id = text(p, "draftId")?;
@@ -129,7 +132,7 @@ impl Store {
             .as_u64()
             .ok_or("Falta expectedRevision")?;
         if method == "note_draft_commit" {
-            if let Some(receipt) = self.database.draft_read(draft_id, true)? {
+            if let Some(receipt) = self.database.draft_read(draft_id, true).await? {
                 if receipt["recordingId"] != key || receipt["revision"] != revision {
                     return Err("La confirmación del borrador no coincide".into());
                 }
@@ -158,7 +161,8 @@ impl Store {
         if method == "note_draft_discard" {
             scope.draft_change = Some((key.into(), None));
             self.database
-                .write(Self::scoped_write(&before, &before, scope)?)?;
+                .write(Self::scoped_write(&before, &before, scope)?)
+                .await?;
             return Ok(Value::Null);
         }
         if draft.base_version_id != base.id
@@ -182,7 +186,8 @@ impl Store {
             let result = json!(draft);
             scope.draft_change = Some((key.into(), Some(result.clone())));
             self.database
-                .write(Self::scoped_write(&before, &before, scope)?)?;
+                .write(Self::scoped_write(&before, &before, scope)?)
+                .await?;
             return Ok(result);
         }
         if method == "note_draft_commit" {
@@ -204,7 +209,7 @@ impl Store {
                         .as_ref()
                         .ok_or("Transcripción de origen inválida")?,
                     &draft.content.transcript,
-                    self.database.version_voices(&base.id)?,
+                    self.database.version_voices(&base.id).await?,
                 );
                 version.has_voices = (!voices.is_empty()).into();
                 version.transcript = draft.content.transcript.into();
@@ -229,7 +234,7 @@ impl Store {
             if created {
                 write.version_voices = Some((version.id.clone(), voices));
             }
-            self.database.write(write)?;
+            self.database.write(write).await?;
             self.data = index;
             return Ok(result);
         }

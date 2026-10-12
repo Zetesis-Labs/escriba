@@ -21,7 +21,11 @@ impl Store {
             atomic_write(&path, value.trim().as_bytes())
         }
     }
-    pub fn save_connector(&mut self, account: &Value, destination: &Value) -> Result<(), String> {
+    pub async fn save_connector(
+        &mut self,
+        account: &Value,
+        destination: &Value,
+    ) -> Result<(), String> {
         let accounts = self.data.accounts.as_array().ok_or("Cuentas inválidas")?;
         let destinations = self
             .data
@@ -141,9 +145,9 @@ impl Store {
                 items.push(item);
             }
         }
-        self.commit(next)
+        self.commit(next).await
     }
-    pub fn remove_connector(&mut self, key: &str) -> Result<(), String> {
+    pub async fn remove_connector(&mut self, key: &str) -> Result<(), String> {
         self.item("accounts", key)?;
         let destination = self.item("destinations", key)?;
         if destination["account"] != key
@@ -164,7 +168,7 @@ impl Store {
             }
         }
         let credential = self.credential_path(key)?;
-        self.commit(next)?;
+        self.commit(next).await?;
         match fs::remove_file(credential) {
             Ok(()) => Ok(()),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),

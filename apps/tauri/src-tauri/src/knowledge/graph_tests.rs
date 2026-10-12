@@ -177,11 +177,13 @@ async fn detalle_acota_textos_y_senala_recortes_sin_modificar_registros() {
 async fn comandos_sincronizan_la_base_y_rechazan_paginas_invalidas() {
     use crate::knowledge_commands::call as dispatch;
     let temp = tempfile::tempdir().unwrap();
-    let mut store = crate::store::Store::open(temp.path().join("library")).unwrap();
+    let mut store = crate::store::Store::open(temp.path().join("library"))
+        .await
+        .unwrap();
     let audio = temp.path().join("prueba.wav");
     std::fs::write(&audio, b"sintetico").unwrap();
-    store.import(&audio, None).unwrap();
-    let store = crate::library::Library::new(store).unwrap();
+    store.import(&audio, None).await.unwrap();
+    let store = crate::library::Library::new(store).await.unwrap();
     let graph = Knowledge::open(&temp.path().join("graph")).await.unwrap();
     let roots = dispatch(
         &graph,

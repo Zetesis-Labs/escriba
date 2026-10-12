@@ -62,15 +62,16 @@ export async function flujo(audio, api) {
     std::fs::write(&audio, b"audio sintetico").unwrap();
     let library_path = temporary.path().join("library.rocksdb");
     let knowledge_path = temporary.path().join("knowledge.rocksdb");
-    let mut store = Store::open(library_path.clone()).unwrap();
-    let recording = store.import(&audio, Some("grafo")).unwrap();
+    let mut store = Store::open(library_path.clone()).await.unwrap();
+    let recording = store.import(&audio, Some("grafo")).await.unwrap();
     let recording_id = recording["id"].as_str().unwrap().to_string();
     catalog::install(
         &mut store,
         &json!({"recipes":[compiled],"destinations":[],"ontologies":[ontology.clone()]}),
     )
+    .await
     .unwrap();
-    let store = crate::library::Library::new(store).unwrap();
+    let store = crate::library::Library::new(store).await.unwrap();
     let graph = Arc::new(Knowledge::open(&knowledge_path).await.unwrap());
     knowledge_commands::call(
         &graph,
@@ -93,9 +94,8 @@ export async function flujo(audio, api) {
                     knowledge_commands::call(&graph, &store, &method, params).await
                 } else if method == "runtime_context" {
                     store
-                        .lock()
-                        .unwrap()
-                        .runtime_context(params["recordingId"].as_str())
+                        .runtime_context(params["recordingId"].as_str().map(str::to_owned))
+                        .await
                 } else if method == "transcribe" {
                     Ok(json!({"text":"Audio sintético","segments":[]}))
                 } else if matches!(
@@ -108,13 +108,9 @@ export async function flujo(audio, api) {
                         | "account_effect_finish"
                         | "log"
                 ) {
-                    store.lock().unwrap().mutate(&method, &params)
+                    store.mutate(method.clone(), params.clone()).await
                 } else if method == "trace_save" {
-                    store
-                        .lock()
-                        .unwrap()
-                        .trace_save(&params)
-                        .map(|_| Value::Null)
+                    store.trace_save(params.clone()).await.map(|_| Value::Null)
                 } else if method == "memory_recall" {
                     Ok(Value::Null)
                 } else {
@@ -139,7 +135,7 @@ export async function flujo(audio, api) {
     .unwrap()
     .unwrap();
 
-    let note = store.lock().unwrap().recording(&recording_id).unwrap();
+    let note = store.recording(recording_id.clone()).await.unwrap();
     assert_eq!(note["versions"].as_array().unwrap().len(), 1);
     let linked = graph
         .records("ejemplo.grafo", "person", 0, Some(&recording_id), None)
@@ -157,11 +153,10 @@ export async function flujo(audio, api) {
         1
     );
 
-    catalog::install(
-        &mut store.lock().unwrap(),
-        &json!({"recipes":[],"destinations":[]}),
-    )
-    .unwrap();
+    store
+        .install(json!({"recipes":[],"destinations":[]}))
+        .await
+        .unwrap();
     drop(scripts);
     drop(capability);
     drop(store);
@@ -172,10 +167,10 @@ export async function flujo(audio, api) {
         tokio::time::sleep(Duration::from_millis(25)).await;
     }
     Arc::try_unwrap(graph).ok().unwrap().close().await.unwrap();
-    let reopened_store = Store::open(library_path).unwrap();
+    let reopened_store = Store::open(library_path).await.unwrap();
     let reopened_graph = Knowledge::open(&knowledge_path).await.unwrap();
     assert_eq!(
-        reopened_store.recording(&recording_id).unwrap()["versions"]
+        reopened_store.recording(&recording_id).await.unwrap()["versions"]
             .as_array()
             .unwrap()
             .len(),

@@ -2,7 +2,7 @@ use crate::store::{text, Store};
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 
-pub fn install(store: &mut Store, package: &Value) -> Result<(), String> {
+pub async fn install(store: &mut Store, package: &Value) -> Result<(), String> {
     let ontologies: Vec<crate::knowledge::Ontology> =
         serde_json::from_value(package.get("ontologies").cloned().unwrap_or(json!([])))
             .map_err(|_| "Ontologías del proyecto inválidas")?;
@@ -164,73 +164,76 @@ pub fn install(store: &mut Store, package: &Value) -> Result<(), String> {
             }
         }
     }
-    store.replace_catalog(next, aliases)
+    store.replace_catalog(next, aliases).await
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[test]
-    fn las_ontologias_del_catalogo_se_validan_y_persisten_sin_inflar_la_lista() {
+    #[tokio::test]
+    async fn las_ontologias_del_catalogo_se_validan_y_persisten_sin_inflar_la_lista() {
         let temp = tempfile::tempdir().unwrap();
-        let mut store = Store::open(temp.path().into()).unwrap();
+        let mut store = Store::open(temp.path().into()).await.unwrap();
         let ontology = json!({"id":"example","name":"Ejemplo","version":1,"migrations":[{"version":1,"sql":"DEFINE TABLE topic PERMISSIONS FULL;"}],"collections":[]});
         let package = json!({"recipes":[],"destinations":[],"ontologies":[ontology]});
-        install(&mut store, &package).unwrap();
+        install(&mut store, &package).await.unwrap();
         assert!(store.library()["settings"]
             .get("projectOntologies")
             .is_none());
         drop(store);
-        let mut store = Store::open(temp.path().into()).unwrap();
+        let mut store = Store::open(temp.path().into()).await.unwrap();
         assert_eq!(
             json!(store.data.settings.project_ontologies.as_ref()),
             package["ontologies"]
         );
         let mut invalid = package.clone();
         invalid["ontologies"][0]["version"] = json!(2);
-        assert!(install(&mut store, &invalid).is_err());
+        assert!(install(&mut store, &invalid).await.is_err());
         assert_eq!(
             json!(store.data.settings.project_ontologies.as_ref()),
             package["ontologies"]
         );
-        install(&mut store, &json!({"recipes":[],"destinations":[]})).unwrap();
+        install(&mut store, &json!({"recipes":[],"destinations":[]}))
+            .await
+            .unwrap();
         assert_eq!(
             json!(store.data.settings.project_ontologies.as_ref()),
             json!([])
         );
     }
 
-    #[test]
-    fn proveedor_del_proyecto_sobrevive_reapertura_y_retirada_sin_perder_cuenta() {
+    #[tokio::test]
+    async fn proveedor_del_proyecto_sobrevive_reapertura_y_retirada_sin_perder_cuenta() {
         let temp = tempfile::tempdir().unwrap();
-        let mut store = Store::open(temp.path().into()).unwrap();
+        let mut store = Store::open(temp.path().into()).await.unwrap();
         let provider = json!({"id":"example","name":"Example","capability":"http","origin":"https://example.org","allowedHeaders":["x-api-version"],"credential":{"label":"Token","header":"x-api-key"},"defaultConfiguration":{},"program":"compiled"});
         install(
             &mut store,
             &json!({"recipes":[],"destinations":[],"providers":[provider]}),
         )
+        .await
         .unwrap();
         assert_eq!(
             store.item("providers", "example").unwrap()["program"],
             "compiled"
         );
         drop(store);
-        let mut store = Store::open(temp.path().into()).unwrap();
+        let mut store = Store::open(temp.path().into()).await.unwrap();
         assert_eq!(
-            store.runtime_context(None).unwrap()["providers"][0]["origin"],
+            store.runtime_context(None).await.unwrap()["providers"][0]["origin"],
             "https://example.org"
         );
-        store.save_connector(&json!({"id":"draft","name":"Draft","provider":"example","enabled":false}), &json!({"id":"draft","name":"Draft","account":"draft","provider":"example","enabled":false,"configuration":{}})).unwrap();
+        store.save_connector(&json!({"id":"draft","name":"Draft","provider":"example","enabled":false}), &json!({"id":"draft","name":"Draft","account":"draft","provider":"example","enabled":false,"configuration":{}})).await.unwrap();
         assert_eq!(store.item("accounts", "draft").unwrap()["enabled"], false);
         assert!(store.item("accounts", "draft").unwrap()["grant"].is_null());
-        store.save_connector(&json!({"id":"a","name":"A","provider":"example","grant":{"capability":"http","origin":"https://example.org","allowedHeaders":["x-api-version"],"credential":{"label":"Token","header":"x-api-key"}}}), &json!({"id":"a","name":"A","account":"a","provider":"example","enabled":true,"configuration":{}})).unwrap();
+        store.save_connector(&json!({"id":"a","name":"A","provider":"example","grant":{"capability":"http","origin":"https://example.org","allowedHeaders":["x-api-version"],"credential":{"label":"Token","header":"x-api-key"}}}), &json!({"id":"a","name":"A","account":"a","provider":"example","enabled":true,"configuration":{}})).await.unwrap();
         assert_eq!(store.item("destinations", "a").unwrap()["managed"], true);
         assert_eq!(
             store.item("destinations", "a").unwrap()["program"],
             "compiled"
         );
         store.save_credential("a", "synthetic-token").unwrap();
-        assert!(store.mutate("config_save", &json!({"collection":"accounts","item":{"id":"a","name":"Notion","provider":"notion","enabled":true}})).is_err());
+        assert!(store.mutate("config_save", &json!({"collection":"accounts","item":{"id":"a","name":"Notion","provider":"notion","enabled":true}})).await.is_err());
         assert_eq!(
             store.credential("a").unwrap().as_deref(),
             Some("synthetic-token")
@@ -238,7 +241,7 @@ mod tests {
         let mut account = store.item("accounts", "a").unwrap();
         account["enabled"] = json!(false);
         let destination = store.item("destinations", "a").unwrap();
-        store.save_connector(&account, &destination).unwrap();
+        store.save_connector(&account, &destination).await.unwrap();
         assert_eq!(store.item("accounts", "a").unwrap()["enabled"], false);
         let mut changed = store.item("providers", "example").unwrap();
         changed["program"] = json!("updated");
@@ -246,6 +249,7 @@ mod tests {
             &mut store,
             &json!({"recipes":[],"destinations":[],"providers":[changed]}),
         )
+        .await
         .unwrap();
         assert_eq!(
             store.item("destinations", "a").unwrap()["program"],
@@ -256,6 +260,7 @@ mod tests {
             &mut store,
             &json!({"recipes":[],"destinations":[],"providers":[]}),
         )
+        .await
         .unwrap();
         assert_eq!(
             store.item("providers", "example").unwrap()["unavailable"],
@@ -271,62 +276,71 @@ mod tests {
         );
         assert_eq!(store.item("accounts", "a").unwrap()["provider"], "example");
     }
-    #[test]
-    fn instalar_recetas_con_notas_descartadas_conserva_el_descarte() {
+    #[tokio::test]
+    async fn instalar_recetas_con_notas_descartadas_conserva_el_descarte() {
         let temp = tempfile::tempdir().unwrap();
         let audio = temp.path().join("prueba.wav");
         std::fs::write(&audio, b"audio sintetico").unwrap();
         let root = temp.path().join("library");
-        let mut store = Store::open(root.clone()).unwrap();
-        let record = store.import(&audio, None).unwrap();
+        let mut store = Store::open(root.clone()).await.unwrap();
+        let record = store.import(&audio, None).await.unwrap();
         let discarded = store
             .mutate("recording_discard", &json!({"id":record["id"]}))
+            .await
             .unwrap();
         install(
             &mut store,
             &json!({"recipes":[{"id":"ejemplo","kind":"code","name":"Ejemplo","values":{},"bundle":"compiled"}],"destinations":[]}),
-        )
+        ).await
         .unwrap();
         assert_eq!(
             store.item("recipes", "ejemplo").unwrap()["bundle"],
             "compiled"
         );
         assert_eq!(
-            store.recording(record["id"].as_str().unwrap()).unwrap(),
+            store
+                .recording(record["id"].as_str().unwrap())
+                .await
+                .unwrap(),
             discarded
         );
         drop(store);
-        let mut restored = Store::open(root).unwrap();
+        let mut restored = Store::open(root).await.unwrap();
         assert_eq!(
             restored.item("recipes", "ejemplo").unwrap()["bundle"],
             "compiled"
         );
-        assert_eq!(restored.import(&audio, None).unwrap(), discarded);
+        assert_eq!(restored.import(&audio, None).await.unwrap(), discarded);
     }
 
-    #[test]
-    fn compiling_legacy_layout_preserves_values_default_and_form_base() {
+    #[tokio::test]
+    async fn compiling_legacy_layout_preserves_values_default_and_form_base() {
         let temp = tempfile::tempdir().unwrap();
-        let mut store = Store::open(temp.path().into()).unwrap();
-        store.mutate("config_save", &json!({"collection":"recipes","item":{"id":"code:recetas:meeting","kind":"code","entry":"recetas/meeting/receta.js","name":"Meeting","values":{"idioma":"en"},"bundle":"old"}})).unwrap();
-        store.mutate("config_save", &json!({"collection":"recipes","item":{"id":"custom","kind":"form","name":"Custom","base":"code:recetas:meeting","values":{}}})).unwrap();
+        let mut store = Store::open(temp.path().into()).await.unwrap();
+        store.mutate("config_save", &json!({"collection":"recipes","item":{"id":"code:recetas:meeting","kind":"code","entry":"recetas/meeting/receta.js","name":"Meeting","values":{"idioma":"en"},"bundle":"old"}})).await.unwrap();
+        store.mutate("config_save", &json!({"collection":"recipes","item":{"id":"custom","kind":"form","name":"Custom","base":"code:recetas:meeting","values":{}}})).await.unwrap();
         store
             .mutate(
                 "settings_save",
                 &json!({"settings":{"defaultRecipeId":"code:recetas:meeting"}}),
             )
+            .await
             .unwrap();
         let audio = temp.path().join("activa.wav");
         std::fs::write(&audio, b"audio activo sintetico").unwrap();
-        let active = store.import(&audio, Some("code:recetas:meeting")).unwrap();
-        let version = store.mutate("version_save", &json!({"recordingId":active["id"],"recipeId":"code:recetas:meeting","transcript":{"text":"contenido sintetico","segments":[]}})).unwrap();
+        let active = store
+            .import(&audio, Some("code:recetas:meeting"))
+            .await
+            .unwrap();
+        let version = store.mutate("version_save", &json!({"recordingId":active["id"],"recipeId":"code:recetas:meeting","transcript":{"text":"contenido sintetico","segments":[]}})).await.unwrap();
         let discarded_audio = temp.path().join("descartada.wav");
         std::fs::write(&discarded_audio, b"audio descartado sintetico").unwrap();
-        let discarded = store.import(&discarded_audio, None).unwrap();
+        let discarded = store.import(&discarded_audio, None).await.unwrap();
         let tombstone = store
             .mutate("recording_discard", &json!({"id":discarded["id"]}))
+            .await
             .unwrap();
-        install(&mut store, &json!({"recipes":[{"id":"meeting","kind":"code","entry":"recetas/meeting/receta.js","name":"Meeting","values":{},"bundle":"new"}],"destinations":[]})).unwrap();
+        install(&mut store, &json!({"recipes":[{"id":"meeting","kind":"code","entry":"recetas/meeting/receta.js","name":"Meeting","values":{},"bundle":"new"}],"destinations":[]})).await.unwrap();
         assert_eq!(
             store.item("recipes", "meeting").unwrap()["values"]["idioma"],
             "en"
@@ -335,8 +349,11 @@ mod tests {
         assert_eq!(store.settings_json()["defaultRecipeId"], "meeting");
         assert!(store.item("recipes", "code:recetas:meeting").is_err());
         drop(store);
-        let restored = Store::open(temp.path().into()).unwrap();
-        let active = restored.recording(active["id"].as_str().unwrap()).unwrap();
+        let restored = Store::open(temp.path().into()).await.unwrap();
+        let active = restored
+            .recording(active["id"].as_str().unwrap())
+            .await
+            .unwrap();
         assert_eq!(active["recipeId"], "meeting");
         assert_eq!(active["currentVersionId"], version["id"]);
         assert_eq!(active["versions"][0]["recipeId"], "meeting");
@@ -344,28 +361,31 @@ mod tests {
         assert_eq!(
             restored
                 .recording(discarded["id"].as_str().unwrap())
+                .await
                 .unwrap(),
             tombstone
         );
     }
-    #[test]
-    fn missing_code_keeps_its_parameters_but_cannot_execute_a_stale_program() {
+    #[tokio::test]
+    async fn missing_code_keeps_its_parameters_but_cannot_execute_a_stale_program() {
         let temp = tempfile::tempdir().unwrap();
-        let mut store = Store::open(temp.path().into()).unwrap();
-        store.mutate("config_save", &json!({"collection":"recipes","item":{"id":"missing","kind":"code","entry":"recetas/missing/receta.ts","name":"Missing","values":{"language":"en"},"bundle":"old"}})).unwrap();
-        install(&mut store, &json!({"recipes":[],"destinations":[]})).unwrap();
+        let mut store = Store::open(temp.path().into()).await.unwrap();
+        store.mutate("config_save", &json!({"collection":"recipes","item":{"id":"missing","kind":"code","entry":"recetas/missing/receta.ts","name":"Missing","values":{"language":"en"},"bundle":"old"}})).await.unwrap();
+        install(&mut store, &json!({"recipes":[],"destinations":[]}))
+            .await
+            .unwrap();
         let missing = store.item("recipes", "missing").unwrap();
         assert_eq!(missing["values"]["language"], "en");
         assert!(missing["bundle"].is_null());
         assert!(missing["error"].is_string());
     }
-    #[test]
-    fn compilar_conserva_destinos_de_la_app_y_sustituye_los_del_proyecto() {
+    #[tokio::test]
+    async fn compilar_conserva_destinos_de_la_app_y_sustituye_los_del_proyecto() {
         let temp = tempfile::tempdir().unwrap();
-        let mut store = Store::open(temp.path().into()).unwrap();
-        store.mutate("config_save", &json!({"collection":"destinations","item":{"id":"app","name":"App","provider":"okf","account":"app","enabled":true,"configuration":{"folder":"/tmp"}}})).unwrap();
-        store.mutate("config_save", &json!({"collection":"destinations","item":{"id":"code","name":"Old","provider":"notion","account":"code","enabled":true,"configuration":{},"program":"old"}})).unwrap();
-        install(&mut store, &json!({"recipes":[],"destinations":[{"id":"code","name":"New","provider":"notion","account":"code","enabled":false,"configuration":{},"program":"new"}]})).unwrap();
+        let mut store = Store::open(temp.path().into()).await.unwrap();
+        store.mutate("config_save", &json!({"collection":"destinations","item":{"id":"app","name":"App","provider":"okf","account":"app","enabled":true,"configuration":{"folder":"/tmp"}}})).await.unwrap();
+        store.mutate("config_save", &json!({"collection":"destinations","item":{"id":"code","name":"Old","provider":"notion","account":"code","enabled":true,"configuration":{},"program":"old"}})).await.unwrap();
+        install(&mut store, &json!({"recipes":[],"destinations":[{"id":"code","name":"New","provider":"notion","account":"code","enabled":false,"configuration":{},"program":"new"}]})).await.unwrap();
         assert_eq!(
             store.item("destinations", "app").unwrap()["configuration"]["folder"],
             "/tmp"
@@ -377,37 +397,39 @@ mod tests {
         assert_eq!(store.data.destinations.as_array().unwrap().len(), 2);
     }
 
-    #[test]
-    fn compilar_rechaza_id_de_proyecto_que_pertenece_a_un_destino_de_la_app() {
+    #[tokio::test]
+    async fn compilar_rechaza_id_de_proyecto_que_pertenece_a_un_destino_de_la_app() {
         let temp = tempfile::tempdir().unwrap();
-        let mut store = Store::open(temp.path().into()).unwrap();
-        store.mutate("config_save", &json!({"collection":"destinations","item":{"id":"same","name":"App","provider":"okf","account":"same","enabled":true,"configuration":{}}})).unwrap();
-        let error = install(&mut store, &json!({"recipes":[],"destinations":[{"id":"same","name":"Project","provider":"okf","account":"same","enabled":true,"configuration":{},"program":"new"}]})).unwrap_err();
+        let mut store = Store::open(temp.path().into()).await.unwrap();
+        store.mutate("config_save", &json!({"collection":"destinations","item":{"id":"same","name":"App","provider":"okf","account":"same","enabled":true,"configuration":{}}})).await.unwrap();
+        let error = install(&mut store, &json!({"recipes":[],"destinations":[{"id":"same","name":"Project","provider":"okf","account":"same","enabled":true,"configuration":{},"program":"new"}]})).await.unwrap_err();
         assert!(error.contains("Identificador duplicado"));
         assert_eq!(store.item("destinations", "same").unwrap()["name"], "App");
     }
 
-    #[test]
-    fn proyecto_no_puede_marcar_su_destino_como_gestionado_por_la_app() {
+    #[tokio::test]
+    async fn proyecto_no_puede_marcar_su_destino_como_gestionado_por_la_app() {
         let temp = tempfile::tempdir().unwrap();
-        let mut store = Store::open(temp.path().into()).unwrap();
-        install(&mut store, &json!({"recipes":[],"destinations":[{"id":"external","name":"External","provider":"notion","account":"a","enabled":true,"configuration":{},"program":"compiled","managed":true}]})).unwrap();
+        let mut store = Store::open(temp.path().into()).await.unwrap();
+        install(&mut store, &json!({"recipes":[],"destinations":[{"id":"external","name":"External","provider":"notion","account":"a","enabled":true,"configuration":{},"program":"compiled","managed":true}]})).await.unwrap();
         assert!(store.item("destinations", "external").unwrap()["managed"].is_null());
-        install(&mut store, &json!({"recipes":[],"destinations":[]})).unwrap();
+        install(&mut store, &json!({"recipes":[],"destinations":[]}))
+            .await
+            .unwrap();
         assert!(store.item("destinations", "external").is_err());
     }
 
-    #[test]
-    fn proveedor_de_carpeta_autoriza_despues_de_guardar_borrador() {
+    #[tokio::test]
+    async fn proveedor_de_carpeta_autoriza_despues_de_guardar_borrador() {
         let temp = tempfile::tempdir().unwrap();
         let folder = temp.path().join("documents");
         std::fs::create_dir(&folder).unwrap();
-        let mut store = Store::open(temp.path().join("library")).unwrap();
-        install(&mut store, &json!({"recipes":[],"destinations":[],"providers":[{"id":"documents","name":"Documents","capability":"folder","allowedHeaders":[],"defaultConfiguration":{},"program":"compiled"}]})).unwrap();
+        let mut store = Store::open(temp.path().join("library")).await.unwrap();
+        install(&mut store, &json!({"recipes":[],"destinations":[],"providers":[{"id":"documents","name":"Documents","capability":"folder","allowedHeaders":[],"defaultConfiguration":{},"program":"compiled"}]})).await.unwrap();
         let mut account =
             json!({"id":"folder","name":"Folder","provider":"documents","enabled":false});
         let mut destination = json!({"id":"folder","name":"Folder","provider":"documents","account":"folder","enabled":false,"configuration":{}});
-        store.save_connector(&account, &destination).unwrap();
+        store.save_connector(&account, &destination).await.unwrap();
         assert!(store.item("accounts", "folder").unwrap()["grant"].is_null());
         account["enabled"] = json!(true);
         account["grant"] = json!({"capability":"folder","allowedHeaders":[]});
@@ -415,7 +437,7 @@ mod tests {
         destination["configuration"]["folder"] = json!(temp.path().join("alias"));
         std::os::unix::fs::symlink(&folder, temp.path().join("alias")).unwrap();
         destination["enabled"] = json!(true);
-        store.save_connector(&account, &destination).unwrap();
+        store.save_connector(&account, &destination).await.unwrap();
         let saved = store.item("accounts", "folder").unwrap();
         assert_eq!(saved["folder"], json!(folder.canonicalize().unwrap()));
         assert_eq!(

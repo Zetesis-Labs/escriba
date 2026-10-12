@@ -6,18 +6,18 @@ impl Store {
         library(&self.data, &self.root)
     }
 
-    pub fn snapshot(&self) -> Result<Value, String> {
-        let mut value = self.full_data_json()?;
+    pub async fn snapshot(&self) -> Result<Value, String> {
+        let mut value = self.full_data_json().await?;
         value["settings"] = redacted_settings(&value["settings"]);
         value["dataPath"] = json!(self.root);
         self.mark_credentials(&mut value);
         Ok(value)
     }
 
-    pub fn runtime_context(&self, recording_id: Option<&str>) -> Result<Value, String> {
+    pub async fn runtime_context(&self, recording_id: Option<&str>) -> Result<Value, String> {
         let recordings = match recording_id {
             Some(id) => {
-                let original = Recording::read(&self.recording(id)?)?;
+                let original = Recording::read(&self.recording(id).await?)?;
                 let audio_path = original
                     .audio_path
                     .as_ref()

@@ -17,14 +17,14 @@ fn extension() -> Value {
     })
 }
 
-fn library(path: &std::path::Path) -> (crate::library::Library, String) {
+async fn library(path: &std::path::Path) -> (crate::library::Library, String) {
     let audio = path.join("sintetico.wav");
     std::fs::write(&audio, b"audio sintetico").unwrap();
-    let mut store = Store::open(path.join("library")).unwrap();
-    let recording = store.import(&audio, None).unwrap();
-    catalog::install(&mut store, &json!({"recipes":[{"id":"sintetica","name":"Sintética","kind":"code","values":{},"bundle":"programa sintetico"}],"destinations":[],"ontologies":[extension()]})).unwrap();
+    let mut store = Store::open(path.join("library")).await.unwrap();
+    let recording = store.import(&audio, None).await.unwrap();
+    catalog::install(&mut store, &json!({"recipes":[{"id":"sintetica","name":"Sintética","kind":"code","values":{},"bundle":"programa sintetico"}],"destinations":[],"ontologies":[extension()]})).await.unwrap();
     (
-        crate::library::Library::new(store).unwrap(),
+        crate::library::Library::new(store).await.unwrap(),
         recording["id"].as_str().unwrap().into(),
     )
 }
@@ -77,21 +77,21 @@ fn count(page: &Value) -> usize {
 #[tokio::test]
 async fn base_dispatch_expone_biblioteca_con_sdk_cbor_sin_declaracion_ni_datos_privados() {
     let temporary = tempfile::tempdir().unwrap();
-    let (store, recording) = library(temporary.path());
+    let (store, recording) = library(temporary.path()).await;
     {
-        let mut store = store.lock().unwrap();
         store
             .add_person_voice(
-                "Ana sintética",
-                &SpeakerVoice {
+                "Ana sintética".into(),
+                SpeakerVoice {
                     speaker: "Speaker 1".into(),
                     model: "MODELO_PRIVADO".into(),
                     embedding: vec![0.25, 0.75],
                 },
-                "RUTA_PRIVADA",
+                "RUTA_PRIVADA".into(),
             )
+            .await
             .unwrap();
-        store.mutate("version_save", &json!({"recordingId":recording,"backend":"sintetico","transcript":{"text":"Texto sintético","language":"es","segments":[{"start":0,"end":1,"text":"Texto sintético","speaker":"Ana sintética","secret":"EXTRA_PRIVADO","words":[{"start":0,"end":1,"text":"Texto","secret":"EXTRA_PRIVADO"}]}],"secret":"EXTRA_PRIVADO"},"inputs":{"token":"TOKEN_PRIVADO"},"data":{"secret":"DATO_PRIVADO"}})).unwrap();
+        store.mutate("version_save".into(), json!({"recordingId":recording,"backend":"sintetico","transcript":{"text":"Texto sintético","language":"es","segments":[{"start":0,"end":1,"text":"Texto sintético","speaker":"Ana sintética","secret":"EXTRA_PRIVADO","words":[{"start":0,"end":1,"text":"Texto","secret":"EXTRA_PRIVADO"}]}],"secret":"EXTRA_PRIVADO"},"inputs":{"token":"TOKEN_PRIVADO"},"data":{"secret":"DATO_PRIVADO"}})).await.unwrap();
     }
     let graph = Knowledge::open(&temporary.path().join("knowledge.rocksdb"))
         .await
@@ -183,24 +183,23 @@ async fn base_dispatch_expone_biblioteca_con_sdk_cbor_sin_declaracion_ni_datos_p
 #[tokio::test]
 async fn base_dispatch_sincroniza_ediciones_borrados_y_reconstruye_un_grafo_perdido() {
     let temporary = tempfile::tempdir().unwrap();
-    let (store, recording) = library(temporary.path());
+    let (store, recording) = library(temporary.path()).await;
     let graph_path = temporary.path().join("knowledge.rocksdb");
     let graph = Knowledge::open(&graph_path).await.unwrap();
     let epoch = graph.base_epoch().await.unwrap();
     assert_eq!(count(&page(&graph, &store, "recording").await), 1);
     store
-        .lock()
-        .unwrap()
         .mutate(
-            "recording_update",
-            &json!({"id":recording,"title":"Título corregido"}),
+            "recording_update".into(),
+            json!({"id":recording,"title":"Título corregido"}),
         )
+        .await
         .unwrap();
     assert_eq!(
         page(&graph, &store, "recording").await["records"][0]["values"]["title"],
         "Título corregido"
     );
-    store.lock().unwrap().mutate("version_save",&json!({"recordingId":recording,"transcript":{"text":"Primera versión","segments":[{"start":0,"end":1,"text":"Primera versión","words":[{"start":0,"end":1,"text":"Primera"}]}]}})).unwrap();
+    store.mutate("version_save".into(), json!({"recordingId":recording,"transcript":{"text":"Primera versión","segments":[{"start":0,"end":1,"text":"Primera versión","words":[{"start":0,"end":1,"text":"Primera"}]}]}})).await.unwrap();
     assert_eq!(count(&page(&graph, &store, "version").await), 1);
     graph.close().await.unwrap();
     let graph = Knowledge::open(&graph_path).await.unwrap();
@@ -214,9 +213,8 @@ async fn base_dispatch_sincroniza_ediciones_borrados_y_reconstruye_un_grafo_perd
     assert_eq!(count(&page(&graph, &store, "version").await), 1);
     assert_eq!(words(&graph, &store).await, Some(1));
     store
-        .lock()
-        .unwrap()
-        .mutate("recording_discard", &json!({"id":recording}))
+        .mutate("recording_discard".into(), json!({"id":recording}))
+        .await
         .unwrap();
     for table in [
         "recording",
@@ -238,19 +236,18 @@ async fn base_dispatch_sincroniza_ediciones_borrados_y_reconstruye_un_grafo_perd
 #[tokio::test]
 async fn base_dispatch_ampliacion_reutiliza_persona_y_conserva_referencia_huerfana_sin_recrearla() {
     let temporary = tempfile::tempdir().unwrap();
-    let (store, _) = library(temporary.path());
+    let (store, _) = library(temporary.path()).await;
     store
-        .lock()
-        .unwrap()
         .add_person_voice(
-            "Ana",
-            &SpeakerVoice {
+            "Ana".into(),
+            SpeakerVoice {
                 speaker: "Speaker 1".into(),
                 model: "sintetico".into(),
                 embedding: vec![0.5],
             },
-            "sintetico",
+            "sintetico".into(),
         )
+        .await
         .unwrap();
     let graph = Knowledge::open(&temporary.path().join("knowledge.rocksdb"))
         .await
@@ -269,7 +266,7 @@ async fn base_dispatch_ampliacion_reutiliza_persona_y_conserva_referencia_huerfa
     let saved = dispatch(&graph,&store,"knowledge_save",json!({"id":"sintetica","table":"annotation","expectedVersion":1,"values":{"title":"Acuerdo","person":reference}})).await.unwrap();
     assert_eq!(saved["values"]["person"], reference);
     assert_eq!(count(&page(&graph, &store, "person").await), 1);
-    store.lock().unwrap().remove_person("Ana").unwrap();
+    store.remove_person("Ana".into()).await.unwrap();
     assert_eq!(count(&page(&graph, &store, "person").await), 0);
     let corrected = dispatch(&graph,&store,"knowledge_save",json!({"id":"sintetica","table":"annotation","expectedVersion":1,"recordId":saved["id"],"expectedRev":saved["rev"],"values":{"title":"Acuerdo corregido","person":reference}})).await.unwrap();
     assert_eq!(corrected["values"]["person"], reference);

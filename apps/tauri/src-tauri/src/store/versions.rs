@@ -56,7 +56,7 @@ impl Recording {
 }
 
 impl Store {
-    pub(super) fn mutate_version(
+    pub(super) async fn mutate_version(
         &self,
         next: &mut LibraryData,
         method: &str,
@@ -79,7 +79,7 @@ impl Store {
                         .as_ref()
                         .and_then(|versions| versions.iter().find(|version| version.id == source))
                         .ok_or("La versión de origen no pertenece a la grabación")?;
-                    let mut voices = self.database.version_voices(source)?;
+                    let mut voices = self.database.version_voices(source).await?;
                     if p["teaching"].is_object() {
                         let speaker = text(&p["teaching"], "speaker")?;
                         let person = text(&p["teaching"], "person")?;

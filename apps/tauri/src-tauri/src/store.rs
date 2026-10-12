@@ -128,10 +128,10 @@ pub struct Store {
 }
 
 impl Store {
-    pub fn open(root: PathBuf) -> Result<Self, String> {
-        Self::open_with_audio_cleanup(root, true)
+    pub async fn open(root: PathBuf) -> Result<Self, String> {
+        Self::open_with_audio_cleanup(root, true).await
     }
-    pub(crate) fn open_with_audio_cleanup(
+    pub(crate) async fn open_with_audio_cleanup(
         root: PathBuf,
         audio_cleanup_enabled: bool,
     ) -> Result<Self, String> {
@@ -148,13 +148,13 @@ impl Store {
             .map_err(|e| e.to_string())?;
         lock.try_lock_exclusive()
             .map_err(|_| "Escriba ya está abierta con esta biblioteca")?;
-        let database = Persistence::open(&root.join("library.rocksdb"))?;
+        let database = Persistence::open(&root.join("library.rocksdb")).await?;
         fs::set_permissions(
             root.join("library.rocksdb"),
             fs::Permissions::from_mode(0o700),
         )
         .map_err(|e| format!("No se pudo proteger SurrealDB: {e}"))?;
-        let stored = database.load_index()?;
+        let stored = database.load_index().await?;
         let path = root.join("library.json");
         let mut data: Value = if let Some(saved) = stored.as_ref() {
             saved.clone()
@@ -223,12 +223,14 @@ impl Store {
                 Children::Only(&no_children)
             },
         )?;
-        database.write(LibraryWrite {
-            ops,
-            audio_deletions: discarded_audio,
-            logs: imported_logs,
-            ..LibraryWrite::default()
-        })?;
+        database
+            .write(LibraryWrite {
+                ops,
+                audio_deletions: discarded_audio,
+                logs: imported_logs,
+                ..LibraryWrite::default()
+            })
+            .await?;
         let data = if stored_is_new {
             LibraryIndex::new(typed)?
         } else {
@@ -242,20 +244,20 @@ impl Store {
             audio_cleanup_enabled,
             _lock: lock,
         };
-        store.drain_audio_deletions()?;
+        store.drain_audio_deletions().await?;
         Ok(store)
     }
-    fn drain_audio_deletions(&self) -> Result<(), String> {
+    async fn drain_audio_deletions(&self) -> Result<(), String> {
         if !self.audio_cleanup_enabled {
             return Ok(());
         }
         let audio_root = audio_copy_root(&self.root)?;
-        for deletion in self.database.pending_audio_deletions()? {
+        for deletion in self.database.pending_audio_deletions().await? {
             let path = Path::new(&deletion.path);
             let metadata = match fs::symlink_metadata(path) {
                 Ok(metadata) => metadata,
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                    self.database.complete_audio_deletion(&deletion.id)?;
+                    self.database.complete_audio_deletion(&deletion.id).await?;
                     continue;
                 }
                 Err(error) => {
@@ -282,7 +284,7 @@ impl Store {
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
                 Err(error) => return Err(format!("No se pudo borrar el audio local: {error}")),
             }
-            self.database.complete_audio_deletion(&deletion.id)?;
+            self.database.complete_audio_deletion(&deletion.id).await?;
         }
         Ok(())
     }
@@ -290,13 +292,15 @@ impl Store {
         self.data.json()
     }
     #[cfg(test)]
-    pub fn data_json(&self) -> Value {
+    pub async fn data_json(&self) -> Value {
         self.full_data_json()
+            .await
             .expect("No se pudo leer la biblioteca de prueba")
     }
-    fn full_data_json(&self) -> Result<Value, String> {
+    async fn full_data_json(&self) -> Result<Value, String> {
         self.database
-            .load()?
+            .load()
+            .await?
             .ok_or_else(|| "Biblioteca sin inicializar".into())
     }
     #[cfg(test)]
@@ -304,45 +308,51 @@ impl Store {
         json!(&self.data.settings)
     }
     #[cfg(test)]
-    pub fn replace(&mut self, data: Value) -> Result<(), String> {
+    pub async fn replace(&mut self, data: Value) -> Result<(), String> {
         let typed = LibraryData::read(&data)?;
         if typed.schema_version != 1 {
             return Err("Versión de biblioteca incompatible".into());
         }
-        let before = LibraryData::read(&self.full_data_json()?)?;
+        let before = LibraryData::read(&self.full_data_json().await?)?;
         let ops = changes(&before, &typed, Children::All)?;
         let index = LibraryIndex::new(typed)?;
-        self.database.write(LibraryWrite {
-            ops,
-            ..LibraryWrite::default()
-        })?;
+        self.database
+            .write(LibraryWrite {
+                ops,
+                ..LibraryWrite::default()
+            })
+            .await?;
         self.data = index;
         Ok(())
     }
-    pub fn replace_catalog(
+    pub async fn replace_catalog(
         &mut self,
         data: Value,
         aliases: HashMap<String, String>,
     ) -> Result<(), String> {
         let next = LibraryData::read(&data)?;
         let ops = changes(&self.data, &next, Children::Only(&Default::default()))?;
-        self.database.write(LibraryWrite {
-            ops,
-            recipe_aliases: aliases,
-            ..LibraryWrite::default()
-        })?;
+        self.database
+            .write(LibraryWrite {
+                ops,
+                recipe_aliases: aliases,
+                ..LibraryWrite::default()
+            })
+            .await?;
         self.data = LibraryIndex::from_index(next);
         Ok(())
     }
-    fn commit(&mut self, data: LibraryData) -> Result<(), String> {
+    async fn commit(&mut self, data: LibraryData) -> Result<(), String> {
         if data.schema_version != 1 {
             return Err("Versión de biblioteca incompatible".into());
         }
         let ops = changes(&self.data, &data, Children::Only(&Default::default()))?;
-        self.database.write(LibraryWrite {
-            ops,
-            ..LibraryWrite::default()
-        })?;
+        self.database
+            .write(LibraryWrite {
+                ops,
+                ..LibraryWrite::default()
+            })
+            .await?;
         self.data = LibraryIndex::from_index(data);
         Ok(())
     }
@@ -354,28 +364,30 @@ impl Store {
         let ops = changes(before, after, Children::Only(&scope.full_recordings))?;
         Ok(scope.into_write(ops))
     }
-    pub fn append_log(&self, p: &Value) -> Result<(), String> {
+    pub async fn append_log(&self, p: &Value) -> Result<(), String> {
         let level = p["level"].as_str().unwrap_or("info");
         if !["info", "warn", "error"].contains(&level) {
             return Err("Nivel de registro no válido".into());
         }
-        self.database.append_log(&json!({
-            "id": id(),
-            "at": now(),
-            "message": text(p, "message")?,
-            "level": level,
-            "recordingId": p["recordingId"],
-            "recipeId": p["recipeId"],
-        }))
+        self.database
+            .append_log(&json!({
+                "id": id(),
+                "at": now(),
+                "message": text(p, "message")?,
+                "level": level,
+                "recordingId": p["recordingId"],
+                "recipeId": p["recipeId"],
+            }))
+            .await
     }
-    pub fn log_list(&self, p: &Value) -> Result<Value, String> {
+    pub async fn log_list(&self, p: &Value) -> Result<Value, String> {
         let query: LogQuery =
             serde_json::from_value(p.clone()).map_err(|_| "Consulta del registro inválida")?;
-        Ok(Value::Array(self.database.log_list(query)?))
+        Ok(Value::Array(self.database.log_list(query).await?))
     }
-    fn recording_edit(&self, key: &str) -> Result<LibraryData, String> {
+    async fn recording_edit(&self, key: &str) -> Result<LibraryData, String> {
         let mut data = self.data.edit();
-        *record_mut(&mut data, key)? = Recording::read(&self.recording(key)?)?;
+        *record_mut(&mut data, key)? = Recording::read(&self.recording(key).await?)?;
         Ok(data)
     }
 }

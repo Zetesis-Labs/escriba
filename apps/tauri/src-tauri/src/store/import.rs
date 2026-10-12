@@ -2,15 +2,19 @@ use super::*;
 
 impl Store {
     #[cfg(test)]
-    pub fn import(&mut self, source: &Path, recipe_id: Option<&str>) -> Result<Value, String> {
-        self.import_internal(source, recipe_id, None, false)
+    pub async fn import(
+        &mut self,
+        source: &Path,
+        recipe_id: Option<&str>,
+    ) -> Result<Value, String> {
+        self.import_internal(source, recipe_id, None, false).await
     }
     #[cfg(test)]
-    pub fn import_recovered_capture(&mut self, source: &Path) -> Result<Value, String> {
-        self.import_internal(source, None, None, true)
+    pub async fn import_recovered_capture(&mut self, source: &Path) -> Result<Value, String> {
+        self.import_internal(source, None, None, true).await
     }
     #[cfg(test)]
-    pub fn import_with_metadata(
+    pub async fn import_with_metadata(
         &mut self,
         source: &Path,
         recipe_id: Option<&str>,
@@ -27,9 +31,10 @@ impl Store {
             Some((title, started_at, source_key)),
             false,
         )
+        .await
     }
     #[cfg(test)]
-    pub(super) fn import_internal(
+    pub(super) async fn import_internal(
         &mut self,
         source: &Path,
         recipe_id: Option<&str>,
@@ -38,16 +43,18 @@ impl Store {
     ) -> Result<Value, String> {
         let staged = stage_audio(&self.root, source, recovered_capture)?;
         self.import_staged_internal(staged, source, recipe_id, metadata_from_watcher)
+            .await
     }
-    pub fn import_staged(
+    pub async fn import_staged(
         &mut self,
         staged: StagedAudio,
         source: &Path,
         recipe_id: Option<&str>,
     ) -> Result<Value, String> {
         self.import_staged_internal(staged, source, recipe_id, None)
+            .await
     }
-    pub fn import_staged_with_metadata(
+    pub async fn import_staged_with_metadata(
         &mut self,
         staged: StagedAudio,
         source: &Path,
@@ -59,8 +66,9 @@ impl Store {
             return Err("Identidad de origen inválida".into());
         }
         self.import_staged_internal(staged, source, None, Some((title, started_at, source_key)))
+            .await
     }
-    fn import_staged_internal(
+    async fn import_staged_internal(
         &mut self,
         staged: StagedAudio,
         source: &Path,
@@ -193,11 +201,11 @@ impl Store {
                         .into();
                 }
                 let record = existing.write()?;
-                self.commit(next)?;
+                self.commit(next).await?;
                 return Ok(record);
             }
             if changed
-                && self.jobs_for(&key)?.iter().any(|job| {
+                && self.jobs_for(&key).await?.iter().any(|job| {
                     matches!(job["state"].as_str(), Some("queued" | "running" | "retry"))
                 })
             {
@@ -315,7 +323,7 @@ impl Store {
             records.insert(0, Recording::read(&record)?);
             record
         };
-        if let Err(error) = self.commit(next) {
+        if let Err(error) = self.commit(next).await {
             if created_copy {
                 let _ = fs::remove_file(&target);
             }

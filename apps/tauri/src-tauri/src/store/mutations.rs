@@ -1,12 +1,12 @@
 use super::*;
 
 impl Store {
-    pub fn mutate(&mut self, method: &str, p: &Value) -> Result<Value, String> {
+    pub async fn mutate(&mut self, method: &str, p: &Value) -> Result<Value, String> {
         if method.starts_with("note_draft_") {
-            return self.draft_command(method, p);
+            return self.draft_command(method, p).await;
         }
         if method == "log" {
-            self.append_log(p)?;
+            self.append_log(p).await?;
             return Ok(Value::Null);
         }
         let guarded = match method {
@@ -34,7 +34,7 @@ impl Store {
             _ => None,
         };
         let before = match full_recording {
-            Some(id) => self.recording_edit(id)?,
+            Some(id) => self.recording_edit(id).await?,
             None => self.data.edit(),
         };
         let mut next = before.clone();
@@ -50,15 +50,19 @@ impl Store {
             | "recording_abandoned"
             | "recording_discard"
             | "recording_remove_audio"
-            | "recording_delete" => self.mutate_recording(
-                &mut next,
-                method,
-                p,
-                &mut delete_after_commit,
-                &mut audio_to_delete,
-            )?,
+            | "recording_delete" => {
+                self.mutate_recording(
+                    &mut next,
+                    method,
+                    p,
+                    &mut delete_after_commit,
+                    &mut audio_to_delete,
+                )
+                .await?
+            }
             "version_save" | "version_select" | "version_update" => {
-                self.mutate_version(&mut next, method, p, &mut voice_save)?
+                self.mutate_version(&mut next, method, p, &mut voice_save)
+                    .await?
             }
             "config_save" | "config_remove" => {
                 self.mutate_configuration(&mut next, method, p, &mut delete_after_commit)?
@@ -115,7 +119,7 @@ impl Store {
             write.teaching = teaching;
         }
         write.audio_deletions = audio_to_delete;
-        let learned = self.database.write(write)?;
+        let learned = self.database.write(write).await?;
         self.data = index;
         if let Some((recording_id, report_learning)) = taught {
             self.pending_voices.remove(&recording_id);
@@ -125,7 +129,7 @@ impl Store {
         }
         if method == "recording_discard" {
             self.pending_voices.remove(text(p, "id")?);
-            self.drain_audio_deletions()?;
+            self.drain_audio_deletions().await?;
         }
         if let Some(path) = delete_after_commit {
             match fs::remove_file(path) {
