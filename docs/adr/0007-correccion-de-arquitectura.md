@@ -18,9 +18,12 @@ cinco copias del modelo. Rubén resolvió cinco decisiones:
    biblioteca de Rubén: 532.205 palabras y otras tantas aristas eran el 82 % de
    los registros y el grafo ocupaba 2,2 GB frente a 82 MB de biblioteca. Con las
    palabras en el segmento y referencias nativas en lugar de `has_segment` y
-   `spoken_by` la base nueva ocupa 146 MB. SurrealKV no devuelve el espacio de lo borrado, así
-   que un grafo anterior conserva su tamaño hasta reconstruir el fichero. Además
-   se proyecta por versión con huellas.
+   `spoken_by` la base nueva ocupa 146 MB. Rubén decidió además proyectar solo
+   la versión vigente: 80 MB, y `derived_from` desaparece porque su destino ya
+   no está en el grafo. Las versiones anteriores se consultan en la biblioteca.
+   SurrealKV no devuelve el espacio de lo borrado, así que un grafo anterior
+   conserva su tamaño hasta reconstruir el fichero. La versión vigente se
+   proyecta con huellas.
 4. El contrato es un enum etiquetado en Rust, del que salen los tipos de
    TypeScript con ts-rs. Un método desconocido falla al deserializar.
 5. Las recetas conservan el SDK oficial de SurrealDB sobre el motor RPC

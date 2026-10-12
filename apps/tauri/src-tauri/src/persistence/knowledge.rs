@@ -160,17 +160,8 @@ async fn recording_snapshot(db: &Surreal<Db>, id: &str) -> Result<Option<Value>,
                 crate::store::Version::deserialize(&value).map_err(|_| {
                     "Versión guardada inválida para la base de conocimiento".to_owned()
                 })?;
-                let mut result = strings(
-                    &value,
-                    &[
-                        "id",
-                        "createdAt",
-                        "backend",
-                        "recipeId",
-                        "title",
-                        "sourceVersionId",
-                    ],
-                );
+                let mut result =
+                    strings(&value, &["id", "createdAt", "backend", "recipeId", "title"]);
                 if value["transcript"].is_object() {
                     result["transcript"] = transcript(&value["transcript"]);
                 }

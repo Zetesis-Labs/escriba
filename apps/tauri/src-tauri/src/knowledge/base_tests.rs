@@ -222,13 +222,17 @@ async fn una_extension_anterior_llamada_escriba_no_se_retira_ni_se_sustituye() {
 }
 
 fn note(title: &str, versions: Value) -> crate::persistence::CoreChange {
+    note_at(title, Some("v1"), versions)
+}
+
+fn note_at(title: &str, current: Option<&str>, versions: Value) -> crate::persistence::CoreChange {
     crate::persistence::CoreChange {
         key: "recording:nota".into(),
         revision: Uuid::new_v4().to_string(),
         kind: "recording".into(),
         id: "nota".into(),
         value: Some(
-            json!({"id":"nota","title":title,"status":"done","currentVersionId":"v1","versions":versions}),
+            json!({"id":"nota","title":title,"status":"done","currentVersionId":current,"versions":versions}),
         ),
     }
 }
@@ -261,8 +265,27 @@ async fn mark(graph: &Knowledge) {
         .unwrap();
 }
 
+async fn projected(graph: &Knowledge) -> Value {
+    let tables = graph
+        .query(
+            "escriba",
+            1,
+            "SELECT VALUE versionId FROM version; SELECT VALUE versionId FROM transcript; SELECT VALUE versionId FROM segment; SELECT VALUE versionId FROM speaker; SELECT VALUE versionId FROM has_version; SELECT VALUE versionId FROM has_transcript; SELECT VALUE versionId FROM identified_as; SELECT VALUE currentVersion.versionId FROM recording",
+            json!({}),
+        )
+        .await
+        .unwrap();
+    let mut versions: Vec<Value> = tables
+        .iter()
+        .flat_map(|rows| rows.as_array().unwrap().clone())
+        .collect();
+    versions.sort_by_key(Value::to_string);
+    versions.dedup();
+    Value::Array(versions)
+}
+
 #[tokio::test]
-async fn editar_el_titulo_no_reproyecta_las_versiones_y_corregir_una_solo_rehace_esa() {
+async fn solo_se_proyecta_la_version_vigente_y_elegir_otra_la_sustituye() {
     let temp = tempfile::tempdir().unwrap();
     let graph = Knowledge::open(&temp.path().join("knowledge.surrealkv"))
         .await
@@ -286,12 +309,13 @@ async fn editar_el_titulo_no_reproyecta_las_versiones_y_corregir_una_solo_rehace
         .sync_base_change(&note("Primera", three.clone()))
         .await
         .unwrap();
+    assert_eq!(projected(&graph).await, json!(["v1"]));
     mark(&graph).await;
     graph
         .sync_base_change(&note("Retitulada", three))
         .await
         .unwrap();
-    assert_eq!(marked(&graph).await, vec!["v1", "v2", "v3"]);
+    assert_eq!(marked(&graph).await, vec!["v1"]);
     assert_eq!(
         graph
             .query("escriba", 1, "SELECT VALUE title FROM recording", json!({}))
@@ -305,55 +329,42 @@ async fn editar_el_titulo_no_reproyecta_las_versiones_y_corregir_una_solo_rehace
         version("v3", "tres")
     ]);
     graph
-        .sync_base_change(&note("Retitulada", corrected))
+        .sync_base_change(&note("Retitulada", corrected.clone()))
         .await
         .unwrap();
-    assert_eq!(marked(&graph).await, vec!["v1", "v3"]);
+    assert_eq!(marked(&graph).await, vec!["v1"]);
+    graph
+        .sync_base_change(&note_at("Retitulada", Some("v3"), corrected.clone()))
+        .await
+        .unwrap();
+    assert_eq!(projected(&graph).await, json!(["v3"]));
+    assert!(marked(&graph).await.is_empty());
     assert_eq!(
         graph
             .query(
                 "escriba",
                 1,
-                "SELECT count() FROM identified_as GROUP ALL",
+                "SELECT VALUE ->has_version->version->has_transcript->transcript<~segment.text FROM recording",
                 json!({})
             )
             .await
             .unwrap(),
-        vec![json!([{"count":3}])]
+        vec![json!([["Hola Ana"]])]
     );
     let reprocessed = json!([
         version("v1", "uno"),
         version("v2", "corregida"),
+        version("v3", "tres"),
         version("v4", "cuatro")
     ]);
     graph
-        .sync_base_change(&note("Retitulada", reprocessed))
+        .sync_base_change(&note_at("Retitulada", None, reprocessed))
         .await
         .unwrap();
-    assert_eq!(marked(&graph).await, vec!["v1"]);
     assert_eq!(
-        graph
-            .query(
-                "escriba",
-                1,
-                "SELECT VALUE versionId FROM version ORDER BY versionId",
-                json!({})
-            )
-            .await
-            .unwrap(),
-        vec![json!(["v1", "v2", "v4"])]
-    );
-    assert_eq!(
-        graph
-            .query(
-                "escriba",
-                1,
-                "SELECT count() FROM segment WHERE versionId = 'v3' GROUP ALL",
-                json!({})
-            )
-            .await
-            .unwrap(),
-        vec![json!([])]
+        projected(&graph).await,
+        json!(["v4"]),
+        "Sin marca, la vigente es la última, como en la interfaz"
     );
 }
 

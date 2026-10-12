@@ -535,10 +535,8 @@ async fn base_notes(root: &Surreal<Db>, ids: Vec<RecordId>) -> Result<BTreeSet<S
         let matches = if matches!(row.get("in"), Some(DbValue::RecordId(_)))
             && matches!(row.get("out"), Some(DbValue::RecordId(_)))
         {
-            let derived = matches!(row.get("id"),Some(DbValue::RecordId(id)) if id.table.as_str()=="derived_from");
             ["in","out"].iter().all(|key| endpoint_rows.iter().find(|endpoint|endpoint.get("id")==row.get(*key)).is_some_and(|endpoint| {
-                if derived && *key == "out" {string_field(endpoint,"recordingId")==Some(recording)}
-                else {matches!(endpoint.get("id"),Some(DbValue::RecordId(id)) if id.table.as_str()=="person") || active(endpoint,&current)}
+                matches!(endpoint.get("id"),Some(DbValue::RecordId(id)) if id.table.as_str()=="person") || active(endpoint,&current)
             }))
         } else {
             active(&row, &current)

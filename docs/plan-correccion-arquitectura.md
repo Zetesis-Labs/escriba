@@ -391,15 +391,19 @@ borrado y tipado y pueden ir en paralelo con ramas separadas una vez cerrada B.
   cinco decisiones y `CLAUDE.md` sin Linux ni WASI y con el procedimiento para
   añadir un comando. `CONTRACT.md` conserva su lista: describe semántica que
   el tipo no expresa y un test la mantiene completa.
+- **Tamaño del grafo** (2026-10-12), tras la prueba con la copia privada: la
+  base ocupaba 2,2 GB. Las palabras pasan al segmento, `has_segment` y
+  `spoken_by` se sustituyen por referencias `REFERENCE` y, por decisión de
+  Rubén, solo se proyecta la versión vigente (sin `derived_from`). Medido sobre
+  su biblioteca: 423 → 146 → 80 MB, 199 de 199 notas proyectadas en 7 s en
+  release. La base nueva vive en `_v2` y la anterior se retira con
+  `REMOVE DATABASE`; el fichero no encoge hasta reconstruirlo.
 
 ## Estado para retomar
 
-Ramas apiladas en `_worktrees/escriba-arquitectura`, sin push:
-`refactor/persistencia-por-entidad` (plan + A) → `refactor/cerrojos-y-colas`
-(B) → `refactor/grafo-incremental` (G) → `refactor/topologia-procesos` (F)
-→ `refactor/contrato-tipado` (C) → `refactor/receta-unica` (D) →
-`refactor/swift-sin-recetas` (E) → `refactor/decisiones` (H).
-Cada siguiente fase sale de la última.
+Todas las fases están en `feat/filtros-biblioteca`, por petición de Rubén,
+junto con ontologías, grafo visual y filtros guardables. Se trabaja en
+`_worktrees/escriba-arquitectura`.
 El worktree reutiliza la caché de `escriba-tauri`: `apps/tauri/src-tauri/target`
 es un enlace a la suya y Bun 1.4.2 está en su `.build/bun`. Node 22.12+ desde
 nvm.
@@ -410,9 +414,10 @@ Las pruebas de runtime necesitan el Bun fijado en el `PATH`
 (`.build/bun/1.4.2/bun-darwin-aarch64`). `swift build` y `swift test` usan el
 `.build` propio de este worktree, creado en la fase E.
 
-Pendiente: prueba de compatibilidad con copias privadas (pedir a Rubén que
-cierre la app), instalación y validación en pantalla por Rubén. La prueba
-cubre los dos almacenes: `verifica_compatibilidad_de_copia_sin_mostrar_contenido`
+Hecha la prueba con copias privadas: biblioteca intacta y 199 de 199 notas
+proyectadas. Pendiente: reconstruir el `knowledge.surrealkv` de Rubén para
+recuperar los 2,2 GB (conservando su ontología instalada), instalación y
+validación en pantalla por Rubén. La prueba cubre los dos almacenes: `verifica_compatibilidad_de_copia_sin_mostrar_contenido`
 (`ESCRIBA_VERIFY_LIBRARY_COPY`) para `library.surrealkv` y
 `verifica_grafo_de_copia_sin_mostrar_contenido` (además
 `ESCRIBA_VERIFY_KNOWLEDGE_COPY`) para `knowledge.surrealkv`, que es la primera

@@ -92,22 +92,24 @@ Esto cubre también un cierre entre el efecto externo y la confirmación del job
 `escriba` es la ontología base integrada, visible aunque no haya proyecto ni
 extensiones instaladas. El listado de su esquema no abre el motor de
 conocimiento. Expone `person`, `recording`, `version`, `transcript`, `speaker` y
-`segment`, con relaciones `has_version`, `has_transcript`, `identified_as` y
-`derived_from`. El segmento lleva sus palabras en `words` (`text`, `start`,
-`end`) y referencias nativas `transcript` y `speakerRecord` con `REFERENCE`, que
-se recorren al revés con `<~segment`. En SurrealDB cada relación escribe siete
+`segment`, con relaciones `has_version`, `has_transcript` e `identified_as`.
+Solo se proyecta la versión vigente de cada nota, con la misma regla que la
+interfaz: la marcada y, si no hay marca, la última. Elegir otra versión
+sustituye su proyección; las anteriores siguen en la biblioteca, no en el
+grafo. El segmento lleva sus palabras en `words` (`text`, `start`, `end`) y
+referencias nativas `transcript` y `speakerRecord` con `REFERENCE`, que se
+recorren al revés con `<~segment`. En SurrealDB cada relación escribe siete
 claves con los ids de sus extremos; medido sobre una biblioteca de 199 notas, el
 grafo pasó de 2,2 GB con palabras y relaciones sueltas a 423 MB con las palabras
-en el segmento y a 146 MB con referencias en lugar de `has_segment` y
-`spoken_by`. Proyectar solo la versión vigente lo dejaría en 80 MB, pero se
-perderían las consultas sobre versiones anteriores. Personas y
-grabaciones reutilizan los UUID de la biblioteca; los hijos usan IDs compuestos
-con la grabación y versión. El índice de segmento sólo identifica contenido
-dentro de esa versión.
+en el segmento, a 146 MB con referencias en lugar de `has_segment` y
+`spoken_by` y a 80 MB con solo la versión vigente. Personas y grabaciones
+reutilizan los UUID de la biblioteca; los hijos usan IDs compuestos con la
+grabación y versión. El índice de segmento sólo identifica contenido dentro de
+esa versión.
 
 La base vive en una base de datos con sufijo de formato (`_v2`). Al abrir un
-grafo anterior, la base nueva se proyecta entera en segundo plano (111 s para
-una biblioteca de 199 notas) y la antigua se elimina con `REMOVE DATABASE`, que
+grafo anterior, la base nueva se proyecta entera en segundo plano (7 s en
+release para una biblioteca de 199 notas) y la antigua se elimina con `REMOVE DATABASE`, que
 SurrealDB 3.3 resuelve al instante y vacía después por rango. Borrarla registro
 a registro, con sus aristas, tardaba casi una hora de CPU. SurrealKV no devuelve
 espacio en disco: el fichero conserva su tamaño hasta reconstruirlo. Una base
