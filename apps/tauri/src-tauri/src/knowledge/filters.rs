@@ -390,7 +390,11 @@ pub(super) fn predicate(
             {
                 return Err("La referencia no corresponde al campo".into());
             }
-            condition.value.clone().into_value()
+            if condition.ontology_id == "escriba" {
+                DbValue::RecordId(id)
+            } else {
+                condition.value.clone().into_value()
+            }
         } else {
             condition.value.clone().into_value()
         }

@@ -225,7 +225,7 @@ async fn base_dispatch_sincroniza_ediciones_borrados_y_reconstruye_un_grafo_perd
         "transcript",
         "segment",
         "has_version",
-        "spoken_by",
+        "speaker",
     ] {
         assert_eq!(
             count(&page(&graph, &store, table).await),

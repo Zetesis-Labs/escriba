@@ -325,12 +325,16 @@ async fn add_reference(
 ) -> Result<(), String> {
     let id = row_id(row, "id")?;
     let target = field.reference.as_ref().ok_or("Referencia sin destino")?;
-    let value = row.clone().into_json_value();
-    let reference = &value[&field.key];
-    if reference["ontologyId"] != target.ontology_id || reference["table"] != target.table {
-        return Err("Referencia incompatible con su declaración".into());
-    }
-    let destination = parse(reference["id"].as_str().ok_or("Referencia sin identidad")?)?;
+    let destination = if ontology == "escriba" {
+        row_id(row, &field.key)?
+    } else {
+        let value = row.clone().into_json_value();
+        let reference = &value[&field.key];
+        if reference["ontologyId"] != target.ontology_id || reference["table"] != target.table {
+            return Err("Referencia incompatible con su declaración".into());
+        }
+        parse(reference["id"].as_str().ok_or("Referencia sin identidad")?)?
+    };
     if destination.table.as_str() != target.table {
         return Err("Referencia a una colección distinta".into());
     }
@@ -434,6 +438,11 @@ impl Knowledge {
                             "id=type::record($record) AND `{}` != NONE AND `{}` != NULL",
                             field.key, field.key
                         )
+                    } else if definition.id == "escriba" {
+                        format!(
+                            "id IN (type::record($record))<~(`{}` FIELD `{}`)",
+                            collection.table, field.key
+                        )
                     } else {
                         format!("`{0}`.ontologyId=$ontology AND `{0}`.table=$recordTable AND type::record(`{0}`.id)=type::record($record)",field.key)
                     };
@@ -484,6 +493,9 @@ impl Knowledge {
             }
             let projection = match &group.connection {
                 Connection::Relation => "id,in,out".into(),
+                Connection::Reference(field) if group.ontology == "escriba" => {
+                    format!("id, `{0}`", field.key)
+                }
                 Connection::Reference(field) => {
                     format!("id, `{0}`.{{ontologyId,table,id}} AS `{0}`", field.key)
                 }

@@ -37,7 +37,40 @@ async fn la_base_expone_la_biblioteca_y_solo_permite_consultarla() {
             .count(),
         0
     );
-    assert_eq!(graph.query("escriba",1,"SELECT VALUE ->has_version->version->has_transcript->transcript->has_segment->segment.text FROM recording",json!({})).await.unwrap(), vec![json!([["Hola mundo"]])]);
+    assert_eq!(graph.query("escriba",1,"SELECT VALUE ->has_version->version->has_transcript->transcript<~segment.text FROM recording",json!({})).await.unwrap(), vec![json!([["Hola mundo"]])]);
+    assert_eq!(
+        graph
+            .query(
+                "escriba",
+                1,
+                "SELECT VALUE <~segment.text FROM speaker",
+                json!({})
+            )
+            .await
+            .unwrap(),
+        vec![json!([["Hola mundo"]])]
+    );
+    let db = selected(&graph.root, "escriba").await.unwrap();
+    let mut reverse = db
+        .query("LET $t = (SELECT VALUE id FROM transcript)[0]; SELECT VALUE id FROM segment WHERE id IN $t<~segment; SELECT VALUE id FROM segment WHERE id IN $t<~(segment FIELD transcript)")
+        .await
+        .unwrap();
+    let plain: Vec<Value> = reverse.take(1).unwrap();
+    let field: Vec<Value> = reverse.take(2).unwrap();
+    assert_eq!((plain.len(), field.len()), (1, 1));
+    drop(db);
+    assert_eq!(
+        graph
+            .query(
+                "escriba",
+                1,
+                "SELECT VALUE transcript.text FROM segment",
+                json!({})
+            )
+            .await
+            .unwrap(),
+        vec![json!(["Hola mundo"])]
+    );
     let failed = graph
         .query(
             "escriba",
@@ -336,7 +369,7 @@ async fn una_proyeccion_anterior_sin_huellas_se_rehace_entera_una_vez() {
         .await
         .unwrap();
     let db = selected(&graph.root, "escriba").await.unwrap();
-    db.query("DELETE _escriba_projection; CREATE segment:huerfano SET recordingId = 'nota', versionId = 'antigua', text = 'resto'")
+    db.query("DELETE _escriba_projection; CREATE segment:huerfano SET recordingId = 'nota', versionId = 'antigua', text = 'resto', transcript = type::record('transcript', ['nota', 'antigua'])")
         .await
         .unwrap()
         .check()
