@@ -123,11 +123,10 @@ o en la vista de la nota.
 - **Registro:** los fallos de trabajos se siguen escribiendo en el log de la
   app. La lista de ejecuciones de recetas sale del Registro; su detalle está
   en cada trabajo.
-- **Pasos y plazo.** Los pasos de una ejecución se borran con su trabajo.
-  Las ejecuciones que ya no tienen trabajo (guardadas antes de este cambio, o
-  cuyo trabajo se borró) se borran por su hora de final con el mismo plazo y
-  las mismas excepciones. Descartar una nota borra también sus pasos, como
-  hoy.
+- **Los pasos no caducan.** El plazo del historial borra trabajos, no los
+  pasos de sus ejecuciones: la nota sigue mostrando cómo se procesó y Recetas
+  sigue listando sus ejecuciones. En Trabajos se ven mientras exista su
+  trabajo. Descartar una nota borra también sus pasos, como hoy.
 - **Errores de la propia sección:** si no se puede leer la lista, se muestra
   el error; nunca una lista vacía.
 
@@ -180,18 +179,20 @@ o en la vista de la nota.
   original).
 - No se reordena la cola ni se cambia la capacidad de los carriles.
 - El historial borrado por plazo no se recupera.
+- Trabajos no tiene búsqueda por texto; la que tenía la lista de ejecuciones
+  del Registro desaparece con ella.
 
 ## 10. Preguntas abiertas y supuestos
 
 - **Confirmado:** el repaso del plazo se hace al abrir la app y una vez al día.
 - **Confirmado:** los pasos de cada ejecución pasan del Registro a Trabajos;
   el Registro se queda con el log de la app.
-- **Abierta:** la lista de ejecuciones del Registro tenía búsqueda por texto
-  en la nota y en los pasos. Trabajos no tiene búsqueda; falta decidir si se
-  pierde o se añade.
+- **Confirmado:** la búsqueda por texto que tenía la lista de ejecuciones
+  del Registro se pierde; Trabajos filtra solo por estado y receta.
+- **Confirmado:** los pasos no caducan con el plazo de los trabajos.
 - **Supuesto:** las ejecuciones guardadas antes de este cambio no sabían a
-  qué trabajo pertenecían; se asocian por nota y hora, y las que no encajan
-  con ningún trabajo no se muestran y caducan con el plazo.
+  qué trabajo pertenecían; se asocian por nota y hora al último trabajo de
+  procesar de esa nota que empezó antes que ellas.
 - **Confirmado:** el contador de la barra lateral cuenta los trabajos en
   marcha; el historial se carga de 100 en 100; un trabajo relanzado no indica
   de cuál viene.
