@@ -273,6 +273,12 @@ separado.
     `block_on` en el hilo principal, los vigilantes solo envían a un canal y
     el resto ya era `async` o lee `index()`. Los `spawn_blocking` que quedan
     son de E/S de ficheros.
+  - **La app abre, cierra e incorpora con funciones propias**
+    (`open_library`, `close_library` e `incorporate` en `lib.rs`), que
+    `lifecycle_tests.rs` prueba sin Tauri: salir desde un hilo que no es de
+    tokio guarda lo encolado y no se cuelga, y un audio de una carpeta vigilada
+    se incorpora una sola vez sin tocar el original. El resto del bucle del
+    vigilante (iCloud, notificaciones, eventos a la interfaz) sigue sin test.
   Pendiente:
   - Publicar sigue clonando el índice en cada escritura que no sea registro.
     La suite no lo nota (36 s, igual que antes); medir con la biblioteca real

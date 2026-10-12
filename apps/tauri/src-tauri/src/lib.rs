@@ -1046,6 +1046,41 @@ fn log_error(state: &Runtime, message: &str) {
         eprintln!("{message}; no se pudo guardar el error: {error}");
     }
 }
+async fn open_library(root: PathBuf) -> Result<(library::Library, Arc<jobs::Queue>), String> {
+    let library = library::Library::new(Store::open(root).await?).await?;
+    let jobs = jobs::Queue::new(library.clone()).await?;
+    Ok((library, Arc::new(jobs)))
+}
+
+fn close_library(library: &library::Library) {
+    if let Err(error) = tauri::async_runtime::block_on(library.close()) {
+        eprintln!("No se pudo cerrar la biblioteca: {error}");
+    }
+}
+
+async fn incorporate(
+    library: &library::Library,
+    root: &Path,
+    candidate: &watcher::Candidate,
+) -> Result<Value, String> {
+    let staged = {
+        let root = root.to_owned();
+        let path = candidate.path.clone();
+        tokio::task::spawn_blocking(move || store::stage_audio(&root, &path, false))
+            .await
+            .map_err(|e| e.to_string())??
+    };
+    library
+        .import_watched(
+            staged,
+            candidate.path.clone(),
+            candidate.title.clone(),
+            candidate.started_at,
+            candidate.source_key.clone(),
+        )
+        .await
+}
+
 async fn scan(app: &tauri::AppHandle, state: &Arc<Runtime>) -> Result<Value, String> {
     let _scan = state.scan_lock.lock().await;
     let mut issues = restore_watched_folders(state).await?;
@@ -1152,29 +1187,7 @@ async fn scan(app: &tauri::AppHandle, state: &Arc<Runtime>) -> Result<Value, Str
             }
             continue;
         }
-        let staged = {
-            let root = state.library_root.clone();
-            let path = candidate.path.clone();
-            tokio::task::spawn_blocking(move || store::stage_audio(&root, &path, false))
-                .await
-                .map_err(|e| e.to_string())?
-        };
-        let result = match staged {
-            Ok(staged) => {
-                state
-                    .library
-                    .import_watched(
-                        staged,
-                        candidate.path.clone(),
-                        candidate.title.clone(),
-                        candidate.started_at,
-                        candidate.source_key.clone(),
-                    )
-                    .await
-            }
-            Err(error) => Err(error),
-        };
-        match result {
+        match incorporate(&state.library, &state.library_root, &candidate).await {
             Ok(record) => {
                 state
                     .scanner
@@ -1637,12 +1650,8 @@ pub fn run() {
             let result: Result<(), Box<dyn std::error::Error>> = (|| {
                 let isolated_root = std::env::var_os("ESCRIBA_TAURI_DATA").map(PathBuf::from);
                 let root = isolated_root.clone().unwrap_or(app.path().app_data_dir()?);
-                let (library, jobs) = tauri::async_runtime::block_on(async {
-                    let library = library::Library::new(Store::open(root.clone()).await?).await?;
-                    let jobs = jobs::Queue::new(library.clone()).await?;
-                    Ok::<_, String>((library, Arc::new(jobs)))
-                })
-                .map_err(std::io::Error::other)?;
+                let (library, jobs) = tauri::async_runtime::block_on(open_library(root.clone()))
+                    .map_err(std::io::Error::other)?;
                 app.asset_protocol_scope()
                     .allow_directory(root.join("audio"), true)?;
                 let resource_vendor = app.path().resource_dir()?.join("vendor");
@@ -1755,9 +1764,7 @@ pub fn run() {
             }
             tauri::RunEvent::Exit => {
                 if let Some(state) = app.try_state::<Arc<Runtime>>() {
-                    if let Err(error) = tauri::async_runtime::block_on(state.library.close()) {
-                        eprintln!("No se pudo cerrar la biblioteca: {error}");
-                    }
+                    close_library(&state.library);
                 }
             }
             #[cfg(target_os = "macos")]
@@ -1767,6 +1774,9 @@ pub fn run() {
             _ => {}
         });
 }
+
+#[cfg(test)]
+mod lifecycle_tests;
 
 #[cfg(test)]
 mod command_events_tests {
