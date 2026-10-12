@@ -24,12 +24,11 @@ RocksDB comprime los niveles inferiores (LZ4 y Zstd), compacta solo cada hora
 y atiende la compactación oficial. Cuesta compilar C++ y aumenta el tamaño de
 la app. Se pierde el versionado de SurrealKV, que Escriba no usaba.
 
-Al abrir, `storage::open` convierte `library.surrealkv` y `knowledge.surrealkv`
-en `library.rocksdb` y `knowledge.rocksdb`: exporta cada base con el SDK, la
-importa, redefine el acceso de recetas (la exportación oculta su clave),
-compara definiciones y registros de cada tabla y compacta. Solo entonces
-renombra el original a `*.surrealkv.convertida`, que se conserva. Si algo
-falla, el original sigue con su nombre y el siguiente arranque descarta lo
-convertido y lo rehace; nunca se abre una base vacía en su lugar. Con la
-biblioteca de Rubén: 242 grabaciones, 234 versiones y 25 trabajos intactos,
-82 → 18 MB; grafo con 199 notas y su ontología, 80 → 10 MB.
+La conversión se hizo una sola vez en la instalación de Rubén, el único
+usuario, con `cd727c0`: exportaba cada base con el SDK, la importaba,
+redefinía el acceso de recetas (la exportación oculta su clave), comparaba
+definiciones y registros de cada tabla y compactaba; solo entonces renombraba
+el original a `*.surrealkv.convertida`. Biblioteca 96 → 19 MB y grafo
+81 → 10 MB, ambos con la comparación superada. Después se retiraron el conversor y SurrealKV del binario. Si junto
+a una base aparece un `.surrealkv`, `storage::open` falla nombrándolo en lugar
+de abrir una base vacía; para leerlo hay que usar `cd727c0`.

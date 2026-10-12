@@ -30,7 +30,7 @@ libc = "0.2"
 fs2 = "0.4"
 notify = "8"
 plist = "1"
-surrealdb = { version = "=3.3.2", default-features = false, features = ["kv-surrealkv", "kv-rocksdb"] }
+surrealdb = { version = "=3.3.2", default-features = false, features = ["kv-rocksdb"] }
 surrealdb-core = { version = "=3.3.2", default-features = false }
 surrealdb-expr = { version = "=3.3.2", default-features = false }
 base64 = "0.22"

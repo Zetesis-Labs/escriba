@@ -699,7 +699,7 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "Requiere copias privadas autorizadas de library.surrealkv y knowledge.surrealkv"]
+    #[ignore = "Requiere copias privadas autorizadas de library.rocksdb y knowledge.rocksdb"]
     async fn verifica_grafo_de_copia_sin_mostrar_contenido() {
         use std::os::unix::fs::PermissionsExt;
         let library = std::env::var_os("ESCRIBA_VERIFY_LIBRARY_COPY")
@@ -710,11 +710,11 @@ mod tests {
         std::fs::set_permissions(temporary.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
         copy_tree(
             Path::new(&library),
-            &temporary.path().join("library.surrealkv"),
+            &temporary.path().join("library.rocksdb"),
         );
         copy_tree(
             Path::new(&graph),
-            &temporary.path().join("knowledge.surrealkv"),
+            &temporary.path().join("knowledge.rocksdb"),
         );
         let key = temporary.path().join("knowledge.key");
         std::fs::copy(Path::new(&graph).with_extension("key"), &key)
@@ -954,7 +954,7 @@ mod tests {
         graph.close().await.unwrap();
     }
     #[tokio::test]
-    #[ignore = "Requiere una copia privada autorizada de library.surrealkv"]
+    #[ignore = "Requiere una copia privada autorizada de library.rocksdb"]
     async fn mide_la_proyeccion_de_una_copia_en_un_grafo_vacio() {
         use std::os::unix::fs::PermissionsExt;
         let library = std::env::var_os("ESCRIBA_VERIFY_LIBRARY_COPY").unwrap();
@@ -962,7 +962,7 @@ mod tests {
         std::fs::set_permissions(temporary.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
         copy_tree(
             Path::new(&library),
-            &temporary.path().join("library.surrealkv"),
+            &temporary.path().join("library.rocksdb"),
         );
         let store = Store::open_with_audio_cleanup(temporary.path().into(), false).unwrap();
         let store = Arc::new(Mutex::new(store));

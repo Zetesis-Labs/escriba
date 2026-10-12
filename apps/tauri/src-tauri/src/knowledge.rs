@@ -106,7 +106,7 @@ fn error(e: impl std::fmt::Display) -> String {
     e.to_string()
 }
 const BASE_FORMAT: u32 = 2;
-pub(crate) const RECIPE_ACCESS: &str = "DEFINE ACCESS OVERWRITE _escriba_recipe ON DB TYPE RECORD SIGNIN (RETURN _escriba_principal:runtime) DURATION FOR SESSION 1h";
+const RECIPE_ACCESS: &str = "DEFINE ACCESS OVERWRITE _escriba_recipe ON DB TYPE RECORD SIGNIN (RETURN _escriba_principal:runtime) DURATION FOR SESSION 1h";
 pub(crate) fn hashed_database(id: &str) -> String {
     use sha2::{Digest, Sha256};
     format!("ontology_{:x}", Sha256::digest(id.as_bytes()))

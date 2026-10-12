@@ -2007,10 +2007,8 @@ fn verifica_compatibilidad_de_copia_sin_mostrar_contenido() {
     );
     let temporary = tempfile::tempdir().unwrap();
     fs::set_permissions(temporary.path(), fs::Permissions::from_mode(0o700)).unwrap();
-    copy_tree(&source, &temporary.path().join("library.surrealkv"));
-    let started = std::time::Instant::now();
+    copy_tree(&source, &temporary.path().join("library.rocksdb"));
     let database = Persistence::open(&temporary.path().join("library.rocksdb")).unwrap();
-    let converted = started.elapsed();
     let before = database
         .load()
         .unwrap()
@@ -2068,17 +2066,7 @@ fn verifica_compatibilidad_de_copia_sin_mostrar_contenido() {
             "El índice alteró recibos guardados"
         );
     }
-    let size = |path: &Path| -> u64 {
-        walkdir::WalkDir::new(path)
-            .into_iter()
-            .filter_map(Result::ok)
-            .filter_map(|entry| entry.metadata().ok())
-            .filter(|metadata| metadata.is_file())
-            .map(|metadata| metadata.len())
-            .sum::<u64>()
-            / 1_048_576
-    };
-    eprintln!("Compatibilidad confirmada: {recordings} grabaciones, {versions} versiones, {} trabajos; conversión {converted:?}, {} MB → {} MB; contenido no mostrado", jobs.len(), size(&source), size(&temporary.path().join("library.rocksdb")));
+    eprintln!("Compatibilidad confirmada: {recordings} grabaciones, {versions} versiones, {} trabajos; contenido no mostrado", jobs.len());
 }
 
 #[test]
