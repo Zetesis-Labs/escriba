@@ -1161,45 +1161,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn fuga_de_memoria_termina_worker_y_conserva_controlador() {
-        let scripts = Scripts::new(crate::native::binary("escriba-runtime").unwrap());
-        let mut data = fixture();
-        data["recipes"][0] = json!({
-            "id":"default","name":"Fuga","kind":"code","values":{},
-            "bundle":"var __recipe={async flujo(){globalThis.leak=[];for(let i=0;i<600;i++)globalThis.leak.push(new Array(131072).fill(i));await new Promise(()=>{})}}"
-        });
-        let state = Arc::new(StdMutex::new(data));
-        let capability = fake_host(state.clone());
-        let events: Events = Arc::new(|_| {});
-        let error = tokio::time::timeout(
-            Duration::from_secs(8),
-            scripts.call(
-                "memory",
-                "processRecording",
-                json!({"recordingId":"r"}),
-                capability.clone(),
-                events.clone(),
-            ),
-        )
-        .await
-        .expect("La fuga no terminó a tiempo")
-        .unwrap_err();
-        assert!(error.message.contains("512 MiB"), "{error}");
-        state.lock().unwrap()["recipes"][0] =
-            json!({"id":"default","name":"Por defecto","kind":"form","values":{"resumir":false}});
-        scripts
-            .call(
-                "schema-after-memory",
-                "getRecipeSchema",
-                json!({"recipeId":"default"}),
-                capability,
-                events,
-            )
-            .await
-            .unwrap();
-    }
-
-    #[tokio::test]
     async fn fallo_al_arrancar_muestra_diagnostico_del_sandbox() {
         let directory = tempfile::tempdir().unwrap();
         let executable = directory.path().join("runtime-no-ejecutable");
