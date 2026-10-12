@@ -1,5 +1,12 @@
 # Requisito funcional: recetas
 
+> **Diseño original (octubre de 2026, versión Swift).** Describe JavaScriptCore,
+> esbuild, el ledger de Swift y Monaco, que ya no existen en la app (ADR-0005,
+> ADR-0007). La referencia vigente del planteamiento, con las decisiones del
+> 2026-10-13 y las desviaciones entre este documento y el código, es
+> `specs/escriba/recetas/functional-specs.md`. Se conserva por el razonamiento
+> de cada requisito y las decisiones fechadas.
+
 Estado: **propuesto por Rubén el 2026-10-06**, en construcción desde el
 2026-10-07: fases 1, 2, 3, 4 y 6 hechas, con la depuración (RF-14) y «Probar
 con…» (RF-15); siguiente, la fase 5. El recorte de alcance del 2026-10-07 está
