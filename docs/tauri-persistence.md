@@ -1,6 +1,6 @@
 # Persistencia de Escriba
 
-Escriba guarda la biblioteca en SurrealDB 3.3 embebida con RocksDB (ADR-0008), bajo `library.rocksdb` dentro de su carpeta de Application Support. Una biblioteca anterior en `library.surrealkv` se convierte al abrir y el original queda como `library.surrealkv.convertida`. Un bloqueo de instancia impide abrir la misma biblioteca dos veces. La interfaz y el runtime TypeScript acceden mediante comandos Rust; no abren la base directamente. [SurrealDB documenta la conexión embebida y el bloqueo de la carpeta](https://surrealdb.com/docs/reference/rust/embedding).
+Escriba guarda la biblioteca en SurrealDB 3.3 embebida con RocksDB (ADR-0008), bajo `library.rocksdb` dentro de su carpeta de Application Support. Un `library.surrealkv` sin convertir impide abrir la biblioteca: esta versión ya no lo lee y no la sustituye por una vacía. Un bloqueo de instancia impide abrir la misma biblioteca dos veces. La interfaz y el runtime TypeScript acceden mediante comandos Rust; no abren la base directamente. [SurrealDB documenta la conexión embebida y el bloqueo de la carpeta](https://surrealdb.com/docs/reference/rust/embedding).
 
 ## Esquema
 
@@ -138,7 +138,7 @@ que lo use provoca un error visible, conservando su esquema y datos.
 
 El grafo reside en `knowledge.rocksdb`, un almacén físico separado de
 `library.rocksdb`, dentro de Application Support; un `knowledge.surrealkv`
-anterior se convierte al abrirlo, como la biblioteca. Usa el espacio `knowledge`
+sin convertir impide abrirlo, como en la biblioteca. Usa el espacio `knowledge`
 y una base lógica distinta por ID estable de ontología. Un catálogo privado
 localiza las bases; cada una conserva su definición instalada y las tablas de
 registros, vínculos y correcciones manuales. Las ontologías candidatas del
