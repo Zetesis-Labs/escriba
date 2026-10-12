@@ -114,35 +114,9 @@ impl Store {
         Ok(seeds)
     }
 
+    #[cfg(test)]
     pub fn watched_folder_bookmarks(&self) -> Result<Vec<(String, PathBuf, Vec<u8>)>, String> {
-        let folders = self
-            .data
-            .settings
-            .watched_folders
-            .as_ref()
-            .ok_or("Carpetas inválidas")?;
-        folders
-            .iter()
-            .filter(|folder| {
-                folder.enabled.as_ref() != Some(&false)
-                    && folder
-                        .access_bookmark
-                        .as_ref()
-                        .is_some_and(|value| !value.is_null())
-            })
-            .map(|folder| {
-                Ok((
-                    folder.id.clone(),
-                    PathBuf::from(&folder.path),
-                    bookmark_bytes(
-                        folder
-                            .access_bookmark
-                            .as_ref()
-                            .ok_or("Falta autorización guardada")?,
-                    )?,
-                ))
-            })
-            .collect()
+        watched_folder_bookmarks(&self.data)
     }
 
     pub fn refresh_watched_folder_bookmark(
@@ -318,4 +292,36 @@ pub(super) const SETTABLE: [&str; 6] = [
 
 pub(super) fn defaults() -> Value {
     json!({"schemaVersion":1,"recordings":[],"accounts":[],"destinations":[],"resolvers":[{"id":"local-stt","name":"Whisper · en este Mac","role":"stt","local":true,"enabled":true,"model":"openai_whisper-large-v3-v20240930"},{"id":"local-llm","name":"Apple Intelligence","role":"llm","local":true,"enabled":true}],"recipes":[{"id":"default","name":"Por defecto","kind":"form","values":{}}],"settings":{"defaultRecipeId":"default","projectPath":null,"watchedFolders":[],"language":"es","whisperModel":"openai_whisper-large-v3-v20240930","launchAtLogin":false}})
+}
+
+pub(super) fn watched_folder_bookmarks(
+    data: &LibraryData,
+) -> Result<Vec<(String, PathBuf, Vec<u8>)>, String> {
+    let folders = data
+        .settings
+        .watched_folders
+        .as_ref()
+        .ok_or("Carpetas inválidas")?;
+    folders
+        .iter()
+        .filter(|folder| {
+            folder.enabled.as_ref() != Some(&false)
+                && folder
+                    .access_bookmark
+                    .as_ref()
+                    .is_some_and(|value| !value.is_null())
+        })
+        .map(|folder| {
+            Ok((
+                folder.id.clone(),
+                PathBuf::from(&folder.path),
+                bookmark_bytes(
+                    folder
+                        .access_bookmark
+                        .as_ref()
+                        .ok_or("Falta autorización guardada")?,
+                )?,
+            ))
+        })
+        .collect()
 }

@@ -21,7 +21,7 @@ use crate::persistence::{
 use crate::voices::{recognize, KnownVoice, SpeakerVoice};
 use chrono::Utc;
 use fs2::FileExt;
-pub use import::stage_audio;
+pub use import::{stage_audio, StagedAudio};
 pub use model::LibraryIndex;
 pub use model::{Field, LibraryData, Recording, RecordingStatus, Settings, Version, WatchedFolder};
 use serde_json::{json, Value};
@@ -32,9 +32,11 @@ use std::{
     io::{Read, Write},
     os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt},
     path::{Path, PathBuf},
+    sync::Arc,
     time::SystemTime,
 };
 use uuid::Uuid;
+pub use views::IndexView;
 
 pub fn now() -> String {
     Utc::now().to_rfc3339()
@@ -297,6 +299,7 @@ impl Store {
             .load()?
             .ok_or_else(|| "Biblioteca sin inicializar".into())
     }
+    #[cfg(test)]
     pub fn settings_json(&self) -> Value {
         json!(&self.data.settings)
     }

@@ -1,7 +1,7 @@
 use crate::{
     error::{AppError, ErrorCode},
+    library::Library,
     native::Native,
-    store::Store,
     voices::{self, SpeakerSpan, SpeakerVoice},
 };
 use serde::Deserialize;
@@ -181,7 +181,7 @@ impl Registration {
     pub async fn stop(
         &self,
         inference: &Native,
-        store: &Arc<Mutex<Store>>,
+        store: &Library,
         changed: impl Fn(Value),
     ) -> Result<Value, String> {
         let sample = {
@@ -207,7 +207,7 @@ impl Registration {
         name: &str,
         source: &Path,
         inference: &Native,
-        store: &Arc<Mutex<Store>>,
+        store: &Library,
         changed: impl Fn(Value),
     ) -> Result<Value, String> {
         let sample = {
@@ -277,7 +277,7 @@ impl Registration {
         &self,
         sample: &Sample,
         inference: &Native,
-        store: &Arc<Mutex<Store>>,
+        store: &Library,
     ) -> Result<(), String> {
         self.recorder
             .call("recordingStop", json!({}))
@@ -290,7 +290,7 @@ impl Registration {
         &self,
         sample: &Sample,
         inference: &Native,
-        store: &Arc<Mutex<Store>>,
+        store: &Library,
     ) -> Result<(), String> {
         let reply = inference
             .call("diarizedVoices", json!({"audioPath":sample.path}))
@@ -298,9 +298,8 @@ impl Registration {
             .map_err(|error| analysis_problem(error.to_string()))?;
         let voice = sample_voice(reply)?;
         store
-            .lock()
-            .map_err(|_| "No se pudo acceder a la biblioteca".to_owned())?
-            .add_person_voice(&sample.person, &voice, "muestra de voz")
+            .add_person_voice(sample.person.clone(), voice, "muestra de voz".into())
+            .await
             .map_err(analysis_problem)
     }
 }
@@ -423,9 +422,10 @@ for line in sys.stdin:
         fs::write(&original, b"audio sintetico original").unwrap();
         let samples = directory.path().join("samples");
         let registration = Registration::new(samples.clone(), executable.clone()).unwrap();
-        let store = Arc::new(Mutex::new(
-            Store::open(directory.path().join("library")).unwrap(),
-        ));
+        let store = crate::library::Library::new(
+            crate::store::Store::open(directory.path().join("library")).unwrap(),
+        )
+        .unwrap();
 
         let view = registration
             .import_audio(" Ana ", &original, &Native::new(executable), &store, |_| {})
@@ -468,9 +468,10 @@ for line in sys.stdin:
             fs::write(&original, b"audio sintetico original").unwrap();
             let samples = directory.path().join("samples");
             let registration = Registration::new(samples.clone(), executable.clone()).unwrap();
-            let store = Arc::new(Mutex::new(
-                Store::open(directory.path().join("library")).unwrap(),
-            ));
+            let store = crate::library::Library::new(
+                crate::store::Store::open(directory.path().join("library")).unwrap(),
+            )
+            .unwrap();
 
             let view = registration
                 .import_audio("Ana", &original, &Native::new(executable), &store, |_| {})
@@ -505,9 +506,10 @@ for line in sys.stdin:
         let executable = host(directory.path(), 45.0, true);
         let samples = directory.path().join("samples");
         let registration = Registration::new(samples.clone(), executable.clone()).unwrap();
-        let store = Arc::new(Mutex::new(
-            Store::open(directory.path().join("library")).unwrap(),
-        ));
+        let store = crate::library::Library::new(
+            crate::store::Store::open(directory.path().join("library")).unwrap(),
+        )
+        .unwrap();
         let active = registration.start("Ana", |_| {}).await.unwrap();
         let missing = directory.path().join("inexistente.wav");
         assert_eq!(
@@ -534,9 +536,10 @@ for line in sys.stdin:
             }
             let samples = directory.path().join("samples");
             let registration = Registration::new(samples.clone(), executable.clone()).unwrap();
-            let store = Arc::new(Mutex::new(
-                Store::open(directory.path().join("library")).unwrap(),
-            ));
+            let store = crate::library::Library::new(
+                crate::store::Store::open(directory.path().join("library")).unwrap(),
+            )
+            .unwrap();
 
             let view = registration
                 .import_audio("Ana", &original, &Native::new(executable), &store, |_| {})
@@ -564,9 +567,10 @@ for line in sys.stdin:
         let executable = host(directory.path(), 45.0, true);
         let samples = directory.path().join("samples");
         let registration = Registration::new(samples.clone(), executable.clone()).unwrap();
-        let store = Arc::new(Mutex::new(
-            Store::open(directory.path().join("library")).unwrap(),
-        ));
+        let store = crate::library::Library::new(
+            crate::store::Store::open(directory.path().join("library")).unwrap(),
+        )
+        .unwrap();
         let fifo = directory.path().join("tuberia");
         let path = std::ffi::CString::new(fifo.as_os_str().as_encoded_bytes()).unwrap();
         assert_eq!(unsafe { libc::mkfifo(path.as_ptr(), 0o600) }, 0);
@@ -616,9 +620,10 @@ for line in sys.stdin:
         let executable = host(directory.path(), 45.0, true);
         let samples = directory.path().join("samples");
         let registration = Registration::new(samples.clone(), executable.clone()).unwrap();
-        let store = Arc::new(Mutex::new(
-            Store::open(directory.path().join("library")).unwrap(),
-        ));
+        let store = crate::library::Library::new(
+            crate::store::Store::open(directory.path().join("library")).unwrap(),
+        )
+        .unwrap();
         assert_eq!(
             registration.start(" Ana ", |_| {}).await.unwrap()["state"],
             "recording"
@@ -693,9 +698,10 @@ for line in sys.stdin:
             let executable = host(directory.path(), seconds, voices);
             let samples = directory.path().join("samples");
             let registration = Registration::new(samples.clone(), executable.clone()).unwrap();
-            let store = Arc::new(Mutex::new(
-                Store::open(directory.path().join("library")).unwrap(),
-            ));
+            let store = crate::library::Library::new(
+                crate::store::Store::open(directory.path().join("library")).unwrap(),
+            )
+            .unwrap();
             registration.start("Ana", |_| {}).await.unwrap();
             let result = registration
                 .stop(&Native::new(executable), &store, |_| {})
@@ -758,9 +764,10 @@ for line in sys.stdin:
         fs::write(&executable, source).unwrap();
         let samples = directory.path().join("samples");
         let registration = Registration::new(samples.clone(), executable.clone()).unwrap();
-        let store = Arc::new(Mutex::new(
-            Store::open(directory.path().join("library")).unwrap(),
-        ));
+        let store = crate::library::Library::new(
+            crate::store::Store::open(directory.path().join("library")).unwrap(),
+        )
+        .unwrap();
         registration.start("Ana", |_| {}).await.unwrap();
         let result = registration
             .stop(&Native::new(executable), &store, |_| {})

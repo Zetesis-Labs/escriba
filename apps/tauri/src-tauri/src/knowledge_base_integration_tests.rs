@@ -4,7 +4,6 @@ use crate::{
 };
 use base64::Engine;
 use serde_json::{json, Value};
-use std::sync::{Arc, Mutex};
 use surrealdb::types::Value as DbValue;
 
 fn extension() -> Value {
@@ -18,19 +17,19 @@ fn extension() -> Value {
     })
 }
 
-fn library(path: &std::path::Path) -> (Arc<Mutex<Store>>, String) {
+fn library(path: &std::path::Path) -> (crate::library::Library, String) {
     let audio = path.join("sintetico.wav");
     std::fs::write(&audio, b"audio sintetico").unwrap();
     let mut store = Store::open(path.join("library")).unwrap();
     let recording = store.import(&audio, None).unwrap();
     catalog::install(&mut store, &json!({"recipes":[{"id":"sintetica","name":"Sintética","kind":"code","values":{},"bundle":"programa sintetico"}],"destinations":[],"ontologies":[extension()]})).unwrap();
     (
-        Arc::new(Mutex::new(store)),
+        crate::library::Library::new(store).unwrap(),
         recording["id"].as_str().unwrap().into(),
     )
 }
 
-async fn page(graph: &Knowledge, store: &Arc<Mutex<Store>>, table: &str) -> Value {
+async fn page(graph: &Knowledge, store: &crate::library::Library, table: &str) -> Value {
     dispatch(
         graph,
         store,
@@ -41,7 +40,7 @@ async fn page(graph: &Knowledge, store: &Arc<Mutex<Store>>, table: &str) -> Valu
     .unwrap()
 }
 
-async fn words(graph: &Knowledge, store: &Arc<Mutex<Store>>) -> Option<usize> {
+async fn words(graph: &Knowledge, store: &crate::library::Library) -> Option<usize> {
     page(graph, store, "segment").await["records"][0]["values"]["words"]
         .as_array()
         .map(Vec::len)
@@ -49,7 +48,7 @@ async fn words(graph: &Knowledge, store: &Arc<Mutex<Store>>) -> Option<usize> {
 
 async fn query(
     graph: &Knowledge,
-    store: &Arc<Mutex<Store>>,
+    store: &crate::library::Library,
     recording: &str,
     sql: &str,
 ) -> DbValue {

@@ -4,14 +4,12 @@ use crate::{
         ListedOntology, Ontology, RecordPage, SaveLibraryFilter, SaveRecord, SavedLibraryFilter,
         Source,
     },
-    store::Store,
+    library::Library,
+    store::IndexView,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::{
-    path::Path,
-    sync::{Arc, Mutex, MutexGuard},
-};
+use std::path::Path;
 use ts_rs::TS;
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, TS)]
@@ -250,13 +248,9 @@ impl KnowledgeReply {
     }
 }
 
-fn library(store: &Arc<Mutex<Store>>) -> Result<MutexGuard<'_, Store>, String> {
-    store.lock().map_err(|_| "Biblioteca no disponible".into())
-}
-
-fn candidates(store: &Arc<Mutex<Store>>) -> Result<Vec<Ontology>, String> {
-    Ok(library(store)?
-        .data
+fn candidates(store: &Library) -> Result<Vec<Ontology>, String> {
+    Ok(store
+        .index()
         .settings
         .project_ontologies
         .as_ref()
@@ -265,7 +259,7 @@ fn candidates(store: &Arc<Mutex<Store>>) -> Result<Vec<Ontology>, String> {
 }
 
 fn requirement(
-    store: &Store,
+    store: &IndexView,
     recipe_id: &str,
     recording_id: &str,
     ontology_id: &str,
@@ -275,7 +269,6 @@ fn requirement(
     if recipe["kind"] == "form" {
         let base = crate::store::text(&recipe, "base")?;
         recipe = store
-            .data
             .recipes
             .as_array()
             .and_then(|recipes| {
@@ -304,7 +297,6 @@ fn requirement(
         return Err("Las dependencias de la receta cambiaron; vuelve a procesar".into());
     }
     let recording = store
-        .data
         .recordings
         .iter()
         .find(|recording| recording.id == recording_id)
@@ -317,14 +309,14 @@ fn requirement(
 
 async fn granted(
     knowledge: &Knowledge,
-    store: &Arc<Mutex<Store>>,
+    store: &Library,
     recipe_id: &str,
     recording_id: &str,
     ontology_id: &str,
     expected: &Dependency,
 ) -> Result<(String, u32), String> {
     let required = requirement(
-        &*library(store)?,
+        &store.index(),
         recipe_id,
         recording_id,
         ontology_id,
@@ -349,13 +341,13 @@ async fn granted(
     Ok((required.id, installed.version))
 }
 
-fn source(
-    store: &Store,
+async fn source(
+    store: &Library,
     recording_id: &str,
     version_id: &str,
     recipe_id: Option<String>,
 ) -> Result<Source, String> {
-    let recording = store.recording(recording_id)?;
+    let recording = store.recording(recording_id.to_owned()).await?;
     if recording["status"] == "discarded"
         || !recording["versions"]
             .as_array()
@@ -387,21 +379,15 @@ struct Synchronized<'a> {
 
 async fn synchronize_base<'a>(
     knowledge: &'a Knowledge,
-    store: &Arc<Mutex<Store>>,
+    store: &Library,
     budget: Option<std::time::Duration>,
 ) -> Result<Synchronized<'a>, String> {
     let guard = knowledge.base_sync.lock().await;
     let started = std::time::Instant::now();
     let epoch = knowledge.base_epoch().await?;
-    store
-        .lock()
-        .map_err(|_| "Biblioteca no disponible")?
-        .knowledge_prepare(&epoch)?;
+    store.knowledge_prepare(epoch).await?;
     loop {
-        let change = store
-            .lock()
-            .map_err(|_| "Biblioteca no disponible")?
-            .knowledge_change()?;
+        let change = store.knowledge_change().await?;
         let Some(change) = change else {
             return Ok(Synchronized {
                 _guard: guard,
@@ -415,14 +401,11 @@ async fn synchronize_base<'a>(
             });
         }
         knowledge.sync_base_change(&change).await?;
-        store
-            .lock()
-            .map_err(|_| "Biblioteca no disponible")?
-            .knowledge_ack(&change.key, &change.revision)?;
+        store.knowledge_ack(change.key, change.revision).await?;
     }
 }
 
-pub async fn sync_step(knowledge: &Knowledge, store: &Arc<Mutex<Store>>) -> Result<bool, String> {
+pub async fn sync_step(knowledge: &Knowledge, store: &Library) -> Result<bool, String> {
     Ok(
         synchronize_base(knowledge, store, Some(BACKGROUND_SYNC_BUDGET))
             .await?
@@ -433,7 +416,7 @@ pub async fn sync_step(knowledge: &Knowledge, store: &Arc<Mutex<Store>>) -> Resu
 pub async fn run(
     cell: &tokio::sync::OnceCell<Knowledge>,
     path: &Path,
-    store: &Arc<Mutex<Store>>,
+    store: &Library,
     command: KnowledgeCommand,
 ) -> Result<KnowledgeReply, String> {
     let listing = matches!(
@@ -462,7 +445,7 @@ pub async fn run(
 
 pub async fn dispatch(
     knowledge: &Knowledge,
-    store: &Arc<Mutex<Store>>,
+    store: &Library,
     command: KnowledgeCommand,
 ) -> Result<KnowledgeReply, String> {
     use KnowledgeCommand as C;
@@ -534,12 +517,8 @@ pub async fn dispatch(
                 &p.dependency,
             )
             .await?;
-            let provenance = source(
-                &*library(store)?,
-                &p.recording_id,
-                &p.version_id,
-                Some(p.recipe_id),
-            )?;
+            let provenance =
+                source(store, &p.recording_id, &p.version_id, Some(p.recipe_id)).await?;
             knowledge
                 .link(
                     &ontology,
@@ -591,12 +570,15 @@ pub async fn dispatch(
         C::KnowledgeSave(p) => {
             let _base_guard = synchronize_base(knowledge, store, None).await?;
             let provenance = match &p.recording_id {
-                Some(recording_id) => Some(source(
-                    &*library(store)?,
-                    recording_id,
-                    p.version_id.as_deref().ok_or("Falta versionId")?,
-                    None,
-                )?),
+                Some(recording_id) => Some(
+                    source(
+                        store,
+                        recording_id,
+                        p.version_id.as_deref().ok_or("Falta versionId")?,
+                        None,
+                    )
+                    .await?,
+                ),
                 None => None,
             };
             R::KnowledgeSave(
@@ -637,7 +619,7 @@ pub async fn dispatch(
             R::KnowledgeUnlink(())
         }
         C::KnowledgeAttach(p) => {
-            let provenance = source(&*library(store)?, &p.recording_id, &p.version_id, None)?;
+            let provenance = source(store, &p.recording_id, &p.version_id, None).await?;
             knowledge
                 .link(
                     &p.id,
@@ -672,7 +654,7 @@ pub async fn dispatch(
 #[cfg(test)]
 pub async fn call(
     knowledge: &Knowledge,
-    store: &Arc<Mutex<Store>>,
+    store: &Library,
     method: &str,
     params: Value,
 ) -> Result<Value, String> {
@@ -720,7 +702,7 @@ mod tests {
         std::fs::copy(Path::new(&graph).with_extension("key"), &key)
             .expect("Falta knowledge.key junto a la copia del grafo");
         std::fs::set_permissions(&key, std::fs::Permissions::from_mode(0o600)).unwrap();
-        let store = Store::open_with_audio_cleanup(temporary.path().into(), false)
+        let store = crate::store::Store::open_with_audio_cleanup(temporary.path().into(), false)
             .expect("La copia no se puede abrir");
         let current = store
             .data
@@ -728,7 +710,7 @@ mod tests {
             .iter()
             .filter(|recording| recording.status != crate::store::RecordingStatus::Discarded)
             .count();
-        let store = Arc::new(Mutex::new(store));
+        let store = crate::library::Library::new(store).unwrap();
         let knowledge = Knowledge::open(&temporary.path().join("knowledge.rocksdb"))
             .await
             .expect("La copia del grafo no se puede abrir");
@@ -787,10 +769,10 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let audio = temp.path().join("prueba.wav");
         std::fs::write(&audio, b"audio sintetico").unwrap();
-        let mut store = Store::open(temp.path().join("library")).unwrap();
+        let mut store = crate::store::Store::open(temp.path().join("library")).unwrap();
         let record = store.import(&audio, None).unwrap();
         store.mutate("version_save", &json!({"recordingId":record["id"],"backend":"test","transcript":{"text":"Sintético","segments":[]}})).unwrap();
-        let store = Arc::new(Mutex::new(store));
+        let store = crate::library::Library::new(store).unwrap();
         let knowledge = Knowledge::open(&temp.path().join("knowledge.rocksdb"))
             .await
             .unwrap();
@@ -863,13 +845,13 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let audio = temp.path().join("prueba.wav");
         std::fs::write(&audio, b"audio sintetico").unwrap();
-        let mut store = Store::open(temp.path().join("library")).unwrap();
+        let mut store = crate::store::Store::open(temp.path().join("library")).unwrap();
         let record = store.import(&audio, None).unwrap();
         let version = store.mutate("version_save", &json!({"recordingId":record["id"],"backend":"test","transcript":{"text":"Sintético","segments":[]}})).unwrap();
         let ontology = json!({"id":"example","name":"Ejemplo","version":1,"migrations":[{"version":1,"sql":"DEFINE TABLE topic SCHEMAFULL PERMISSIONS FULL; DEFINE FIELD name ON topic TYPE string;"}],"collections":[{"table":"topic","label":"Temas","titleField":"name","fields":[{"key":"name","label":"Nombre","type":"text","required":true}]}]});
         let dependency = json!({"id":"example","minVersion":1,"maxVersion":1});
         crate::catalog::install(&mut store, &json!({"recipes":[{"id":"graph","name":"Grafo","kind":"code","values":{},"bundle":"program","ontologies":[dependency]}],"destinations":[],"ontologies":[ontology]})).unwrap();
-        let store = Arc::new(Mutex::new(store));
+        let store = crate::library::Library::new(store).unwrap();
         let graph = Knowledge::open(&temp.path().join("knowledge.rocksdb"))
             .await
             .unwrap();
@@ -964,8 +946,9 @@ mod tests {
             Path::new(&library),
             &temporary.path().join("library.rocksdb"),
         );
-        let store = Store::open_with_audio_cleanup(temporary.path().into(), false).unwrap();
-        let store = Arc::new(Mutex::new(store));
+        let store =
+            crate::store::Store::open_with_audio_cleanup(temporary.path().into(), false).unwrap();
+        let store = crate::library::Library::new(store).unwrap();
         let path = temporary.path().join("knowledge.rocksdb");
         let knowledge = Knowledge::open(&path).await.unwrap();
         let started = std::time::Instant::now();

@@ -188,7 +188,6 @@ mod tests {
 
     #[tokio::test]
     async fn knowledge_journal_corrupcion_falla_visiblemente_y_conserva_la_proyeccion_previa() {
-        use std::sync::{Arc, Mutex};
         let dir = tempfile::tempdir().unwrap();
         let audio = dir.path().join("sintetico.wav");
         fs::write(&audio, b"audio sintetico").unwrap();
@@ -196,7 +195,7 @@ mod tests {
         let recording = store.import(&audio, None).unwrap();
         let id = recording["id"].as_str().unwrap();
         store.mutate("version_save", &json!({"recordingId":id,"transcript":{"text":"Texto íntegro","segments":[{"start":0,"end":1,"text":"Texto íntegro"}]}})).unwrap();
-        let store = Arc::new(Mutex::new(store));
+        let store = crate::library::Library::new(store).unwrap();
         let graph = crate::knowledge::Knowledge::open(&dir.path().join("knowledge.rocksdb"))
             .await
             .unwrap();

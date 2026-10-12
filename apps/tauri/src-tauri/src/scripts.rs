@@ -746,7 +746,7 @@ mod tests {
     }
 
     fn store_host(
-        store: Arc<StdMutex<crate::store::Store>>,
+        store: crate::library::Library,
         native: Option<Arc<crate::native::Native>>,
     ) -> Capability {
         Arc::new({
@@ -832,7 +832,7 @@ mod tests {
         let mut store = crate::store::Store::open(library.clone()).unwrap();
         let recording = store.import(&audio, None).unwrap();
         let recording_id = recording["id"].as_str().unwrap().to_owned();
-        let store = Arc::new(StdMutex::new(store));
+        let store = crate::library::Library::new(store).unwrap();
         let capability = store_host(store.clone(), Some(native));
         let scripts = Scripts::new(crate::native::binary("escriba-runtime").unwrap());
         tokio::time::timeout(
@@ -873,16 +873,22 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let audio = directory.path().join("synthetic.wav");
         std::fs::write(&audio, b"synthetic audio").unwrap();
-        let store = Arc::new(StdMutex::new(
+        let store = crate::library::Library::new(
             crate::store::Store::open(directory.path().join("library")).unwrap(),
-        ));
+        )
+        .unwrap();
         let recording = store.lock().unwrap().import(&audio, None).unwrap();
         let recording_id = recording["id"].as_str().unwrap().to_owned();
-        let queue = crate::jobs::Queue::new(store).unwrap();
+        let queue = crate::jobs::Queue::new(store).await.unwrap();
         let id = queue
             .enqueue("processRecording", json!({"recordingId":recording_id}))
+            .await
             .unwrap();
-        queue.claim(crate::jobs::Lane::Inference).unwrap().unwrap();
+        queue
+            .claim(crate::jobs::Lane::Inference)
+            .await
+            .unwrap()
+            .unwrap();
         let native = Arc::new(crate::native::Native::new(
             crate::native::binary("EscribaNativeHost").unwrap(),
         ));
@@ -919,9 +925,10 @@ mod tests {
         .unwrap_err();
         assert_eq!(error.code, ErrorCode::BackendUnavailable);
         assert!(!error.message.contains("speakers"), "{error}");
-        queue.finish(&id, Err(error)).unwrap();
+        queue.finish(&id, Err(error)).await.unwrap();
         let saved = queue
             .jobs()
+            .await
             .unwrap()
             .into_iter()
             .find(|job| job["id"] == id)
@@ -944,7 +951,7 @@ mod tests {
         store.replace(data.clone()).unwrap();
         assert!(store.snapshot().unwrap().to_string().len() > MAX_FRAME as usize);
         let library = store.root.clone();
-        let store = Arc::new(StdMutex::new(store));
+        let store = crate::library::Library::new(store).unwrap();
         let capability = store_host(store.clone(), None);
         tokio::time::timeout(
             Duration::from_secs(20),
