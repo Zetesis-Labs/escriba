@@ -1039,16 +1039,12 @@ fn folders(state: &Runtime) -> Result<Vec<watcher::Folder>, String> {
         .collect()
 }
 fn log_error(state: &Runtime, message: &str) {
-    let library = state.library.clone();
-    let message = message.to_owned();
-    tauri::async_runtime::spawn(async move {
-        if let Err(error) = library
-            .mutate("log".into(), json!({"level":"error","message":message}))
-            .await
-        {
-            eprintln!("{message}; no se pudo guardar el error: {error}");
-        }
-    });
+    if let Err(error) = state
+        .library
+        .log(json!({"level":"error","message":message}))
+    {
+        eprintln!("{message}; no se pudo guardar el error: {error}");
+    }
 }
 async fn scan(app: &tauri::AppHandle, state: &Arc<Runtime>) -> Result<Value, String> {
     let _scan = state.scan_lock.lock().await;
@@ -1755,6 +1751,13 @@ pub fn run() {
                     api.prevent_exit();
                     let app = app.clone();
                     tauri::async_runtime::spawn(async move { menubar::quit(&app, &state).await });
+                }
+            }
+            tauri::RunEvent::Exit => {
+                if let Some(state) = app.try_state::<Arc<Runtime>>() {
+                    if let Err(error) = tauri::async_runtime::block_on(state.library.close()) {
+                        eprintln!("No se pudo cerrar la biblioteca: {error}");
+                    }
                 }
             }
             #[cfg(target_os = "macos")]

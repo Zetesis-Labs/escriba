@@ -127,20 +127,20 @@ Todos se escriben contra la interfaz de `Library`, en `library/tests.rs`. Para
 detener una escritura usan un punto de control por instancia, solo de tests:
 `stop_next_write()` la para con la biblioteca ocupada hasta soltar el
 manejador, y `panic_next_write()` provoca un pánico en ese punto. En la
-fachada el punto está dentro del cerrojo; en el actor irá entre calcular y
-confirmar. «Hoy» indica cómo salen sobre la fachada del paso 1. Los rojos
-llevan `#[ignore]` hasta el paso 3 para que la suite siga en verde.
+fachada el punto estaba dentro del cerrojo; en el actor está al empezar cada
+orden, antes de ejecutarla. «Hoy» indica cómo salen con el actor del paso 3b;
+«Estado» recoge cómo salían antes.
 
 | Test | Montaje y comprobación | Hoy |
 |---|---|---|
 | `las_escrituras_no_se_solapan` | 20 `version_save` en paralelo sobre una nota y 20 retitulados sobre otras cinco; están las 20 versiones y el índice publicado coincide con la base al reabrir | verde |
-| `leer_no_espera_a_un_commit` | Con una escritura parada, `index()` y `recording(id)` de otra nota responden en menos de 100 ms | rojo, ignorado: `index()` ya cumple; el detalle espera al cerrojo |
-| `ningun_hilo_de_tokio_se_bloquea` | Runtime `current_thread` (un solo hilo); con una escritura parada y una lectura esperando detrás, un `sleep` de 10 ms y una consulta al grafo terminan. Un vigía en otro hilo lo da por fallido a los 20 s | verde: la fachada lleva la espera al pool de `spawn_blocking`. Con la lectura síncrona falla; comprobado. Impide que el actor vuelva a bloquear |
+| `leer_no_espera_a_un_commit` | Con una escritura parada, `index()` y `recording(id)` de otra nota responden en menos de 100 ms | verde desde el paso 3b: el detalle se lee de la base sin pasar por el actor. Rojo con la fachada, que lo hacía esperar al cerrojo |
+| `ningun_hilo_de_tokio_se_bloquea` | Runtime `current_thread` (un solo hilo); con una escritura parada y una lectura esperando detrás, un `sleep` de 10 ms y una consulta al grafo terminan. Un vigía en otro hilo lo da por fallido a los 20 s | verde: el actor espera con `await`. Con una lectura síncrona falla; comprobado en el paso 2 |
 | `lees_lo_que_escribes_y_en_orden` | 50 retitulados encadenados sobre una nota mientras otras tres se retitulan sin parar; tras cada `await`, `index()` y `recording(id)` muestran ese título | verde |
-| `un_error_no_inutiliza_la_biblioteca` | Una orden sobre una nota que no existe y otra que entra en pánico devuelven `Err`; la siguiente funciona | rojo, ignorado: en el paso 2 el pánico envenenaba el cerrojo; desde el paso 3a llega a quien llamó |
+| `un_error_no_inutiliza_la_biblioteca` | Una orden sobre una nota que no existe y otra que entra en pánico devuelven `Err`; la siguiente funciona | verde desde el paso 3b: el actor captura el pánico, responde `Err` y recarga su índice de la base |
 | `la_cola_no_entrega_un_trabajo_dos_veces` | 30 notas y 45 trabajos: seis reclamadores en los dos carriles, y cada transcripción terminada encola su publicación. Ningún id se entrega dos veces y nunca corren dos de la misma nota | verde |
 | `cancelar_y_terminar_a_la_vez` | 20 veces, `finish` y `cancel` simultáneos sobre un trabajo en curso: o termina y avisa, o queda cancelado; nunca las dos cosas ni ninguna, y el estado guardado coincide | verde |
-| `cerrar_confirma_lo_encolado` | 20 líneas de registro lanzadas sin esperar y se suelta el manejador; al reabrir están las 20 | verde |
+| `cerrar_confirma_lo_encolado` | 20 líneas de registro enviadas sin esperar y `close()`; al reabrir están las 20, y lo que se envía después de cerrar falla | verde. Con el registro en una tarea aparte, como antes del paso 3b, falla; comprobado |
 | `un_evento_de_carpeta_no_bloquea_al_vigilante` | Con una escritura parada, crear un archivo en una carpeta vigilada despierta al vigilante | verde; el plan lo daba por rojo, ver «Estado» |
 
 Los verdes de hoy son las garantías que da el cerrojo; están para que el
@@ -207,7 +207,7 @@ separado.
     registro. Con la batería no se nota (35 s, igual que antes); se medirá con
     el actor y, si pesa, se compartirán partes del índice con `Arc`.
   - Al salir, una línea de registro que aún esté en su tarea puede perderse.
-    `cerrar_confirma_lo_encolado` no lo cubre (ver paso 2).
+    Resuelto en el paso 3b.
 - **Paso 2, batería** (2026-10-12). `library/tests.rs` con los nueve tests de
   la tabla: siete verdes y los dos rojos previstos, que se ejecutaron con
   `--ignored` y fallan por la causa prevista (el detalle espera al cerrojo;
@@ -244,3 +244,40 @@ separado.
   - Reabrir la misma base en un test depende de los reintentos de
     `storage::connect` mientras SurrealDB suelta el bloqueo de RocksDB; antes
     lo esperaba el `Drop` del hilo.
+- **Paso 3b, actor** (2026-10-12). `Library` es un manejador que se puede
+  clonar: envía órdenes de un `enum` tipado a una tarea que es la única dueña
+  de `Store`, y las atiende de una en una. Cada orden publica la instantánea
+  (índice y trabajos activos) antes de responder. Las lecturas que no
+  necesitan al actor (detalle de una nota, instantánea completa, contexto de
+  recetas, memoria, registro, trazas, personas, trabajos y cambios para el
+  grafo) van directas a un `Surreal<Db>` clonado, apoyadas en el índice
+  publicado cuando lo necesitan. Las funciones de lectura de la cola reciben
+  la base, no `Store`. La batería pasa entera a verde y la suite queda en 328
+  verdes y 7 ignorados.
+  Decisiones tomadas por el camino:
+  - **Un pánico dentro de una orden** se captura con `catch_unwind`. Quien
+    la envió recibe «La biblioteca falló al atender la orden», el actor
+    recarga el índice desde la base (`Store::reload`) por si el pánico lo
+    dejó a medias y publica de nuevo.
+  - **Registrar un error ya no crea una tarea**: `Library::log` encola la
+    línea al momento y no espera respuesta. Una línea de registro no toca el
+    índice ni los trabajos, así que no se republica.
+  - **`close()`** deja de aceptar órdenes, atiende las que ya estaban en
+    cola y suelta `Store`. La app lo llama al salir (`RunEvent::Exit`) con
+    `block_on` en el hilo principal. Lo que se envía después falla con «La
+    biblioteca está cerrada».
+  - **Los tests que reabren la biblioteca** llaman antes a `close()`: el
+    actor suelta `Store` en su tarea, un instante después de que el último
+    manejador desaparezca.
+  - **Los bordes del paso 4** quedan cubiertos: el arranque y la salida usan
+    `block_on` en el hilo principal, los vigilantes solo envían a un canal y
+    el resto ya era `async` o lee `index()`. Los `spawn_blocking` que quedan
+    son de E/S de ficheros.
+  Pendiente:
+  - Publicar sigue clonando el índice en cada escritura que no sea registro.
+    La suite no lo nota (36 s, igual que antes); medir con la biblioteca real
+    si la interfaz va lenta.
+  - En una ejecución de la suite falló una vez la reapertura del grafo en
+    `base_dispatch_sincroniza_ediciones_borrados_y_reconstruye_un_grafo_perdido`,
+    en la misma tanda en que fallaban los tests de la cola que aún no cerraban
+    antes de reabrir. No se ha repetido en tres ejecuciones completas.

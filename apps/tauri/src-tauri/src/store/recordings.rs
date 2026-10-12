@@ -2,22 +2,10 @@ use super::*;
 
 impl Store {
     pub async fn recording(&self, record_id: &str) -> Result<Value, String> {
-        self.database
-            .recording(record_id)
-            .await?
-            .ok_or_else(|| "Grabación no encontrada".into())
+        super::views::recording(&self.database, record_id).await
     }
     pub(super) fn recording_for_write(&self, record_id: &str) -> Result<&Recording, String> {
-        let record = self
-            .data
-            .recordings
-            .iter()
-            .find(|record| record.id == record_id)
-            .ok_or("Grabación no encontrada")?;
-        if record.status == RecordingStatus::Discarded {
-            return Err("La grabación está descartada".into());
-        }
-        Ok(record)
+        recording_for_write(&self.data, record_id)
     }
     pub fn item(&self, collection: &str, item_id: &str) -> Result<Value, String> {
         item(&self.data, collection, item_id)
@@ -25,6 +13,21 @@ impl Store {
     pub fn audio(&self, record_id: &str) -> Result<PathBuf, String> {
         audio(&self.data, &self.root, record_id)
     }
+}
+
+pub(super) fn recording_for_write<'a>(
+    data: &'a LibraryData,
+    record_id: &str,
+) -> Result<&'a Recording, String> {
+    let record = data
+        .recordings
+        .iter()
+        .find(|record| record.id == record_id)
+        .ok_or("Grabación no encontrada")?;
+    if record.status == RecordingStatus::Discarded {
+        return Err("La grabación está descartada".into());
+    }
+    Ok(record)
 }
 
 pub(super) fn item(data: &LibraryData, collection: &str, item_id: &str) -> Result<Value, String> {

@@ -157,6 +157,7 @@ export async function flujo(audio, api) {
         .install(json!({"recipes":[],"destinations":[]}))
         .await
         .unwrap();
+    store.close().await.unwrap();
     drop(scripts);
     drop(capability);
     drop(store);

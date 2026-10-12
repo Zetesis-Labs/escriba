@@ -288,6 +288,9 @@ impl Store {
         }
         Ok(())
     }
+    pub(crate) fn database(&self) -> &Persistence {
+        &self.database
+    }
     pub fn index_json(&self) -> Value {
         self.data.json()
     }
@@ -297,6 +300,7 @@ impl Store {
             .await
             .expect("No se pudo leer la biblioteca de prueba")
     }
+    #[cfg(test)]
     async fn full_data_json(&self) -> Result<Value, String> {
         self.database
             .load()
@@ -380,16 +384,29 @@ impl Store {
             }))
             .await
     }
+    #[cfg(test)]
     pub async fn log_list(&self, p: &Value) -> Result<Value, String> {
-        let query: LogQuery =
-            serde_json::from_value(p.clone()).map_err(|_| "Consulta del registro inválida")?;
-        Ok(Value::Array(self.database.log_list(query).await?))
+        log_list(&self.database, p).await
+    }
+    pub(crate) async fn reload(&mut self) -> Result<(), String> {
+        let stored = self
+            .database
+            .load_index()
+            .await?
+            .ok_or("Biblioteca sin inicializar")?;
+        self.data = LibraryIndex::from_index(LibraryData::read(&stored)?);
+        Ok(())
     }
     async fn recording_edit(&self, key: &str) -> Result<LibraryData, String> {
         let mut data = self.data.edit();
         *record_mut(&mut data, key)? = Recording::read(&self.recording(key).await?)?;
         Ok(data)
     }
+}
+pub(crate) async fn log_list(database: &Persistence, p: &Value) -> Result<Value, String> {
+    let query: LogQuery =
+        serde_json::from_value(p.clone()).map_err(|_| "Consulta del registro inválida")?;
+    Ok(Value::Array(database.log_list(query).await?))
 }
 fn empty_library() -> Value {
     json!({"schemaVersion":1,"recordings":[],"accounts":[],"resolvers":[],"recipes":[],"destinations":[],"providers":[],"settings":{}})

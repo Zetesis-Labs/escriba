@@ -1,6 +1,7 @@
 use super::*;
 
 impl Store {
+    #[cfg(test)]
     pub async fn people(&self) -> Result<Value, String> {
         self.database.people().await
     }
