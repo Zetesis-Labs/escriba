@@ -33,7 +33,7 @@ consultas SurrealQL, ambos guardables bajo Biblioteca, están aprobados en
 
 - **TypeScript:** interfaz, formularios Zod, recetas, conectores y reglas de
   procesamiento; resúmenes por partes y reducción de resultados largos.
-- **Rust:** SurrealDB/SurrealKV, cola duradera, recuperación, permisos,
+- **Rust:** SurrealDB/RocksDB, cola duradera, recuperación, permisos,
   credenciales, transporte HTTP, archivos y supervisión de procesos.
 - **Swift:** WhisperKit/SpeakerKit, FoundationModels, captura AVFoundation y
   materialización de iCloud. `EscribaNativeHost` es el adaptador nativo, no otra app.
@@ -62,14 +62,14 @@ no se ha podido leer. Preservar la lectura de datos ya guardados al actualizar.
 - Nunca publicar notas de voz reales en Notion. Las pruebas contra Notion real
   requieren un encargo de Rubén y usan audio sintético y una base de pruebas.
 - Nunca imprimir texto de notas reales en logs, salidas de comandos ni PRs. Para
-  inspeccionar datos, cerrar la app, copiar `library.surrealkv` a un temporal y
+  inspeccionar datos, cerrar la app, copiar `library.rocksdb` a un temporal y
   extraer sólo recuentos, estados e ids.
 - Credenciales en archivos privados 0600; Rust las inyecta en el transporte. El
   usuario aporta su token de Notion, sin OAuth ni backend de credenciales.
 - Las huellas biométricas permanecen en Rust y en el Mac. La interfaz obtiene
   metadatos, nombres y reconocimientos; ni recetas, conectores ni exportaciones
   reciben vectores.
-- Probar persistencia con SurrealKV real, procesos reales, servidores locales
+- Probar persistencia con RocksDB real, procesos reales, servidores locales
   falsos y audios sintéticos. No confundir una demo con validación instalada.
 - Una sección está validada cuando Rubén la confirma en pantalla. Instalar y
   avisar al terminar cada apartado; no reinstalar mientras prueba sin avisar.

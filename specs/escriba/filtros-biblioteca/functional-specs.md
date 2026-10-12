@@ -59,7 +59,7 @@ motor: SurrealDB embebida materializa las consultas antes de entregarlas al host
 La comprobación de tamaño usa un contador sin clonar ni serializar a un buffer.
 
 Se comprueba mediante el interfaz público Knowledge y el despacho existente,
-con SurrealKV y datos sintéticos: entidades base y adicionales, tipos de campo,
+con RocksDB y datos sintéticos: entidades base y adicionales, tipos de campo,
 relaciones, combinaciones, personas, versiones antiguas, referencias a la base,
 persistencia de ambos tipos de filtro, rechazo de escrituras incluso anidadas y aislamiento
 de tablas privadas. La revisión visual cubre barra lateral, filtros activos,

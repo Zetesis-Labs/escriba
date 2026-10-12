@@ -36,7 +36,7 @@ fn prepara_copia_para_medicion() {
     let directory = directory.keep();
     eprintln!(
         "PREPARED_COPY={}",
-        directory.join("library.surrealkv").display()
+        directory.join("library.rocksdb").display()
     );
 }
 
@@ -47,7 +47,7 @@ fn private_copy() -> tempfile::TempDir {
     assert!(source.is_dir(), "La copia no existe");
     let target = tempfile::tempdir().unwrap();
     fs::set_permissions(target.path(), fs::Permissions::from_mode(0o700)).unwrap();
-    let destination = target.path().join("library.surrealkv");
+    let destination = target.path().join("library.rocksdb");
     for entry in walkdir::WalkDir::new(&source) {
         let entry = entry.unwrap();
         assert!(!entry.file_type().is_symlink(), "La copia contiene enlaces");
@@ -67,7 +67,7 @@ fn mide_carga_por_fases() {
     let directory = private_copy();
     let start = Instant::now();
     measure("initial", start);
-    let database = Persistence::open(&directory.path().join("library.surrealkv")).unwrap();
+    let database = Persistence::open(&directory.path().join("library.rocksdb")).unwrap();
     measure("database_open", start);
     let data = database.load().unwrap().unwrap();
     measure("library_loaded", start);

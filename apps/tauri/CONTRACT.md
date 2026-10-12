@@ -195,8 +195,8 @@ propone una definición, el segundo exige una versión instalada compatible. El
 catálogo de candidatas se actualiza al construir/cargar un proyecto; las
 ontologías instaladas pertenecen a la biblioteca y sobreviven al cambio de
 proyecto. `knowledge_install` es una acción explícita de la UI. El esquema y los
-datos del grafo residen en `knowledge.surrealkv`, separados de
-`library.surrealkv`, con una base lógica por ID de ontología.
+datos del grafo residen en `knowledge.rocksdb`, separados de
+`library.rocksdb`, con una base lógica por ID de ontología.
 `knowledge_link` y `knowledge_attach` aceptan registros existentes solo de
 tablas enumeradas en `collections`; las consultas raw pueden acceder a otras
 tablas de esa base según sus permisos SurrealQL.

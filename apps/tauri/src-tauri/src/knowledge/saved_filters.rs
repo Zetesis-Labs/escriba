@@ -202,7 +202,7 @@ mod tests {
     #[tokio::test]
     async fn conserva_filtros_visuales_all_y_any_con_valores_tipados_y_permita_editar_y_eliminar() {
         let temp = tempfile::tempdir().unwrap();
-        let path = temp.path().join("knowledge.surrealkv");
+        let path = temp.path().join("knowledge.rocksdb");
         let knowledge = Knowledge::open(&path).await.unwrap();
         let all = knowledge.save_filter(visual("Todas", "all")).await.unwrap();
         let any = knowledge
@@ -235,7 +235,7 @@ mod tests {
     #[tokio::test]
     async fn lista_sql_antiguo_junto_a_visual_y_lo_edita_sin_cambiar_identidad() {
         let temp = tempfile::tempdir().unwrap();
-        let knowledge = Knowledge::open(&temp.path().join("knowledge.surrealkv"))
+        let knowledge = Knowledge::open(&temp.path().join("knowledge.rocksdb"))
             .await
             .unwrap();
         let id = Uuid::new_v4().to_string();
@@ -267,7 +267,7 @@ mod tests {
     #[tokio::test]
     async fn rechazos_visuales_no_alteran_filtro_ya_guardado_y_corrupcion_es_visible() {
         let temp = tempfile::tempdir().unwrap();
-        let knowledge = Knowledge::open(&temp.path().join("knowledge.surrealkv"))
+        let knowledge = Knowledge::open(&temp.path().join("knowledge.rocksdb"))
             .await
             .unwrap();
         let saved = knowledge
@@ -322,7 +322,7 @@ mod tests {
     #[tokio::test]
     async fn conserva_y_edita_filtros_al_reabrir_sin_cambiar_su_identidad() {
         let temp = tempfile::tempdir().unwrap();
-        let path = temp.path().join("knowledge.surrealkv");
+        let path = temp.path().join("knowledge.rocksdb");
         let knowledge = Knowledge::open(&path).await.unwrap();
         let saved = knowledge.save_filter(draft("  Ana  ")).await.unwrap();
         assert_eq!(saved.name, "Ana");
@@ -345,7 +345,7 @@ mod tests {
     #[tokio::test]
     async fn rechaza_consultas_con_efectos_y_conserva_los_filtros_anteriores() {
         let temp = tempfile::tempdir().unwrap();
-        let knowledge = Knowledge::open(&temp.path().join("knowledge.surrealkv"))
+        let knowledge = Knowledge::open(&temp.path().join("knowledge.rocksdb"))
             .await
             .unwrap();
         let saved = knowledge.save_filter(draft("Ana")).await.unwrap();

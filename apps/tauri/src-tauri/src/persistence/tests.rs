@@ -229,7 +229,7 @@ fn consulta_dinamica_por_parent_usa_el_indice_en_surrealdb() {
         .build()
         .unwrap();
     runtime.block_on(async {
-        let db = Surreal::new::<SurrealKv>(temp.path().to_str().unwrap()).await.unwrap();
+        let db = Surreal::new::<surrealdb::engine::local::RocksDb>(temp.path().join("plan.rocksdb")).await.unwrap();
         db.use_ns("test").use_db("index_plan").await.unwrap();
         db.query("DEFINE TABLE version SCHEMALESS; DEFINE INDEX idx_version_parent ON TABLE version FIELDS parent; CREATE version:a SET parent = 'r', position = 0, payload = {id: 'a'}; CREATE version:b SET parent = 'other', position = 1, payload = {id: 'b'}")
             .await.unwrap().check().unwrap();

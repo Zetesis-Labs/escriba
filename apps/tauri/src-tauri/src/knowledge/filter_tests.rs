@@ -3,7 +3,7 @@ use serde_json::json;
 
 async fn sample() -> (tempfile::TempDir, Knowledge) {
     let temp = tempfile::tempdir().unwrap();
-    let graph = Knowledge::open(&temp.path().join("knowledge.surrealkv"))
+    let graph = Knowledge::open(&temp.path().join("knowledge.rocksdb"))
         .await
         .unwrap();
     graph.sync_base_change(&crate::persistence::CoreChange {

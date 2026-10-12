@@ -127,14 +127,14 @@ de código ni una pantalla separada para corregir la nota.
   conservación de texto y tiempos, retirada de reconocimientos ambiguos.
 - Pruebas del controlador: guardados sucesivos, recuperación de errores,
   conflictos y confirmaciones idempotentes.
-- Pruebas con SurrealKV real: reapertura, rollback transaccional, aislamiento
+- Pruebas con RocksDB real: reapertura, rollback transaccional, aislamiento
   del borrador, conservación de versiones y huellas no ambiguas.
 - Recorrido de interfaz con notas sintéticas: corregir campos, elegir una
   persona, reasignar palabras entre intervenciones, navegar y recuperar,
   confirmar una sola versión, descartar y bloquear números inválidos.
 - Capturas comprobadas en claro, oscuro y ancho mínimo de 960 px.
 - Agrupación por hablante, selección dentro del bloque y color por persona:
-  comprobación visual sintética y persistencia con SurrealKV real.
+  comprobación visual sintética y persistencia con RocksDB real.
 
 Rubén validó la visualización y el uso en la aplicación instalada el 2026-10-11,
 incluidos los bloques consecutivos por hablante y los colores por persona.

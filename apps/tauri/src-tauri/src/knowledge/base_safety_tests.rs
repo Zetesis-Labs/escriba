@@ -44,7 +44,7 @@ async fn count(graph: &Knowledge, table: &str) -> usize {
 #[tokio::test]
 async fn base_safety_identifica_solo_personas_existentes_y_conserva_hablantes_tras_borrarlas() {
     let temp = tempfile::tempdir().unwrap();
-    let graph = Knowledge::open(&temp.path().join("knowledge.surrealkv"))
+    let graph = Knowledge::open(&temp.path().join("knowledge.rocksdb"))
         .await
         .unwrap();
     graph
@@ -113,7 +113,7 @@ async fn base_safety_identifica_solo_personas_existentes_y_conserva_hablantes_tr
 #[tokio::test]
 async fn base_safety_etiquetas_iguales_ambiguas_no_atribuyen_identidad_a_todos_los_segmentos() {
     let temp = tempfile::tempdir().unwrap();
-    let graph = Knowledge::open(&temp.path().join("knowledge.surrealkv"))
+    let graph = Knowledge::open(&temp.path().join("knowledge.rocksdb"))
         .await
         .unwrap();
     graph.sync_base_change(&person(Some("Ana"))).await.unwrap();
@@ -168,7 +168,7 @@ async fn base_safety_etiquetas_iguales_ambiguas_no_atribuyen_identidad_a_todos_l
 #[tokio::test]
 async fn base_safety_formularios_y_vinculos_no_pueden_mutar_la_ontologia_integrada() {
     let temp = tempfile::tempdir().unwrap();
-    let graph = Knowledge::open(&temp.path().join("knowledge.surrealkv"))
+    let graph = Knowledge::open(&temp.path().join("knowledge.rocksdb"))
         .await
         .unwrap();
     graph.sync_base_change(&person(Some("Ana"))).await.unwrap();
@@ -241,7 +241,7 @@ async fn base_safety_formularios_y_vinculos_no_pueden_mutar_la_ontologia_integra
 #[tokio::test]
 async fn base_safety_rechaza_extension_legada_escriba_sin_alterar_su_esquema_ni_datos() {
     let temp = tempfile::tempdir().unwrap();
-    let path = temp.path().join("knowledge.surrealkv");
+    let path = temp.path().join("knowledge.rocksdb");
     let graph = Knowledge::open(&path).await.unwrap();
     let legacy = json!({"id":"escriba","name":"Extensión anterior","version":1,"migrations":[{"version":1,"sql":"DEFINE TABLE person SCHEMAFULL PERMISSIONS FULL; DEFINE FIELD name ON person TYPE string;"}],"collections":[{"table":"person","label":"Legado","titleField":"name","fields":[{"key":"name","label":"Nombre","type":"text"}]}]});
     let before = {
@@ -271,8 +271,11 @@ async fn base_safety_rechaza_extension_legada_escriba_sin_alterar_su_esquema_ni_
     };
     let mut attempts = 0;
     let inspector = loop {
-        match Surreal::new::<SurrealKv>((path.as_path(), Config::new().user(credentials.clone())))
-            .await
+        match Surreal::new::<surrealdb::engine::local::RocksDb>((
+            path.as_path(),
+            Config::new().user(credentials.clone()),
+        ))
+        .await
         {
             Ok(db) => break db,
             Err(error) => {

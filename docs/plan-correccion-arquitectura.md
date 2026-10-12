@@ -397,7 +397,13 @@ borrado y tipado y pueden ir en paralelo con ramas separadas una vez cerrada B.
   Rubén, solo se proyecta la versión vigente (sin `derived_from`). Medido sobre
   su biblioteca: 423 → 146 → 80 MB, 199 de 199 notas proyectadas en 7 s en
   release. La base nueva vive en `_v2` y la anterior se retira con
-  `REMOVE DATABASE`; el fichero no encoge hasta reconstruirlo.
+  `REMOVE DATABASE`; con SurrealKV el fichero no encogía y hubo que
+  reconstruirlo.
+- **Motor RocksDB** (2026-10-12, ADR-0008), decidido por Rubén tras medir:
+  `storage::open` convierte biblioteca y grafo de SurrealKV a RocksDB con
+  verificación tabla a tabla y conserva el original como
+  `*.surrealkv.convertida`. Copia de Rubén: biblioteca 82 → 18 MB, grafo
+  80 → 10 MB. La batería de Rust pasa de 229 s a 38 s.
 
 ## Estado para retomar
 
@@ -415,11 +421,8 @@ Las pruebas de runtime necesitan el Bun fijado en el `PATH`
 `.build` propio de este worktree, creado en la fase E.
 
 Hecha la prueba con copias privadas: biblioteca intacta y 199 de 199 notas
-proyectadas. El `knowledge.surrealkv` de Rubén se reconstruye con
-`reconstruye_una_copia_del_grafo_sin_lo_derivado_y_sin_mostrar_contenido`
-(además `ESCRIBA_REBUILT_KNOWLEDGE`, el destino), con la app cerrada y el
-original como respaldo hasta que Rubén valide. Pendiente: validación en
-pantalla por Rubén. La prueba cubre los dos almacenes: `verifica_compatibilidad_de_copia_sin_mostrar_contenido`
+proyectadas. Las dos pruebas aceptan copias en SurrealKV y comprueban también
+su conversión a RocksDB. Pendiente: validación en pantalla por Rubén. La prueba cubre los dos almacenes: `verifica_compatibilidad_de_copia_sin_mostrar_contenido`
 (`ESCRIBA_VERIFY_LIBRARY_COPY`) para `library.surrealkv` y
 `verifica_grafo_de_copia_sin_mostrar_contenido` (además
 `ESCRIBA_VERIFY_KNOWLEDGE_COPY`) para `knowledge.surrealkv`, que es la primera

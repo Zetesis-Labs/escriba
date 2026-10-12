@@ -46,7 +46,7 @@ cargo test --manifest-path apps/tauri/src-tauri/Cargo.toml --lib \
 ```
 
 Genera audio sintético con `say`, ejecuta la receta por defecto en los procesos
-reales y reabre una biblioteca SurrealKV temporal. Exige transcripción con
+reales y reabre una biblioteca RocksDB temporal. Exige transcripción con
 segmentos y duración, título y resumen persistidos. No configura cuentas ni
 destinos, no utiliza grabaciones personales y no descarga modelos. Se excluye
 del CI ordinario porque depende de los modelos locales de Apple.

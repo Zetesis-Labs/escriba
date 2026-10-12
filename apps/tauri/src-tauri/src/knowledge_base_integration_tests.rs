@@ -94,7 +94,7 @@ async fn base_dispatch_expone_biblioteca_con_sdk_cbor_sin_declaracion_ni_datos_p
             .unwrap();
         store.mutate("version_save", &json!({"recordingId":recording,"backend":"sintetico","transcript":{"text":"Texto sintético","language":"es","segments":[{"start":0,"end":1,"text":"Texto sintético","speaker":"Ana sintética","secret":"EXTRA_PRIVADO","words":[{"start":0,"end":1,"text":"Texto","secret":"EXTRA_PRIVADO"}]}],"secret":"EXTRA_PRIVADO"},"inputs":{"token":"TOKEN_PRIVADO"},"data":{"secret":"DATO_PRIVADO"}})).unwrap();
     }
-    let graph = Knowledge::open(&temporary.path().join("knowledge.surrealkv"))
+    let graph = Knowledge::open(&temporary.path().join("knowledge.rocksdb"))
         .await
         .unwrap();
     let listed = dispatch(&graph, &store, "knowledge_list", json!({}))
@@ -185,7 +185,7 @@ async fn base_dispatch_expone_biblioteca_con_sdk_cbor_sin_declaracion_ni_datos_p
 async fn base_dispatch_sincroniza_ediciones_borrados_y_reconstruye_un_grafo_perdido() {
     let temporary = tempfile::tempdir().unwrap();
     let (store, recording) = library(temporary.path());
-    let graph_path = temporary.path().join("knowledge.surrealkv");
+    let graph_path = temporary.path().join("knowledge.rocksdb");
     let graph = Knowledge::open(&graph_path).await.unwrap();
     let epoch = graph.base_epoch().await.unwrap();
     assert_eq!(count(&page(&graph, &store, "recording").await), 1);
@@ -253,7 +253,7 @@ async fn base_dispatch_ampliacion_reutiliza_persona_y_conserva_referencia_huerfa
             "sintetico",
         )
         .unwrap();
-    let graph = Knowledge::open(&temporary.path().join("knowledge.surrealkv"))
+    let graph = Knowledge::open(&temporary.path().join("knowledge.rocksdb"))
         .await
         .unwrap();
     dispatch(

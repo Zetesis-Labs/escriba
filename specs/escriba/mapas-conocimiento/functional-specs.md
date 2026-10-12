@@ -62,7 +62,7 @@ y no se confunden con colecciones vacías.
 ## Comprobación
 
 Se prueban las consultas de grafo por el interfaz público `Knowledge` y el
-despacho del host con SurrealKV real y datos sintéticos: dirección, relaciones
+despacho del host con RocksDB real y datos sintéticos: dirección, relaciones
 paralelas y bucles, referencias en ambos sentidos, destinos ausentes,
 procedencia, paginación y rechazo de tablas privadas. En TypeScript se prueban
 las proyecciones de estructura, identidades, fusión acotada y geometría.

@@ -4,7 +4,7 @@ use serde_json::json;
 #[tokio::test]
 async fn la_base_expone_la_biblioteca_y_solo_permite_consultarla() {
     let temp = tempfile::tempdir().unwrap();
-    let graph = Knowledge::open(&temp.path().join("knowledge.surrealkv"))
+    let graph = Knowledge::open(&temp.path().join("knowledge.rocksdb"))
         .await
         .unwrap();
     let change = crate::persistence::CoreChange {
@@ -151,7 +151,7 @@ async fn has_legacy(graph: &Knowledge) -> bool {
 #[tokio::test]
 async fn la_base_anterior_con_palabras_sueltas_se_elimina_al_abrir_y_la_nueva_se_proyecta() {
     let temp = tempfile::tempdir().unwrap();
-    let path = temp.path().join("knowledge.surrealkv");
+    let path = temp.path().join("knowledge.rocksdb");
     let graph = Knowledge::open(&path).await.unwrap();
     let old = legacy(&graph).await;
     old.query("DEFINE TABLE segment SCHEMALESS; DEFINE TABLE word SCHEMALESS; DEFINE TABLE has_word TYPE RELATION IN segment OUT word SCHEMALESS; UPSERT _escriba_manifest:current SET definition = $definition, epoch = 'anterior'; FOR $i IN 0..1200 { CREATE type::record('segment', $i) SET recordingId = 'nota'; CREATE type::record('word', $i) SET recordingId = 'nota'; RELATE (type::record('segment', $i))->has_word->(type::record('word', $i)) SET recordingId = 'nota'; };")
@@ -194,7 +194,7 @@ async fn la_base_anterior_con_palabras_sueltas_se_elimina_al_abrir_y_la_nueva_se
 #[tokio::test]
 async fn una_extension_anterior_llamada_escriba_no_se_retira_ni_se_sustituye() {
     let temp = tempfile::tempdir().unwrap();
-    let path = temp.path().join("knowledge.surrealkv");
+    let path = temp.path().join("knowledge.rocksdb");
     let graph = Knowledge::open(&path).await.unwrap();
     let mut extension = base_definition();
     extension.migrations = vec![crate::knowledge::Migration {
@@ -287,7 +287,7 @@ async fn projected(graph: &Knowledge) -> Value {
 #[tokio::test]
 async fn solo_se_proyecta_la_version_vigente_y_elegir_otra_la_sustituye() {
     let temp = tempfile::tempdir().unwrap();
-    let graph = Knowledge::open(&temp.path().join("knowledge.surrealkv"))
+    let graph = Knowledge::open(&temp.path().join("knowledge.rocksdb"))
         .await
         .unwrap();
     graph
@@ -371,7 +371,7 @@ async fn solo_se_proyecta_la_version_vigente_y_elegir_otra_la_sustituye() {
 #[tokio::test]
 async fn una_proyeccion_anterior_sin_huellas_se_rehace_entera_una_vez() {
     let temp = tempfile::tempdir().unwrap();
-    let graph = Knowledge::open(&temp.path().join("knowledge.surrealkv"))
+    let graph = Knowledge::open(&temp.path().join("knowledge.rocksdb"))
         .await
         .unwrap();
     let versions = json!([version("v1", "uno")]);

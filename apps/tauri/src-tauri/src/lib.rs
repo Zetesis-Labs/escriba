@@ -27,6 +27,7 @@ mod recorder;
 mod recording;
 mod remote;
 mod scripts;
+mod storage;
 mod store;
 mod symbols;
 mod voice_registration;
@@ -1606,7 +1607,7 @@ pub fn run() {
                 let state = Arc::new(Runtime {
                     knowledge: tokio::sync::OnceCell::new(),
                     knowledge_wake: tokio::sync::Notify::new(),
-                    knowledge_path: root.join("knowledge.surrealkv"),
+                    knowledge_path: root.join("knowledge.rocksdb"),
                     store,
                     jobs,
                     scripts: scripts::Scripts::new(

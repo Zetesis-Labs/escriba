@@ -64,8 +64,8 @@ export async function flujo(audio, api) {
 
     let audio = temporary.path().join("audio-sintetico.wav");
     std::fs::write(&audio, b"audio sintetico").unwrap();
-    let library_path = temporary.path().join("library.surrealkv");
-    let knowledge_path = temporary.path().join("knowledge.surrealkv");
+    let library_path = temporary.path().join("library.rocksdb");
+    let knowledge_path = temporary.path().join("knowledge.rocksdb");
     let mut store = Store::open(library_path.clone()).unwrap();
     let recording = store.import(&audio, Some("grafo")).unwrap();
     let recording_id = recording["id"].as_str().unwrap().to_string();

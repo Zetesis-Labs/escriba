@@ -183,7 +183,7 @@ biblioteca sintética mayor de 32 MiB y comprueban que puede procesar una nota.
 Otra prueba compila un proyecto con una dependencia local de `node_modules`
 y ejecuta su receta hasta guardar una versión. La prueba de memoria usa el
 supervisor Rust real; el arnés TypeScript no simula ese supervisor.
-`Store::runtime_context` se valida con SurrealKV, conservando versiones y recibos
+`Store::runtime_context` se valida con RocksDB, conservando versiones y recibos
 de la nota elegida y excluyendo datos ajenos.
 
 ## Paridad con la biblioteca anterior
