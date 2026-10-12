@@ -27,11 +27,13 @@ fn measure(phase: &str, start: Instant) -> u64 {
     footprint
 }
 
-#[test]
+#[tokio::test]
 #[ignore = "Prepara una copia migrada privada para comparar aperturas en procesos separados"]
-fn prepara_copia_para_medicion() {
+async fn prepara_copia_para_medicion() {
     let directory = private_copy();
-    let store = Store::open_with_audio_cleanup(directory.path().into(), false).unwrap();
+    let store = Store::open_with_audio_cleanup(directory.path().into(), false)
+        .await
+        .unwrap();
     drop(store);
     let directory = directory.keep();
     eprintln!(
@@ -61,15 +63,17 @@ fn private_copy() -> tempfile::TempDir {
     target
 }
 
-#[test]
+#[tokio::test]
 #[ignore = "Sonda local con una copia privada; no muestra contenidos ni procesa notas"]
-fn mide_carga_por_fases() {
+async fn mide_carga_por_fases() {
     let directory = private_copy();
     let start = Instant::now();
     measure("initial", start);
-    let database = Persistence::open(&directory.path().join("library.rocksdb")).unwrap();
+    let database = Persistence::open(&directory.path().join("library.rocksdb"))
+        .await
+        .unwrap();
     measure("database_open", start);
-    let data = database.load().unwrap().unwrap();
+    let data = database.load().await.unwrap().unwrap();
     measure("library_loaded", start);
     let typed = LibraryData::read(&data).unwrap();
     measure("library_typed", start);
@@ -81,13 +85,15 @@ fn mide_carga_por_fases() {
     measure("database_closed", start);
 }
 
-#[test]
+#[tokio::test]
 #[ignore = "Sonda del arranque real sobre una copia privada; no procesa ni borra audio"]
-fn mide_almacen_en_reposo() {
+async fn mide_almacen_en_reposo() {
     let directory = private_copy();
     let start = Instant::now();
     measure("initial", start);
-    let store = Store::open_with_audio_cleanup(directory.path().into(), false).unwrap();
+    let store = Store::open_with_audio_cleanup(directory.path().into(), false)
+        .await
+        .unwrap();
     measure("store_open", start);
     let view = store.library();
     assert!(!view["recordings"].as_array().unwrap().is_empty());

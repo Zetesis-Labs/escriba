@@ -1,7 +1,7 @@
 use super::*;
 
 impl Store {
-    pub fn authorize_watched_folder(
+    pub async fn authorize_watched_folder(
         &mut self,
         folder_id: Option<&str>,
         path: &Path,
@@ -80,11 +80,11 @@ impl Store {
             folders.push(serde_json::from_value(folder.clone()).map_err(|_| "Carpeta inválida")?);
             folder
         };
-        self.commit(next)?;
+        self.commit(next).await?;
         Ok(redacted_folder(&saved))
     }
 
-    pub fn seed_voice_memos(&mut self, path: &Path) -> Result<bool, String> {
+    pub async fn seed_voice_memos(&mut self, path: &Path) -> Result<bool, String> {
         let settings = &self.data.settings;
         if settings.voice_memos_seeded.as_ref() == Some(&true) {
             return Ok(false);
@@ -110,7 +110,7 @@ impl Store {
                 .push(serde_json::from_value(json!({"id":id(),"path":path,"name":"Notas de Voz","style":"voiceMemos","enabled":true})).map_err(|_| "Carpeta inválida")?);
         }
         next.settings.voice_memos_seeded = true.into();
-        self.commit(next)?;
+        self.commit(next).await?;
         Ok(seeds)
     }
 
@@ -119,7 +119,7 @@ impl Store {
         watched_folder_bookmarks(&self.data)
     }
 
-    pub fn refresh_watched_folder_bookmark(
+    pub async fn refresh_watched_folder_bookmark(
         &mut self,
         folder_id: &str,
         previous: &[u8],
@@ -154,7 +154,7 @@ impl Store {
         if let Some(replacement) = replacement {
             folder.access_bookmark = json!(replacement).into();
         }
-        self.commit(next)?;
+        self.commit(next).await?;
         Ok(true)
     }
 }

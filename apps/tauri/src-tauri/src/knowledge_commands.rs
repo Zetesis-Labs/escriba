@@ -703,6 +703,7 @@ mod tests {
             .expect("Falta knowledge.key junto a la copia del grafo");
         std::fs::set_permissions(&key, std::fs::Permissions::from_mode(0o600)).unwrap();
         let store = crate::store::Store::open_with_audio_cleanup(temporary.path().into(), false)
+            .await
             .expect("La copia no se puede abrir");
         let current = store
             .data
@@ -710,7 +711,7 @@ mod tests {
             .iter()
             .filter(|recording| recording.status != crate::store::RecordingStatus::Discarded)
             .count();
-        let store = crate::library::Library::new(store).unwrap();
+        let store = crate::library::Library::new(store).await.unwrap();
         let knowledge = Knowledge::open(&temporary.path().join("knowledge.rocksdb"))
             .await
             .expect("La copia del grafo no se puede abrir");
@@ -769,10 +770,12 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let audio = temp.path().join("prueba.wav");
         std::fs::write(&audio, b"audio sintetico").unwrap();
-        let mut store = crate::store::Store::open(temp.path().join("library")).unwrap();
-        let record = store.import(&audio, None).unwrap();
-        store.mutate("version_save", &json!({"recordingId":record["id"],"backend":"test","transcript":{"text":"Sintético","segments":[]}})).unwrap();
-        let store = crate::library::Library::new(store).unwrap();
+        let mut store = crate::store::Store::open(temp.path().join("library"))
+            .await
+            .unwrap();
+        let record = store.import(&audio, None).await.unwrap();
+        store.mutate("version_save", &json!({"recordingId":record["id"],"backend":"test","transcript":{"text":"Sintético","segments":[]}})).await.unwrap();
+        let store = crate::library::Library::new(store).await.unwrap();
         let knowledge = Knowledge::open(&temp.path().join("knowledge.rocksdb"))
             .await
             .unwrap();
@@ -845,13 +848,15 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let audio = temp.path().join("prueba.wav");
         std::fs::write(&audio, b"audio sintetico").unwrap();
-        let mut store = crate::store::Store::open(temp.path().join("library")).unwrap();
-        let record = store.import(&audio, None).unwrap();
-        let version = store.mutate("version_save", &json!({"recordingId":record["id"],"backend":"test","transcript":{"text":"Sintético","segments":[]}})).unwrap();
+        let mut store = crate::store::Store::open(temp.path().join("library"))
+            .await
+            .unwrap();
+        let record = store.import(&audio, None).await.unwrap();
+        let version = store.mutate("version_save", &json!({"recordingId":record["id"],"backend":"test","transcript":{"text":"Sintético","segments":[]}})).await.unwrap();
         let ontology = json!({"id":"example","name":"Ejemplo","version":1,"migrations":[{"version":1,"sql":"DEFINE TABLE topic SCHEMAFULL PERMISSIONS FULL; DEFINE FIELD name ON topic TYPE string;"}],"collections":[{"table":"topic","label":"Temas","titleField":"name","fields":[{"key":"name","label":"Nombre","type":"text","required":true}]}]});
         let dependency = json!({"id":"example","minVersion":1,"maxVersion":1});
-        crate::catalog::install(&mut store, &json!({"recipes":[{"id":"graph","name":"Grafo","kind":"code","values":{},"bundle":"program","ontologies":[dependency]}],"destinations":[],"ontologies":[ontology]})).unwrap();
-        let store = crate::library::Library::new(store).unwrap();
+        crate::catalog::install(&mut store, &json!({"recipes":[{"id":"graph","name":"Grafo","kind":"code","values":{},"bundle":"program","ontologies":[dependency]}],"destinations":[],"ontologies":[ontology]})).await.unwrap();
+        let store = crate::library::Library::new(store).await.unwrap();
         let graph = Knowledge::open(&temp.path().join("knowledge.rocksdb"))
             .await
             .unwrap();
@@ -923,11 +928,10 @@ mod tests {
                 .len(),
             1
         );
-        crate::catalog::install(
-            &mut store.lock().unwrap(),
-            &json!({"recipes":[],"destinations":[]}),
-        )
-        .unwrap();
+        store
+            .install(json!({"recipes":[],"destinations":[]}))
+            .await
+            .unwrap();
         assert!(call(&graph, &store, "knowledge_open", params)
             .await
             .unwrap_err()
@@ -946,9 +950,10 @@ mod tests {
             Path::new(&library),
             &temporary.path().join("library.rocksdb"),
         );
-        let store =
-            crate::store::Store::open_with_audio_cleanup(temporary.path().into(), false).unwrap();
-        let store = crate::library::Library::new(store).unwrap();
+        let store = crate::store::Store::open_with_audio_cleanup(temporary.path().into(), false)
+            .await
+            .unwrap();
+        let store = crate::library::Library::new(store).await.unwrap();
         let path = temporary.path().join("knowledge.rocksdb");
         let knowledge = Knowledge::open(&path).await.unwrap();
         let started = std::time::Instant::now();

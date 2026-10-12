@@ -1641,7 +1641,12 @@ pub fn run() {
             let result: Result<(), Box<dyn std::error::Error>> = (|| {
                 let isolated_root = std::env::var_os("ESCRIBA_TAURI_DATA").map(PathBuf::from);
                 let root = isolated_root.clone().unwrap_or(app.path().app_data_dir()?);
-                let store = Store::open(root.clone()).map_err(std::io::Error::other)?;
+                let (library, jobs) = tauri::async_runtime::block_on(async {
+                    let library = library::Library::new(Store::open(root.clone()).await?).await?;
+                    let jobs = jobs::Queue::new(library.clone()).await?;
+                    Ok::<_, String>((library, Arc::new(jobs)))
+                })
+                .map_err(std::io::Error::other)?;
                 app.asset_protocol_scope()
                     .allow_directory(root.join("audio"), true)?;
                 let resource_vendor = app.path().resource_dir()?.join("vendor");
@@ -1651,11 +1656,6 @@ pub fn run() {
                     Path::new(env!("CARGO_MANIFEST_DIR")).join("vendor")
                 };
                 let engine = native::binary("EscribaNativeHost").map_err(std::io::Error::other)?;
-                let library = library::Library::new(store).map_err(std::io::Error::other)?;
-                let jobs = Arc::new(
-                    tauri::async_runtime::block_on(jobs::Queue::new(library.clone()))
-                        .map_err(std::io::Error::other)?,
-                );
                 let (watch_wake, wake) = tokio::sync::mpsc::channel(1);
                 let state = Arc::new(Runtime {
                     knowledge: tokio::sync::OnceCell::new(),

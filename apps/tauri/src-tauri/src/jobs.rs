@@ -149,17 +149,19 @@ fn parse(value: Value) -> Result<Job, String> {
 fn parse_all(values: Vec<Value>) -> Result<Vec<Job>, String> {
     values.into_iter().map(parse).collect()
 }
-fn load_active(store: &Store) -> Result<Vec<Job>, String> {
-    parse_all(store.jobs_active()?)
+async fn load_active(store: &Store) -> Result<Vec<Job>, String> {
+    parse_all(store.jobs_active().await?)
 }
-fn load_for(store: &Store, recording: &str) -> Result<Vec<Job>, String> {
-    parse_all(store.jobs_for(recording)?)
+async fn load_for(store: &Store, recording: &str) -> Result<Vec<Job>, String> {
+    parse_all(store.jobs_for(recording).await?)
 }
-fn load_one(store: &Store, id: &str) -> Result<Option<Job>, String> {
-    store.job(id)?.map(parse).transpose()
+async fn load_one(store: &Store, id: &str) -> Result<Option<Job>, String> {
+    store.job(id).await?.map(parse).transpose()
 }
-fn save(store: &mut Store, job: &Job) -> Result<(), String> {
-    store.job_save(&serde_json::to_value(job).map_err(|e| e.to_string())?)
+async fn save(store: &mut Store, job: &Job) -> Result<(), String> {
+    store
+        .job_save(&serde_json::to_value(job).map_err(|e| e.to_string())?)
+        .await
 }
 fn value(job: Job) -> Result<Value, String> {
     serde_json::to_value(job).map_err(|e| e.to_string())
@@ -171,19 +173,19 @@ pub enum Claimed {
     Empty,
 }
 
-pub(crate) fn recover(store: &mut Store) -> Result<(), String> {
-    for mut job in load_active(store)? {
+pub(crate) async fn recover(store: &mut Store) -> Result<(), String> {
+    for mut job in load_active(store).await? {
         if job.state == JobState::Running {
             job.state = JobState::Queued;
             job.stage = "Recuperando trabajo interrumpido".into();
             job.next_attempt_at = 0;
-            save(store, &job)?;
+            save(store, &job).await?;
         }
     }
     Ok(())
 }
 
-pub(crate) fn enqueue(
+pub(crate) async fn enqueue(
     store: &mut Store,
     operation: &str,
     args: Value,
@@ -202,7 +204,8 @@ pub(crate) fn enqueue(
         return Err("Restaura la grabación antes de procesarla".into());
     }
     let audio_hash = record.audio_hash.as_ref().cloned();
-    if let Some(job) = load_for(store, &recording_id)?
+    if let Some(job) = load_for(store, &recording_id)
+        .await?
         .into_iter()
         .find(Job::active)
     {
@@ -233,11 +236,12 @@ pub(crate) fn enqueue(
             result: None,
             extra: Map::new(),
         },
-    )?;
+    )
+    .await?;
     Ok((id, operation.lane()))
 }
 
-pub(crate) fn automatic(store: &mut Store) -> Result<bool, String> {
+pub(crate) async fn automatic(store: &mut Store) -> Result<bool, String> {
     let pending: Vec<_> = store
         .data
         .recordings
@@ -249,7 +253,7 @@ pub(crate) fn automatic(store: &mut Store) -> Result<bool, String> {
         .collect();
     let mut enqueued = false;
     for (id, audio_hash) in pending {
-        let handled = load_for(store, &id)?.iter().any(|job| {
+        let handled = load_for(store, &id).await?.iter().any(|job| {
             job.operation == JobOperation::ProcessRecording
                 && !job.dry_run()
                 && (job.active() || job.audio_hash == audio_hash)
@@ -260,33 +264,36 @@ pub(crate) fn automatic(store: &mut Store) -> Result<bool, String> {
                 "processRecording",
                 json!({"recordingId":id,"options":{"force":false}}),
                 true,
-            )?;
+            )
+            .await?;
             enqueued = true;
         }
     }
     Ok(enqueued)
 }
 
-pub(crate) fn claim(store: &mut Store, lane: Lane, now: i64) -> Result<Claimed, String> {
-    let mut jobs = load_active(store)?;
+pub(crate) async fn claim(store: &mut Store, lane: Lane, now: i64) -> Result<Claimed, String> {
+    let mut jobs = load_active(store).await?;
     let Some(index) = next_in_lane(&jobs, lane, now) else {
         return Ok(Claimed::Empty);
     };
     let mut job = jobs.swap_remove(index);
     if job.operation == JobOperation::ProcessRecording
         && (job.automatic || job.attempt > 0 || job.args["options"]["force"] == false)
-        && store.recording(&job.recording_id)?["accountEffectPending"] == true
+        && store.recording(&job.recording_id).await?["accountEffectPending"] == true
     {
         let message = "Revisa la operación externa antes de reprocesar esta nota manualmente";
         job.state = JobState::Failed;
         job.stage = "Error".into();
         job.error = Some(message.into());
         job.error_code = Some(ErrorCode::Failed);
-        store.mutate(
-            "recording_update",
-            &json!({"id":job.recording_id,"status":"failed","error":message}),
-        )?;
-        save(store, &job)?;
+        store
+            .mutate(
+                "recording_update",
+                &json!({"id":job.recording_id,"status":"failed","error":message}),
+            )
+            .await?;
+        save(store, &job).await?;
         return Ok(Claimed::Blocked);
     }
     job.attempt += 1;
@@ -295,16 +302,16 @@ pub(crate) fn claim(store: &mut Store, lane: Lane, now: i64) -> Result<Claimed, 
     }
     job.state = JobState::Running;
     job.stage = "Procesando".into();
-    save(store, &job)?;
+    save(store, &job).await?;
     value(job).map(Claimed::Job)
 }
 
-pub(crate) fn finish(
+pub(crate) async fn finish(
     store: &mut Store,
     id: &str,
     result: Result<Value, AppError>,
 ) -> Result<Option<Lane>, String> {
-    let Some(mut job) = load_one(store, id)? else {
+    let Some(mut job) = load_one(store, id).await? else {
         return Ok(None);
     };
     if job.state == JobState::Cancelled {
@@ -338,17 +345,18 @@ pub(crate) fn finish(
                 job.next_attempt_at = chrono::Utc::now().timestamp_millis() + seconds as i64 * 1000;
             }
             if job.operation == JobOperation::ProcessRecording && !job.dry_run() {
-                store.mutate("recording_update", &json!({"id":job.recording_id,"status":if retry { "pending" } else { "failed" },"error":error.message}))?;
+                store.mutate("recording_update", &json!({"id":job.recording_id,"status":if retry { "pending" } else { "failed" },"error":error.message})).await?;
             }
         }
     }
-    save(store, &job)?;
+    save(store, &job).await?;
     Ok(Some(job.operation.lane()))
 }
 
-pub(crate) fn stages(store: &mut Store, stages: &Value) -> Result<(), String> {
+pub(crate) async fn stages(store: &mut Store, stages: &Value) -> Result<(), String> {
     let stages = stages.as_array().ok_or("Estado de trabajos inválido")?;
-    for mut job in load_active(store)?
+    for mut job in load_active(store)
+        .await?
         .into_iter()
         .filter(|job| job.state == JobState::Running)
     {
@@ -359,16 +367,20 @@ pub(crate) fn stages(store: &mut Store, stages: &Value) -> Result<(), String> {
             let stage = store::text(stage, "stage")?;
             if job.stage != stage {
                 job.stage = stage.to_owned();
-                save(store, &job)?;
+                save(store, &job).await?;
             }
         }
     }
     Ok(())
 }
 
-pub(crate) fn cancel(store: &mut Store, recording: &str) -> Result<Cancellation, String> {
+pub(crate) async fn cancel(store: &mut Store, recording: &str) -> Result<Cancellation, String> {
     let mut cancellation = Cancellation::default();
-    for mut job in load_for(store, recording)?.into_iter().filter(Job::active) {
+    for mut job in load_for(store, recording)
+        .await?
+        .into_iter()
+        .filter(Job::active)
+    {
         cancellation.ids.push(job.id.clone());
         cancellation.inference |=
             job.state == JobState::Running && job.operation.lane() == Lane::Inference;
@@ -376,33 +388,38 @@ pub(crate) fn cancel(store: &mut Store, recording: &str) -> Result<Cancellation,
         job.error = Some("Proceso cancelado".into());
         job.error_code = Some(ErrorCode::Failed);
         job.stage = "Cancelado".into();
-        save(store, &job)?;
+        save(store, &job).await?;
         if job.operation == JobOperation::ProcessRecording && !job.dry_run() {
-            store.mutate(
-                "recording_update",
-                &json!({"id":recording,"status":"failed","error":"Proceso cancelado"}),
-            )?;
+            store
+                .mutate(
+                    "recording_update",
+                    &json!({"id":recording,"status":"failed","error":"Proceso cancelado"}),
+                )
+                .await?;
         }
     }
     Ok(cancellation)
 }
 
-pub(crate) fn busy(store: &Store, recording: &str) -> Result<bool, String> {
-    Ok(load_for(store, recording)?.iter().any(Job::active))
+pub(crate) async fn busy(store: &Store, recording: &str) -> Result<bool, String> {
+    Ok(load_for(store, recording).await?.iter().any(Job::active))
 }
 
-pub(crate) fn visible(store: &Store) -> Result<Vec<Value>, String> {
-    let mut active = load_active(store)?;
+pub(crate) async fn visible(store: &Store) -> Result<Vec<Value>, String> {
+    let mut active = load_active(store).await?;
     active.sort_by_key(|job| job.created_at);
     active.into_iter().map(value).collect()
 }
 
-pub(crate) fn history(store: &Store) -> Result<Vec<Value>, String> {
-    parse_all(store.jobs()?)?.into_iter().map(value).collect()
+pub(crate) async fn history(store: &Store) -> Result<Vec<Value>, String> {
+    parse_all(store.jobs().await?)?
+        .into_iter()
+        .map(value)
+        .collect()
 }
 
-pub(crate) fn find(store: &Store, id: &str) -> Result<Option<Job>, String> {
-    load_one(store, id)
+pub(crate) async fn find(store: &Store, id: &str) -> Result<Option<Job>, String> {
+    load_one(store, id).await
 }
 
 pub struct Queue {
@@ -646,12 +663,12 @@ mod tests {
     #[tokio::test]
     async fn publicar_otra_nota_no_espera_a_la_transcripcion() {
         let temp = tempfile::tempdir().unwrap();
-        let store = library(&temp.path().join("library"));
+        let store = library(&temp.path().join("library")).await;
         let mut ids = Vec::new();
         for name in ["una.wav", "otra.wav"] {
             let path = temp.path().join(name);
             std::fs::write(&path, name.as_bytes()).unwrap();
-            ids.push(store.lock().unwrap().import(&path, None).unwrap()["id"].clone());
+            ids.push(store.import(&path).await.unwrap()["id"].clone());
         }
         let queue = Queue::new(store.clone()).await.unwrap();
         queue
@@ -673,13 +690,13 @@ mod tests {
     #[tokio::test]
     async fn cancelar_una_publicacion_no_corta_la_inferencia_de_otra_nota() {
         let temp = tempfile::tempdir().unwrap();
-        let store = library(&temp.path().join("library"));
+        let store = library(&temp.path().join("library")).await;
         let mut ids = Vec::new();
         for name in ["una.wav", "otra.wav"] {
             let path = temp.path().join(name);
             std::fs::write(&path, name.as_bytes()).unwrap();
             ids.push(
-                store.lock().unwrap().import(&path, None).unwrap()["id"]
+                store.import(&path).await.unwrap()["id"]
                     .as_str()
                     .unwrap()
                     .to_owned(),
@@ -709,12 +726,14 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let audio = temp.path().join("synthetic.wav");
         std::fs::write(&audio, b"synthetic audio").unwrap();
-        let store = library(&temp.path().join("library"));
-        let record = store.lock().unwrap().import(&audio, None).unwrap();
+        let store = library(&temp.path().join("library")).await;
+        let record = store.import(&audio).await.unwrap();
         store
-            .lock()
-            .unwrap()
-            .mutate("account_effect_begin", &json!({"recordingId":record["id"]}))
+            .mutate(
+                "account_effect_begin".into(),
+                json!({"recordingId":record["id"]}),
+            )
+            .await
             .unwrap();
         let queue = Queue::new(store.clone()).await.unwrap();
         let job = queue
@@ -740,8 +759,8 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let audio = temp.path().join("synthetic.wav");
         std::fs::write(&audio, b"synthetic audio").unwrap();
-        let store = library(&temp.path().join("library"));
-        let record = store.lock().unwrap().import(&audio, None).unwrap();
+        let store = library(&temp.path().join("library")).await;
+        let record = store.import(&audio).await.unwrap();
         let queue = Queue::new(store.clone()).await.unwrap();
         let id = queue
             .enqueue(
@@ -752,9 +771,11 @@ mod tests {
             .unwrap();
         assert!(queue.claim(Lane::Inference).await.unwrap().is_some());
         store
-            .lock()
-            .unwrap()
-            .mutate("account_effect_begin", &json!({"recordingId":record["id"]}))
+            .mutate(
+                "account_effect_begin".into(),
+                json!({"recordingId":record["id"]}),
+            )
+            .await
             .unwrap();
         queue
             .finish(
@@ -763,12 +784,16 @@ mod tests {
             )
             .await
             .unwrap();
-        {
-            let mut guard = store.lock().unwrap();
-            let mut job = load_one(&guard, &id).unwrap().unwrap();
-            job.next_attempt_at = 0;
-            save(&mut guard, &job).unwrap();
-        }
+        let waiting = id.clone();
+        store
+            .with_store(move |store| {
+                Box::pin(async move {
+                    let mut job = load_one(store, &waiting).await.unwrap().unwrap();
+                    job.next_attempt_at = 0;
+                    save(store, &job).await.unwrap();
+                })
+            })
+            .await;
         assert!(queue.claim(Lane::Inference).await.unwrap().is_none());
         let failed = queue
             .jobs()
@@ -779,16 +804,18 @@ mod tests {
             .unwrap();
         assert_eq!(failed["state"], "failed");
     }
-    fn library(path: &std::path::Path) -> Library {
-        Library::new(Store::open(path.to_owned()).unwrap()).unwrap()
+    async fn library(path: &std::path::Path) -> Library {
+        Library::new(Store::open(path.to_owned()).await.unwrap())
+            .await
+            .unwrap()
     }
     #[tokio::test]
     async fn cancelar_tras_la_inferencia_impide_confirmar_el_resultado_y_avisar_del_exito() {
         let temp = tempfile::tempdir().unwrap();
         let audio = temp.path().join("note.wav");
         std::fs::write(&audio, b"synthetic audio").unwrap();
-        let store = library(&temp.path().join("library"));
-        let record = store.lock().unwrap().import(&audio, None).unwrap();
+        let store = library(&temp.path().join("library")).await;
+        let record = store.import(&audio).await.unwrap();
         let queue = Queue::new(store).await.unwrap();
         let id = queue
             .enqueue_automatic(record["id"].as_str().unwrap())
@@ -804,8 +831,8 @@ mod tests {
         let audio = temp.path().join("note.wav");
         std::fs::write(&audio, b"synthetic audio").unwrap();
         let root = temp.path().join("library");
-        let store = library(&root);
-        let record = store.lock().unwrap().import(&audio, None).unwrap();
+        let store = library(&root).await;
+        let record = store.import(&audio).await.unwrap();
         let queue = Queue::new(store.clone()).await.unwrap();
         let id = queue
             .enqueue(
@@ -820,7 +847,7 @@ mod tests {
         );
         drop(queue);
         drop(store);
-        let queue = Queue::new(library(&root)).await.unwrap();
+        let queue = Queue::new(library(&root).await).await.unwrap();
         let resumed = queue.claim(Lane::Inference).await.unwrap().unwrap();
         assert_eq!(resumed["id"], id);
         assert_eq!(resumed["attempt"], 2);
@@ -833,15 +860,15 @@ mod tests {
         let audio = temp.path().join("note.wav");
         std::fs::write(&audio, b"synthetic audio").unwrap();
         let root = temp.path().join("library");
-        let store = library(&root);
-        store.lock().unwrap().import(&audio, None).unwrap();
+        let store = library(&root).await;
+        store.import(&audio).await.unwrap();
         let queue = Queue::new(store.clone()).await.unwrap();
         queue.automatic().await.unwrap();
         let first = queue.claim(Lane::Inference).await.unwrap().unwrap();
         assert_eq!(first["automatic"], true);
         drop(queue);
         drop(store);
-        let queue = Queue::new(library(&root)).await.unwrap();
+        let queue = Queue::new(library(&root).await).await.unwrap();
         let resumed = queue.claim(Lane::Inference).await.unwrap().unwrap();
         assert_eq!(resumed["id"], first["id"]);
         assert_eq!(resumed["automatic"], true);
@@ -862,16 +889,20 @@ mod tests {
         let audio = temp.path().join("synthetic.wav");
         std::fs::write(&audio, b"synthetic").unwrap();
         let root = temp.path().join("library");
-        let store = library(&root);
-        let recording = store.lock().unwrap().import(&audio, None).unwrap();
-        store.lock().unwrap().job_save(&json!({
+        let store = library(&root).await;
+        let recording = store.import(&audio).await.unwrap();
+        let old = json!({
             "id":"old-job", "recordingId":recording["id"], "operation":"processRecording",
             "args":{"recordingId":recording["id"]}, "state":"retry", "stage":"Esperando al servicio",
             "attempt":1, "createdAt":1, "startedAt":1, "nextAttemptAt":i64::MAX,
             "error":"BACKEND_UNAVAILABLE: modelo ausente", "externalReceipt":{"id":"receipt"}
-        })).unwrap();
+        });
+        store
+            .with_store(move |store| Box::pin(async move { store.job_save(&old).await }))
+            .await
+            .unwrap();
         drop(store);
-        let queue = Queue::new(library(&root)).await.unwrap();
+        let queue = Queue::new(library(&root).await).await.unwrap();
         let old = queue
             .jobs()
             .await
@@ -898,12 +929,12 @@ mod tests {
     #[tokio::test]
     async fn a_waiting_service_does_not_hold_back_the_next_recording() {
         let temp = tempfile::tempdir().unwrap();
-        let store = library(&temp.path().join("library"));
+        let store = library(&temp.path().join("library")).await;
         let mut recordings = Vec::new();
         for name in ["one.wav", "two.wav"] {
             let path = temp.path().join(name);
             std::fs::write(&path, name.as_bytes()).unwrap();
-            recordings.push(store.lock().unwrap().import(&path, None).unwrap());
+            recordings.push(store.import(&path).await.unwrap());
         }
         let queue = Queue::new(store.clone()).await.unwrap();
         let first = queue
@@ -937,9 +968,8 @@ mod tests {
         );
         assert_eq!(
             store
-                .lock()
-                .unwrap()
-                .recording(recordings[0]["id"].as_str().unwrap())
+                .recording(recordings[0]["id"].as_str().unwrap().to_owned())
+                .await
                 .unwrap()["status"],
             "pending"
         );
@@ -950,8 +980,8 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let audio = temp.path().join("note.wav");
         std::fs::write(&audio, b"synthetic").unwrap();
-        let store = library(&temp.path().join("library"));
-        let record = store.lock().unwrap().import(&audio, None).unwrap();
+        let store = library(&temp.path().join("library")).await;
+        let record = store.import(&audio).await.unwrap();
         let queue = Queue::new(store.clone()).await.unwrap();
         let id = queue
             .enqueue(
@@ -967,9 +997,8 @@ mod tests {
             .unwrap();
         assert_eq!(
             store
-                .lock()
-                .unwrap()
-                .recording(record["id"].as_str().unwrap())
+                .recording(record["id"].as_str().unwrap().to_owned())
+                .await
                 .unwrap(),
             record
         );
@@ -979,18 +1008,31 @@ mod tests {
         assert_eq!(next["args"]["options"]["force"], false);
     }
 
+    async fn metadata(
+        store: &Library,
+        audio: &std::path::Path,
+        started: std::time::SystemTime,
+    ) -> Value {
+        let audio = audio.to_owned();
+        store
+            .with_store(move |store| {
+                Box::pin(async move {
+                    store
+                        .import_with_metadata(&audio, None, "Nota", started, "voiceMemos:test/1")
+                        .await
+                })
+            })
+            .await
+            .unwrap()
+    }
     #[tokio::test]
     async fn changed_audio_is_enqueued_again_after_a_completed_run() {
         let temp = tempfile::tempdir().unwrap();
         let audio = temp.path().join("note.wav");
         std::fs::write(&audio, b"first contents").unwrap();
-        let store = library(&temp.path().join("library"));
+        let store = library(&temp.path().join("library")).await;
         let started = std::time::SystemTime::now();
-        let record = store
-            .lock()
-            .unwrap()
-            .import_with_metadata(&audio, None, "Nota", started, "voiceMemos:test/1")
-            .unwrap();
+        let record = metadata(&store, &audio, started).await;
         let queue = Queue::new(store.clone()).await.unwrap();
         queue.automatic().await.unwrap();
         let job = queue.claim(Lane::Inference).await.unwrap().unwrap();
@@ -999,11 +1041,7 @@ mod tests {
             .await
             .unwrap();
         std::fs::write(&audio, b"changed contents").unwrap();
-        store
-            .lock()
-            .unwrap()
-            .import_with_metadata(&audio, None, "Nota", started, "voiceMemos:test/1")
-            .unwrap();
+        metadata(&store, &audio, started).await;
         queue.automatic().await.unwrap();
         let next = queue.claim(Lane::Inference).await.unwrap().unwrap();
         assert_eq!(next["recordingId"], record["id"]);

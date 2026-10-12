@@ -1,37 +1,37 @@
 use super::*;
 
 impl Store {
-    pub fn people(&self) -> Result<Value, String> {
-        self.database.people()
+    pub async fn people(&self) -> Result<Value, String> {
+        self.database.people().await
     }
-    pub fn known_voices(&self) -> Result<Vec<KnownVoice>, String> {
-        self.database.known_voices()
+    pub async fn known_voices(&self) -> Result<Vec<KnownVoice>, String> {
+        self.database.known_voices().await
     }
-    pub fn add_person_voice(
+    pub async fn add_person_voice(
         &self,
         name: &str,
         voice: &SpeakerVoice,
         source: &str,
     ) -> Result<(), String> {
-        self.database.add_person_voice(name, voice, source)
+        self.database.add_person_voice(name, voice, source).await
     }
-    pub fn set_person_color(&self, name: &str, color: &str) -> Result<(), String> {
-        self.database.set_person_color(name, color)
+    pub async fn set_person_color(&self, name: &str, color: &str) -> Result<(), String> {
+        self.database.set_person_color(name, color).await
     }
-    pub fn rename_person(&self, name: &str, new_name: &str) -> Result<(), String> {
-        self.database.rename_person(name, new_name)
+    pub async fn rename_person(&self, name: &str, new_name: &str) -> Result<(), String> {
+        self.database.rename_person(name, new_name).await
     }
-    pub fn remove_person_voice(&self, id: &str) -> Result<(), String> {
-        self.database.remove_person_voice(id)
+    pub async fn remove_person_voice(&self, id: &str) -> Result<(), String> {
+        self.database.remove_person_voice(id).await
     }
-    pub fn remove_person(&self, name: &str) -> Result<(), String> {
-        self.database.remove_person(name)
+    pub async fn remove_person(&self, name: &str) -> Result<(), String> {
+        self.database.remove_person(name).await
     }
     #[cfg(test)]
-    pub fn version_voices(&self, id: &str) -> Result<Vec<SpeakerVoice>, String> {
-        self.database.version_voices(id)
+    pub async fn version_voices(&self, id: &str) -> Result<Vec<SpeakerVoice>, String> {
+        self.database.version_voices(id).await
     }
-    pub fn recognize_transcription(
+    pub async fn recognize_transcription(
         &mut self,
         recording_id: &str,
         mut transcript: Value,
@@ -67,7 +67,7 @@ impl Store {
                 .as_array()
                 .is_some_and(|segments| !segments.is_empty())
         {
-            let known = self.known_voices()?;
+            let known = self.known_voices().await?;
             for recognition in recognize(&voices, &known) {
                 let occupied = transcript["segments"].as_array().is_some_and(|segments| {
                     segments

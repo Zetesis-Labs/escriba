@@ -1,9 +1,10 @@
 use super::*;
 
 impl Store {
-    pub fn recording(&self, record_id: &str) -> Result<Value, String> {
+    pub async fn recording(&self, record_id: &str) -> Result<Value, String> {
         self.database
-            .recording(record_id)?
+            .recording(record_id)
+            .await?
             .ok_or_else(|| "Grabación no encontrada".into())
     }
     pub(super) fn recording_for_write(&self, record_id: &str) -> Result<&Recording, String> {
@@ -125,7 +126,7 @@ impl Recording {
 }
 
 impl Store {
-    pub(super) fn mutate_recording(
+    pub(super) async fn mutate_recording(
         &self,
         next: &mut LibraryData,
         method: &str,
@@ -184,7 +185,7 @@ impl Store {
             #[cfg(test)]
             "recording_delete" => {
                 let key = text(p, "id")?;
-                let record = self.recording(key)?;
+                let record = self.recording(key).await?;
                 if let Some(path) = record["audioPath"].as_str() {
                     if Path::new(path).try_exists().map_err(|e| e.to_string())? {
                         *delete_after_commit = Some(self.audio(key)?);

@@ -1,25 +1,25 @@
 use super::*;
 
 impl Store {
-    pub fn jobs(&self) -> Result<Vec<Value>, String> {
-        self.database.jobs()
+    pub async fn jobs(&self) -> Result<Vec<Value>, String> {
+        self.database.jobs().await
     }
-    pub fn jobs_active(&self) -> Result<Vec<Value>, String> {
-        self.database.jobs_active()
+    pub async fn jobs_active(&self) -> Result<Vec<Value>, String> {
+        self.database.jobs_active().await
     }
-    pub fn jobs_for(&self, recording_id: &str) -> Result<Vec<Value>, String> {
-        self.database.jobs_for(recording_id)
+    pub async fn jobs_for(&self, recording_id: &str) -> Result<Vec<Value>, String> {
+        self.database.jobs_for(recording_id).await
     }
-    pub fn job(&self, id: &str) -> Result<Option<Value>, String> {
-        self.database.job(id)
+    pub async fn job(&self, id: &str) -> Result<Option<Value>, String> {
+        self.database.job(id).await
     }
-    pub fn job_save(&mut self, job: &Value) -> Result<(), String> {
+    pub async fn job_save(&mut self, job: &Value) -> Result<(), String> {
         self.recording_for_write(text(job, "recordingId")?)?;
-        self.database.save_job(job)
+        self.database.save_job(job).await
     }
     #[cfg(test)]
-    pub fn job_remove(&mut self, id: &str) -> Result<(), String> {
-        self.database.remove_job(id)
+    pub async fn job_remove(&mut self, id: &str) -> Result<(), String> {
+        self.database.remove_job(id).await
     }
     pub(super) fn memory_key(
         &self,
@@ -40,7 +40,7 @@ impl Store {
         }
         Ok(json!([recording_id, version_id, fingerprint]).to_string())
     }
-    pub fn memory_recall(
+    pub async fn memory_recall(
         &self,
         recording_id: &str,
         version_id: &str,
@@ -48,29 +48,32 @@ impl Store {
     ) -> Result<Option<Value>, String> {
         self.database
             .recall(&self.memory_key(recording_id, version_id, fingerprint)?)
+            .await
     }
-    pub fn memory_keep(
+    pub async fn memory_keep(
         &mut self,
         recording_id: &str,
         version_id: &str,
         fingerprint: &str,
         value: &Value,
     ) -> Result<(), String> {
-        self.database.keep(
-            &self.memory_key(recording_id, version_id, fingerprint)?,
-            recording_id,
-            value,
-        )
+        self.database
+            .keep(
+                &self.memory_key(recording_id, version_id, fingerprint)?,
+                recording_id,
+                value,
+            )
+            .await
     }
-    pub fn trace_save(&mut self, trace: &Value) -> Result<(), String> {
+    pub async fn trace_save(&mut self, trace: &Value) -> Result<(), String> {
         self.recording_for_write(text(trace, "recordingId")?)?;
         let mut trace = trace.clone();
         if trace["id"].as_str().is_none_or(str::is_empty) {
             trace["id"] = json!(id());
         }
-        self.database.trace_save(&trace)
+        self.database.trace_save(&trace).await
     }
-    pub fn trace_list(&self, recording_id: Option<&str>) -> Result<Vec<Value>, String> {
-        self.database.trace_list(recording_id)
+    pub async fn trace_list(&self, recording_id: Option<&str>) -> Result<Vec<Value>, String> {
+        self.database.trace_list(recording_id).await
     }
 }

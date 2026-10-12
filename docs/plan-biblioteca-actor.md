@@ -137,7 +137,7 @@ llevan `#[ignore]` hasta el paso 3 para que la suite siga en verde.
 | `leer_no_espera_a_un_commit` | Con una escritura parada, `index()` y `recording(id)` de otra nota responden en menos de 100 ms | rojo, ignorado: `index()` ya cumple; el detalle espera al cerrojo |
 | `ningun_hilo_de_tokio_se_bloquea` | Runtime `current_thread` (un solo hilo); con una escritura parada y una lectura esperando detrás, un `sleep` de 10 ms y una consulta al grafo terminan. Un vigía en otro hilo lo da por fallido a los 20 s | verde: la fachada lleva la espera al pool de `spawn_blocking`. Con la lectura síncrona falla; comprobado. Impide que el actor vuelva a bloquear |
 | `lees_lo_que_escribes_y_en_orden` | 50 retitulados encadenados sobre una nota mientras otras tres se retitulan sin parar; tras cada `await`, `index()` y `recording(id)` muestran ese título | verde |
-| `un_error_no_inutiliza_la_biblioteca` | Una orden sobre una nota que no existe y otra que entra en pánico devuelven `Err`; la siguiente funciona | rojo, ignorado: el pánico envenena el cerrojo |
+| `un_error_no_inutiliza_la_biblioteca` | Una orden sobre una nota que no existe y otra que entra en pánico devuelven `Err`; la siguiente funciona | rojo, ignorado: en el paso 2 el pánico envenenaba el cerrojo; desde el paso 3a llega a quien llamó |
 | `la_cola_no_entrega_un_trabajo_dos_veces` | 30 notas y 45 trabajos: seis reclamadores en los dos carriles, y cada transcripción terminada encola su publicación. Ningún id se entrega dos veces y nunca corren dos de la misma nota | verde |
 | `cancelar_y_terminar_a_la_vez` | 20 veces, `finish` y `cancel` simultáneos sobre un trabajo en curso: o termina y avisa, o queda cancelado; nunca las dos cosas ni ninguna, y el estado guardado coincide | verde |
 | `cerrar_confirma_lo_encolado` | 20 líneas de registro lanzadas sin esperar y se suelta el manejador; al reabrir están las 20 | verde |
@@ -226,3 +226,21 @@ separado.
   - **La cola admite un solo trabajo activo por nota**, que ya impone
     `enqueue`. Para ejercer «nunca dos de la misma nota» entre carriles, el
     test encadena publicación tras transcripción sobre la misma nota.
+- **Paso 3a, persistencia async** (2026-10-12). Primera mitad del paso 3, en
+  verde antes de meter el actor. `Persistence` envuelve un `Surreal<Db>` que
+  se puede clonar y sus métodos son `async`: desaparecen el hilo, su runtime
+  propio, el `enum Command` y el canal síncrono. `Store`, la cola
+  (`jobs.rs`) y `catalog::install` pasan a `async`. `Library` toma un
+  `tokio::sync::Mutex<Store>` con cierres `async` en lugar de
+  `spawn_blocking`, y se crea dentro del runtime: el arranque la abre con
+  `block_on` junto a la cola. Los tests que usaban `Store` pasan a
+  `#[tokio::test]`. `Library::lock()` desaparece: los tests usan los métodos
+  de `Library` y, para lo que no tiene método, `with_store`, que solo existe
+  en tests. Suite: 326 verdes y 9 ignorados.
+  Efectos intermedios, hasta el paso 3b:
+  - Un pánico dentro de una orden ya no envenena el cerrojo, porque el de
+    tokio no se envenena, pero llega a la tarea que llamó en lugar de
+    convertirse en `Err`.
+  - Reabrir la misma base en un test depende de los reintentos de
+    `storage::connect` mientras SurrealDB suelta el bloqueo de RocksDB; antes
+    lo esperaba el `Drop` del hilo.

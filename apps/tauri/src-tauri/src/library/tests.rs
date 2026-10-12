@@ -9,17 +9,15 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tokio::task::JoinSet;
 
-fn open(root: &Path) -> Library {
-    Library::new(Store::open(root.to_owned()).unwrap()).unwrap()
+async fn open(root: &Path) -> Library {
+    Library::new(Store::open(root.to_owned()).await.unwrap())
+        .await
+        .unwrap()
 }
 
 async fn reopen(root: &Path) -> Store {
     for _ in 0..400 {
-        let path = root.to_owned();
-        match tokio::task::spawn_blocking(move || Store::open(path))
-            .await
-            .unwrap()
-        {
+        match Store::open(root.to_owned()).await {
             Ok(store) => return store,
             Err(error) if error.contains("ya está abierta") => {
                 tokio::time::sleep(Duration::from_millis(25)).await
@@ -30,17 +28,19 @@ async fn reopen(root: &Path) -> Store {
     panic!("La biblioteca no se liberó al cerrarla");
 }
 
-fn notes(library: &Library, dir: &Path, count: usize) -> Vec<String> {
-    (0..count)
-        .map(|index| {
-            let audio = dir.join(format!("sintetica-{index}.wav"));
-            std::fs::write(&audio, format!("audio sintético {index}")).unwrap();
-            library.lock().unwrap().import(&audio, None).unwrap()["id"]
+async fn notes(library: &Library, dir: &Path, count: usize) -> Vec<String> {
+    let mut ids = Vec::new();
+    for index in 0..count {
+        let audio = dir.join(format!("sintetica-{index}.wav"));
+        std::fs::write(&audio, format!("audio sintético {index}")).unwrap();
+        ids.push(
+            library.import(&audio).await.unwrap()["id"]
                 .as_str()
                 .unwrap()
-                .to_owned()
-        })
-        .collect()
+                .to_owned(),
+        );
+    }
+    ids
 }
 
 async fn retitle(library: &Library, id: &str, title: &str) -> Result<Value, String> {
@@ -81,8 +81,8 @@ fn writer(library: &Library, id: &str) -> tokio::task::JoinHandle<Result<Value, 
 async fn las_escrituras_no_se_solapan() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path().join("library");
-    let library = open(&root);
-    let ids = notes(&library, temp.path(), 6);
+    let library = open(&root).await;
+    let ids = notes(&library, temp.path(), 6).await;
     let mut versions = JoinSet::new();
     let mut titles = JoinSet::new();
     for index in 0..20 {
@@ -119,7 +119,7 @@ async fn las_escrituras_no_se_solapan() {
     let published = shape(&library);
     drop(library);
     assert_eq!(
-        shape(&Library::new(reopen(&root).await).unwrap()),
+        shape(&Library::new(reopen(&root).await).await.unwrap()),
         published
     );
 }
@@ -128,8 +128,8 @@ async fn las_escrituras_no_se_solapan() {
 #[ignore = "paso 3: hoy el detalle espera al cerrojo de la escritura en curso"]
 async fn leer_no_espera_a_un_commit() {
     let temp = tempfile::tempdir().unwrap();
-    let library = open(&temp.path().join("library"));
-    let ids = notes(&library, temp.path(), 2);
+    let library = open(&temp.path().join("library")).await;
+    let ids = notes(&library, temp.path(), 2).await;
     let mut stopped = library.stop_next_write();
     let writing = writer(&library, &ids[1]);
     stopped.parked().await;
@@ -159,8 +159,8 @@ fn ningun_hilo_de_tokio_se_bloquea() {
             .unwrap();
         runtime.block_on(async {
             let temp = tempfile::tempdir().unwrap();
-            let library = open(&temp.path().join("library"));
-            let ids = notes(&library, temp.path(), 1);
+            let library = open(&temp.path().join("library")).await;
+            let ids = notes(&library, temp.path(), 1).await;
             let graph = crate::knowledge::Knowledge::open(&temp.path().join("knowledge.rocksdb"))
                 .await
                 .unwrap();
@@ -194,8 +194,8 @@ fn ningun_hilo_de_tokio_se_bloquea() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn lees_lo_que_escribes_y_en_orden() {
     let temp = tempfile::tempdir().unwrap();
-    let library = open(&temp.path().join("library"));
-    let ids = notes(&library, temp.path(), 4);
+    let library = open(&temp.path().join("library")).await;
+    let ids = notes(&library, temp.path(), 4).await;
     let stop = Arc::new(AtomicBool::new(false));
     let mut noise = JoinSet::new();
     for id in &ids[1..] {
@@ -233,8 +233,8 @@ async fn lees_lo_que_escribes_y_en_orden() {
 #[ignore = "paso 3: hoy un pánico envenena el cerrojo de la biblioteca"]
 async fn un_error_no_inutiliza_la_biblioteca() {
     let temp = tempfile::tempdir().unwrap();
-    let library = open(&temp.path().join("library"));
-    let ids = notes(&library, temp.path(), 1);
+    let library = open(&temp.path().join("library")).await;
+    let ids = notes(&library, temp.path(), 1).await;
     assert!(retitle(&library, "no-existe", "Sin nota").await.is_err());
     retitle(&library, &ids[0], "Tras el error").await.unwrap();
     library.panic_next_write();
@@ -257,8 +257,8 @@ struct Ledger {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn la_cola_no_entrega_un_trabajo_dos_veces() {
     let temp = tempfile::tempdir().unwrap();
-    let library = open(&temp.path().join("library"));
-    let ids = notes(&library, temp.path(), 30);
+    let library = open(&temp.path().join("library")).await;
+    let ids = notes(&library, temp.path(), 30).await;
     let queue = Arc::new(Queue::new(library.clone()).await.unwrap());
     for (index, id) in ids.iter().enumerate() {
         if index % 2 == 0 {
@@ -337,8 +337,8 @@ async fn la_cola_no_entrega_un_trabajo_dos_veces() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn cancelar_y_terminar_a_la_vez() {
     let temp = tempfile::tempdir().unwrap();
-    let library = open(&temp.path().join("library"));
-    let ids = notes(&library, temp.path(), 20);
+    let library = open(&temp.path().join("library")).await;
+    let ids = notes(&library, temp.path(), 20).await;
     let queue = Queue::new(library.clone()).await.unwrap();
     for note in &ids {
         let id = queue
@@ -371,7 +371,7 @@ async fn cancelar_y_terminar_a_la_vez() {
 async fn cerrar_confirma_lo_encolado() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path().join("library");
-    let library = open(&root);
+    let library = open(&root).await;
     for index in 0..20 {
         let library = library.clone();
         tokio::spawn(async move {
@@ -384,7 +384,11 @@ async fn cerrar_confirma_lo_encolado() {
         });
     }
     drop(library);
-    let lines = reopen(&root).await.log_list(&json!({"limit":100})).unwrap();
+    let lines = reopen(&root)
+        .await
+        .log_list(&json!({"limit":100}))
+        .await
+        .unwrap();
     let queued = lines
         .as_array()
         .unwrap()
@@ -401,8 +405,8 @@ async fn cerrar_confirma_lo_encolado() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn un_evento_de_carpeta_no_bloquea_al_vigilante() {
     let temp = tempfile::tempdir().unwrap();
-    let library = open(&temp.path().join("library"));
-    let ids = notes(&library, temp.path(), 1);
+    let library = open(&temp.path().join("library")).await;
+    let ids = notes(&library, temp.path(), 1).await;
     let folder = temp.path().join("vigilada");
     std::fs::create_dir(&folder).unwrap();
     let folder = folder.canonicalize().unwrap();

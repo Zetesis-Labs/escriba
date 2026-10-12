@@ -423,8 +423,11 @@ for line in sys.stdin:
         let samples = directory.path().join("samples");
         let registration = Registration::new(samples.clone(), executable.clone()).unwrap();
         let store = crate::library::Library::new(
-            crate::store::Store::open(directory.path().join("library")).unwrap(),
+            crate::store::Store::open(directory.path().join("library"))
+                .await
+                .unwrap(),
         )
+        .await
         .unwrap();
 
         let view = registration
@@ -440,13 +443,12 @@ for line in sys.stdin:
         assert!(Path::new(&analyzed).starts_with(&samples));
         assert_eq!(Path::new(&analyzed).extension().unwrap(), "wav");
         assert_eq!(fs::read_dir(&samples).unwrap().count(), 0);
-        let store = store.lock().unwrap();
-        assert_eq!(store.people().unwrap()[0]["name"], "Ana");
+        assert_eq!(store.people().await.unwrap()[0]["name"], "Ana");
         assert_eq!(
-            store.people().unwrap()[0]["voices"][0]["source"],
+            store.people().await.unwrap()[0]["voices"][0]["source"],
             "muestra de voz"
         );
-        assert!(store.snapshot().unwrap()["recordings"]
+        assert!(store.snapshot().await.unwrap()["recordings"]
             .as_array()
             .unwrap()
             .is_empty());
@@ -469,8 +471,11 @@ for line in sys.stdin:
             let samples = directory.path().join("samples");
             let registration = Registration::new(samples.clone(), executable.clone()).unwrap();
             let store = crate::library::Library::new(
-                crate::store::Store::open(directory.path().join("library")).unwrap(),
+                crate::store::Store::open(directory.path().join("library"))
+                    .await
+                    .unwrap(),
             )
+            .await
             .unwrap();
 
             let view = registration
@@ -489,14 +494,7 @@ for line in sys.stdin:
             );
             assert_eq!(fs::read(&original).unwrap(), b"audio sintetico original");
             assert_eq!(fs::read_dir(&samples).unwrap().count(), 0);
-            assert!(store
-                .lock()
-                .unwrap()
-                .people()
-                .unwrap()
-                .as_array()
-                .unwrap()
-                .is_empty());
+            assert!(store.people().await.unwrap().as_array().unwrap().is_empty());
         }
     }
 
@@ -507,8 +505,11 @@ for line in sys.stdin:
         let samples = directory.path().join("samples");
         let registration = Registration::new(samples.clone(), executable.clone()).unwrap();
         let store = crate::library::Library::new(
-            crate::store::Store::open(directory.path().join("library")).unwrap(),
+            crate::store::Store::open(directory.path().join("library"))
+                .await
+                .unwrap(),
         )
+        .await
         .unwrap();
         let active = registration.start("Ana", |_| {}).await.unwrap();
         let missing = directory.path().join("inexistente.wav");
@@ -537,8 +538,11 @@ for line in sys.stdin:
             let samples = directory.path().join("samples");
             let registration = Registration::new(samples.clone(), executable.clone()).unwrap();
             let store = crate::library::Library::new(
-                crate::store::Store::open(directory.path().join("library")).unwrap(),
+                crate::store::Store::open(directory.path().join("library"))
+                    .await
+                    .unwrap(),
             )
+            .await
             .unwrap();
 
             let view = registration
@@ -550,14 +554,7 @@ for line in sys.stdin:
             assert_eq!(original.exists(), exists);
             assert_eq!(fs::read_dir(&samples).unwrap().count(), 0);
             assert!(!directory.path().join("analysis-path").exists());
-            assert!(store
-                .lock()
-                .unwrap()
-                .people()
-                .unwrap()
-                .as_array()
-                .unwrap()
-                .is_empty());
+            assert!(store.people().await.unwrap().as_array().unwrap().is_empty());
         }
     }
 
@@ -568,8 +565,11 @@ for line in sys.stdin:
         let samples = directory.path().join("samples");
         let registration = Registration::new(samples.clone(), executable.clone()).unwrap();
         let store = crate::library::Library::new(
-            crate::store::Store::open(directory.path().join("library")).unwrap(),
+            crate::store::Store::open(directory.path().join("library"))
+                .await
+                .unwrap(),
         )
+        .await
         .unwrap();
         let fifo = directory.path().join("tuberia");
         let path = std::ffi::CString::new(fifo.as_os_str().as_encoded_bytes()).unwrap();
@@ -604,14 +604,7 @@ for line in sys.stdin:
         assert_eq!(result["state"], "failed");
         assert_eq!(fs::read(&original).unwrap(), b"audio sintetico original");
         assert_eq!(fs::read_dir(&samples).unwrap().count(), 0);
-        assert!(store
-            .lock()
-            .unwrap()
-            .people()
-            .unwrap()
-            .as_array()
-            .unwrap()
-            .is_empty());
+        assert!(store.people().await.unwrap().as_array().unwrap().is_empty());
     }
 
     #[tokio::test]
@@ -621,8 +614,11 @@ for line in sys.stdin:
         let samples = directory.path().join("samples");
         let registration = Registration::new(samples.clone(), executable.clone()).unwrap();
         let store = crate::library::Library::new(
-            crate::store::Store::open(directory.path().join("library")).unwrap(),
+            crate::store::Store::open(directory.path().join("library"))
+                .await
+                .unwrap(),
         )
+        .await
         .unwrap();
         assert_eq!(
             registration.start(" Ana ", |_| {}).await.unwrap()["state"],
@@ -635,13 +631,12 @@ for line in sys.stdin:
             .unwrap();
         assert_eq!(state["state"], "idle");
         assert_eq!(fs::read_dir(&samples).unwrap().count(), 0);
-        let store = store.lock().unwrap();
-        assert_eq!(store.people().unwrap()[0]["name"], "Ana");
+        assert_eq!(store.people().await.unwrap()[0]["name"], "Ana");
         assert_eq!(
-            store.people().unwrap()[0]["voices"][0]["source"],
+            store.people().await.unwrap()[0]["voices"][0]["source"],
             "muestra de voz"
         );
-        assert!(store.snapshot().unwrap()["recordings"]
+        assert!(store.snapshot().await.unwrap()["recordings"]
             .as_array()
             .unwrap()
             .is_empty());
@@ -699,8 +694,11 @@ for line in sys.stdin:
             let samples = directory.path().join("samples");
             let registration = Registration::new(samples.clone(), executable.clone()).unwrap();
             let store = crate::library::Library::new(
-                crate::store::Store::open(directory.path().join("library")).unwrap(),
+                crate::store::Store::open(directory.path().join("library"))
+                    .await
+                    .unwrap(),
             )
+            .await
             .unwrap();
             registration.start("Ana", |_| {}).await.unwrap();
             let result = registration
@@ -710,14 +708,7 @@ for line in sys.stdin:
             assert_eq!(result["state"], "failed");
             assert_eq!(result["message"], message);
             assert_eq!(fs::read_dir(&samples).unwrap().count(), 0);
-            assert!(store
-                .lock()
-                .unwrap()
-                .people()
-                .unwrap()
-                .as_array()
-                .unwrap()
-                .is_empty());
+            assert!(store.people().await.unwrap().as_array().unwrap().is_empty());
             assert_eq!(registration.dismiss().unwrap()["state"], "idle");
         }
     }
@@ -765,8 +756,11 @@ for line in sys.stdin:
         let samples = directory.path().join("samples");
         let registration = Registration::new(samples.clone(), executable.clone()).unwrap();
         let store = crate::library::Library::new(
-            crate::store::Store::open(directory.path().join("library")).unwrap(),
+            crate::store::Store::open(directory.path().join("library"))
+                .await
+                .unwrap(),
         )
+        .await
         .unwrap();
         registration.start("Ana", |_| {}).await.unwrap();
         let result = registration
@@ -779,13 +773,6 @@ for line in sys.stdin:
             "No se pudo sacar la huella de la muestra: Audio sintético ilegible"
         );
         assert_eq!(fs::read_dir(&samples).unwrap().count(), 0);
-        assert!(store
-            .lock()
-            .unwrap()
-            .people()
-            .unwrap()
-            .as_array()
-            .unwrap()
-            .is_empty());
+        assert!(store.people().await.unwrap().as_array().unwrap().is_empty());
     }
 }

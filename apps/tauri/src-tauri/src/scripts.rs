@@ -758,43 +758,48 @@ mod tests {
                     lease.ensure_active()?;
                     if let Some(native) = native {
                         if method == "transcribe" {
-                            let (audio, model) = {
-                                let store = store.lock().unwrap();
-                                (
-                                    store.audio(crate::store::text(&params, "recordingId")?)?,
-                                    json!(store.data.settings.whisper_model.as_ref()),
-                                )
-                            };
+                            let index = store.index();
+                            let audio = index.audio(crate::store::text(&params, "recordingId")?)?;
+                            let model = json!(index.settings.whisper_model.as_ref());
                             return native.transcribe(&audio, model, params).await;
                         }
                         if method == "summarize" || method == "ask" {
                             return native.call(&method, params).await;
                         }
                     }
-                    let mut store = store.lock().unwrap();
+                    let text = |key: &str| crate::store::text(&params, key).map(str::to_owned);
                     match method.as_str() {
-                        "runtime_context" => store.runtime_context(params["recordingId"].as_str()),
+                        "runtime_context" => {
+                            store
+                                .runtime_context(params["recordingId"].as_str().map(str::to_owned))
+                                .await
+                        }
                         "transcribe" => Ok(json!({"text":"Audio sintético","segments":[]})),
                         "recording_update" | "version_save" | "version_select"
-                        | "version_update" | "log" => store.mutate(&method, &params),
+                        | "version_update" | "log" => {
+                            store.mutate(method.clone(), params.clone()).await
+                        }
                         "memory_recall" => Ok(store
                             .memory_recall(
-                                crate::store::text(&params, "recordingId")?,
-                                crate::store::text(&params, "versionId")?,
-                                crate::store::text(&params, "fingerprint")?,
-                            )?
+                                text("recordingId")?,
+                                text("versionId")?,
+                                text("fingerprint")?,
+                            )
+                            .await?
                             .unwrap_or(Value::Null)),
                         "memory_keep" => {
-                            store.memory_keep(
-                                crate::store::text(&params, "recordingId")?,
-                                crate::store::text(&params, "versionId")?,
-                                crate::store::text(&params, "fingerprint")?,
-                                &params["value"],
-                            )?;
+                            store
+                                .memory_keep(
+                                    text("recordingId")?,
+                                    text("versionId")?,
+                                    text("fingerprint")?,
+                                    params["value"].clone(),
+                                )
+                                .await?;
                             Ok(Value::Null)
                         }
                         "trace_save" => {
-                            store.trace_save(&params)?;
+                            store.trace_save(params.clone()).await?;
                             Ok(Value::Null)
                         }
                         _ => Err(format!("Capacidad inesperada: {method}")),
@@ -829,10 +834,10 @@ mod tests {
             "Apple Intelligence no está disponible"
         );
         let library = directory.path().join("library");
-        let mut store = crate::store::Store::open(library.clone()).unwrap();
-        let recording = store.import(&audio, None).unwrap();
+        let mut store = crate::store::Store::open(library.clone()).await.unwrap();
+        let recording = store.import(&audio, None).await.unwrap();
         let recording_id = recording["id"].as_str().unwrap().to_owned();
-        let store = crate::library::Library::new(store).unwrap();
+        let store = crate::library::Library::new(store).await.unwrap();
         let capability = store_host(store.clone(), Some(native));
         let scripts = Scripts::new(crate::native::binary("escriba-runtime").unwrap());
         tokio::time::timeout(
@@ -852,8 +857,8 @@ mod tests {
         drop(capability);
         drop(store);
         tokio::task::yield_now().await;
-        let reopened = crate::store::Store::open(library).unwrap();
-        let saved = reopened.recording(&recording_id).unwrap();
+        let reopened = crate::store::Store::open(library).await.unwrap();
+        let saved = reopened.recording(&recording_id).await.unwrap();
         assert_eq!(saved["status"], "done");
         let version = &saved["versions"][0];
         assert!(version["transcript"]["text"].as_str().unwrap().len() > 20);
@@ -874,10 +879,13 @@ mod tests {
         let audio = directory.path().join("synthetic.wav");
         std::fs::write(&audio, b"synthetic audio").unwrap();
         let store = crate::library::Library::new(
-            crate::store::Store::open(directory.path().join("library")).unwrap(),
+            crate::store::Store::open(directory.path().join("library"))
+                .await
+                .unwrap(),
         )
+        .await
         .unwrap();
-        let recording = store.lock().unwrap().import(&audio, None).unwrap();
+        let recording = store.import(&audio).await.unwrap();
         let recording_id = recording["id"].as_str().unwrap().to_owned();
         let queue = crate::jobs::Queue::new(store).await.unwrap();
         let id = queue
@@ -946,12 +954,14 @@ mod tests {
         historical["versions"] = json!([{"id":"historical-version","transcript":{"text":"x".repeat(33 * 1024 * 1024),"segments":[]}}]);
         data["recordings"].as_array_mut().unwrap().push(historical);
         let directory = tempfile::tempdir().unwrap();
-        let mut store = crate::store::Store::open(directory.path().join("library")).unwrap();
+        let mut store = crate::store::Store::open(directory.path().join("library"))
+            .await
+            .unwrap();
         data["schemaVersion"] = json!(1);
-        store.replace(data.clone()).unwrap();
-        assert!(store.snapshot().unwrap().to_string().len() > MAX_FRAME as usize);
+        store.replace(data.clone()).await.unwrap();
+        assert!(store.snapshot().await.unwrap().to_string().len() > MAX_FRAME as usize);
         let library = store.root.clone();
-        let store = crate::library::Library::new(store).unwrap();
+        let store = crate::library::Library::new(store).await.unwrap();
         let capability = store_host(store.clone(), None);
         tokio::time::timeout(
             Duration::from_secs(20),
@@ -966,16 +976,13 @@ mod tests {
         .await
         .unwrap()
         .unwrap();
-        assert_eq!(
-            store.lock().unwrap().recording("r").unwrap()["status"],
-            "done"
-        );
+        assert_eq!(store.recording("r".into()).await.unwrap()["status"], "done");
         drop(scripts);
         drop(capability);
         drop(store);
         tokio::task::yield_now().await;
-        let reopened = crate::store::Store::open(library).unwrap();
-        let processed = reopened.recording("r").unwrap();
+        let reopened = crate::store::Store::open(library).await.unwrap();
+        let processed = reopened.recording("r").await.unwrap();
         assert_eq!(processed["status"], "done");
         assert_eq!(processed["versions"].as_array().unwrap().len(), 1);
         assert_eq!(
@@ -986,7 +993,7 @@ mod tests {
             processed["currentVersionId"],
             processed["versions"][0]["id"]
         );
-        let preserved = reopened.recording("other-recording").unwrap();
+        let preserved = reopened.recording("other-recording").await.unwrap();
         assert_eq!(preserved["versions"][0]["id"], "historical-version");
         assert_eq!(
             preserved["versions"][0]["transcript"]["text"]
