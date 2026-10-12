@@ -30,6 +30,8 @@ fn unavailable() -> String {
 pub struct Library {
     store: Arc<Mutex<Store>>,
     published: Arc<watch::Sender<Published>>,
+    #[cfg(test)]
+    checkpoint: Arc<Mutex<Option<Checkpoint>>>,
 }
 
 impl Library {
@@ -38,6 +40,8 @@ impl Library {
         Ok(Self {
             store: Arc::new(Mutex::new(store)),
             published: Arc::new(published),
+            #[cfg(test)]
+            checkpoint: Arc::default(),
         })
     }
 
@@ -65,8 +69,12 @@ impl Library {
     ) -> Result<R, String> {
         let store = self.store.clone();
         let published = self.published.clone();
+        #[cfg(test)]
+        let checkpoint = self.checkpoint.clone();
         tokio::task::spawn_blocking(move || {
             let mut store = store.lock().map_err(|_| unavailable())?;
+            #[cfg(test)]
+            reach(&checkpoint);
             let result = operation(&mut store);
             let state = publication(&store).map_err(|e| {
                 format!(
@@ -385,4 +393,66 @@ impl Library {
             published: &self.published,
         })
     }
+
+    pub(crate) fn stop_next_write(&self) -> Stopped {
+        let (parked, reached) = tokio::sync::oneshot::channel();
+        let (release, released) = std::sync::mpsc::channel();
+        *self.checkpoint.lock().expect("Punto de control envenenado") = Some(Checkpoint::Stop {
+            parked,
+            release: released,
+        });
+        Stopped {
+            parked: Some(reached),
+            _release: release,
+        }
+    }
+
+    pub(crate) fn panic_next_write(&self) {
+        *self.checkpoint.lock().expect("Punto de control envenenado") = Some(Checkpoint::Panic);
+    }
 }
+
+#[cfg(test)]
+enum Checkpoint {
+    Stop {
+        parked: tokio::sync::oneshot::Sender<()>,
+        release: std::sync::mpsc::Receiver<()>,
+    },
+    Panic,
+}
+
+#[cfg(test)]
+fn reach(checkpoint: &Mutex<Option<Checkpoint>>) {
+    let checkpoint = checkpoint
+        .lock()
+        .expect("Punto de control envenenado")
+        .take();
+    match checkpoint {
+        Some(Checkpoint::Stop { parked, release }) => {
+            let _ = parked.send(());
+            let _ = release.recv();
+        }
+        Some(Checkpoint::Panic) => panic!("Pánico provocado por la prueba"),
+        None => {}
+    }
+}
+
+#[cfg(test)]
+pub(crate) struct Stopped {
+    parked: Option<tokio::sync::oneshot::Receiver<()>>,
+    _release: std::sync::mpsc::Sender<()>,
+}
+
+#[cfg(test)]
+impl Stopped {
+    pub(crate) async fn parked(&mut self) {
+        if let Some(parked) = self.parked.take() {
+            parked
+                .await
+                .expect("La escritura no llegó al punto de control");
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests;
