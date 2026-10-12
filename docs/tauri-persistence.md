@@ -109,11 +109,18 @@ esa versión.
 
 La base vive en una base de datos con sufijo de formato (`_v2`). Al abrir un
 grafo anterior, la base nueva se proyecta entera en segundo plano (7 s en
-release para una biblioteca de 199 notas) y la antigua se elimina con `REMOVE DATABASE`, que
-SurrealDB 3.3 resuelve al instante y vacía después por rango. Borrarla registro
-a registro, con sus aristas, tardaba casi una hora de CPU. SurrealKV no devuelve
-espacio en disco: el fichero conserva su tamaño hasta reconstruirlo. Una base
-antigua que fuera una extensión llamada `escriba` no se toca.
+release para una biblioteca de 199 notas) y la antigua se elimina con
+`REMOVE DATABASE`. Borrarla registro a registro, con sus aristas, tardaba casi
+una hora de CPU. `REMOVE DATABASE` solo retira la definición: una tarea de
+SurrealDB borra los datos pasados 10 minutos, clave a clave, porque SurrealKV no
+ofrece borrado de rangos. SurrealKV es un LSM y borrar escribe marcas: medido
+sobre la copia de 2,2 GB, tras 25 minutos el fichero ocupaba 2,5 GB y, cerrado
+y reabierto, 2,37 GB. Para recuperar el espacio, el test ignorado
+`reconstruye_una_copia_del_grafo_sin_lo_derivado_y_sin_mostrar_contenido`
+exporta el registro y las extensiones de una copia a un grafo nuevo, compara
+definiciones y registros, redefine el acceso de recetas (la exportación oculta
+su clave) y vuelve a proyectar la base desde la biblioteca: 2.217 → 80 MB. Una
+base antigua que fuera una extensión llamada `escriba` no se toca.
 
 La base es una proyección persistida de la biblioteca. Los eventos privados de
 `recording`, `version` y `person` encolan el propietario afectado en

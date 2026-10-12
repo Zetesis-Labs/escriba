@@ -449,7 +449,7 @@ impl Knowledge {
         {
             return Err("Ya existe una extensión con el identificador reservado «escriba»; se conserva sin sustituirla por la base".into());
         }
-        db.query("DEFINE TABLE IF NOT EXISTS _escriba_manifest SCHEMALESS PERMISSIONS NONE; DEFINE TABLE IF NOT EXISTS _escriba_principal SCHEMALESS PERMISSIONS NONE; DEFINE TABLE IF NOT EXISTS _escriba_source SCHEMALESS PERMISSIONS NONE; DEFINE TABLE IF NOT EXISTS _escriba_projection SCHEMALESS PERMISSIONS NONE; DEFINE INDEX IF NOT EXISTS projection_recording ON TABLE _escriba_projection FIELDS recordingId; UPSERT _escriba_principal:runtime; DEFINE ACCESS OVERWRITE _escriba_recipe ON DB TYPE RECORD SIGNIN (RETURN _escriba_principal:runtime) DURATION FOR SESSION 1h; UPSERT _escriba_manifest:current SET definition=$definition, epoch=epoch ?? $epoch;")
+        db.query(format!("DEFINE TABLE IF NOT EXISTS _escriba_manifest SCHEMALESS PERMISSIONS NONE; DEFINE TABLE IF NOT EXISTS _escriba_principal SCHEMALESS PERMISSIONS NONE; DEFINE TABLE IF NOT EXISTS _escriba_source SCHEMALESS PERMISSIONS NONE; DEFINE TABLE IF NOT EXISTS _escriba_projection SCHEMALESS PERMISSIONS NONE; DEFINE INDEX IF NOT EXISTS projection_recording ON TABLE _escriba_projection FIELDS recordingId; UPSERT _escriba_principal:runtime; {RECIPE_ACCESS}; UPSERT _escriba_manifest:current SET definition=$definition, epoch=epoch ?? $epoch;"))
             .bind(("definition",serde_json::to_value(base_definition()).map_err(error)?)).bind(("epoch",Uuid::new_v4().to_string())).await.map_err(error)?.check().map_err(error)?;
         for collection in base_definition().collections {
             let kind = collection
