@@ -2,8 +2,8 @@
 
 Revisión del 2026-10-12 sobre `feat/filtros-biblioteca` (`1eed747`). Encargo
 de Rubén: llevar la biblioteca al patrón async correcto, con la batería de
-tests definida antes de tocar código. Este documento es ese plan. No hay
-código todavía; ver «Orden» para saber por qué.
+tests definida antes de tocar código. Este documento es ese plan; «Estado»
+recoge lo hecho en cada paso.
 
 ## Diagnóstico
 
@@ -123,30 +123,30 @@ una tarea.
 
 ## Tests antes de implementar
 
-Todos se escriben contra la interfaz de `Library` y usan el patrón de punto
-de control `#[cfg(test)]` de `knowledge/records.rs` para detener el actor
-entre calcular y confirmar. «Hoy» indica cómo salen sobre la fachada del
-paso 1.
+Todos se escriben contra la interfaz de `Library`, en `library/tests.rs`. Para
+detener una escritura usan un punto de control por instancia, solo de tests:
+`stop_next_write()` la para con la biblioteca ocupada hasta soltar el
+manejador, y `panic_next_write()` provoca un pánico en ese punto. En la
+fachada el punto está dentro del cerrojo; en el actor irá entre calcular y
+confirmar. «Hoy» indica cómo salen sobre la fachada del paso 1. Los rojos
+llevan `#[ignore]` hasta el paso 3 para que la suite siga en verde.
 
 | Test | Montaje y comprobación | Hoy |
 |---|---|---|
-| `las_escrituras_no_se_solapan` | 20 `version_save` en paralelo sobre una nota y 20 retitulados sobre otras; están todas las versiones y el índice coincide con la base | verde |
-| `leer_no_espera_a_un_commit` | Con el actor parado antes del commit, `index()` y `recording(id)` responden en menos de 100 ms | rojo |
-| `ningun_hilo_de_tokio_se_bloquea` | Runtime `current_thread` (un solo hilo); con el actor parado, un `sleep` de 10 ms y una consulta al grafo terminan | verde con la fachada, que lleva la espera al pool de `spawn_blocking`; rojo con el código actual. Impide que el actor vuelva a bloquear |
-| `lees_lo_que_escribes_y_en_orden` | Una tarea encadena 50 órdenes; tras cada `await`, `index()` refleja exactamente esa orden | verde |
-| `un_error_no_inutiliza_la_biblioteca` | Una orden que viola una restricción y otra que entra en pánico devuelven `Err`; la siguiente funciona | rojo (pánico envenena) |
-| `la_cola_no_entrega_un_trabajo_dos_veces` | `claim` concurrente desde los dos carriles con 30 trabajos; ningún id repetido y nunca dos de la misma nota a la vez | verde |
-| `cancelar_y_terminar_a_la_vez` | `finish` y `cancel` simultáneos: o queda cancelado sin aviso de éxito o terminado, nunca las dos cosas | verde |
-| `cerrar_confirma_lo_encolado` | 20 órdenes encoladas y cierre inmediato; al reabrir están las 20 | verde |
-| `un_evento_de_carpeta_no_bloquea_al_vigilante` | Con el actor parado, el callback de `notify` vuelve en menos de 10 ms | rojo |
+| `las_escrituras_no_se_solapan` | 20 `version_save` en paralelo sobre una nota y 20 retitulados sobre otras cinco; están las 20 versiones y el índice publicado coincide con la base al reabrir | verde |
+| `leer_no_espera_a_un_commit` | Con una escritura parada, `index()` y `recording(id)` de otra nota responden en menos de 100 ms | rojo, ignorado: `index()` ya cumple; el detalle espera al cerrojo |
+| `ningun_hilo_de_tokio_se_bloquea` | Runtime `current_thread` (un solo hilo); con una escritura parada y una lectura esperando detrás, un `sleep` de 10 ms y una consulta al grafo terminan. Un vigía en otro hilo lo da por fallido a los 20 s | verde: la fachada lleva la espera al pool de `spawn_blocking`. Con la lectura síncrona falla; comprobado. Impide que el actor vuelva a bloquear |
+| `lees_lo_que_escribes_y_en_orden` | 50 retitulados encadenados sobre una nota mientras otras tres se retitulan sin parar; tras cada `await`, `index()` y `recording(id)` muestran ese título | verde |
+| `un_error_no_inutiliza_la_biblioteca` | Una orden sobre una nota que no existe y otra que entra en pánico devuelven `Err`; la siguiente funciona | rojo, ignorado: el pánico envenena el cerrojo |
+| `la_cola_no_entrega_un_trabajo_dos_veces` | 30 notas y 45 trabajos: seis reclamadores en los dos carriles, y cada transcripción terminada encola su publicación. Ningún id se entrega dos veces y nunca corren dos de la misma nota | verde |
+| `cancelar_y_terminar_a_la_vez` | 20 veces, `finish` y `cancel` simultáneos sobre un trabajo en curso: o termina y avisa, o queda cancelado; nunca las dos cosas ni ninguna, y el estado guardado coincide | verde |
+| `cerrar_confirma_lo_encolado` | 20 líneas de registro lanzadas sin esperar y se suelta el manejador; al reabrir están las 20 | verde |
+| `un_evento_de_carpeta_no_bloquea_al_vigilante` | Con una escritura parada, crear un archivo en una carpeta vigilada despierta al vigilante | verde; el plan lo daba por rojo, ver «Estado» |
 
 Los verdes de hoy son las garantías que da el cerrojo; están para que el
 actor no las pierda. Los rojos son lo que el actor aporta.
 
 ## Orden
-
-Ningún test de la tabla compila todavía, porque `Library` no existe. Por eso
-este commit es solo el plan.
 
 1. **Fachada.** Crear `Library` con su interfaz async sobre el
    `Mutex<Store>` actual (`spawn_blocking` por dentro) y mover a ella todas
@@ -157,10 +157,11 @@ este commit es solo el plan.
    previstos; si sale otro, se entiende antes de seguir.
 3. **Actor.** Sustituir el interior de la fachada: actor, instantánea, lectura
    directa, cola como mensajes, borrar el hilo de persistencia y pasar los
-   métodos de `Store` a `async`. Convertir a `#[tokio::test]` los tests que
+   métodos de `Store` a `async`. Añadir `close()` y llamarlo al salir de la
+   app, con su test. Convertir a `#[tokio::test]` los tests que
    usan `Store` directamente: 82 en `store/tests.rs`, 15 en `jobs.rs`, 9 en
    `catalog.rs`, 4 en `store/knowledge.rs` y 3 en `store/measurement.rs`.
-   La batería pasa a verde.
+   Quitar los `#[ignore]` de la batería, que pasa a verde.
 4. **Bordes.** Vigilantes, arranque y capacidad de recetas según la tabla de
    bordes.
 5. **Cierre.** ADR-0009 con la decisión, nota en el plan de corrección,
@@ -206,4 +207,22 @@ separado.
     registro. Con la batería no se nota (35 s, igual que antes); se medirá con
     el actor y, si pesa, se compartirán partes del índice con `Arc`.
   - Al salir, una línea de registro que aún esté en su tarea puede perderse.
-    El test `cerrar_confirma_lo_encolado` tiene que cubrirla.
+    `cerrar_confirma_lo_encolado` no lo cubre (ver paso 2).
+- **Paso 2, batería** (2026-10-12). `library/tests.rs` con los nueve tests de
+  la tabla: siete verdes y los dos rojos previstos, que se ejecutaron con
+  `--ignored` y fallan por la causa prevista (el detalle espera al cerrojo;
+  tras el pánico la biblioteca responde «No se pudo acceder a la
+  biblioteca»). Suite: 326 verdes y 9 ignorados.
+  Lo que no salió como preveía el plan:
+  - **El vigilante ya cumplía.** Los dos callbacks de `notify`
+    (`watcher.rs` y `project_watch.rs`) solo envían a un canal, y la
+    biblioteca la atiende una tarea: es el puente que pedía la tabla de
+    bordes. El test queda como guarda para que el callback no llegue a la
+    biblioteca.
+  - **Cerrar aún no existe.** La fachada no tiene `close()`, así que el test
+    suelta el manejador: comprueba que nada de lo lanzado se pierde mientras
+    el runtime sigue vivo. No cubre la salida del proceso, donde el runtime
+    se cancela con tareas sin empezar; eso exige `close()` en el paso 3.
+  - **La cola admite un solo trabajo activo por nota**, que ya impone
+    `enqueue`. Para ejercer «nunca dos de la misma nota» entre carriles, el
+    test encadena publicación tras transcripción sobre la misma nota.
