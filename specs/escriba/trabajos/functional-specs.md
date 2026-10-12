@@ -164,3 +164,16 @@ o en la vista de la nota.
 - **Supuesto:** el error completo se despliega en la propia fila.
 - **Requisito derivado:** hoy un trabajo no guarda con qué receta se ejecutó.
   Filtrar por receta exige que lo guarde al encolarse.
+- **Supuesto:** la receta se guarda al encolar y se actualiza cuando el
+  trabajo empieza a ejecutarse, para que el historial muestre la que de verdad
+  se usó si la nota cambió de receta mientras esperaba.
+- **Supuesto:** las pruebas de receta que se lanzan desde Recetas aparecen
+  como «Prueba de la receta X», y relanzarlas repite la prueba con la misma
+  receta, sin crear versión ni publicar.
+- **Supuesto:** el repaso diario se comprueba cada hora con el reloj del Mac,
+  para que un Mac dormido no lo retrase; borra en cuanto han pasado 24 horas
+  desde el anterior.
+- **Consecuencia:** la primera vez que se abre la app con esta sección, el
+  repaso borra los trabajos terminados de hace más de 7 días, antes de que se
+  pueda elegir otro plazo. Los trabajos guardados antes de esta versión no
+  tienen hora de final y se datan por su creación.
