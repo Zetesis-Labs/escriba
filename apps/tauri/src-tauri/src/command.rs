@@ -17,6 +17,7 @@ pub enum AppCommand {
     RuntimeJobs(Untyped),
     RuntimeHistory(crate::jobs::HistoryQuery),
     RuntimeCancel(Untyped),
+    RuntimeRelaunch(crate::jobs::RelaunchParams),
     Log(Untyped),
     LogList(Untyped),
     MemoryRecall(Untyped),
@@ -245,6 +246,7 @@ fn app_policy(command: &AppCommand) -> Policy {
         | ResolverTry(_)
         | WhisperModel(_) => UI_READ,
         RuntimeCancel(_)
+        | RuntimeRelaunch(_)
         | ImportAudio(_)
         | RecordingDiscard(_)
         | RecordingRemoveAudio(_)
@@ -344,6 +346,7 @@ mod tests {
             "knowledge_filter_save" => json!({"filter":{"name":"F","filter":filter}}),
             "knowledge_filter_remove" => json!({"id":"f"}),
             "runtime_history" => json!({"limit":100}),
+            "runtime_relaunch" => json!({"id":"j"}),
             _ => json!({}),
         }
     }

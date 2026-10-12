@@ -68,6 +68,7 @@ export function cancelProcessing(recordingId: string) {
   return call<void>("runtime_cancel", { recordingId });
 }
 export const jobHistory = (query: HistoryQuery) => call<HistoryPage>("runtime_history", query);
+export const relaunchJob = (id: string) => call<{ id: string }>("runtime_relaunch", { id });
 export const getJobs = () => jobs.map((job) => ({ ...job }));
 export function subscribeJobs(
   listener: () => void,

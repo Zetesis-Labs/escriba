@@ -44,6 +44,8 @@ export function jobKind(job: Job, destinations: { id: string; name: string }[]) 
   if (job.operation === "summarizeRecording") return "Resumir a mano";
   if (job.operation === "publishRecording") return `Publicar en ${destinationName(job, destinations)}`;
   if (job.operation === "unpublishRecording") return `Retirar de ${destinationName(job, destinations)}`;
+  const dryRun = (job.args as { options?: { dryRun?: unknown } } | null)?.options?.dryRun === true;
+  if (dryRun) return job.recipe ? `Prueba de la receta ${job.recipe.name}` : "Prueba de receta";
   return job.recipe ? `Receta ${job.recipe.name}` : "Procesar";
 }
 
@@ -75,6 +77,7 @@ export function jobTimes(job: Job, now: Date, timeZone?: string) {
 export function jobActions(job: Job) {
   return {
     cancel: job.state in activeRank,
+    relaunch: job.state === "failed" || job.state === "cancelled",
     error: job.state === "failed" && Boolean(job.error),
   };
 }

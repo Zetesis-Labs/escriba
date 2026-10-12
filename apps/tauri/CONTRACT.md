@@ -108,6 +108,7 @@ incierto y se ofrece reintentar, sin inferir el resultado del texto del error.
 - runtime_jobs -> Job[] (pendientes, activos y en espera de reintento). Cada trabajo de procesar guarda la receta con la que se encoló y la actualiza al empezar; `startedAt` es cuándo empezó a ejecutarse y `finishedAt` cuándo terminó, falló o se canceló.
 - runtime_history {before?,state?,recipeId?,operation?,limit} -> HistoryPage {jobs,recipes,next}; solo trabajos terminados, fallidos o cancelados, del final más reciente al más antiguo. `next` es el cursor de la página siguiente o null; `recipes` son las recetas que aparecen en el historial.
 - runtime_cancel {recordingId} -> void; revoca capacidades y termina la receta.
+- runtime_relaunch {id} -> {id}; encola un trabajo nuevo a partir de uno fallido o cancelado y conserva el original. Procesar reprocesa con la receta vigente de la nota (`force: true`); una prueba de receta y las acciones manuales repiten sus argumentos. Se rechaza si la nota ya tiene un trabajo activo o un efecto externo incierto pendiente.
 - recording_status -> {active,clock,recipeName,levels,problem} del panel de captura.
 - project_install {recipes,destinations,providers,ontologies?} -> void; actualización transaccional del catálogo y de las ontologías candidatas, sin instalar ontologías ni conceder acceso a cuentas.
 - knowledge_candidates -> Ontologia[] propuestas por el proyecto vigente; knowledge_list -> Ontologia[] instaladas en la biblioteca.

@@ -369,6 +369,11 @@ async fn dispatch_app(
                 cancel_recording(app, state, text(&p, "recordingId")?).await?;
                 Ok(Value::Null)
             }
+            AppCommand::RuntimeRelaunch(params) => {
+                let id = state.jobs.relaunch(&params.id).await?;
+                emit_jobs(app, state);
+                Ok(json!({ "id": id }))
+            }
             AppCommand::RecordingDiscard(Untyped(p)) => {
                 cancel_recording(app, state, text(&p, "id")?).await?;
                 state.library.mutate(method.to_owned(), p).await

@@ -82,6 +82,7 @@ describe("historial de trabajos", () => {
   it("nombra la receta o la acción manual con su destino", () => {
     const destinations = [{ id: "notion", name: "Notion" }];
     expect(jobKind(job("a"), destinations)).toBe("Receta Resumen");
+    expect(jobKind(job("t", { args: { recordingId: "x", options: { recipeId: "resumen", dryRun: true } } }), destinations)).toBe("Prueba de la receta Resumen");
     expect(jobKind(job("b", { operation: "summarizeRecording", recipe: null }), destinations)).toBe("Resumir a mano");
     expect(jobKind(job("c", { operation: "publishRecording", recipe: null, args: { recordingId: "x", destinationId: "notion" } }), destinations)).toBe("Publicar en Notion");
     expect(jobKind(job("d", { operation: "unpublishRecording", recipe: null, args: { recordingId: "x", destinationId: "notion" } }), destinations)).toBe("Retirar de Notion");
@@ -89,12 +90,12 @@ describe("historial de trabajos", () => {
   });
 
   it("ofrece cada acción solo donde aplica", () => {
-    expect(jobActions(job("a"))).toEqual({ cancel: true, error: false });
-    expect(jobActions(job("b", { state: "running" }))).toEqual({ cancel: true, error: false });
-    expect(jobActions(job("c", { state: "retry", error: "429" }))).toEqual({ cancel: true, error: false });
-    expect(jobActions(job("d", { state: "failed", error: "Resumen vacío" }))).toEqual({ cancel: false, error: true });
-    expect(jobActions(job("e", { state: "cancelled", error: "Proceso cancelado" }))).toEqual({ cancel: false, error: false });
-    expect(jobActions(job("f", { state: "succeeded" }))).toEqual({ cancel: false, error: false });
+    expect(jobActions(job("a"))).toEqual({ cancel: true, relaunch: false, error: false });
+    expect(jobActions(job("b", { state: "running" }))).toEqual({ cancel: true, relaunch: false, error: false });
+    expect(jobActions(job("c", { state: "retry", error: "429" }))).toEqual({ cancel: true, relaunch: false, error: false });
+    expect(jobActions(job("d", { state: "failed", error: "Resumen vacío" }))).toEqual({ cancel: false, relaunch: true, error: true });
+    expect(jobActions(job("e", { state: "cancelled", error: "Proceso cancelado" }))).toEqual({ cancel: false, relaunch: true, error: false });
+    expect(jobActions(job("f", { state: "succeeded" }))).toEqual({ cancel: false, relaunch: false, error: false });
   });
 
   it("filtra por las recetas del historial y por las tres acciones manuales", () => {
