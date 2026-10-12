@@ -305,16 +305,24 @@ async fn combina_identidades_de_notas_y_falla_visiblemente_sin_escribir() {
 }
 
 #[tokio::test]
-async fn la_version_vigente_corregida_conserva_su_correspondencia_por_derivacion() {
+async fn la_version_anterior_no_esta_en_el_grafo() {
     let (_temp, graph) = sample().await;
     assert_eq!(
         graph
-            .filter_notes(sql("escriba", "SELECT VALUE id FROM derived_from"))
+            .query(
+                "escriba",
+                1,
+                "SELECT VALUE versionId FROM version; SELECT VALUE text FROM segment",
+                json!({})
+            )
             .await
-            .unwrap()
-            .recording_ids,
-        vec!["audio"]
+            .unwrap(),
+        vec![json!(["v2"]), json!(["Vigente"])]
     );
+    assert!(graph
+        .filter_notes(sql("escriba", "SELECT VALUE id FROM derived_from"))
+        .await
+        .is_err());
 }
 
 #[tokio::test]

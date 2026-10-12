@@ -112,7 +112,6 @@ pub fn base_definition() -> Ontology {
             "transcript",
         ),
         ("identified_as", "Asignado a persona", "speaker", "person"),
-        ("derived_from", "Corregida desde", "version", "version"),
     ] {
         collections.push(Collection {
             table: table.into(),
@@ -223,9 +222,17 @@ fn project_units(change: &CoreChange) -> Result<Vec<Unit>, String> {
         return Err("Identidad de proyección incoherente".into());
     }
     let recording = RecordId::new("recording", change.id.clone());
+    let versions = value["versions"]
+        .as_array()
+        .ok_or("Versiones de proyección inválidas")?;
+    let active = versions
+        .iter()
+        .find(|version| version["id"] == value["currentVersionId"])
+        .or_else(|| versions.last());
+    let active_id = active.map(|version| text(version, "id")).transpose()?;
     let mut rows = Projection::new();
     let mut data = object(value, &["title", "createdAt", "duration", "status"]);
-    if let Some(current) = value["currentVersionId"].as_str() {
+    if let Some(current) = active_id {
         data.insert(
             "currentVersion",
             identity(
@@ -243,14 +250,11 @@ fn project_units(change: &CoreChange) -> Result<Vec<Unit>, String> {
             "createdAt": value["createdAt"],
             "duration": value["duration"],
             "status": value["status"],
-            "currentVersionId": value["currentVersionId"],
+            "currentVersionId": active_id,
         })),
         rows,
     }];
-    for version in value["versions"]
-        .as_array()
-        .ok_or("Versiones de proyección inválidas")?
-    {
+    if let Some(version) = active {
         let version_id = text(version, "id")?.to_owned();
         let titled = version["title"].is_string() || version["digest"]["title"].is_string();
         let mut rows = project_version(change, value, &recording, version)?;
@@ -312,18 +316,6 @@ fn project_version(
         vid.clone(),
         &change.id,
     );
-    if let Some(source) = version["sourceVersionId"].as_str() {
-        edge(
-            &mut rows,
-            "derived_from",
-            vid.clone(),
-            identity(
-                "version",
-                vec![change.id.clone().into_value(), source.into_value()],
-            ),
-            &change.id,
-        );
-    }
     let Some(transcript) = version.get("transcript").filter(|value| value.is_object()) else {
         return Ok(rows);
     };
