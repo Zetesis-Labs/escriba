@@ -8,7 +8,7 @@ import type { RecipeRef } from "../generated/RecipeRef";
 import { displayTitle } from "../library/RecordingRow";
 import { Button, ContentUnavailable, PopupButton } from "../mac/controls";
 import { alertMessage, errorText } from "../mac/native";
-import { cancelProcessing, jobHistory } from "../runtime";
+import { cancelProcessing, jobHistory, relaunchJob } from "../runtime";
 import type { Snapshot } from "../types";
 import "./jobs.css";
 
@@ -87,6 +87,7 @@ function JobRow({ job, title, kind, now, onOpen }: { job: Job; title: string; ki
   const actions = jobActions(job);
   const times = jobTimes(job, now);
   const cancel = () => void cancelProcessing(job.recordingId).catch((failure) => alertMessage("Trabajos", errorText(failure)));
+  const relaunch = () => void relaunchJob(job.id).catch((failure) => alertMessage("No se pudo volver a lanzar", errorText(failure)));
   return (
     <div className="job-row">
       <StateIcon job={job} />
@@ -116,6 +117,11 @@ function JobRow({ job, title, kind, now, onOpen }: { job: Job; title: string; ki
         {actions.error && (
           <Button small onClick={() => setExpanded(!expanded)}>
             {expanded ? "Ocultar error" : "Ver error"}
+          </Button>
+        )}
+        {actions.relaunch && (
+          <Button small onClick={relaunch}>
+            Relanzar
           </Button>
         )}
         <Button small onClick={onOpen}>

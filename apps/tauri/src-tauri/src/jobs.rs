@@ -201,6 +201,12 @@ pub struct HistoryQuery {
     pub limit: usize,
 }
 
+#[derive(Debug, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct RelaunchParams {
+    pub id: String,
+}
+
 #[derive(Debug, Serialize, TS)]
 pub struct HistoryPage {
     pub jobs: Vec<Job>,
@@ -564,6 +570,36 @@ pub(crate) async fn cancel(store: &mut Store, recording: &str) -> Result<Cancell
     Ok(cancellation)
 }
 
+pub fn relaunch_args(job: &Job) -> Value {
+    if job.operation == JobOperation::ProcessRecording && !job.dry_run() {
+        json!({"recordingId":job.recording_id,"options":{"force":true}})
+    } else {
+        job.args.clone()
+    }
+}
+
+pub(crate) async fn relaunch(store: &mut Store, id: &str) -> Result<(String, Lane), String> {
+    let job = load_one(store.database(), id)
+        .await?
+        .ok_or("Trabajo desconocido")?;
+    if !matches!(job.state, JobState::Failed | JobState::Cancelled) {
+        return Err("Solo se pueden volver a lanzar trabajos fallidos o cancelados".into());
+    }
+    if store.recording(&job.recording_id).await?["accountEffectPending"] == true {
+        return Err(
+            "Revisa la operación externa de esta nota antes de volver a lanzar el trabajo".into(),
+        );
+    }
+    let operation = json!(job.operation);
+    enqueue(
+        store,
+        operation.as_str().ok_or("Operación no encolable")?,
+        relaunch_args(&job),
+        false,
+    )
+    .await
+}
+
 pub(crate) async fn busy(database: &Persistence, recording: &str) -> Result<bool, String> {
     Ok(load_for(database, recording).await?.iter().any(Job::active))
 }
@@ -691,6 +727,12 @@ impl Queue {
         self.library.job_stages(stages.clone()).await?;
         self.changed.notify_waiters();
         Ok(())
+    }
+    pub async fn relaunch(&self, id: &str) -> Result<String, String> {
+        let (id, lane) = self.library.relaunch_job(id.to_owned()).await?;
+        self.wake(lane);
+        self.changed.notify_waiters();
+        Ok(id)
     }
     pub async fn cancel(&self, recording: &str) -> Result<Cancellation, String> {
         let cancellation = self.library.cancel_jobs(recording.to_owned()).await?;
@@ -1544,6 +1586,177 @@ mod tests {
         let cancelled = history(&queue).await.remove(0);
         assert_eq!(cancelled.state, JobState::Cancelled);
         assert!(cancelled.finished_at.is_some());
+        assert!(queue.visible().as_array().unwrap().is_empty());
+    }
+
+    #[test]
+    fn relanzar_procesar_reprocesa_con_la_receta_de_la_nota_y_lo_demas_se_repite() {
+        let mut process = job(
+            "p",
+            "nota",
+            JobOperation::ProcessRecording,
+            JobState::Failed,
+            1,
+        );
+        process.args = json!({"recordingId":"nota","options":{"recipeId":"vieja","values":{"a":1},"force":false}});
+        assert_eq!(
+            relaunch_args(&process),
+            json!({"recordingId":"nota","options":{"force":true}})
+        );
+        let mut test = process.clone();
+        test.args = json!({"recordingId":"nota","options":{"recipeId":"nueva","dryRun":true}});
+        assert_eq!(relaunch_args(&test), test.args);
+        let mut publish = job(
+            "u",
+            "nota",
+            JobOperation::PublishRecording,
+            JobState::Cancelled,
+            1,
+        );
+        publish.args = json!({"recordingId":"nota","destinationId":"notion"});
+        assert_eq!(relaunch_args(&publish), publish.args);
+        let mut summary = job(
+            "s",
+            "nota",
+            JobOperation::SummarizeRecording,
+            JobState::Failed,
+            1,
+        );
+        summary.args = json!({"recordingId":"nota","llm":"remoto"});
+        assert_eq!(relaunch_args(&summary), summary.args);
+    }
+
+    async fn failed_job(queue: &Queue, operation: &str, args: Value) -> String {
+        let id = queue.enqueue(operation, args).await.unwrap();
+        let lane = if operation == "publishRecording" {
+            Lane::Io
+        } else {
+            Lane::Inference
+        };
+        queue.claim(lane).await.unwrap().unwrap();
+        queue
+            .finish(&id, Err(AppError::new(ErrorCode::Failed, "Resumen vacío")))
+            .await
+            .unwrap();
+        id
+    }
+
+    #[tokio::test]
+    async fn relanzar_un_fallido_encola_otro_y_conserva_el_original() {
+        let temp = tempfile::tempdir().unwrap();
+        let audio = temp.path().join("note.wav");
+        std::fs::write(&audio, b"synthetic audio").unwrap();
+        let store = library(&temp.path().join("library")).await;
+        let record = store.import(&audio).await.unwrap();
+        let queue = Queue::new(store.clone()).await.unwrap();
+        let original = failed_job(
+            &queue,
+            "processRecording",
+            json!({"recordingId":record["id"],"options":{"recipeId":"default","force":true}}),
+        )
+        .await;
+        let relaunched = queue.relaunch(&original).await.unwrap();
+        assert_ne!(relaunched, original);
+        let active = queue.visible();
+        assert_eq!(active[0]["id"], relaunched);
+        assert_eq!(active[0]["state"], "queued");
+        assert_eq!(active[0]["automatic"], false);
+        assert_eq!(
+            active[0]["args"],
+            json!({"recordingId":record["id"],"options":{"force":true}})
+        );
+        assert_eq!(active[0]["recipe"]["id"], "default");
+        let kept = history(&queue).await;
+        assert_eq!(kept.len(), 1);
+        assert_eq!(kept[0].id, original);
+        assert_eq!(kept[0].state, JobState::Failed);
+        assert_eq!(kept[0].error.as_deref(), Some("Resumen vacío"));
+    }
+
+    #[tokio::test]
+    async fn solo_se_relanzan_trabajos_fallidos_o_cancelados() {
+        let temp = tempfile::tempdir().unwrap();
+        let mut ids = Vec::new();
+        let store = library(&temp.path().join("library")).await;
+        for name in ["una.wav", "otra.wav"] {
+            let path = temp.path().join(name);
+            std::fs::write(&path, name.as_bytes()).unwrap();
+            ids.push(store.import(&path).await.unwrap()["id"].clone());
+        }
+        let queue = Queue::new(store.clone()).await.unwrap();
+        let queued = queue
+            .enqueue("processRecording", json!({"recordingId":ids[0]}))
+            .await
+            .unwrap();
+        let error = queue.relaunch(&queued).await.unwrap_err();
+        assert!(error.contains("fallidos o cancelados"), "{error}");
+        queue.claim(Lane::Inference).await.unwrap().unwrap();
+        assert!(queue.relaunch(&queued).await.is_err());
+        queue.finish(&queued, Ok(Value::Null)).await.unwrap();
+        assert!(queue.relaunch(&queued).await.is_err());
+        let publish = queue
+            .enqueue(
+                "publishRecording",
+                json!({"recordingId":ids[1],"destinationId":"notion"}),
+            )
+            .await
+            .unwrap();
+        queue.cancel(ids[1].as_str().unwrap()).await.unwrap();
+        let again = queue.relaunch(&publish).await.unwrap();
+        assert_eq!(
+            queue.visible()[0]["args"],
+            json!({"recordingId":ids[1],"destinationId":"notion"})
+        );
+        assert_ne!(again, publish);
+        assert!(queue.relaunch("desconocido").await.is_err());
+    }
+
+    #[tokio::test]
+    async fn no_se_relanza_si_la_nota_tiene_un_trabajo_activo() {
+        let temp = tempfile::tempdir().unwrap();
+        let audio = temp.path().join("note.wav");
+        std::fs::write(&audio, b"synthetic audio").unwrap();
+        let store = library(&temp.path().join("library")).await;
+        let record = store.import(&audio).await.unwrap();
+        let queue = Queue::new(store.clone()).await.unwrap();
+        let failed = failed_job(
+            &queue,
+            "publishRecording",
+            json!({"recordingId":record["id"],"destinationId":"notion"}),
+        )
+        .await;
+        queue
+            .enqueue("processRecording", json!({"recordingId":record["id"]}))
+            .await
+            .unwrap();
+        let error = queue.relaunch(&failed).await.unwrap_err();
+        assert!(error.contains("ya tiene un trabajo pendiente"), "{error}");
+        assert_eq!(queue.visible().as_array().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn no_se_relanza_con_un_efecto_externo_incierto_pendiente() {
+        let temp = tempfile::tempdir().unwrap();
+        let audio = temp.path().join("note.wav");
+        std::fs::write(&audio, b"synthetic audio").unwrap();
+        let store = library(&temp.path().join("library")).await;
+        let record = store.import(&audio).await.unwrap();
+        let queue = Queue::new(store.clone()).await.unwrap();
+        let failed = failed_job(
+            &queue,
+            "publishRecording",
+            json!({"recordingId":record["id"],"destinationId":"notion"}),
+        )
+        .await;
+        store
+            .mutate(
+                "account_effect_begin".into(),
+                json!({"recordingId":record["id"]}),
+            )
+            .await
+            .unwrap();
+        let error = queue.relaunch(&failed).await.unwrap_err();
+        assert!(error.contains("Revisa la operación externa"), "{error}");
         assert!(queue.visible().as_array().unwrap().is_empty());
     }
 }

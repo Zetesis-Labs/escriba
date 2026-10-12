@@ -177,6 +177,10 @@ enum Order {
         recording: String,
         reply: Reply<Cancellation>,
     },
+    RelaunchJob {
+        id: String,
+        reply: Reply<(String, Lane)>,
+    },
     Close {
         done: oneshot::Sender<()>,
     },
@@ -478,6 +482,10 @@ impl Actor {
             }
             Order::CancelJobs { recording, reply } => {
                 let result = jobs::cancel(store, &recording).await;
+                self.answer(reply, result).await
+            }
+            Order::RelaunchJob { id, reply } => {
+                let result = jobs::relaunch(store, &id).await;
                 self.answer(reply, result).await
             }
             Order::Close { done } => {
@@ -886,6 +894,10 @@ impl Library {
     pub async fn cancel_jobs(&self, recording: String) -> Result<Cancellation, String> {
         self.request(|reply| Order::CancelJobs { recording, reply })
             .await
+    }
+
+    pub async fn relaunch_job(&self, id: String) -> Result<(String, Lane), String> {
+        self.request(|reply| Order::RelaunchJob { id, reply }).await
     }
 }
 
