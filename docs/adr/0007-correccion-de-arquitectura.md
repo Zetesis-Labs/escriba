@@ -13,8 +13,13 @@ cinco copias del modelo. Rubén resolvió cinco decisiones:
    Ningún binario publicado la ejecutaba. Swift queda solo en macOS.
 2. El CLI `escriba` se conserva tal cual, con su ledger y su biblioteca GRDB.
    Su retirada se decidirá en otro encargo.
-3. La proyección de `knowledge.surrealkv` mantiene las palabras. Su coste venía
-   de reproyectar de más; ahora se proyecta por versión con huellas.
+3. La proyección de `knowledge.surrealkv` mantiene las palabras, pero dentro de
+   su segmento y no como registros con arista propia. Medido el 2026-10-12 en la
+   biblioteca de Rubén: 532.205 palabras y otras tantas aristas eran el 82 % de
+   los registros y el grafo ocupaba 2,2 GB frente a 82 MB de biblioteca; la base
+   nueva ocupa unos 420 MB. SurrealKV no devuelve el espacio de lo borrado, así
+   que un grafo anterior conserva su tamaño hasta reconstruir el fichero. Además
+   se proyecta por versión con huellas.
 4. El contrato es un enum etiquetado en Rust, del que salen los tipos de
    TypeScript con ts-rs. Un método desconocido falla al deserializar.
 5. Las recetas conservan el SDK oficial de SurrealDB sobre el motor RPC

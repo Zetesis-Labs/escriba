@@ -41,6 +41,12 @@ async fn page(graph: &Knowledge, store: &Arc<Mutex<Store>>, table: &str) -> Valu
     .unwrap()
 }
 
+async fn words(graph: &Knowledge, store: &Arc<Mutex<Store>>) -> Option<usize> {
+    page(graph, store, "segment").await["records"][0]["values"]["words"]
+        .as_array()
+        .map(Vec::len)
+}
+
 async fn query(
     graph: &Knowledge,
     store: &Arc<Mutex<Store>>,
@@ -116,11 +122,11 @@ async fn base_dispatch_expone_biblioteca_con_sdk_cbor_sin_declaracion_ni_datos_p
         .any(|o| o["id"] == "sintetica"));
     let opened = dispatch(&graph, &store, "knowledge_open", json!({"recipeId":"sintetica","recordingId":recording,"ontologyId":"escriba","dependency":{"id":"escriba","minVersion":1,"maxVersion":1}})).await.unwrap();
     assert_eq!(opened["version"], 1);
-    let result = query(&graph, &store, &recording, "SELECT * FROM person; SELECT * FROM recording; SELECT * FROM version; SELECT * FROM transcript; SELECT * FROM segment; SELECT * FROM word;").await;
+    let result = query(&graph, &store, &recording, "SELECT * FROM person; SELECT * FROM recording; SELECT * FROM version; SELECT * FROM transcript; SELECT * FROM segment;").await;
     let DbValue::Array(statements) = &result else {
         panic!("El SDK no devolvió un lote")
     };
-    assert_eq!(statements.len(), 6);
+    assert_eq!(statements.len(), 5);
     for statement in statements.iter() {
         let DbValue::Array(records) = statement else {
             panic!("Consulta sin registros")
@@ -145,7 +151,11 @@ async fn base_dispatch_expone_biblioteca_con_sdk_cbor_sin_declaracion_ni_datos_p
         assert!(!public.contains(forbidden), "Se expuso {forbidden}");
     }
     assert_eq!(count(&page(&graph, &store, "has_version").await), 1);
-    assert_eq!(count(&page(&graph, &store, "has_word").await), 1);
+    assert!(
+        page(&graph, &store, "segment").await["records"][0]["values"]["words"]
+            .as_array()
+            .is_some_and(|words| !words.is_empty())
+    );
     assert_eq!(
         count(&page(&graph, &store, "identified_as").await),
         0,
@@ -196,14 +206,14 @@ async fn base_dispatch_sincroniza_ediciones_borrados_y_reconstruye_un_grafo_perd
     graph.close().await.unwrap();
     let graph = Knowledge::open(&graph_path).await.unwrap();
     assert_eq!(graph.base_epoch().await.unwrap(), epoch);
-    assert_eq!(count(&page(&graph, &store, "word").await), 1);
+    assert_eq!(words(&graph, &store).await, Some(1));
     graph.close().await.unwrap();
     std::fs::remove_dir_all(&graph_path).unwrap();
     let graph = Knowledge::open(&graph_path).await.unwrap();
     assert_ne!(graph.base_epoch().await.unwrap(), epoch);
     assert_eq!(count(&page(&graph, &store, "recording").await), 1);
     assert_eq!(count(&page(&graph, &store, "version").await), 1);
-    assert_eq!(count(&page(&graph, &store, "word").await), 1);
+    assert_eq!(words(&graph, &store).await, Some(1));
     store
         .lock()
         .unwrap()
@@ -214,9 +224,8 @@ async fn base_dispatch_sincroniza_ediciones_borrados_y_reconstruye_un_grafo_perd
         "version",
         "transcript",
         "segment",
-        "word",
         "has_version",
-        "has_word",
+        "spoken_by",
     ] {
         assert_eq!(
             count(&page(&graph, &store, table).await),

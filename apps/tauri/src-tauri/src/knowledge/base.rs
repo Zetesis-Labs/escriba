@@ -88,17 +88,7 @@ pub fn base_definition() -> Ontology {
                 field("index", "Posición", FieldType::Number),
                 field("speaker", "Hablante", FieldType::Text),
                 field("personId", "Persona asignada", FieldType::Text),
-            ],
-        ),
-        entity(
-            "word",
-            "Palabras",
-            "text",
-            vec![
-                field("text", "Texto", FieldType::Text),
-                field("start", "Inicio", FieldType::Number),
-                field("end", "Fin", FieldType::Number),
-                field("index", "Posición", FieldType::Number),
+                field("words", "Palabras", FieldType::Json),
             ],
         ),
     ];
@@ -111,7 +101,6 @@ pub fn base_definition() -> Ontology {
             "transcript",
         ),
         ("has_segment", "Contiene segmento", "transcript", "segment"),
-        ("has_word", "Contiene palabra", "segment", "word"),
         ("spoken_by", "Dicho por", "segment", "speaker"),
         ("identified_as", "Asignado a persona", "speaker", "person"),
         ("derived_from", "Corregida desde", "version", "version"),
@@ -357,6 +346,13 @@ fn project_version(
             ],
         );
         let mut data = object(segment, &["text", "start", "end", "speaker", "personId"]);
+        if let Some(words) = segment["words"].as_array() {
+            let words: Vec<DbValue> = words
+                .iter()
+                .map(|word| DbValue::Object(object(word, &["text", "start", "end"])))
+                .collect();
+            data.insert("words", words.into_value());
+        }
         data.insert("index", (index as i64).into_value());
         data.insert("versionId", version_id.into_value());
         data.insert("version", vid.clone().into_value());
@@ -387,25 +383,6 @@ fn project_version(
                 .insert(segment["personId"].as_str().map(str::to_owned));
             edge(&mut rows, "spoken_by", sid.clone(), speaker, &change.id);
         }
-        if let Some(words) = segment["words"].as_array() {
-            for (word_index, word) in words.iter().enumerate() {
-                let wid = identity(
-                    "word",
-                    vec![
-                        parts[0].clone(),
-                        parts[1].clone(),
-                        (index as i64).into_value(),
-                        (word_index as i64).into_value(),
-                    ],
-                );
-                let mut data = object(word, &["text", "start", "end"]);
-                data.insert("index", (word_index as i64).into_value());
-                data.insert("versionId", version_id.into_value());
-                data.insert("segment", sid.clone().into_value());
-                put(&mut rows, wid.clone(), data, Some(&change.id));
-                edge(&mut rows, "has_word", sid.clone(), wid, &change.id);
-            }
-        }
     }
     for (label, mut data) in speakers {
         let speaker = identity(
@@ -429,6 +406,32 @@ fn project_version(
     Ok(rows)
 }
 
+pub(super) async fn databases(root: &Surreal<Db>) -> Result<Vec<String>, String> {
+    let mut response = root
+        .query("INFO FOR NS")
+        .await
+        .map_err(error)?
+        .check()
+        .map_err(error)?;
+    let info: Option<Value> = response.take(0).map_err(error)?;
+    Ok(info
+        .as_ref()
+        .and_then(|info| info["databases"].as_object())
+        .map(|databases| databases.keys().cloned().collect())
+        .unwrap_or_default())
+}
+
+async fn legacy_base(root: &Surreal<Db>) -> Result<Option<Surreal<Db>>, String> {
+    let name = hashed_database("escriba");
+    let session = root.clone();
+    session.use_ns("knowledge").await.map_err(error)?;
+    if !databases(&session).await?.contains(&name) {
+        return Ok(None);
+    }
+    session.use_db(name).await.map_err(error)?;
+    Ok(Some(session))
+}
+
 impl Knowledge {
     pub(super) async fn initialize_base(&self) -> Result<(), String> {
         let root = &self.root;
@@ -438,9 +441,15 @@ impl Knowledge {
             .map_err(error)?
             .check()
             .map_err(error)?;
+        let legacy = match legacy_base(root).await? {
+            Some(legacy) => manifest(&legacy).await?,
+            None => None,
+        };
         if manifest(&db)
             .await?
-            .is_some_and(|definition| !definition.migrations.is_empty())
+            .into_iter()
+            .chain(legacy)
+            .any(|definition| !definition.migrations.is_empty())
         {
             return Err("Ya existe una extensión con el identificador reservado «escriba»; se conserva sin sustituirla por la base".into());
         }
@@ -456,6 +465,29 @@ impl Knowledge {
                 .unwrap_or_default();
             db.query(format!("DEFINE TABLE OVERWRITE `{}` {kind} SCHEMALESS PERMISSIONS FOR select FULL FOR create,update,delete NONE; DEFINE INDEX IF NOT EXISTS base_recording ON TABLE `{}` FIELDS recordingId",collection.table,collection.table)).await.map_err(error)?.check().map_err(error)?;
         }
+        self.retire_legacy_base().await
+    }
+    async fn retire_legacy_base(&self) -> Result<(), String> {
+        let Some(db) = legacy_base(&self.root).await? else {
+            return Ok(());
+        };
+        if manifest(&db)
+            .await?
+            .is_some_and(|definition| !definition.migrations.is_empty())
+        {
+            return Ok(());
+        }
+        let session = self.root.clone();
+        session.use_ns("knowledge").await.map_err(error)?;
+        session
+            .query(format!(
+                "REMOVE DATABASE IF EXISTS `{}`",
+                hashed_database("escriba")
+            ))
+            .await
+            .map_err(error)?
+            .check()
+            .map_err(error)?;
         Ok(())
     }
     pub async fn base_epoch(&self) -> Result<String, String> {
