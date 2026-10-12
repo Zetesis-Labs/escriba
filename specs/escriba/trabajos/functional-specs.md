@@ -38,7 +38,8 @@ o en la vista de la nota.
 ## 4. Puntos de entrada
 
 - **Barra lateral:** la sección «Trabajos», al mismo nivel que Biblioteca y
-  Personas.
+  Personas. Muestra cuántos trabajos hay en marcha; sin ninguno, no muestra
+  número.
 - **Ajustes:** el plazo del historial de trabajos.
 - Sin cambios: el indicador de trabajo en cada nota, la barra de menús y el
   Registro siguen funcionando igual.
@@ -51,7 +52,8 @@ o en la vista de la nota.
    los nuevos y los terminados pasan al historial. Termina cuando Rubén sale de
    la sección.
 2. **Revisar el historial.** Debajo de los activos, los terminados, fallidos y
-   cancelados dentro del plazo, del más reciente al más antiguo. Rubén puede
+   cancelados dentro del plazo, del más reciente al más antiguo. Se muestran
+   los 100 más recientes y, al llegar al final, se cargan otros 100. Rubén puede
    filtrar por estado (todos, terminados, fallidos, cancelados) y por receta
    o acción manual. Sin coincidencias, la lista lo dice; no se confunde con un
    error.
@@ -62,7 +64,8 @@ o en la vista de la nota.
    cancelado.
 4. **Volver a lanzar un trabajo fallido o cancelado.** Rubén lo relanza desde
    su fila → se encola un trabajo nuevo; el original se conserva en el
-   historial tal cual.
+   historial tal cual. El nuevo es un trabajo más de esa nota y no indica de
+   cuál viene.
    - Procesar usa la receta que tenga la nota en ese momento y crea una
      versión nueva, con las mismas reglas que reprocesar desde la nota.
    - Publicar, retirar o resumir a mano repiten la misma acción sobre el mismo
@@ -154,11 +157,10 @@ o en la vista de la nota.
 
 ## 10. Preguntas abiertas y supuestos
 
-- **Supuesto:** el repaso del plazo al abrir la app y una vez al día;
-  confirmado por Rubén.
+- **Confirmado:** el repaso del plazo se hace al abrir la app y una vez al día.
+- **Confirmado:** el contador de la barra lateral cuenta los trabajos en
+  marcha; el historial se carga de 100 en 100; un trabajo relanzado no indica
+  de cuál viene.
 - **Supuesto:** el error completo se despliega en la propia fila.
-- **Abierta:** ¿la entrada de la barra lateral muestra cuántos trabajos hay en
-  marcha, o cuántos fallidos sin revisar?
-- **Abierta:** con 90 días o «siempre» el historial puede ser largo, ¿basta
-  con desplazarse o se pagina?
-- **Abierta:** ¿un trabajo relanzado debe mostrar de cuál viene?
+- **Requisito derivado:** hoy un trabajo no guarda con qué receta se ejecutó.
+  Filtrar por receta exige que lo guarde al encolarse.
