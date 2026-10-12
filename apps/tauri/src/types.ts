@@ -232,6 +232,7 @@ export interface JobState {
 export interface RecipeTrace {
   id: string;
   recordingId: string;
+  jobId?: string;
   recipeId?: string;
   dryRun: boolean;
   startedAt: string;

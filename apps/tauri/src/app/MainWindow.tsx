@@ -122,7 +122,7 @@ export function MainWindow() {
   else if (section === "stt") detail = <ResolversPane key="stt" data={data} role="stt" refresh={refresh} />;
   else if (section === "llms") detail = <ResolversPane key="llm" data={data} role="llm" refresh={refresh} />;
   else if (section === "recipes") detail = <RecipesPane data={data} refresh={refresh} />;
-  else if (section === "log") detail = <LogPane data={data} />;
+  else if (section === "log") detail = <LogPane />;
   else detail = <SettingsPane data={data} refresh={refresh} />;
 
   return (

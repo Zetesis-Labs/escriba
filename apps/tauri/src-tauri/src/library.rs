@@ -623,6 +623,10 @@ impl Library {
         jobs::find(&self.database, &id).await
     }
 
+    pub async fn job_steps(&self, id: String) -> Result<Vec<Value>, String> {
+        jobs::steps(&self.database, &id).await
+    }
+
     pub async fn job_history(
         &self,
         query: jobs::HistoryQuery,

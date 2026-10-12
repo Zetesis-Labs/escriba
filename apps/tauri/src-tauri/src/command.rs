@@ -17,7 +17,8 @@ pub enum AppCommand {
     RuntimeJobs(Untyped),
     RuntimeHistory(crate::jobs::HistoryQuery),
     RuntimeCancel(Untyped),
-    RuntimeRelaunch(crate::jobs::RelaunchParams),
+    RuntimeRelaunch(crate::jobs::JobParams),
+    RuntimeJobSteps(crate::jobs::JobParams),
     Log(Untyped),
     LogList(Untyped),
     MemoryRecall(Untyped),
@@ -214,6 +215,7 @@ fn app_policy(command: &AppCommand) -> Policy {
         | RecordingDetail(_)
         | RuntimeJobs(_)
         | RuntimeHistory(_)
+        | RuntimeJobSteps(_)
         | LogList(_)
         | TraceList(_)
         | RecordingStatus(_)
@@ -346,7 +348,7 @@ mod tests {
             "knowledge_filter_save" => json!({"filter":{"name":"F","filter":filter}}),
             "knowledge_filter_remove" => json!({"id":"f"}),
             "runtime_history" => json!({"limit":100}),
-            "runtime_relaunch" => json!({"id":"j"}),
+            "runtime_relaunch" | "runtime_job_steps" => json!({"id":"j"}),
             _ => json!({}),
         }
     }

@@ -5,11 +5,6 @@
   display: flex;
   flex-direction: column;
 }
-.log-tabs {
-  padding: 12px;
-  display: flex;
-  justify-content: center;
-}
 .log-filters {
   display: flex;
   align-items: center;
@@ -25,16 +20,6 @@
   align-items: center;
   gap: 6px;
   white-space: nowrap;
-}
-.log-list {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  padding: 4px 16px 16px;
-}
-.log-run {
-  padding: 8px 0;
-  border-bottom: 0.5px solid var(--separator);
 }
 .log-problem {
   padding: 8px 12px;

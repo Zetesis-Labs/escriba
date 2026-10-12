@@ -1,15 +1,16 @@
 import { AlertTriangle, Ban, CheckCircle2, Clock, ListChecks, Loader } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Pane } from "../app/Pane";
-import { activeOrder, appendPage, historyKinds, historyQuery, historyStates, jobActions, jobKind, jobStatus, jobTimes, refreshedHistory, type HistoryState } from "../core/jobs";
+import { activeOrder, appendPage, historyKinds, historyQuery, historyStates, jobActions, jobAttempts, jobKind, jobStatus, jobTimes, refreshedHistory, type HistoryState } from "../core/jobs";
 import type { HistoryCursor } from "../generated/HistoryCursor";
 import type { Job } from "../generated/Job";
 import type { RecipeRef } from "../generated/RecipeRef";
 import { displayTitle } from "../library/RecordingRow";
+import { TraceDetail } from "../library/TraceCard";
 import { Button, ContentUnavailable, PopupButton } from "../mac/controls";
 import { alertMessage, errorText } from "../mac/native";
-import { cancelProcessing, jobHistory, relaunchJob } from "../runtime";
-import type { Snapshot } from "../types";
+import { cancelProcessing, jobHistory, jobSteps, relaunchJob } from "../runtime";
+import type { RecipeTrace, Snapshot } from "../types";
 import "./jobs.css";
 
 function useNow(ticking: boolean) {
@@ -82,8 +83,36 @@ function StateIcon({ job }: { job: Job }) {
   return <AlertTriangle {...props} className="warning" />;
 }
 
+function JobSteps({ job }: { job: Job }) {
+  const [traces, setTraces] = useState<RecipeTrace[] | null>(null);
+  const [problem, setProblem] = useState<string | null>(null);
+  useEffect(() => {
+    let alive = true;
+    void jobSteps(job.id)
+      .then((value) => alive && setTraces(value))
+      .catch((failure) => alive && setProblem(errorText(failure)));
+    return () => {
+      alive = false;
+    };
+  }, [job.id]);
+  if (problem) return <div className="warning font-caption">No se pudieron leer los pasos: {problem}</div>;
+  if (!traces) return <div className="font-caption secondary">Cargando pasos…</div>;
+  if (!traces.length) return <div className="font-caption secondary">Este trabajo no guardó pasos.</div>;
+  return (
+    <div className="job-steps">
+      {jobAttempts(traces).map(({ label, trace }) => (
+        <div className="job-attempt" key={trace.id}>
+          <div className="font-caption secondary job-attempt-label">{label}</div>
+          <TraceDetail trace={trace} recipeName={job.recipe?.name} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function JobRow({ job, title, kind, now, onOpen }: { job: Job; title: string; kind: string; now: Date; onOpen: () => void }) {
   const [expanded, setExpanded] = useState(false);
+  const [stepsOpen, setStepsOpen] = useState(false);
   const actions = jobActions(job);
   const times = jobTimes(job, now);
   const cancel = () => void cancelProcessing(job.recordingId).catch((failure) => alertMessage("Trabajos", errorText(failure)));
@@ -107,11 +136,17 @@ function JobRow({ job, title, kind, now, onOpen }: { job: Job; title: string; ki
             {job.errorCode && `\n\nCódigo: ${job.errorCode}`}
           </pre>
         )}
+        {stepsOpen && <JobSteps job={job} />}
       </div>
       <div className="job-actions">
         {actions.cancel && (
           <Button small onClick={cancel}>
             Cancelar
+          </Button>
+        )}
+        {actions.steps && (
+          <Button small onClick={() => setStepsOpen(!stepsOpen)}>
+            {stepsOpen ? "Ocultar pasos" : "Ver pasos"}
           </Button>
         )}
         {actions.error && (
