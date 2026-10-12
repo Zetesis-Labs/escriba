@@ -247,3 +247,58 @@ async fn pagina_raices_y_conserva_el_tipo_de_detalles_json_cortos() {
     assert!(detail.truncated_fields.is_empty());
     graph.close().await.unwrap();
 }
+
+#[tokio::test]
+async fn los_segmentos_se_conectan_por_referencia_con_su_transcripcion_y_su_hablante() {
+    let (_temp, graph) = fixture().await;
+    graph
+        .sync_base_change(&crate::persistence::CoreChange {
+            key: "recording:audio".into(),
+            revision: "uno".into(),
+            kind: "recording".into(),
+            id: "audio".into(),
+            value: Some(json!({"id":"audio","title":"Prueba","status":"done","currentVersionId":"v1","versions":[{"id":"v1","transcript":{"text":"Hola. Adiós.","segments":[{"start":0,"end":1,"text":"Hola.","speaker":"Ada"},{"start":1,"end":2,"text":"Adiós.","speaker":"Ada"}]}}]})),
+        })
+        .await
+        .unwrap();
+    let transcript = graph
+        .graph_expand("escriba", "transcript:['audio', 'v1']", 0)
+        .await
+        .unwrap();
+    let to_segments: Vec<_> = transcript
+        .edges
+        .iter()
+        .filter(|e| {
+            e.kind == graph::EdgeKind::Reference && e.field.as_deref() == Some("transcript")
+        })
+        .collect();
+    assert_eq!(to_segments.len(), 2);
+    let speaker = graph
+        .graph_expand("escriba", "speaker:['audio', 'v1', 'Ada']", 0)
+        .await
+        .unwrap();
+    assert_eq!(
+        speaker
+            .edges
+            .iter()
+            .filter(|e| e.field.as_deref() == Some("speakerRecord"))
+            .count(),
+        2
+    );
+    let segment = graph
+        .graph_expand("escriba", "segment:['audio', 'v1', 0]", 0)
+        .await
+        .unwrap();
+    let fields: std::collections::BTreeSet<_> = segment
+        .edges
+        .iter()
+        .filter_map(|e| e.field.as_deref())
+        .collect();
+    assert_eq!(fields, ["speakerRecord", "transcript"].into());
+    let filtered = graph
+        .filter_notes(serde_json::from_value(json!({"kind":"visual","match":"all","conditions":[{"ontologyId":"escriba","table":"segment","field":"transcript","operator":"eq","value":{"ontologyId":"escriba","table":"transcript","id":"transcript:['audio', 'v1']"}}]})).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(filtered.recording_ids, vec!["audio".to_string()]);
+    graph.close().await.unwrap();
+}

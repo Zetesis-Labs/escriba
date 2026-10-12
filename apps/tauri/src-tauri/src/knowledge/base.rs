@@ -13,6 +13,15 @@ fn field(key: &str, label: &str, kind: FieldType) -> Field {
         reference: None,
     }
 }
+fn link(key: &str, label: &str, table: &str) -> Field {
+    Field {
+        reference: Some(ReferenceTarget {
+            ontology_id: "escriba".into(),
+            table: table.into(),
+        }),
+        ..field(key, label, FieldType::Reference)
+    }
+}
 fn entity(table: &str, label: &str, title: &str, fields: Vec<Field>) -> Collection {
     Collection {
         table: table.into(),
@@ -89,6 +98,8 @@ pub fn base_definition() -> Ontology {
                 field("speaker", "Hablante", FieldType::Text),
                 field("personId", "Persona asignada", FieldType::Text),
                 field("words", "Palabras", FieldType::Json),
+                link("transcript", "Transcripción", "transcript"),
+                link("speakerRecord", "Hablante de la versión", "speaker"),
             ],
         ),
     ];
@@ -100,8 +111,6 @@ pub fn base_definition() -> Ontology {
             "version",
             "transcript",
         ),
-        ("has_segment", "Contiene segmento", "transcript", "segment"),
-        ("spoken_by", "Dicho por", "segment", "speaker"),
         ("identified_as", "Asignado a persona", "speaker", "person"),
         ("derived_from", "Corregida desde", "version", "version"),
     ] {
@@ -357,19 +366,15 @@ fn project_version(
         data.insert("versionId", version_id.into_value());
         data.insert("version", vid.clone().into_value());
         data.insert("transcript", tid.clone().into_value());
-        put(&mut rows, sid.clone(), data, Some(&change.id));
-        edge(
-            &mut rows,
-            "has_segment",
-            tid.clone(),
-            sid.clone(),
-            &change.id,
-        );
         if let Some(label) = segment["speaker"].as_str().filter(|s| !s.is_empty()) {
             let speaker = identity(
                 "speaker",
                 vec![parts[0].clone(), parts[1].clone(), label.into_value()],
             );
+            data.insert("speakerRecord", speaker.into_value());
+        }
+        put(&mut rows, sid.clone(), data, Some(&change.id));
+        if let Some(label) = segment["speaker"].as_str().filter(|s| !s.is_empty()) {
             speakers.entry(label.into()).or_insert_with(|| {
                 let mut data = Object::new();
                 data.insert("name", label.into_value());
@@ -381,7 +386,6 @@ fn project_version(
                 .entry(label.into())
                 .or_default()
                 .insert(segment["personId"].as_str().map(str::to_owned));
-            edge(&mut rows, "spoken_by", sid.clone(), speaker, &change.id);
         }
     }
     for (label, mut data) in speakers {
@@ -465,6 +469,11 @@ impl Knowledge {
                 .unwrap_or_default();
             db.query(format!("DEFINE TABLE OVERWRITE `{}` {kind} SCHEMALESS PERMISSIONS FOR select FULL FOR create,update,delete NONE; DEFINE INDEX IF NOT EXISTS base_recording ON TABLE `{}` FIELDS recordingId",collection.table,collection.table)).await.map_err(error)?.check().map_err(error)?;
         }
+        db.query("DEFINE FIELD OVERWRITE transcript ON segment TYPE record<transcript> REFERENCE; DEFINE FIELD OVERWRITE speakerRecord ON segment TYPE option<record<speaker>> REFERENCE;")
+            .await
+            .map_err(error)?
+            .check()
+            .map_err(error)?;
         self.retire_legacy_base().await
     }
     async fn retire_legacy_base(&self) -> Result<(), String> {

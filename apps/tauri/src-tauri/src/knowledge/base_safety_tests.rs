@@ -22,6 +22,16 @@ fn person(name: Option<&str>) -> CoreChange {
         value: name.map(|name| json!({"id":"ana","name":name,"createdAt":"2026-10-11T00:00:00Z"})),
     }
 }
+async fn spoken(graph: &Knowledge) -> usize {
+    graph
+        .records("escriba", "segment", 0, None, None)
+        .await
+        .unwrap()
+        .records
+        .iter()
+        .filter(|record| !record.values["speakerRecord"].is_null())
+        .count()
+}
 async fn count(graph: &Knowledge, table: &str) -> usize {
     graph
         .records("escriba", table, 0, None, None)
@@ -96,7 +106,7 @@ async fn base_safety_identifica_solo_personas_existentes_y_conserva_hablantes_tr
     assert_eq!(count(&graph, "person").await, 0);
     assert_eq!(count(&graph, "speaker").await, 1);
     assert_eq!(count(&graph, "segment").await, 1);
-    assert_eq!(count(&graph, "spoken_by").await, 1);
+    assert_eq!(spoken(&graph).await, 1);
     graph.close().await.unwrap();
 }
 
@@ -128,7 +138,7 @@ async fn base_safety_etiquetas_iguales_ambiguas_no_atribuyen_identidad_a_todos_l
         assert_eq!(count(&graph, "identified_as").await, 0);
         assert_eq!(count(&graph, "speaker").await, 1);
         assert_eq!(count(&graph, "segment").await, 2);
-        assert_eq!(count(&graph, "spoken_by").await, 2);
+        assert_eq!(spoken(&graph).await, 2);
         let projected = graph
             .records("escriba", "segment", 0, None, None)
             .await

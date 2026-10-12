@@ -953,4 +953,41 @@ mod tests {
         assert_eq!(graph.list().await.unwrap().len(), 1);
         graph.close().await.unwrap();
     }
+    #[tokio::test]
+    #[ignore = "Requiere una copia privada autorizada de library.surrealkv"]
+    async fn mide_la_proyeccion_de_una_copia_en_un_grafo_vacio() {
+        use std::os::unix::fs::PermissionsExt;
+        let library = std::env::var_os("ESCRIBA_VERIFY_LIBRARY_COPY").unwrap();
+        let temporary = tempfile::tempdir().unwrap();
+        std::fs::set_permissions(temporary.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+        copy_tree(
+            Path::new(&library),
+            &temporary.path().join("library.surrealkv"),
+        );
+        let store = Store::open_with_audio_cleanup(temporary.path().into(), false).unwrap();
+        let store = Arc::new(Mutex::new(store));
+        let path = temporary.path().join("knowledge.surrealkv");
+        let knowledge = Knowledge::open(&path).await.unwrap();
+        let started = std::time::Instant::now();
+        assert!(
+            synchronize_base(&knowledge, &store, None)
+                .await
+                .unwrap()
+                .complete
+        );
+        let elapsed = started.elapsed();
+        knowledge.close().await.unwrap();
+        let size: u64 = walkdir::WalkDir::new(&path)
+            .into_iter()
+            .filter_map(Result::ok)
+            .filter_map(|e| e.metadata().ok())
+            .filter(|m| m.is_file())
+            .map(|m| m.len())
+            .sum();
+        println!(
+            "MEDIDA grafo nuevo {} MB, proyección {:?}",
+            size / 1_048_576,
+            elapsed
+        );
+    }
 }

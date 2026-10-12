@@ -106,7 +106,7 @@ otras tablas de esa base si sus permisos SurrealQL lo permiten.
 `api.grafo("escriba")` usa el mismo SDK y RPC para la base interna v1, instalada
 implícitamente y de solo lectura. La receta puede consultar grabaciones,
 personas, versiones, transcripciones, hablantes y segmentos, con sus palabras
-en `segment.words`; la
+en `segment.words` y sus segmentos por referencia (`transcript<~segment`); la
 biblioteca se sincroniza antes de leer. Una dependencia explícita incompatible
 falla al abrir. `nota.vincular("escriba", …)` se rechaza porque esa base ya se
 deriva de la biblioteca. Un campo `reference` en otra ontología guarda

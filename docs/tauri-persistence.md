@@ -92,10 +92,15 @@ Esto cubre también un cierre entre el efecto externo y la confirmación del job
 `escriba` es la ontología base integrada, visible aunque no haya proyecto ni
 extensiones instaladas. El listado de su esquema no abre el motor de
 conocimiento. Expone `person`, `recording`, `version`, `transcript`, `speaker` y
-`segment`, con relaciones `has_version`, `has_transcript`, `has_segment`,
-`spoken_by`, `identified_as` y `derived_from`. Las palabras van dentro de su
-segmento, en el campo `words` (`text`, `start`, `end`): como registros sueltos
-con su arista ocupaban más de 1 KB cada una y eran el 82 % del grafo. Personas y
+`segment`, con relaciones `has_version`, `has_transcript`, `identified_as` y
+`derived_from`. El segmento lleva sus palabras en `words` (`text`, `start`,
+`end`) y referencias nativas `transcript` y `speakerRecord` con `REFERENCE`, que
+se recorren al revés con `<~segment`. En SurrealDB cada relación escribe siete
+claves con los ids de sus extremos; medido sobre una biblioteca de 199 notas, el
+grafo pasó de 2,2 GB con palabras y relaciones sueltas a 423 MB con las palabras
+en el segmento y a 146 MB con referencias en lugar de `has_segment` y
+`spoken_by`. Proyectar solo la versión vigente lo dejaría en 80 MB, pero se
+perderían las consultas sobre versiones anteriores. Personas y
 grabaciones reutilizan los UUID de la biblioteca; los hijos usan IDs compuestos
 con la grabación y versión. El índice de segmento sólo identifica contenido
 dentro de esa versión.
