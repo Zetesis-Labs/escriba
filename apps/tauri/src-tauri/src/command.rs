@@ -15,7 +15,7 @@ pub enum AppCommand {
     RuntimeContext(Untyped),
     RuntimeRun(Untyped),
     RuntimeJobs(Untyped),
-    RuntimeHistory(Untyped),
+    RuntimeHistory(crate::jobs::HistoryQuery),
     RuntimeCancel(Untyped),
     Log(Untyped),
     LogList(Untyped),
@@ -343,6 +343,7 @@ mod tests {
             "knowledge_filter_notes" => json!({"filter":filter}),
             "knowledge_filter_save" => json!({"filter":{"name":"F","filter":filter}}),
             "knowledge_filter_remove" => json!({"id":"f"}),
+            "runtime_history" => json!({"limit":100}),
             _ => json!({}),
         }
     }
@@ -521,6 +522,7 @@ mod bindings {
         AppCommand::export_all(&config).unwrap();
         KnowledgeCommand::export_all(&config).unwrap();
         KnowledgeReply::export_all(&config).unwrap();
+        crate::jobs::HistoryPage::export_all(&config).unwrap();
     }
 
     #[test]

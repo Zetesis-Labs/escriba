@@ -5,8 +5,9 @@ use crate::store::{self, Store};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use tokio::sync::Notify;
+use ts_rs::TS;
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, TS)]
 #[serde(rename_all = "snake_case")]
 pub enum JobState {
     Queued,
@@ -17,7 +18,7 @@ pub enum JobState {
     Cancelled,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[allow(clippy::enum_variant_names)]
 pub enum JobOperation {
@@ -26,7 +27,13 @@ pub enum JobOperation {
     PublishRecording,
     UnpublishRecording,
 }
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, TS)]
+pub struct RecipeRef {
+    pub id: String,
+    pub name: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct Job {
     pub id: String,
@@ -37,16 +44,25 @@ pub struct Job {
     pub automatic: bool,
     #[serde(default)]
     pub audio_hash: Option<String>,
+    #[serde(default)]
+    pub recipe: Option<RecipeRef>,
     pub state: JobState,
     #[serde(default)]
     pub stage: String,
     #[serde(default)]
+    #[ts(type = "number")]
     pub attempt: u64,
     #[serde(default)]
+    #[ts(type = "number")]
     pub created_at: i64,
     #[serde(default)]
+    #[ts(type = "number")]
     pub started_at: i64,
     #[serde(default)]
+    #[ts(type = "number | null")]
+    pub finished_at: Option<i64>,
+    #[serde(default)]
+    #[ts(type = "number")]
     pub next_attempt_at: i64,
     #[serde(default)]
     pub error: Option<String>,
@@ -55,6 +71,7 @@ pub struct Job {
     #[serde(default)]
     pub result: Option<Value>,
     #[serde(flatten)]
+    #[ts(skip)]
     pub extra: Map<String, Value>,
 }
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -97,6 +114,144 @@ impl Job {
     }
     fn dry_run(&self) -> bool {
         self.args["options"]["dryRun"] == true
+    }
+    fn ended_at(&self) -> i64 {
+        self.finished_at
+            .unwrap_or_else(|| self.started_at.max(self.created_at))
+    }
+    fn end(&mut self) {
+        self.finished_at = Some(chrono::Utc::now().timestamp_millis());
+    }
+}
+
+pub fn recipe_for(
+    args: &Value,
+    note: Option<&str>,
+    default: Option<&str>,
+    recipes: &Value,
+) -> Option<RecipeRef> {
+    let requested = [args["options"]["recipeId"].as_str(), note, default]
+        .into_iter()
+        .flatten()
+        .find(|value| !value.is_empty())?;
+    let found = recipes.as_array().and_then(|recipes| {
+        recipes
+            .iter()
+            .find(|recipe| recipe["id"] == requested || recipe["name"] == requested)
+    });
+    let field = |key: &str| {
+        found
+            .and_then(|recipe| recipe[key].as_str())
+            .unwrap_or(requested)
+            .to_owned()
+    };
+    Some(RecipeRef {
+        id: field("id"),
+        name: field("name"),
+    })
+}
+
+fn recipe_of(store: &Store, job: &Job) -> Option<RecipeRef> {
+    if job.operation != JobOperation::ProcessRecording {
+        return None;
+    }
+    let note = store
+        .data
+        .recordings
+        .iter()
+        .find(|record| record.id == job.recording_id)
+        .and_then(|record| record.recipe_id.as_ref().cloned());
+    recipe_for(
+        &job.args,
+        note.as_deref(),
+        store
+            .data
+            .settings
+            .default_recipe_id
+            .as_ref()
+            .map(String::as_str),
+        &store.data.recipes,
+    )
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct HistoryCursor {
+    #[ts(type = "number")]
+    pub ended_at: i64,
+    pub id: String,
+}
+
+#[derive(Debug, Default, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct HistoryQuery {
+    #[serde(default)]
+    #[ts(optional)]
+    pub before: Option<HistoryCursor>,
+    #[serde(default)]
+    #[ts(optional)]
+    pub state: Option<JobState>,
+    #[serde(default)]
+    #[ts(optional)]
+    pub recipe_id: Option<String>,
+    #[serde(default)]
+    #[ts(optional)]
+    pub operation: Option<JobOperation>,
+    #[ts(type = "number")]
+    pub limit: usize,
+}
+
+#[derive(Debug, Serialize, TS)]
+pub struct HistoryPage {
+    pub jobs: Vec<Job>,
+    pub recipes: Vec<RecipeRef>,
+    pub next: Option<HistoryCursor>,
+}
+
+pub fn history_page(mut jobs: Vec<Job>, query: &HistoryQuery) -> HistoryPage {
+    jobs.retain(|job| !job.active());
+    jobs.sort_by(|a, b| (b.ended_at(), &b.id).cmp(&(a.ended_at(), &a.id)));
+    let mut recipes: Vec<RecipeRef> = Vec::new();
+    for recipe in jobs.iter().filter_map(|job| job.recipe.as_ref()) {
+        if !recipes.iter().any(|known| known.id == recipe.id) {
+            recipes.push(recipe.clone());
+        }
+    }
+    let mut matching: Vec<Job> = jobs
+        .into_iter()
+        .filter(|job| query.state.is_none_or(|state| job.state == state))
+        .filter(|job| {
+            query
+                .recipe_id
+                .as_ref()
+                .is_none_or(|id| job.recipe.as_ref().is_some_and(|recipe| &recipe.id == id))
+        })
+        .filter(|job| {
+            query
+                .operation
+                .is_none_or(|operation| job.operation == operation)
+        })
+        .filter(|job| {
+            query
+                .before
+                .as_ref()
+                .is_none_or(|cursor| (job.ended_at(), &job.id) < (cursor.ended_at, &cursor.id))
+        })
+        .take(query.limit + 1)
+        .collect();
+    let next = if matching.len() > query.limit {
+        matching.truncate(query.limit);
+        matching.last().map(|job| HistoryCursor {
+            ended_at: job.ended_at(),
+            id: job.id.clone(),
+        })
+    } else {
+        None
+    };
+    HistoryPage {
+        jobs: matching,
+        recipes,
+        next,
     }
 }
 
@@ -217,28 +372,28 @@ pub(crate) async fn enqueue(
     }
     let id = store::id();
     let time = chrono::Utc::now().timestamp_millis();
-    save(
-        store,
-        &Job {
-            id: id.clone(),
-            recording_id,
-            operation,
-            args,
-            automatic,
-            audio_hash,
-            state: JobState::Queued,
-            stage: "En cola".into(),
-            attempt: 0,
-            created_at: time,
-            started_at: time,
-            next_attempt_at: 0,
-            error: None,
-            error_code: None,
-            result: None,
-            extra: Map::new(),
-        },
-    )
-    .await?;
+    let mut job = Job {
+        id: id.clone(),
+        recording_id,
+        operation,
+        args,
+        automatic,
+        audio_hash,
+        recipe: None,
+        state: JobState::Queued,
+        stage: "En cola".into(),
+        attempt: 0,
+        created_at: time,
+        started_at: time,
+        finished_at: None,
+        next_attempt_at: 0,
+        error: None,
+        error_code: None,
+        result: None,
+        extra: Map::new(),
+    };
+    job.recipe = recipe_of(store, &job);
+    save(store, &job).await?;
     Ok((id, operation.lane()))
 }
 
@@ -288,6 +443,7 @@ pub(crate) async fn claim(store: &mut Store, lane: Lane, now: i64) -> Result<Cla
         job.stage = "Error".into();
         job.error = Some(message.into());
         job.error_code = Some(ErrorCode::Failed);
+        job.end();
         store
             .mutate(
                 "recording_update",
@@ -303,6 +459,8 @@ pub(crate) async fn claim(store: &mut Store, lane: Lane, now: i64) -> Result<Cla
     }
     job.state = JobState::Running;
     job.stage = "Procesando".into();
+    job.started_at = now;
+    job.recipe = recipe_of(store, &job);
     save(store, &job).await?;
     value(job).map(Claimed::Job)
 }
@@ -325,6 +483,7 @@ pub(crate) async fn finish(
             job.stage = "Completado".into();
             job.error = None;
             job.error_code = None;
+            job.end();
         }
         Err(error) => {
             let retry = error.retryable();
@@ -344,6 +503,8 @@ pub(crate) async fn finish(
             if retry {
                 let seconds = (10_u64 * 2_u64.pow(job.attempt.min(5) as u32)).min(300);
                 job.next_attempt_at = chrono::Utc::now().timestamp_millis() + seconds as i64 * 1000;
+            } else {
+                job.end();
             }
             if job.operation == JobOperation::ProcessRecording && !job.dry_run() {
                 store.mutate("recording_update", &json!({"id":job.recording_id,"status":if retry { "pending" } else { "failed" },"error":error.message})).await?;
@@ -389,6 +550,7 @@ pub(crate) async fn cancel(store: &mut Store, recording: &str) -> Result<Cancell
         job.error = Some("Proceso cancelado".into());
         job.error_code = Some(ErrorCode::Failed);
         job.stage = "Cancelado".into();
+        job.end();
         save(store, &job).await?;
         if job.operation == JobOperation::ProcessRecording && !job.dry_run() {
             store
@@ -412,11 +574,14 @@ pub(crate) async fn visible(database: &Persistence) -> Result<Vec<Value>, String
     active.into_iter().map(value).collect()
 }
 
-pub(crate) async fn history(database: &Persistence) -> Result<Vec<Value>, String> {
-    parse_all(database.jobs().await?)?
-        .into_iter()
-        .map(value)
-        .collect()
+pub(crate) async fn history(
+    database: &Persistence,
+    query: &HistoryQuery,
+) -> Result<HistoryPage, String> {
+    Ok(history_page(
+        parse_all(database.jobs_finished().await?)?,
+        query,
+    ))
 }
 
 pub(crate) async fn find(database: &Persistence, id: &str) -> Result<Option<Job>, String> {
@@ -483,8 +648,8 @@ impl Queue {
         self.changed.notify_waiters();
         Ok(id)
     }
-    pub async fn jobs(&self) -> Result<Vec<Value>, String> {
-        self.library.job_history().await
+    pub async fn history(&self, query: HistoryQuery) -> Result<HistoryPage, String> {
+        self.library.job_history(query).await
     }
     pub fn visible(&self) -> Value {
         json!(*self.library.active_jobs())
@@ -571,11 +736,13 @@ mod tests {
             args: json!({}),
             automatic: false,
             audio_hash: None,
+            recipe: None,
             state,
             stage: String::new(),
             attempt: 0,
             created_at: created,
             started_at: created,
+            finished_at: None,
             next_attempt_at: 0,
             error: None,
             error_code: None,
@@ -742,16 +909,15 @@ mod tests {
             .await
             .unwrap();
         assert!(queue.claim(Lane::Inference).await.unwrap().is_none());
-        let failed = queue
-            .jobs()
+        let failed = history(&queue)
             .await
-            .unwrap()
             .into_iter()
-            .find(|item| item["id"] == job)
+            .find(|item| item.id == job)
             .unwrap();
-        assert_eq!(failed["state"], "failed");
-        assert!(failed["error"]
-            .as_str()
+        assert_eq!(failed.state, JobState::Failed);
+        assert!(failed.finished_at.is_some());
+        assert!(failed
+            .error
             .unwrap()
             .contains("Revisa la operación externa"));
     }
@@ -796,14 +962,12 @@ mod tests {
             })
             .await;
         assert!(queue.claim(Lane::Inference).await.unwrap().is_none());
-        let failed = queue
-            .jobs()
+        let failed = history(&queue)
             .await
-            .unwrap()
             .into_iter()
-            .find(|job| job["id"] == id)
+            .find(|job| job.id == id)
             .unwrap();
-        assert_eq!(failed["state"], "failed");
+        assert_eq!(failed.state, JobState::Failed);
     }
     async fn library(path: &std::path::Path) -> Library {
         Library::new(Store::open(path.to_owned()).await.unwrap())
@@ -907,27 +1071,20 @@ mod tests {
         store.close().await.unwrap();
         drop(store);
         let queue = Queue::new(library(&root).await).await.unwrap();
-        let old = queue
-            .jobs()
-            .await
-            .unwrap()
-            .into_iter()
-            .find(|job| job["id"] == "old-job")
-            .unwrap();
+        let old = queue.visible()[0].clone();
+        assert_eq!(old["id"], "old-job");
         assert_eq!(old["state"], "retry");
         assert_eq!(old["errorCode"], "backend_unavailable");
         queue
             .cancel(recording["id"].as_str().unwrap())
             .await
             .unwrap();
-        let saved = queue
-            .jobs()
+        let saved = history(&queue)
             .await
-            .unwrap()
             .into_iter()
-            .find(|job| job["id"] == "old-job")
+            .find(|job| job.id == "old-job")
             .unwrap();
-        assert_eq!(saved["externalReceipt"]["id"], "receipt");
+        assert_eq!(saved.extra["externalReceipt"]["id"], "receipt");
     }
 
     #[tokio::test]
@@ -1050,5 +1207,343 @@ mod tests {
         let next = queue.claim(Lane::Inference).await.unwrap().unwrap();
         assert_eq!(next["recordingId"], record["id"]);
         assert_ne!(next["audioHash"], job["audioHash"]);
+    }
+
+    fn recipes() -> Value {
+        json!([{"id":"default","name":"Por defecto"},{"id":"resumen","name":"Resumen"}])
+    }
+
+    #[test]
+    fn la_receta_de_un_trabajo_sigue_la_misma_prioridad_que_el_runtime() {
+        let chosen = |args: Value, note: Option<&str>, default: Option<&str>| {
+            recipe_for(&args, note, default, &recipes())
+        };
+        let resumen = Some(RecipeRef {
+            id: "resumen".into(),
+            name: "Resumen".into(),
+        });
+        assert_eq!(
+            chosen(
+                json!({"options":{"recipeId":"resumen"}}),
+                Some("default"),
+                Some("default")
+            ),
+            resumen
+        );
+        assert_eq!(chosen(json!({}), Some("resumen"), Some("default")), resumen);
+        assert_eq!(
+            chosen(json!({"options":{"recipeId":""}}), None, Some("resumen")),
+            resumen
+        );
+        assert_eq!(chosen(json!({}), None, Some("Resumen")), resumen);
+        assert_eq!(
+            chosen(json!({}), Some("borrada"), Some("default")),
+            Some(RecipeRef {
+                id: "borrada".into(),
+                name: "borrada".into(),
+            })
+        );
+        assert_eq!(chosen(json!({}), None, None), None);
+    }
+
+    fn finished(
+        id: &str,
+        operation: JobOperation,
+        state: JobState,
+        ended: i64,
+        recipe: Option<(&str, &str)>,
+    ) -> Job {
+        let mut job = job(id, &format!("nota-{id}"), operation, state, ended - 10);
+        job.finished_at = Some(ended);
+        job.recipe = recipe.map(|(id, name)| RecipeRef {
+            id: id.into(),
+            name: name.into(),
+        });
+        job
+    }
+
+    fn page(jobs: Vec<Job>, query: HistoryQuery) -> (Vec<String>, Option<HistoryCursor>) {
+        let page = history_page(jobs, &query);
+        (page.jobs.into_iter().map(|job| job.id).collect(), page.next)
+    }
+
+    fn query(limit: usize) -> HistoryQuery {
+        HistoryQuery {
+            limit,
+            ..HistoryQuery::default()
+        }
+    }
+
+    #[test]
+    fn el_historial_va_del_mas_reciente_al_mas_antiguo_sin_los_activos() {
+        let mut legacy = job(
+            "antiguo",
+            "nota",
+            JobOperation::PublishRecording,
+            JobState::Succeeded,
+            25,
+        );
+        legacy.started_at = 25;
+        let jobs = vec![
+            finished(
+                "a",
+                JobOperation::ProcessRecording,
+                JobState::Succeeded,
+                10,
+                None,
+            ),
+            job(
+                "activo",
+                "x",
+                JobOperation::ProcessRecording,
+                JobState::Running,
+                50,
+            ),
+            job(
+                "cola",
+                "y",
+                JobOperation::PublishRecording,
+                JobState::Queued,
+                60,
+            ),
+            job(
+                "espera",
+                "z",
+                JobOperation::ProcessRecording,
+                JobState::Retry,
+                70,
+            ),
+            finished(
+                "c",
+                JobOperation::ProcessRecording,
+                JobState::Failed,
+                30,
+                None,
+            ),
+            legacy,
+            finished(
+                "b",
+                JobOperation::SummarizeRecording,
+                JobState::Cancelled,
+                20,
+                None,
+            ),
+        ];
+        assert_eq!(page(jobs, query(100)).0, vec!["c", "antiguo", "b", "a"]);
+    }
+
+    #[test]
+    fn el_historial_se_carga_por_paginas_sin_repetir_ni_saltarse_ninguno() {
+        let jobs: Vec<Job> = (0..250)
+            .map(|index| {
+                finished(
+                    &format!("j{index:03}"),
+                    JobOperation::ProcessRecording,
+                    JobState::Succeeded,
+                    1_000 + index / 2,
+                    None,
+                )
+            })
+            .collect();
+        let mut seen = Vec::new();
+        let mut cursor = None;
+        let mut pages = 0;
+        loop {
+            let (ids, next) = page(
+                jobs.clone(),
+                HistoryQuery {
+                    before: cursor.clone(),
+                    ..query(100)
+                },
+            );
+            pages += 1;
+            assert!(ids.len() <= 100);
+            seen.extend(ids);
+            match next {
+                Some(next) => cursor = Some(next),
+                None => break,
+            }
+        }
+        assert_eq!(pages, 3);
+        let mut expected: Vec<String> = (0..250).map(|index| format!("j{index:03}")).collect();
+        expected.reverse();
+        assert_eq!(seen, expected);
+    }
+
+    #[test]
+    fn el_historial_filtra_por_estado_receta_y_accion_manual() {
+        let jobs = vec![
+            finished(
+                "ok",
+                JobOperation::ProcessRecording,
+                JobState::Succeeded,
+                50,
+                Some(("resumen", "Resumen")),
+            ),
+            finished(
+                "mal",
+                JobOperation::ProcessRecording,
+                JobState::Failed,
+                40,
+                Some(("default", "Por defecto")),
+            ),
+            finished(
+                "pub",
+                JobOperation::PublishRecording,
+                JobState::Failed,
+                30,
+                None,
+            ),
+            finished(
+                "off",
+                JobOperation::UnpublishRecording,
+                JobState::Cancelled,
+                20,
+                None,
+            ),
+            finished(
+                "viejo",
+                JobOperation::ProcessRecording,
+                JobState::Failed,
+                10,
+                Some(("resumen", "Resumen antiguo")),
+            ),
+        ];
+        let failed = HistoryQuery {
+            state: Some(JobState::Failed),
+            ..query(100)
+        };
+        assert_eq!(page(jobs.clone(), failed).0, vec!["mal", "pub", "viejo"]);
+        let resumen = HistoryQuery {
+            recipe_id: Some("resumen".into()),
+            ..query(100)
+        };
+        assert_eq!(page(jobs.clone(), resumen).0, vec!["ok", "viejo"]);
+        let publish = HistoryQuery {
+            operation: Some(JobOperation::PublishRecording),
+            ..query(100)
+        };
+        assert_eq!(page(jobs.clone(), publish).0, vec!["pub"]);
+        let nothing = HistoryQuery {
+            state: Some(JobState::Cancelled),
+            operation: Some(JobOperation::PublishRecording),
+            ..query(100)
+        };
+        assert_eq!(page(jobs.clone(), nothing), (vec![], None));
+        assert_eq!(
+            history_page(jobs, &query(1)).recipes,
+            vec![
+                RecipeRef {
+                    id: "resumen".into(),
+                    name: "Resumen".into(),
+                },
+                RecipeRef {
+                    id: "default".into(),
+                    name: "Por defecto".into(),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn el_historial_no_acepta_estados_activos_como_filtro() {
+        let jobs = vec![job(
+            "activo",
+            "x",
+            JobOperation::ProcessRecording,
+            JobState::Running,
+            1,
+        )];
+        let running = HistoryQuery {
+            state: Some(JobState::Running),
+            ..query(100)
+        };
+        assert!(history_page(jobs, &running).jobs.is_empty());
+    }
+
+    async fn history(queue: &Queue) -> Vec<Job> {
+        queue
+            .history(HistoryQuery {
+                limit: 1_000,
+                ..HistoryQuery::default()
+            })
+            .await
+            .unwrap()
+            .jobs
+    }
+
+    #[tokio::test]
+    async fn un_trabajo_guarda_su_receta_y_cuando_empezo_y_acabo() {
+        let temp = tempfile::tempdir().unwrap();
+        let audio = temp.path().join("note.wav");
+        std::fs::write(&audio, b"synthetic audio").unwrap();
+        let store = library(&temp.path().join("library")).await;
+        let record = store.import(&audio).await.unwrap();
+        let id = record["id"].as_str().unwrap().to_owned();
+        store
+            .mutate(
+                "config_save".into(),
+                json!({"collection":"recipes","item":{"id":"resumen","name":"Resumen","kind":"form","values":{}}}),
+            )
+            .await
+            .unwrap();
+        let queue = Queue::new(store.clone()).await.unwrap();
+        let job = queue
+            .enqueue("processRecording", json!({"recordingId":id}))
+            .await
+            .unwrap();
+        let queued = queue.visible();
+        assert_eq!(
+            queued[0]["recipe"],
+            json!({"id":"default","name":"Por defecto"})
+        );
+        assert_eq!(queued[0]["finishedAt"], Value::Null);
+        store
+            .mutate(
+                "recording_update".into(),
+                json!({"id":id,"recipeId":"resumen"}),
+            )
+            .await
+            .unwrap();
+        let before = chrono::Utc::now().timestamp_millis();
+        let running = queue.claim(Lane::Inference).await.unwrap().unwrap();
+        assert_eq!(running["recipe"], json!({"id":"resumen","name":"Resumen"}));
+        assert_eq!(running["args"], json!({"recordingId":id}));
+        assert!(running["startedAt"].as_i64().unwrap() >= before);
+        queue.finish(&job, Ok(Value::Null)).await.unwrap();
+        store
+            .mutate(
+                "config_save".into(),
+                json!({"collection":"recipes","item":{"id":"resumen","name":"Resumen corto","kind":"form","values":{}}}),
+            )
+            .await
+            .unwrap();
+        let done = history(&queue).await.remove(0);
+        assert_eq!(done.state, JobState::Succeeded);
+        assert_eq!(done.recipe.unwrap().name, "Resumen");
+        assert!(done.finished_at.unwrap() >= done.started_at);
+    }
+
+    #[tokio::test]
+    async fn las_acciones_manuales_no_tienen_receta_y_cancelar_marca_el_final() {
+        let temp = tempfile::tempdir().unwrap();
+        let audio = temp.path().join("note.wav");
+        std::fs::write(&audio, b"synthetic audio").unwrap();
+        let store = library(&temp.path().join("library")).await;
+        let record = store.import(&audio).await.unwrap();
+        let queue = Queue::new(store.clone()).await.unwrap();
+        queue
+            .enqueue(
+                "publishRecording",
+                json!({"recordingId":record["id"],"destinationId":"d"}),
+            )
+            .await
+            .unwrap();
+        assert_eq!(queue.visible()[0]["recipe"], Value::Null);
+        queue.cancel(record["id"].as_str().unwrap()).await.unwrap();
+        let cancelled = history(&queue).await.remove(0);
+        assert_eq!(cancelled.state, JobState::Cancelled);
+        assert!(cancelled.finished_at.is_some());
+        assert!(queue.visible().as_array().unwrap().is_empty());
     }
 }

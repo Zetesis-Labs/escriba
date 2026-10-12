@@ -934,13 +934,8 @@ mod tests {
         assert_eq!(error.code, ErrorCode::BackendUnavailable);
         assert!(!error.message.contains("speakers"), "{error}");
         queue.finish(&id, Err(error)).await.unwrap();
-        let saved = queue
-            .jobs()
-            .await
-            .unwrap()
-            .into_iter()
-            .find(|job| job["id"] == id)
-            .unwrap();
+        let saved = queue.visible()[0].clone();
+        assert_eq!(saved["id"], id);
         assert_eq!(saved["state"], "retry");
         assert_eq!(saved["errorCode"], "backend_unavailable");
     }

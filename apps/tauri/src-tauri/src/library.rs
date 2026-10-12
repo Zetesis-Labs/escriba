@@ -607,8 +607,11 @@ impl Library {
         jobs::find(&self.database, &id).await
     }
 
-    pub async fn job_history(&self) -> Result<Vec<Value>, String> {
-        jobs::history(&self.database).await
+    pub async fn job_history(
+        &self,
+        query: jobs::HistoryQuery,
+    ) -> Result<jobs::HistoryPage, String> {
+        jobs::history(&self.database, &query).await
     }
 
     pub async fn mutate(&self, method: String, params: Value) -> Result<Value, String> {

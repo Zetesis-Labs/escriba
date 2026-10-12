@@ -3,12 +3,14 @@ import { useCallback, useEffect, useState } from "react";
 import { library } from "../api";
 import { errorText } from "../mac/native";
 import { getJobs, subscribeJobs } from "../runtime";
-import type { JobState, Snapshot } from "../types";
+import type { Job } from "../generated/Job";
+import type { Snapshot } from "../types";
 
 export function useAppData() {
   const [data, setData] = useState<Snapshot | null>(null);
-  const [jobs, setJobs] = useState<JobState[]>([]);
+  const [jobs, setJobs] = useState<Job[]>([]);
   const [problem, setProblem] = useState<string | null>(null);
+  const [jobsProblem, setJobsProblem] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -25,7 +27,16 @@ export function useAppData() {
     void listen("escriba://changed", () => void refresh()).then((stop) => {
       unlisten = stop;
     });
-    const unsubscribe = subscribeJobs(() => setJobs(getJobs()), setProblem);
+    const unsubscribe = subscribeJobs(
+      () => {
+        setJobs(getJobs());
+        setJobsProblem(null);
+      },
+      (message) => {
+        setProblem(message);
+        setJobsProblem(message);
+      },
+    );
     setJobs(getJobs());
     const fallback = window.setInterval(() => void refresh(), 60_000);
     return () => {
@@ -35,5 +46,5 @@ export function useAppData() {
     };
   }, [refresh]);
 
-  return { data, jobs, problem, refresh };
+  return { data, jobs, jobsProblem, problem, refresh };
 }

@@ -1,27 +1,30 @@
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { call } from "../api";
-import type { JSONObject, JobState, ProcessOptions } from "../types";
+import type { HistoryPage } from "../generated/HistoryPage";
+import type { HistoryQuery } from "../generated/HistoryQuery";
+import type { Job } from "../generated/Job";
+import type { JSONObject, ProcessOptions } from "../types";
 import type { ConnectorEditorRequest, ConnectorEditorResult } from "@escriba/conectores";
-let jobs: JobState[] = [];
+let jobs: Job[] = [];
 let revision = 0;
 const failures = new Set<(message: string) => void>();
 const subscribers = new Set<() => void>();
 let listening: Promise<UnlistenFn> | undefined;
-function update(value: JobState[]) {
+function update(value: Job[]) {
   revision++;
   jobs = value;
   for (const listener of subscribers) listener();
 }
 function observe() {
   if (listening) return;
-  listening = listen<JobState[]>("escriba://jobs", (event) =>
+  listening = listen<Job[]>("escriba://jobs", (event) =>
     update(event.payload),
   );
   void listening
     .then(async (unlisten) => {
       const observed = revision;
       try {
-        const value = await call<JobState[]>("runtime_jobs");
+        const value = await call<Job[]>("runtime_jobs");
         if (observed === revision) update(value);
       } catch (error) {
         unlisten();
@@ -64,6 +67,7 @@ export const connectorEditor = (operation: "describe" | "action" | "validate", r
 export function cancelProcessing(recordingId: string) {
   return call<void>("runtime_cancel", { recordingId });
 }
+export const jobHistory = (query: HistoryQuery) => call<HistoryPage>("runtime_history", query);
 export const getJobs = () => jobs.map((job) => ({ ...job }));
 export function subscribeJobs(
   listener: () => void,

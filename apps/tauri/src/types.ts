@@ -228,17 +228,6 @@ export interface JobState {
   startedAt: number;
 }
 
-export interface RuntimeHistory extends JobState {
-  id: string;
-  operation: string;
-  state: string;
-  attempt: number;
-  createdAt: number;
-  error?: string | null;
-  errorCode?: string | null;
-  nextAttemptAt?: number;
-  args?: JSONObject;
-}
 export interface RecipeTrace {
   id: string;
   recordingId: string;
