@@ -4,6 +4,8 @@ Encargo de Rubén del 2026-10-12, ampliado el mismo día para llevar a Trabajos
 los pasos de cada ejecución, que estaban en el Registro. Especificación
 funcional; no describe la implementación.
 
+Validada en pantalla por Rubén el 2026-10-13.
+
 ## 1. Resumen
 
 Escriba ejecuta recetas sobre las notas en segundo plano, y hoy esas
