@@ -3,7 +3,7 @@ import { call } from "../api";
 import type { HistoryPage } from "../generated/HistoryPage";
 import type { HistoryQuery } from "../generated/HistoryQuery";
 import type { Job } from "../generated/Job";
-import type { JSONObject, ProcessOptions } from "../types";
+import type { JSONObject, ProcessOptions, RecipeTrace } from "../types";
 import type { ConnectorEditorRequest, ConnectorEditorResult } from "@escriba/conectores";
 let jobs: Job[] = [];
 let revision = 0;
@@ -69,6 +69,7 @@ export function cancelProcessing(recordingId: string) {
 }
 export const jobHistory = (query: HistoryQuery) => call<HistoryPage>("runtime_history", query);
 export const relaunchJob = (id: string) => call<{ id: string }>("runtime_relaunch", { id });
+export const jobSteps = (id: string) => call<RecipeTrace[]>("runtime_job_steps", { id });
 export const getJobs = () => jobs.map((job) => ({ ...job }));
 export function subscribeJobs(
   listener: () => void,

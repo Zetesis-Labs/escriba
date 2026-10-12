@@ -79,7 +79,12 @@ export function jobActions(job: Job) {
     cancel: job.state in activeRank,
     relaunch: job.state === "failed" || job.state === "cancelled",
     error: job.state === "failed" && Boolean(job.error),
+    steps: job.operation === "processRecording" && job.attempt > 0 && job.state in finalStatus,
   };
+}
+
+export function jobAttempts<T>(traces: T[]) {
+  return traces.map((trace, index) => ({ label: traces.length === 1 ? "Ejecución" : `Intento ${traces.length - index}`, trace }));
 }
 
 export function historyKinds(recipes: RecipeRef[]) {

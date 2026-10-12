@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { activeOrder, appendPage, historyKinds, historyQuery, jobActions, jobKind, jobStatus, jobTimes, refreshedHistory, runningCount } from "../../src/core/jobs";
+import { activeOrder, appendPage, historyKinds, historyQuery, jobActions, jobAttempts, jobKind, jobStatus, jobTimes, refreshedHistory, runningCount } from "../../src/core/jobs";
 import type { Job } from "../../src/generated/Job";
 
 const madrid = "Europe/Madrid";
@@ -90,12 +90,14 @@ describe("historial de trabajos", () => {
   });
 
   it("ofrece cada acción solo donde aplica", () => {
-    expect(jobActions(job("a"))).toEqual({ cancel: true, relaunch: false, error: false });
-    expect(jobActions(job("b", { state: "running" }))).toEqual({ cancel: true, relaunch: false, error: false });
-    expect(jobActions(job("c", { state: "retry", error: "429" }))).toEqual({ cancel: true, relaunch: false, error: false });
-    expect(jobActions(job("d", { state: "failed", error: "Resumen vacío" }))).toEqual({ cancel: false, relaunch: true, error: true });
-    expect(jobActions(job("e", { state: "cancelled", error: "Proceso cancelado" }))).toEqual({ cancel: false, relaunch: true, error: false });
-    expect(jobActions(job("f", { state: "succeeded" }))).toEqual({ cancel: false, relaunch: false, error: false });
+    expect(jobActions(job("a"))).toEqual({ cancel: true, relaunch: false, error: false, steps: false });
+    expect(jobActions(job("b", { state: "running", attempt: 1 }))).toEqual({ cancel: true, relaunch: false, error: false, steps: false });
+    expect(jobActions(job("c", { state: "retry", attempt: 1, error: "429" }))).toEqual({ cancel: true, relaunch: false, error: false, steps: false });
+    expect(jobActions(job("d", { state: "failed", attempt: 1, error: "Resumen vacío" }))).toEqual({ cancel: false, relaunch: true, error: true, steps: true });
+    expect(jobActions(job("e", { state: "cancelled", error: "Proceso cancelado" }))).toEqual({ cancel: false, relaunch: true, error: false, steps: false });
+    expect(jobActions(job("f", { state: "succeeded", attempt: 2 }))).toEqual({ cancel: false, relaunch: false, error: false, steps: true });
+    const published = job("g", { operation: "publishRecording", recipe: null, state: "failed", attempt: 1, error: "403" });
+    expect(jobActions(published)).toEqual({ cancel: false, relaunch: true, error: true, steps: false });
   });
 
   it("filtra por las recetas del historial y por las tres acciones manuales", () => {
@@ -105,6 +107,12 @@ describe("historial de trabajos", () => {
     const recipe = kinds[1].value;
     expect(historyQuery("failed", recipe, { endedAt: 5, id: "x" })).toEqual({ limit: 100, state: "failed", recipeId: "acta", before: { endedAt: 5, id: "x" } });
     expect(historyQuery("cancelled", kinds[4].value, null)).toEqual({ limit: 100, state: "cancelled", operation: "publishRecording" });
+  });
+
+  it("numera los intentos de una ejecución con el último primero", () => {
+    const traces = [{ id: "c" }, { id: "b" }, { id: "a" }];
+    expect(jobAttempts(traces).map((attempt) => [attempt.label, attempt.trace.id])).toEqual([["Intento 3", "c"], ["Intento 2", "b"], ["Intento 1", "a"]]);
+    expect(jobAttempts([{ id: "solo" }]).map((attempt) => attempt.label)).toEqual(["Ejecución"]);
   });
 
   it("añade la página siguiente sin repetir trabajos", () => {

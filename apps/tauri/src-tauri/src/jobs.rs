@@ -203,7 +203,7 @@ pub struct HistoryQuery {
 
 #[derive(Debug, Deserialize, TS)]
 #[serde(deny_unknown_fields)]
-pub struct RelaunchParams {
+pub struct JobParams {
     pub id: String,
 }
 
@@ -608,6 +608,41 @@ pub(crate) async fn purge(store: &mut Store, now: i64) -> Result<usize, String> 
         store.database().remove_jobs(gone).await?;
     }
     Ok(count)
+}
+
+pub fn stamp_trace(method: &str, mut params: Value, task: &str) -> Value {
+    if method == "trace_save" {
+        params["jobId"] = json!(task);
+    }
+    params
+}
+
+pub fn trace_owner(trace: &Value, jobs: &[Job]) -> Option<String> {
+    if let Some(id) = trace["jobId"].as_str() {
+        return jobs.iter().any(|job| job.id == id).then(|| id.to_owned());
+    }
+    let recording = trace["recordingId"].as_str()?;
+    let started = chrono::DateTime::parse_from_rfc3339(trace["startedAt"].as_str()?)
+        .ok()?
+        .timestamp_millis();
+    let dry_run = trace["dryRun"] == true;
+    jobs.iter()
+        .filter(|job| job.operation == JobOperation::ProcessRecording)
+        .filter(|job| job.recording_id == recording && job.dry_run() == dry_run)
+        .filter(|job| job.created_at <= started)
+        .max_by_key(|job| (job.created_at, job.id.clone()))
+        .map(|job| job.id.clone())
+}
+
+pub(crate) async fn steps(database: &Persistence, id: &str) -> Result<Vec<Value>, String> {
+    let job = load_one(database, id).await?.ok_or("Trabajo desconocido")?;
+    let jobs = load_for(database, &job.recording_id).await?;
+    Ok(database
+        .trace_list(Some(&job.recording_id))
+        .await?
+        .into_iter()
+        .filter(|trace| trace_owner(trace, &jobs).as_deref() == Some(id))
+        .collect())
 }
 
 pub fn relaunch_args(job: &Job) -> Value {
@@ -2022,5 +2057,152 @@ mod tests {
         assert_eq!(queue.visible()[0]["id"], active);
         assert_eq!(store.index().recordings.len(), 4);
         assert!(store.recording(notes[0].clone()).await.is_ok());
+    }
+
+    #[test]
+    fn cada_ejecucion_se_apunta_al_trabajo_que_la_lanzo() {
+        let stamped = stamp_trace(
+            "trace_save",
+            json!({"recordingId":"n","jobId":"inventado"}),
+            "job-1",
+        );
+        assert_eq!(stamped["jobId"], "job-1");
+        assert_eq!(
+            stamp_trace("recording_update", json!({"id":"n"}), "job-1"),
+            json!({"id":"n"})
+        );
+    }
+
+    fn iso(millis: i64) -> String {
+        chrono::DateTime::from_timestamp_millis(millis)
+            .unwrap()
+            .to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
+    }
+
+    #[test]
+    fn las_ejecuciones_antiguas_se_asocian_por_nota_y_hora() {
+        let mut dry = job(
+            "prueba",
+            "n",
+            JobOperation::ProcessRecording,
+            JobState::Failed,
+            300,
+        );
+        dry.args = json!({"recordingId":"n","options":{"dryRun":true}});
+        let jobs = vec![
+            job(
+                "primero",
+                "n",
+                JobOperation::ProcessRecording,
+                JobState::Succeeded,
+                100,
+            ),
+            job(
+                "segundo",
+                "n",
+                JobOperation::ProcessRecording,
+                JobState::Failed,
+                200,
+            ),
+            job(
+                "publicar",
+                "n",
+                JobOperation::PublishRecording,
+                JobState::Succeeded,
+                250,
+            ),
+            dry,
+            job(
+                "otra",
+                "m",
+                JobOperation::ProcessRecording,
+                JobState::Succeeded,
+                255,
+            ),
+        ];
+        let trace = |started: i64, dry_run: bool| json!({"recordingId":"n","startedAt":iso(started),"dryRun":dry_run});
+        assert_eq!(
+            trace_owner(&trace(260, false), &jobs).as_deref(),
+            Some("segundo")
+        );
+        assert_eq!(
+            trace_owner(&trace(150, false), &jobs).as_deref(),
+            Some("primero")
+        );
+        assert_eq!(
+            trace_owner(&trace(310, true), &jobs).as_deref(),
+            Some("prueba")
+        );
+        assert_eq!(trace_owner(&trace(50, false), &jobs), None);
+        let stamped = json!({"recordingId":"n","startedAt":iso(260),"jobId":"primero"});
+        assert_eq!(trace_owner(&stamped, &jobs).as_deref(), Some("primero"));
+        let gone = json!({"recordingId":"n","startedAt":iso(260),"jobId":"borrado"});
+        assert_eq!(trace_owner(&gone, &jobs), None);
+    }
+
+    fn trace(recording: &Value, started: i64) -> Value {
+        json!({
+            "recordingId":recording, "recipeId":"default", "dryRun":false,
+            "startedAt":iso(started), "finishedAt":iso(started + 1_000),
+            "steps":[], "error":null
+        })
+    }
+
+    #[tokio::test]
+    async fn los_pasos_de_un_trabajo_son_las_ejecuciones_de_cada_intento() {
+        let temp = tempfile::tempdir().unwrap();
+        let store = library(&temp.path().join("library")).await;
+        let mut notes = Vec::new();
+        for name in ["una.wav", "otra.wav"] {
+            let path = temp.path().join(name);
+            std::fs::write(&path, name.as_bytes()).unwrap();
+            notes.push(store.import(&path).await.unwrap()["id"].clone());
+        }
+        let queue = Queue::new(store.clone()).await.unwrap();
+        let id = queue
+            .enqueue("processRecording", json!({"recordingId":notes[0]}))
+            .await
+            .unwrap();
+        let now = chrono::Utc::now().timestamp_millis();
+        queue.claim(Lane::Inference).await.unwrap().unwrap();
+        let first = stamp_trace("trace_save", trace(&notes[0], now), &id);
+        store.trace_save(first).await.unwrap();
+        queue
+            .finish(
+                &id,
+                Err(AppError::new(ErrorCode::BackendUnavailable, "429")),
+            )
+            .await
+            .unwrap();
+        let waiting = id.clone();
+        store
+            .with_store(move |store| {
+                Box::pin(async move {
+                    let mut job = load_one(store.database(), &waiting).await.unwrap().unwrap();
+                    job.next_attempt_at = 0;
+                    save(store, &job).await.unwrap();
+                })
+            })
+            .await;
+        queue.claim(Lane::Inference).await.unwrap().unwrap();
+        let second = stamp_trace("trace_save", trace(&notes[0], now + 5_000), &id);
+        store.trace_save(second).await.unwrap();
+        queue.finish(&id, Ok(Value::Null)).await.unwrap();
+        let other = queue
+            .enqueue("processRecording", json!({"recordingId":notes[1]}))
+            .await
+            .unwrap();
+        store
+            .trace_save(stamp_trace("trace_save", trace(&notes[1], now), &other))
+            .await
+            .unwrap();
+        let steps = store.job_steps(id.clone()).await.unwrap();
+        let started: Vec<&str> = steps
+            .iter()
+            .map(|trace| trace["startedAt"].as_str().unwrap())
+            .collect();
+        assert_eq!(started, vec![iso(now + 5_000), iso(now)]);
+        assert!(steps.iter().all(|trace| trace["jobId"] == id));
+        assert!(store.job_steps("desconocido".into()).await.is_err());
     }
 }

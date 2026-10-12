@@ -79,3 +79,12 @@
   flex: none;
   gap: 6px;
 }
+.job-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 6px;
+}
+.job-attempt-label {
+  margin-bottom: 4px;
+}

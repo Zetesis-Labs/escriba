@@ -369,6 +369,9 @@ async fn dispatch_app(
                 cancel_recording(app, state, text(&p, "recordingId")?).await?;
                 Ok(Value::Null)
             }
+            AppCommand::RuntimeJobSteps(params) => {
+                Ok(json!(state.library.job_steps(params.id).await?))
+            }
             AppCommand::RuntimeRelaunch(params) => {
                 let id = state.jobs.relaunch(&params.id).await?;
                 emit_jobs(app, state);
@@ -1377,13 +1380,13 @@ async fn script_call(
 ) -> Result<Value, error::AppError> {
     let weak = Arc::downgrade(state);
     let handle = app.clone();
-    let capability: scripts::Capability = Arc::new(move |method, params, _task, lease| {
+    let capability: scripts::Capability = Arc::new(move |method, params, task, lease| {
         let weak = weak.clone();
         let handle = handle.clone();
         Box::pin(async move {
             let state = weak.upgrade().ok_or("La aplicación se cerró")?;
             lease.ensure_active()?;
-            let request = Request::parse(&method, params)?;
+            let request = Request::parse(&method, jobs::stamp_trace(&method, params, &task))?;
             if !request.policy().recipes {
                 return Err("Capacidad no autorizada o trabajo terminado".into());
             }
