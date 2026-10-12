@@ -766,6 +766,20 @@ mod tests {
         assert_eq!(knowledge.list().await.unwrap().len(), extensions);
         assert_eq!(knowledge.saved_filters().await.unwrap().len(), filters);
         knowledge.close().await.unwrap();
+        let size = |path: &Path| -> u64 {
+            walkdir::WalkDir::new(path)
+                .into_iter()
+                .filter_map(Result::ok)
+                .filter_map(|entry| entry.metadata().ok())
+                .filter(|metadata| metadata.is_file())
+                .map(|metadata| metadata.len())
+                .sum()
+        };
+        println!(
+            "grafo original {} MB, tras sincronizar {} MB",
+            size(Path::new(&graph)) / 1_048_576,
+            size(&temporary.path().join("knowledge.surrealkv")) / 1_048_576
+        );
     }
 
     #[tokio::test]

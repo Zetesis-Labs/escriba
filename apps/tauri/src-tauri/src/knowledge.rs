@@ -105,9 +105,17 @@ pub struct Knowledge {
 fn error(e: impl std::fmt::Display) -> String {
     e.to_string()
 }
-fn database(id: &str) -> String {
+const BASE_FORMAT: u32 = 2;
+pub(crate) fn hashed_database(id: &str) -> String {
     use sha2::{Digest, Sha256};
     format!("ontology_{:x}", Sha256::digest(id.as_bytes()))
+}
+fn database(id: &str) -> String {
+    if id == "escriba" {
+        format!("{}_v{BASE_FORMAT}", hashed_database(id))
+    } else {
+        hashed_database(id)
+    }
 }
 
 impl Knowledge {

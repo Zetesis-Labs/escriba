@@ -12,8 +12,9 @@ en cada acceso. La dependencia de `escriba` v1 es implícita, salvo que la recet
 declare explícitamente otro intervalo compatible.
 
 La base publica las identidades canónicas de Personas y Biblioteca: personas,
-grabaciones, versiones, transcripciones, hablantes, segmentos y palabras, junto
-con sus relaciones. Se muestra en Ontologías separada de las extensiones, con
+grabaciones, versiones, transcripciones, hablantes y segmentos, junto con sus
+relaciones. Las palabras van dentro de cada segmento desde el 2026-10-12
+(ADR-0007). Se muestra en Ontologías separada de las extensiones, con
 campos y extremos de cada relación desplegables. La aplicación es propietaria de
 este esquema; una extensión no puede usar el identificador `escriba`. Si una
 instalación anterior ya lo usaba, la apertura falla sin sustituir sus datos.

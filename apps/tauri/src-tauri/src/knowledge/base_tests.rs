@@ -22,6 +22,21 @@ async fn la_base_expone_la_biblioteca_y_solo_permite_consultarla() {
         .await
         .unwrap();
     assert_eq!(rows, vec![json!([{"text":"Hola mundo"}])]);
+    assert_eq!(
+        graph
+            .query("escriba", 1, "SELECT VALUE words FROM segment", json!({}))
+            .await
+            .unwrap(),
+        vec![json!([[{"text":"Hola","start":0,"end":1},{"text":"mundo","start":1,"end":2}]])]
+    );
+    assert_eq!(
+        tables(&graph)
+            .await
+            .iter()
+            .filter(|t| t.contains("word"))
+            .count(),
+        0
+    );
     assert_eq!(graph.query("escriba",1,"SELECT VALUE ->has_version->version->has_transcript->transcript->has_segment->segment.text FROM recording",json!({})).await.unwrap(), vec![json!([["Hola mundo"]])]);
     let failed = graph
         .query(
@@ -67,6 +82,112 @@ async fn la_base_expone_la_biblioteca_y_solo_permite_consultarla() {
     );
 }
 
+async fn tables(graph: &Knowledge) -> Vec<String> {
+    let mut info = selected(&graph.root, "escriba")
+        .await
+        .unwrap()
+        .query("INFO FOR DB")
+        .await
+        .unwrap();
+    let info: Option<Value> = info.take(0).unwrap();
+    info.unwrap()["tables"]
+        .as_object()
+        .unwrap()
+        .keys()
+        .cloned()
+        .collect()
+}
+
+async fn legacy(graph: &Knowledge) -> Surreal<Db> {
+    let session = graph.root.clone();
+    session
+        .use_ns("knowledge")
+        .use_db(crate::knowledge::hashed_database("escriba"))
+        .await
+        .unwrap();
+    session
+}
+
+async fn has_legacy(graph: &Knowledge) -> bool {
+    super::base::databases(&graph.root)
+        .await
+        .unwrap()
+        .contains(&crate::knowledge::hashed_database("escriba"))
+}
+
+#[tokio::test]
+async fn la_base_anterior_con_palabras_sueltas_se_elimina_al_abrir_y_la_nueva_se_proyecta() {
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("knowledge.surrealkv");
+    let graph = Knowledge::open(&path).await.unwrap();
+    let old = legacy(&graph).await;
+    old.query("DEFINE TABLE segment SCHEMALESS; DEFINE TABLE word SCHEMALESS; DEFINE TABLE has_word TYPE RELATION IN segment OUT word SCHEMALESS; UPSERT _escriba_manifest:current SET definition = $definition, epoch = 'anterior'; FOR $i IN 0..1200 { CREATE type::record('segment', $i) SET recordingId = 'nota'; CREATE type::record('word', $i) SET recordingId = 'nota'; RELATE (type::record('segment', $i))->has_word->(type::record('word', $i)) SET recordingId = 'nota'; };")
+        .bind(("definition", serde_json::to_value(base_definition()).unwrap()))
+        .await
+        .unwrap()
+        .check()
+        .unwrap();
+    assert!(has_legacy(&graph).await);
+    drop(old);
+    graph.close().await.unwrap();
+    let graph = Knowledge::open(&path).await.unwrap();
+    assert!(
+        !has_legacy(&graph).await,
+        "La base anterior se elimina al abrir"
+    );
+    graph
+        .sync_base_change(&note("Nota", json!([version("v1", "uno")])))
+        .await
+        .unwrap();
+    assert!(!tables(&graph)
+        .await
+        .iter()
+        .any(|t| t == "word" || t == "has_word"));
+    assert_eq!(
+        graph
+            .query(
+                "escriba",
+                1,
+                "SELECT VALUE array::len(words) FROM segment",
+                json!({})
+            )
+            .await
+            .unwrap(),
+        vec![json!([2])]
+    );
+    graph.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn una_extension_anterior_llamada_escriba_no_se_retira_ni_se_sustituye() {
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("knowledge.surrealkv");
+    let graph = Knowledge::open(&path).await.unwrap();
+    let mut extension = base_definition();
+    extension.migrations = vec![crate::knowledge::Migration {
+        version: 1,
+        sql: "DEFINE TABLE nota SCHEMALESS;".into(),
+    }];
+    legacy(&graph)
+        .await
+        .query("UPSERT _escriba_manifest:current SET definition = $definition")
+        .bind(("definition", serde_json::to_value(extension).unwrap()))
+        .await
+        .unwrap()
+        .check()
+        .unwrap();
+    assert!(has_legacy(&graph).await);
+    graph.close().await.unwrap();
+    let error = match Knowledge::open(&path).await {
+        Ok(graph) => {
+            graph.close().await.unwrap();
+            panic!("Se sustituyó una extensión anterior")
+        }
+        Err(error) => error,
+    };
+    assert!(error.contains("identificador reservado"), "{error}");
+}
+
 fn note(title: &str, versions: Value) -> crate::persistence::CoreChange {
     crate::persistence::CoreChange {
         key: "recording:nota".into(),
@@ -86,7 +207,7 @@ fn version(id: &str, summary: &str) -> Value {
 async fn marked(graph: &Knowledge) -> Vec<String> {
     let db = selected(&graph.root, "escriba").await.unwrap();
     let mut response = db
-        .query("SELECT VALUE versionId FROM word WHERE marca = true ORDER BY versionId")
+        .query("SELECT VALUE versionId FROM segment WHERE marca = true ORDER BY versionId")
         .await
         .unwrap()
         .check()
@@ -100,7 +221,7 @@ async fn mark(graph: &Knowledge) {
     selected(&graph.root, "escriba")
         .await
         .unwrap()
-        .query("UPDATE word SET marca = true")
+        .query("UPDATE segment SET marca = true")
         .await
         .unwrap()
         .check()
@@ -194,7 +315,7 @@ async fn editar_el_titulo_no_reproyecta_las_versiones_y_corregir_una_solo_rehace
             .query(
                 "escriba",
                 1,
-                "SELECT count() FROM word WHERE versionId = 'v3' GROUP ALL",
+                "SELECT count() FROM segment WHERE versionId = 'v3' GROUP ALL",
                 json!({})
             )
             .await

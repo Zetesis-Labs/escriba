@@ -91,12 +91,22 @@ Esto cubre también un cierre entre el efecto externo y la confirmación del job
 
 `escriba` es la ontología base integrada, visible aunque no haya proyecto ni
 extensiones instaladas. El listado de su esquema no abre el motor de
-conocimiento. Expone `person`, `recording`, `version`, `transcript`, `speaker`,
-`segment` y `word`, con relaciones `has_version`, `has_transcript`, `has_segment`,
-`has_word`, `spoken_by`, `identified_as` y `derived_from`. Personas y grabaciones
-reutilizan los UUID de la biblioteca; los hijos usan IDs compuestos con la
-grabación y versión. El índice de segmento y palabra sólo identifica contenido
+conocimiento. Expone `person`, `recording`, `version`, `transcript`, `speaker` y
+`segment`, con relaciones `has_version`, `has_transcript`, `has_segment`,
+`spoken_by`, `identified_as` y `derived_from`. Las palabras van dentro de su
+segmento, en el campo `words` (`text`, `start`, `end`): como registros sueltos
+con su arista ocupaban más de 1 KB cada una y eran el 82 % del grafo. Personas y
+grabaciones reutilizan los UUID de la biblioteca; los hijos usan IDs compuestos
+con la grabación y versión. El índice de segmento sólo identifica contenido
 dentro de esa versión.
+
+La base vive en una base de datos con sufijo de formato (`_v2`). Al abrir un
+grafo anterior, la base nueva se proyecta entera en segundo plano (111 s para
+una biblioteca de 199 notas) y la antigua se elimina con `REMOVE DATABASE`, que
+SurrealDB 3.3 resuelve al instante y vacía después por rango. Borrarla registro
+a registro, con sus aristas, tardaba casi una hora de CPU. SurrealKV no devuelve
+espacio en disco: el fichero conserva su tamaño hasta reconstruirlo. Una base
+antigua que fuera una extensión llamada `escriba` no se toca.
 
 La base es una proyección persistida de la biblioteca. Los eventos privados de
 `recording`, `version` y `person` encolan el propietario afectado en
