@@ -1,7 +1,8 @@
 # Trabajos
 
-Encargo de Rubén del 2026-10-12. Especificación funcional; no describe la
-implementación.
+Encargo de Rubén del 2026-10-12, ampliado el mismo día para llevar a Trabajos
+los pasos de cada ejecución, que estaban en el Registro. Especificación
+funcional; no describe la implementación.
 
 ## 1. Resumen
 
@@ -9,7 +10,9 @@ Escriba ejecuta recetas sobre las notas en segundo plano, y hoy esas
 ejecuciones solo se ven nota a nota y en la barra de menús; sus fallos acaban
 en el Registro. La sección **Trabajos** reúne en un solo sitio lo que está en
 marcha y lo que ya pasó, y permite actuar sobre ello: cancelar, volver a
-lanzar, abrir la nota y leer el error completo.
+lanzar, abrir la nota, leer el error completo y ver los pasos de cada
+ejecución. Esos pasos estaban en Registro → «Ejecuciones de recetas», que
+desaparece: el Registro se queda con el log de la app.
 
 Un **trabajo** es una ejecución de la receta de una nota, o de una de las tres
 acciones manuales que también se encolan desde la nota: resumir a mano,
@@ -41,8 +44,10 @@ o en la vista de la nota.
   Personas. Muestra cuántos trabajos hay en marcha; sin ninguno, no muestra
   número.
 - **Ajustes:** el plazo del historial de trabajos.
+- **Registro:** pierde la lista «Ejecuciones de recetas» y se queda solo con
+  el log de la app.
 - Sin cambios: el indicador de trabajo en cada nota, la barra de menús y el
-  Registro siguen funcionando igual.
+  resultado de probar una receta en Recetas.
 
 ## 5. Recorridos
 
@@ -80,6 +85,13 @@ o en la vista de la nota.
 7. **Cambiar el plazo del historial.** En Ajustes elige 7, 30 o 90 días, o
    «siempre»; por defecto, 7. Al reducirlo, lo que queda fuera se borra en el
    siguiente repaso.
+8. **Ver los pasos de una ejecución.** En un trabajo de procesar o una prueba
+   de receta que ya terminó, falló o se canceló, Rubén despliega sus pasos →
+   cada paso con su duración y su resultado, o su error si falló, y la
+   duración total. Si el trabajo tuvo varios intentos, se ven los de cada
+   intento, el último primero. Un trabajo que no llegó a ejecutarse no tiene
+   pasos y la fila no ofrece verlos. Mientras está en marcha solo se ve la
+   etapa en curso.
 
 ## 6. Reglas
 
@@ -108,8 +120,14 @@ o en la vista de la nota.
   - El repaso se hace al abrir la app y una vez al día.
 - **Descartar una nota** borra sus trabajos, como hoy; desaparecen también del
   historial.
-- **Registro:** los fallos de trabajos siguen apareciendo también en el
-  Registro.
+- **Registro:** los fallos de trabajos se siguen escribiendo en el log de la
+  app. La lista de ejecuciones de recetas sale del Registro; su detalle está
+  en cada trabajo.
+- **Pasos y plazo.** Los pasos de una ejecución se borran con su trabajo.
+  Las ejecuciones que ya no tienen trabajo (guardadas antes de este cambio, o
+  cuyo trabajo se borró) se borran por su hora de final con el mismo plazo y
+  las mismas excepciones. Descartar una nota borra también sus pasos, como
+  hoy.
 - **Errores de la propia sección:** si no se puede leer la lista, se muestra
   el error; nunca una lista vacía.
 
@@ -121,6 +139,9 @@ o en la vista de la nota.
 - **Acción manual:** resumir a mano, publicar en un destino o retirar una
   publicación; se lanzan desde la nota y se encolan como un trabajo más.
 - **Plazo del historial:** 7, 30 o 90 días, o «siempre».
+- **Ejecución:** cada intento de un trabajo de procesar o de una prueba de
+  receta deja sus pasos: nombre, duración, resultado o error. Pertenece a ese
+  trabajo.
 
 ## 8. Interfaz
 
@@ -136,7 +157,11 @@ o en la vista de la nota.
 │              │                                                       │
 │              │ HISTORIAL   [Estado: todos ▾] [Receta: todas ▾]       │
 │              │ ✕ Paseo · Receta resumen · Fallido 10:31              │
-│              │   «Resumen vacío…» [Ver error] [Relanzar] [Abrir nota] │
+│              │   «Resumen vacío…»  [Ver pasos] [Ver error] [Relanzar] │
+│              │                                            [Abrir nota]│
+│              │   ▾ Intento 1 · 42 s                                  │
+│              │     ✓ Transcribir · 38 s                              │
+│              │     ✕ Resumir · 4 s · Resumen vacío                   │
 │              │ ✓ Notas 9 oct · Receta resumen · Terminado 09:58 · 4m │
 │              │ ⊘ Prueba · Publicar en Notion · Cancelado 09:40        │
 │              │                            [Relanzar] [Abrir nota]     │
@@ -145,7 +170,8 @@ o en la vista de la nota.
 
 - Cada fila muestra nota, receta o acción, estado, etapa y tiempos. Las
   acciones solo aparecen donde aplican: Cancelar en activos; Relanzar en
-  fallidos y cancelados; Ver error en fallidos; Abrir nota en todos.
+  fallidos y cancelados; Ver error en fallidos; Ver pasos en los de procesar
+  y las pruebas que llegaron a ejecutarse; Abrir nota en todos.
 - Controles propios de la app, como el resto de secciones, sin búsqueda.
 
 ## 9. Restricciones
@@ -158,6 +184,14 @@ o en la vista de la nota.
 ## 10. Preguntas abiertas y supuestos
 
 - **Confirmado:** el repaso del plazo se hace al abrir la app y una vez al día.
+- **Confirmado:** los pasos de cada ejecución pasan del Registro a Trabajos;
+  el Registro se queda con el log de la app.
+- **Abierta:** la lista de ejecuciones del Registro tenía búsqueda por texto
+  en la nota y en los pasos. Trabajos no tiene búsqueda; falta decidir si se
+  pierde o se añade.
+- **Supuesto:** las ejecuciones guardadas antes de este cambio no sabían a
+  qué trabajo pertenecían; se asocian por nota y hora, y las que no encajan
+  con ningún trabajo no se muestran y caducan con el plazo.
 - **Confirmado:** el contador de la barra lateral cuenta los trabajos en
   marcha; el historial se carga de 100 en 100; un trabajo relanzado no indica
   de cuál viene.
