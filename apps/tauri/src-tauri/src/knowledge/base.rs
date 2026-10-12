@@ -186,6 +186,9 @@ fn text<'a>(value: &'a Value, key: &str) -> Result<&'a str, String> {
         .as_str()
         .ok_or_else(|| format!("Falta {key} en la proyección base"))
 }
+// Subirlo rehace la proyección entera una vez: la 2 recupera las aristas que borraba retitular.
+const PROJECTION_FORMAT: u32 = 2;
+
 struct Unit {
     version: Option<String>,
     hash: String,
@@ -449,8 +452,8 @@ impl Knowledge {
         {
             return Err("Ya existe una extensión con el identificador reservado «escriba»; se conserva sin sustituirla por la base".into());
         }
-        db.query(format!("DEFINE TABLE IF NOT EXISTS _escriba_manifest SCHEMALESS PERMISSIONS NONE; DEFINE TABLE IF NOT EXISTS _escriba_principal SCHEMALESS PERMISSIONS NONE; DEFINE TABLE IF NOT EXISTS _escriba_source SCHEMALESS PERMISSIONS NONE; DEFINE TABLE IF NOT EXISTS _escriba_projection SCHEMALESS PERMISSIONS NONE; DEFINE INDEX IF NOT EXISTS projection_recording ON TABLE _escriba_projection FIELDS recordingId; UPSERT _escriba_principal:runtime; {RECIPE_ACCESS}; UPSERT _escriba_manifest:current SET definition=$definition, epoch=epoch ?? $epoch;"))
-            .bind(("definition",serde_json::to_value(base_definition()).map_err(error)?)).bind(("epoch",Uuid::new_v4().to_string())).await.map_err(error)?.check().map_err(error)?;
+        db.query(format!("DEFINE TABLE IF NOT EXISTS _escriba_manifest SCHEMALESS PERMISSIONS NONE; DEFINE TABLE IF NOT EXISTS _escriba_principal SCHEMALESS PERMISSIONS NONE; DEFINE TABLE IF NOT EXISTS _escriba_source SCHEMALESS PERMISSIONS NONE; DEFINE TABLE IF NOT EXISTS _escriba_projection SCHEMALESS PERMISSIONS NONE; DEFINE INDEX IF NOT EXISTS projection_recording ON TABLE _escriba_projection FIELDS recordingId; UPSERT _escriba_principal:runtime; {RECIPE_ACCESS}; LET $stale = (SELECT VALUE projection FROM _escriba_manifest:current) != [$format]; IF $stale {{ DELETE _escriba_projection; }}; UPSERT _escriba_manifest:current SET definition=$definition, epoch = IF $stale {{ $epoch }} ELSE {{ epoch ?? $epoch }}, projection=$format;"))
+            .bind(("definition",serde_json::to_value(base_definition()).map_err(error)?)).bind(("epoch",Uuid::new_v4().to_string())).bind(("format",PROJECTION_FORMAT)).await.map_err(error)?.check().map_err(error)?;
         for collection in base_definition().collections {
             let kind = collection
                 .relation
@@ -542,6 +545,27 @@ impl Knowledge {
                 .check()
                 .map_err(error)?;
             }
+        }
+        Ok(())
+    }
+    async fn replace_rows(
+        tx: &surrealdb::method::Transaction<Db>,
+        rows: &Projection,
+    ) -> Result<(), String> {
+        for row in rows.values().flatten() {
+            let DbValue::Object(data) = row else {
+                return Err("Fila de proyección inválida".into());
+            };
+            let Some(DbValue::RecordId(id)) = data.get("id") else {
+                return Err("Fila de proyección sin ID".into());
+            };
+            tx.query("UPSERT $id CONTENT $data")
+                .bind(("id", id.clone()))
+                .bind(("data", row.clone()))
+                .await
+                .map_err(error)?
+                .check()
+                .map_err(error)?;
         }
         Ok(())
     }
@@ -646,24 +670,19 @@ impl Knowledge {
                 if !fresh && stored.get(key) == Some(&unit.hash) {
                     continue;
                 }
-                if !fresh {
-                    match &unit.version {
-                        Some(version) => {
-                            for table in &per_version {
-                                tx.query(format!("DELETE `{table}` WHERE recordingId=$recording AND versionId=$version"))
-                                    .bind(("recording", change.id.clone()))
-                                    .bind(("version", version.clone()))
-                                    .await.map_err(error)?.check().map_err(error)?;
-                            }
-                        }
-                        None => {
-                            tx.query("DELETE $id")
-                                .bind(("id", RecordId::new("recording", change.id.clone())))
+                match (&unit.version, fresh) {
+                    (Some(version), false) => {
+                        for table in &per_version {
+                            tx.query(format!("DELETE `{table}` WHERE recordingId=$recording AND versionId=$version"))
+                                .bind(("recording", change.id.clone()))
+                                .bind(("version", version.clone()))
                                 .await.map_err(error)?.check().map_err(error)?;
                         }
+                        Self::insert_rows(&tx, &unit.rows).await?;
                     }
+                    (None, false) => Self::replace_rows(&tx, &unit.rows).await?,
+                    (_, true) => Self::insert_rows(&tx, &unit.rows).await?,
                 }
-                Self::insert_rows(&tx, &unit.rows).await?;
                 if let Some(version) = &unit.version {
                     changed_versions.push(version.clone());
                 }

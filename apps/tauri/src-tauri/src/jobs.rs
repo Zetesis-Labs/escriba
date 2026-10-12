@@ -99,6 +99,12 @@ impl Job {
     }
 }
 
+#[derive(Debug, Default)]
+pub struct Cancellation {
+    pub ids: Vec<String>,
+    pub inference: bool,
+}
+
 pub fn next_in_lane(jobs: &[Job], lane: Lane, now: i64) -> Option<usize> {
     let in_lane = |job: &&Job| job.operation.lane() == lane;
     let running = jobs
@@ -414,11 +420,13 @@ impl Queue {
         self.changed.notify_waiters();
         Ok(())
     }
-    pub fn cancel(&self, recording: &str) -> Result<Vec<String>, String> {
+    pub fn cancel(&self, recording: &str) -> Result<Cancellation, String> {
         let mut guard = self.store.lock().map_err(|_| "Biblioteca ocupada")?;
-        let mut ids = Vec::new();
+        let mut cancellation = Cancellation::default();
         for mut job in load_for(&guard, recording)?.into_iter().filter(Job::active) {
-            ids.push(job.id.clone());
+            cancellation.ids.push(job.id.clone());
+            cancellation.inference |=
+                job.state == JobState::Running && job.operation.lane() == Lane::Inference;
             job.state = JobState::Cancelled;
             job.error = Some("Proceso cancelado".into());
             job.error_code = Some(ErrorCode::Failed);
@@ -432,7 +440,7 @@ impl Queue {
             }
         }
         self.changed.notify_waiters();
-        Ok(ids)
+        Ok(cancellation)
     }
     pub async fn wait(&self, id: &str) -> Result<Value, String> {
         loop {
@@ -586,6 +594,38 @@ mod tests {
         assert_eq!(queue.claim(Lane::Io).unwrap().unwrap()["id"], publish);
         assert!(queue.claim(Lane::Inference).unwrap().is_none());
         assert_eq!(queue.visible().unwrap().as_array().unwrap().len(), 2);
+    }
+    #[test]
+    fn cancelar_una_publicacion_no_corta_la_inferencia_de_otra_nota() {
+        let temp = tempfile::tempdir().unwrap();
+        let store = library(&temp.path().join("library"));
+        let mut ids = Vec::new();
+        for name in ["una.wav", "otra.wav"] {
+            let path = temp.path().join(name);
+            std::fs::write(&path, name.as_bytes()).unwrap();
+            ids.push(
+                store.lock().unwrap().import(&path, None).unwrap()["id"]
+                    .as_str()
+                    .unwrap()
+                    .to_owned(),
+            );
+        }
+        let queue = Queue::new(store.clone()).unwrap();
+        queue
+            .enqueue("processRecording", json!({"recordingId":ids[0]}))
+            .unwrap();
+        queue.claim(Lane::Inference).unwrap().unwrap();
+        let publish = queue
+            .enqueue(
+                "publishRecording",
+                json!({"recordingId":ids[1],"destinationId":"d"}),
+            )
+            .unwrap();
+        queue.claim(Lane::Io).unwrap().unwrap();
+        let publication = queue.cancel(&ids[1]).unwrap();
+        assert_eq!(publication.ids, vec![publish]);
+        assert!(!publication.inference);
+        assert!(queue.cancel(&ids[0]).unwrap().inference);
     }
     #[test]
     fn trabajo_automatico_no_repite_efecto_externo_incierto() {
