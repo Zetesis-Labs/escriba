@@ -171,3 +171,39 @@ Tamaño: el paso 3 es el grueso (`persistence.rs` tiene 1.547 líneas y el
 hilo con su `enum` es buena parte; `store/tests.rs`, 2.843). Calculo de
 cuatro a seis sesiones de trabajo; el paso 1 se puede validar e instalar por
 separado.
+
+## Estado
+
+- **Paso 1, fachada** (2026-10-12). `library.rs` define `Library`. Lo que está
+  en memoria (`item`, `audio`, credenciales, vista ligera, ajustes, marcadores
+  de carpetas) se lee de `index()`, una `IndexView` publicada en un `watch`
+  después de cada escritura. La base y las escrituras se atienden con
+  métodos async tipados que, de momento, toman el `Mutex<Store>` dentro de
+  `spawn_blocking`. `Runtime::store()` ya no existe y el cerrojo solo vive
+  dentro de `Library`. Siguen pasando los 319 tests.
+  Decisiones tomadas por el camino:
+  - **`Library` publica también los trabajos activos**, no la cola, porque
+    descartar una nota borra sus trabajos a través de `mutate`. El menú y el
+    evento `escriba://jobs` los leen de ahí. El menú ya no consulta la base
+    desde el hilo principal con `try_lock`.
+  - **Las operaciones de la cola** (`claim`, `finish`, `cancel`, `enqueue`,
+    `automatic`, `stages`, `recover`) son funciones de `jobs.rs` sobre
+    `&mut Store`, que `Library` ejecuta de una vez. `Queue` conserva los avisos
+    y las esperas.
+  - **Quitar el audio** comprueba los trabajos y escribe en la misma
+    operación. Antes eran dos tomas del cerrojo.
+  - **Grabar** importa la captura y fija su duración en una sola operación.
+  - **`log_error` guarda el registro en una tarea aparte**, sin bloquear a quien
+    lo llama.
+  - **Las etapas que avisa el runtime** pasan por un canal y una tarea que las
+    aplica en orden.
+  - **Los tests** usan `Library::lock()`, que solo existe en tests, tiene la
+    misma forma que el cerrojo anterior y publica al soltarse. El paso 3 lo
+    retira al pasar los tests a async. Los de la cola ya son
+    `#[tokio::test]`.
+  Pendiente de medir o cubrir en el paso 3:
+  - Publicar clona el índice en cada escritura, incluidas las líneas de
+    registro. Con la batería no se nota (35 s, igual que antes); se medirá con
+    el actor y, si pesa, se compartirán partes del índice con `Arc`.
+  - Al salir, una línea de registro que aún esté en su tarea puede perderse.
+    El test `cerrar_confirma_lo_encolado` tiene que cubrirla.

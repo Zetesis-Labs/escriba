@@ -13,6 +13,7 @@ mod knowledge_base_integration_tests;
 mod knowledge_commands;
 #[cfg(test)]
 mod knowledge_integration_tests;
+mod library;
 mod library_view;
 mod login;
 mod menubar;
@@ -51,7 +52,7 @@ struct Runtime {
     knowledge: tokio::sync::OnceCell<knowledge::Knowledge>,
     knowledge_wake: tokio::sync::Notify,
     knowledge_path: PathBuf,
-    store: Arc<Mutex<Store>>,
+    library: library::Library,
     jobs: Arc<jobs::Queue>,
     scripts: scripts::Scripts,
     materializer: native::Native,
@@ -81,19 +82,13 @@ struct FolderAccess {
 }
 
 impl Runtime {
-    fn store(&self) -> Result<std::sync::MutexGuard<'_, Store>, String> {
-        self.store
-            .lock()
-            .map_err(|_| "No se pudo acceder a la biblioteca".into())
-    }
-
-    fn library(&self) -> Result<Value, String> {
-        let library = self.store()?.library();
+    fn library_view(&self) -> Result<Value, String> {
+        let library = self.library.index().library();
         self.decorate(library)
     }
 
-    fn snapshot(&self) -> Result<Value, String> {
-        let snapshot = self.store()?.snapshot()?;
+    async fn snapshot(&self) -> Result<Value, String> {
+        let snapshot = self.library.snapshot().await?;
         self.decorate(snapshot)
     }
 
@@ -146,7 +141,8 @@ fn resolver_draft(state: &Runtime, p: &Value) -> Result<(Value, Option<String>),
     let secret = match (typed, p["resolverId"].as_str()) {
         (Some(key), _) => Some(key),
         (None, Some(id)) => state
-            .store()?
+            .library
+            .index()
             .credential(id)?
             .map(|key| key.trim().to_owned()),
         (None, None) => None,
@@ -173,7 +169,7 @@ fn models_root(status: &Value) -> Result<PathBuf, String> {
 }
 
 async fn whisper_model(state: &Arc<Runtime>, p: &Value) -> Result<Value, String> {
-    let model = json!(state.store()?.data.settings.whisper_model.as_ref());
+    let model = json!(state.library.index().settings.whisper_model.as_ref());
     let status = state
         .inference
         .call("status", json!({"model": model}))
@@ -214,13 +210,13 @@ async fn dispatch_inference(
     match method {
         "transcribe" => {
             let (audio, resolver, secret, model) = {
-                let store = state.store()?;
+                let store = state.library.index();
                 let key = p["resolverId"].as_str().unwrap_or("local-stt");
                 (
                     store.audio(text(&p, "recordingId")?)?,
                     store.item("resolvers", key)?,
                     store.credential(key)?,
-                    json!(store.data.settings.whisper_model.as_ref()),
+                    json!(store.settings.whisper_model.as_ref()),
                 )
             };
             if resolver["enabled"] == false {
@@ -233,13 +229,14 @@ async fn dispatch_inference(
                 remote::transcribe(&resolver, secret, &audio, &p).await
             }?;
             state
-                .store()?
-                .recognize_transcription(&recording_id, transcript)
+                .library
+                .recognize_transcription(recording_id, transcript)
+                .await
                 .map_err(Into::into)
         }
         "summarize" | "ask" => {
             let (resolver, secret) = {
-                let store = state.store()?;
+                let store = state.library.index();
                 let key = p["resolverId"].as_str().unwrap_or("local-llm");
                 (store.item("resolvers", key)?, store.credential(key)?)
             };
@@ -271,7 +268,7 @@ fn dispatch<'a>(
             Command::Knowledge(command) => knowledge_commands::run(
                 &state.knowledge,
                 &state.knowledge_path,
-                &state.store,
+                &state.library,
                 command,
             )
             .await?
@@ -286,7 +283,7 @@ async fn cancel_recording(
     state: &Arc<Runtime>,
     recording: &str,
 ) -> Result<(), String> {
-    let cancellation = state.jobs.cancel(recording)?;
+    let cancellation = state.jobs.cancel(recording).await?;
     if cancellation.inference {
         state.inference.cancel();
     }
@@ -305,21 +302,27 @@ async fn dispatch_app(
 ) -> Result<Value, String> {
     {
         match command {
-            AppCommand::Snapshot(Untyped(_)) => state.snapshot(),
-            AppCommand::Library(Untyped(_)) => state.library(),
-            AppCommand::RecordingDetail(Untyped(p)) => state.store()?.recording(text(&p, "id")?),
-            AppCommand::RuntimeContext(Untyped(p)) => state.store()?.runtime_context(
-                p.get("recordingId")
-                    .map(|_| text(&p, "recordingId"))
-                    .transpose()?,
-            ),
+            AppCommand::Snapshot(Untyped(_)) => state.snapshot().await,
+            AppCommand::Library(Untyped(_)) => state.library_view(),
+            AppCommand::RecordingDetail(Untyped(p)) => {
+                state.library.recording(text(&p, "id")?.to_owned()).await
+            }
+            AppCommand::RuntimeContext(Untyped(p)) => {
+                let recording = p
+                    .get("recordingId")
+                    .map(|_| text(&p, "recordingId").map(str::to_owned))
+                    .transpose()?;
+                state.library.runtime_context(recording).await
+            }
             AppCommand::AccountEffectBegin(Untyped(p))
-            | AppCommand::AccountEffectFinish(Untyped(p)) => state.store()?.mutate(method, &p),
+            | AppCommand::AccountEffectFinish(Untyped(p)) => {
+                state.library.mutate(method.to_owned(), p).await
+            }
             AppCommand::RuntimeRun(Untyped(p)) => {
                 let operation = text(&p, "operation")?;
                 let args = p.get("args").cloned().unwrap_or(json!({}));
                 if jobs::durable(operation) {
-                    let id = state.jobs.enqueue(operation, args)?;
+                    let id = state.jobs.enqueue(operation, args).await?;
                     emit_jobs(app, state);
                     state.jobs.wait(&id).await
                 } else {
@@ -328,77 +331,85 @@ async fn dispatch_app(
                         .map_err(|error| error.message)
                 }
             }
-            AppCommand::RuntimeJobs(Untyped(_)) => state.jobs.visible(),
-            AppCommand::LogList(Untyped(p)) => state.store()?.log_list(&p),
-            AppCommand::RuntimeHistory(Untyped(_)) => Ok(json!(state.jobs.jobs()?)),
+            AppCommand::RuntimeJobs(Untyped(_)) => Ok(state.jobs.visible()),
+            AppCommand::LogList(Untyped(p)) => state.library.log_list(p).await,
+            AppCommand::RuntimeHistory(Untyped(_)) => Ok(json!(state.jobs.jobs().await?)),
             AppCommand::MemoryRecall(Untyped(p)) => Ok(state
-                .store()?
+                .library
                 .memory_recall(
-                    text(&p, "recordingId")?,
-                    text(&p, "versionId")?,
-                    text(&p, "fingerprint")?,
-                )?
+                    text(&p, "recordingId")?.to_owned(),
+                    text(&p, "versionId")?.to_owned(),
+                    text(&p, "fingerprint")?.to_owned(),
+                )
+                .await?
                 .unwrap_or(Value::Null)),
             AppCommand::MemoryKeep(Untyped(p)) => {
-                state.store()?.memory_keep(
-                    text(&p, "recordingId")?,
-                    text(&p, "versionId")?,
-                    text(&p, "fingerprint")?,
-                    &p["value"],
-                )?;
+                state
+                    .library
+                    .memory_keep(
+                        text(&p, "recordingId")?.to_owned(),
+                        text(&p, "versionId")?.to_owned(),
+                        text(&p, "fingerprint")?.to_owned(),
+                        p["value"].clone(),
+                    )
+                    .await?;
                 Ok(Value::Null)
             }
             AppCommand::TraceSave(Untyped(p)) => {
-                state.store()?.trace_save(&p)?;
+                state.library.trace_save(p).await?;
                 Ok(Value::Null)
             }
-            AppCommand::TraceList(Untyped(p)) => Ok(json!(state
-                .store()?
-                .trace_list(p["recordingId"].as_str())?)),
+            AppCommand::TraceList(Untyped(p)) => Ok(json!(
+                state
+                    .library
+                    .trace_list(p["recordingId"].as_str().map(str::to_owned))
+                    .await?
+            )),
             AppCommand::RuntimeCancel(Untyped(p)) => {
                 cancel_recording(app, state, text(&p, "recordingId")?).await?;
                 Ok(Value::Null)
             }
             AppCommand::RecordingDiscard(Untyped(p)) => {
                 cancel_recording(app, state, text(&p, "id")?).await?;
-                state.store()?.mutate(method, &p)
+                state.library.mutate(method.to_owned(), p).await
             }
-            AppCommand::RecordingRemoveAudio(Untyped(p)) => {
-                let recording = text(&p, "id")?;
-                if state.jobs.jobs()?.iter().any(|j| {
-                    j["recordingId"] == recording
-                        && ["running", "queued", "retry"]
-                            .contains(&j["state"].as_str().unwrap_or(""))
-                }) {
-                    return Err("Cancela el trabajo antes de quitar su audio".into());
-                }
-                state.store()?.mutate(method, &p)
-            }
+            AppCommand::RecordingRemoveAudio(Untyped(p)) => state.library.remove_audio(p).await,
             AppCommand::RecordingStatus(Untyped(_)) => Ok(recorder::view(state)),
             AppCommand::RecordingDismiss(Untyped(_)) => {
                 recorder::dismiss(app, state);
                 Ok(recorder::view(state))
             }
             AppCommand::RecordingCancel(Untyped(_)) => recorder::cancel(app, state).await,
-            AppCommand::PeopleList(Untyped(_)) => state.store()?.people(),
+            AppCommand::PeopleList(Untyped(_)) => state.library.people().await,
             AppCommand::PeopleSetColor(Untyped(p)) => {
                 state
-                    .store()?
-                    .set_person_color(text(&p, "name")?, text(&p, "color")?)?;
+                    .library
+                    .set_person_color(text(&p, "name")?.to_owned(), text(&p, "color")?.to_owned())
+                    .await?;
                 Ok(Value::Null)
             }
             AppCommand::PeopleRename(Untyped(p)) => {
                 state
-                    .store()?
-                    .rename_person(text(&p, "name")?, text(&p, "newName")?)?;
+                    .library
+                    .rename_person(
+                        text(&p, "name")?.to_owned(),
+                        text(&p, "newName")?.to_owned(),
+                    )
+                    .await?;
                 Ok(Value::Null)
             }
             AppCommand::PeopleRemove(Untyped(p)) => {
-                state.store()?.remove_person(text(&p, "name")?)?;
+                state
+                    .library
+                    .remove_person(text(&p, "name")?.to_owned())
+                    .await?;
                 Ok(Value::Null)
             }
             AppCommand::PeopleRemoveVoice(Untyped(p)) => {
-                state.store()?.remove_person_voice(text(&p, "id")?)?;
+                state
+                    .library
+                    .remove_person_voice(text(&p, "id")?.to_owned())
+                    .await?;
                 Ok(Value::Null)
             }
             AppCommand::VoiceRegistrationStatus(Untyped(_)) => state.voice_registration.view(),
@@ -427,7 +438,7 @@ async fn dispatch_app(
                         text(&p, "name")?,
                         Path::new(text(&p, "path")?),
                         &state.inference,
-                        &state.store,
+                        &state.library,
                         |view| {
                             let _ = app.emit("escriba://voice-registration", view);
                         },
@@ -441,7 +452,7 @@ async fn dispatch_app(
             AppCommand::VoiceRegistrationStop(Untyped(_)) => {
                 let view = state
                     .voice_registration
-                    .stop(&state.inference, &state.store, |view| {
+                    .stop(&state.inference, &state.library, |view| {
                         let _ = app.emit("escriba://voice-registration", view);
                     })
                     .await?;
@@ -460,37 +471,46 @@ async fn dispatch_app(
                     })
                     .collect::<Result<Vec<_>, _>>()?;
                 let recipe = p["recipeId"].as_str().map(str::to_owned);
-                let state = state.clone();
-                tokio::task::spawn_blocking(move || {
-                    paths
-                        .iter()
-                        .map(|path| {
-                            let staged = store::stage_audio(&state.library_root, path, false)?;
-                            state
-                                .store()?
-                                .import_staged(staged, path, recipe.as_deref())
-                        })
-                        .collect::<Result<Vec<_>, _>>()
-                        .map(|v| json!(v))
-                })
-                .await
-                .map_err(|e| e.to_string())?
+                let mut imported = Vec::new();
+                for path in paths {
+                    let root = state.library_root.clone();
+                    let source = path.clone();
+                    let staged = tokio::task::spawn_blocking(move || {
+                        store::stage_audio(&root, &source, false)
+                    })
+                    .await
+                    .map_err(|e| e.to_string())??;
+                    imported.push(
+                        state
+                            .library
+                            .import_staged(staged, path, recipe.clone())
+                            .await?,
+                    );
+                }
+                Ok(json!(imported))
             }
             AppCommand::CredentialSave(Untyped(p)) => {
-                state.store()?.save_credential(
-                    text(&p, "id")?,
-                    p["value"].as_str().ok_or("Falta la credencial")?,
-                )?;
+                state
+                    .library
+                    .save_credential(
+                        text(&p, "id")?.to_owned(),
+                        p["value"].as_str().ok_or("Falta la credencial")?.to_owned(),
+                    )
+                    .await?;
                 Ok(Value::Null)
             }
             AppCommand::ConnectorRemove(Untyped(p)) => {
-                state.store()?.remove_connector(text(&p, "id")?)?;
+                state
+                    .library
+                    .remove_connector(text(&p, "id")?.to_owned())
+                    .await?;
                 Ok(Value::Null)
             }
             AppCommand::ConnectorSave(Untyped(p)) => {
                 state
-                    .store()?
-                    .save_connector(&p["account"], &p["destination"])?;
+                    .library
+                    .save_connector(p["account"].clone(), p["destination"].clone())
+                    .await?;
                 Ok(Value::Null)
             }
             AppCommand::Native(Untyped(p)) => {
@@ -538,7 +558,7 @@ async fn dispatch_app(
             AppCommand::RecordingStop(Untyped(_)) => recorder::stop(app, state).await,
             AppCommand::ConnectorHttp(Untyped(p)) => {
                 let (account, grant, secret, audio) = {
-                    let store = state.store()?;
+                    let store = state.library.index();
                     let key = text(&p, "accountId")?;
                     let record_id = p["multipart"].as_array().and_then(|a| {
                         a.iter()
@@ -566,7 +586,7 @@ async fn dispatch_app(
             }
             AppCommand::ConnectorFiles(Untyped(p)) => {
                 let account = {
-                    let store = state.store()?;
+                    let store = state.library.index();
                     let account = store.item("accounts", text(&p, "accountId")?)?;
                     let provider = match account["provider"].as_str() {
                         Some("notion" | "okf") => None,
@@ -581,12 +601,14 @@ async fn dispatch_app(
                     .map_err(|e| e.to_string())?
             }
             AppCommand::ConnectorAudio(Untyped(p)) => {
-                let store = state.store()?;
-                let record = store.recording(text(&p, "recordingId")?)?;
+                let record = state
+                    .library
+                    .recording(text(&p, "recordingId")?.to_owned())
+                    .await?;
                 if record["audioPath"].is_null() {
                     return Ok(Value::Null);
                 }
-                let path = store.audio(text(&p, "recordingId")?)?;
+                let path = state.library.index().audio(text(&p, "recordingId")?)?;
                 let size = fs::metadata(&path).map_err(|e| e.to_string())?.len();
                 Ok(
                     json!({"size":size,"type":audio_type(&path),"filename":path.file_name().unwrap_or_default().to_string_lossy()}),
@@ -596,14 +618,18 @@ async fn dispatch_app(
                 let _project_guard = state.project_lock.lock().await;
                 let path = PathBuf::from(text(&p, "path")?);
                 let accounts = {
-                    let store = state.store()?;
-                    project_accounts(&store.data.accounts, &store.data.destinations)?
+                    let store = state.library.index();
+                    project_accounts(&store.accounts, &store.destinations)?
                 };
                 let has_dist =
                     project::initialize(&path, &accounts, &state.vendor, &state.project_runtime)?;
                 state
-                    .store()?
-                    .mutate("settings_save", &json!({"settings":{"projectPath":path}}))?;
+                    .library
+                    .mutate(
+                        "settings_save".into(),
+                        json!({"settings":{"projectPath":path}}),
+                    )
+                    .await?;
                 Ok(json!({"hasDist":has_dist}))
             }
             AppCommand::ProjectBuild(Untyped(_)) => {
@@ -678,8 +704,7 @@ async fn dispatch_app(
                 Ok(Value::Null)
             }
             AppCommand::ProjectInstall(Untyped(p)) => {
-                let mut store = state.store()?;
-                catalog::install(&mut store, &p)?;
+                state.library.install(p).await?;
                 Ok(Value::Null)
             }
             AppCommand::ExportFile(Untyped(p)) => {
@@ -703,7 +728,10 @@ async fn dispatch_app(
                 Ok(Value::Null)
             }
             AppCommand::OkfFile(Untyped(p)) => {
-                let account = state.store()?.item("accounts", text(&p, "accountId")?)?;
+                let account = state
+                    .library
+                    .index()
+                    .item("accounts", text(&p, "accountId")?)?;
                 let path = capabilities::authorized_okf_file(
                     &account,
                     std::path::Path::new(text(&p, "path")?),
@@ -799,7 +827,7 @@ async fn dispatch_app(
                     }
                     .map_err(|e| format!("No se pudo cambiar el inicio automático: {e}"))?;
                 }
-                let saved = state.store()?.mutate(method, &p)?;
+                let saved = state.library.mutate(method.to_owned(), p).await?;
                 let _ = state.watch_wake.try_send(());
                 state.jobs.wake_all();
                 Ok(saved)
@@ -817,14 +845,14 @@ async fn dispatch_app(
             | AppCommand::NoteDraftSave(Untyped(p))
             | AppCommand::NoteDraftDiscard(Untyped(p))
             | AppCommand::NoteDraftCommit(Untyped(p))
-            | AppCommand::Log(Untyped(p)) => state.store()?.mutate(method, &p),
+            | AppCommand::Log(Untyped(p)) => state.library.mutate(method.to_owned(), p).await,
         }
     }
 }
 fn project_path(state: &Runtime) -> Result<PathBuf, String> {
     state
-        .store()?
-        .data
+        .library
+        .index()
         .settings
         .project_path
         .as_ref()
@@ -853,12 +881,11 @@ async fn authorize_watched_folder(
     let folder_id = params["folderId"].as_str();
     let voice_memos = folder_id.is_none() && params["style"] == "voiceMemos";
     let initial_path = {
-        let store = state.store()?;
+        let store = state.library.index();
         match folder_id {
             None if voice_memos => Some(voice_memos_root(app)?),
             Some(id) => Some(PathBuf::from(
                 store
-                    .data
                     .settings
                     .watched_folders
                     .as_ref()
@@ -890,15 +917,19 @@ async fn authorize_watched_folder(
         .refreshed_bookmark
         .clone()
         .unwrap_or(selected.bookmark);
-    let saved = state.store()?.authorize_watched_folder(
-        folder_id,
-        &resolved.path,
-        params["name"]
-            .as_str()
-            .or(voice_memos.then_some("Notas de Voz")),
-        params["style"].as_str().unwrap_or("any"),
-        &bookmark,
-    )?;
+    let saved = state
+        .library
+        .authorize_watched_folder(
+            folder_id.map(str::to_owned),
+            resolved.path.clone(),
+            params["name"]
+                .as_str()
+                .or(voice_memos.then_some("Notas de Voz"))
+                .map(str::to_owned),
+            params["style"].as_str().unwrap_or("any").to_owned(),
+            bookmark.clone(),
+        )
+        .await?;
     state
         .folder_accesses
         .lock()
@@ -919,32 +950,43 @@ fn voice_memos_root(app: &tauri::AppHandle) -> Result<PathBuf, String> {
         .join("Library/Group Containers/group.com.apple.VoiceMemos.shared/Recordings"))
 }
 
-fn restore_watched_folders(state: &Runtime) -> Result<Vec<watcher::FolderError>, String> {
-    let bookmarks = state.store()?.watched_folder_bookmarks()?;
-    let mut accesses = state
-        .folder_accesses
-        .lock()
-        .map_err(|_| "No se pudo mantener el acceso a las carpetas")?;
-    accesses.retain(|id, access| {
-        bookmarks.iter().any(|(folder_id, path, bookmark)| {
-            folder_id == id && bookmark == &access.bookmark && path == &access.resolved.path
-        })
-    });
+async fn restore_watched_folders(state: &Runtime) -> Result<Vec<watcher::FolderError>, String> {
+    let bookmarks = state.library.index().watched_folder_bookmarks()?;
+    let known: Vec<String> = {
+        let mut accesses = state
+            .folder_accesses
+            .lock()
+            .map_err(|_| "No se pudo mantener el acceso a las carpetas")?;
+        accesses.retain(|id, access| {
+            bookmarks.iter().any(|(folder_id, path, bookmark)| {
+                folder_id == id && bookmark == &access.bookmark && path == &access.resolved.path
+            })
+        });
+        accesses.keys().cloned().collect()
+    };
     let mut issues = Vec::new();
     for (id, path, bookmark) in bookmarks {
-        if accesses.contains_key(&id) {
+        if known.contains(&id) {
             continue;
         }
         match folder_access::restore(&bookmark) {
             Ok(resolved) => {
-                if state.store()?.refresh_watched_folder_bookmark(
-                    &id,
-                    &bookmark,
-                    &resolved.path,
-                    resolved.refreshed_bookmark.as_deref(),
-                )? {
+                if state
+                    .library
+                    .refresh_watched_folder_bookmark(
+                        id.clone(),
+                        bookmark.clone(),
+                        resolved.path.clone(),
+                        resolved.refreshed_bookmark.clone(),
+                    )
+                    .await?
+                {
                     let bookmark = resolved.refreshed_bookmark.clone().unwrap_or(bookmark);
-                    accesses.insert(id, FolderAccess { bookmark, resolved });
+                    state
+                        .folder_accesses
+                        .lock()
+                        .map_err(|_| "No se pudo mantener el acceso a las carpetas")?
+                        .insert(id, FolderAccess { bookmark, resolved });
                 }
             }
             Err(message) => issues.push(watcher::FolderError {
@@ -979,8 +1021,8 @@ fn audio_type(path: &Path) -> &'static str {
 }
 fn folders(state: &Runtime) -> Result<Vec<watcher::Folder>, String> {
     state
-        .store()?
-        .data
+        .library
+        .index()
         .settings
         .watched_folders
         .as_ref()
@@ -997,17 +1039,20 @@ fn folders(state: &Runtime) -> Result<Vec<watcher::Folder>, String> {
         .collect()
 }
 fn log_error(state: &Runtime, message: &str) {
-    if let Ok(mut store) = state.store() {
-        if let Err(error) = store.mutate("log", &json!({"level":"error","message":message})) {
+    let library = state.library.clone();
+    let message = message.to_owned();
+    tauri::async_runtime::spawn(async move {
+        if let Err(error) = library
+            .mutate("log".into(), json!({"level":"error","message":message}))
+            .await
+        {
             eprintln!("{message}; no se pudo guardar el error: {error}");
         }
-    } else {
-        eprintln!("{message}");
-    }
+    });
 }
 async fn scan(app: &tauri::AppHandle, state: &Arc<Runtime>) -> Result<Value, String> {
     let _scan = state.scan_lock.lock().await;
-    let mut issues = restore_watched_folders(state)?;
+    let mut issues = restore_watched_folders(state).await?;
     let watched = folders(state)?;
     let watched_paths: Vec<_> = watched.iter().map(|folder| folder.path.clone()).collect();
     let runtime = state.clone();
@@ -1095,7 +1140,7 @@ async fn scan(app: &tauri::AppHandle, state: &Arc<Runtime>) -> Result<Value, Str
             .forget(&candidate.path);
         if status["size"].as_u64().unwrap_or(0) == 0 {
             if candidate.stamp.modified.elapsed().unwrap_or_default() >= Duration::from_secs(3600) {
-                let record = state.store()?.mutate("recording_abandoned", &json!({"path":candidate.path,"source":candidate.folder_id,"sourceKey":candidate.source_key,"title":candidate.title,"modifiedAt":chrono::DateTime::<chrono::Utc>::from(candidate.started_at).to_rfc3339()}))?;
+                let record = state.library.mutate("recording_abandoned".into(), json!({"path":candidate.path,"source":candidate.folder_id,"sourceKey":candidate.source_key,"title":candidate.title,"modifiedAt":chrono::DateTime::<chrono::Utc>::from(candidate.started_at).to_rfc3339()})).await?;
                 notify_problem(
                     state,
                     Problem::Failed {
@@ -1118,15 +1163,21 @@ async fn scan(app: &tauri::AppHandle, state: &Arc<Runtime>) -> Result<Value, Str
                 .await
                 .map_err(|e| e.to_string())?
         };
-        let result = staged.and_then(|staged| {
-            state.store()?.import_staged_with_metadata(
-                staged,
-                &candidate.path,
-                &candidate.title,
-                candidate.started_at,
-                &candidate.source_key,
-            )
-        });
+        let result = match staged {
+            Ok(staged) => {
+                state
+                    .library
+                    .import_watched(
+                        staged,
+                        candidate.path.clone(),
+                        candidate.title.clone(),
+                        candidate.started_at,
+                        candidate.source_key.clone(),
+                    )
+                    .await
+            }
+            Err(error) => Err(error),
+        };
         match result {
             Ok(record) => {
                 state
@@ -1178,7 +1229,7 @@ async fn scan(app: &tauri::AppHandle, state: &Arc<Runtime>) -> Result<Value, Str
     Ok(json!(added))
 }
 async fn recover_captures(state: &Arc<Runtime>) -> Result<(), String> {
-    let root = state.store()?.root.join("captures");
+    let root = state.library.index().root().join("captures");
     let captures = fs::read_dir(root)
         .map_err(|e| e.to_string())?
         .filter_map(|entry| entry.ok())
@@ -1204,10 +1255,18 @@ async fn recover_captures(state: &Arc<Runtime>) -> Result<(), String> {
                 .await
                 .map_err(|e| e.to_string())?
         };
-        let result = staged.and_then(|staged| state.store()?.import_staged(staged, &path, None));
+        let result = match staged {
+            Ok(staged) => {
+                state
+                    .library
+                    .import_staged(staged, path.clone(), None)
+                    .await
+            }
+            Err(error) => Err(error),
+        };
         match result {
             Ok(record) => {
-                state.store()?.mutate("log", &json!({"level":"warn","recordingId":record["id"],"message":"Recuperada una captura pendiente de guardar"}))?;
+                state.library.mutate("log".into(), json!({"level":"warn","recordingId":record["id"],"message":"Recuperada una captura pendiente de guardar"})).await?;
                 fs::remove_file(&path).map_err(|e| {
                     format!("Captura recuperada; no se pudo retirar el temporal: {e}")
                 })?;
@@ -1229,13 +1288,7 @@ fn notify_problem(state: &Runtime, problem: Problem<'_>) {
     notify(state, notifications::notification(problem));
 }
 async fn warn_about_unusable(app: &tauri::AppHandle, state: &Arc<Runtime>) {
-    let model = match state.store() {
-        Ok(store) => json!(store.data.settings.whisper_model.as_ref()),
-        Err(error) => {
-            notify_problem(state, Problem::StartupFailed(&error));
-            return;
-        }
-    };
+    let model = json!(state.library.index().settings.whisper_model.as_ref());
     let status = match state
         .inference
         .call("status", json!({"model": model}))
@@ -1281,27 +1334,24 @@ async fn warn_about_unusable(app: &tauri::AppHandle, state: &Arc<Runtime>) {
         }
     }
 }
-fn job_notification(
+async fn job_notification(
     state: &Runtime,
     job: &Value,
     result: &Result<Value, error::AppError>,
 ) -> Result<Option<notifications::Notification>, String> {
-    let store = state.store()?;
-    let record = store.recording(text(job, "recordingId")?)?;
+    let record = state
+        .library
+        .recording(text(job, "recordingId")?.to_owned())
+        .await?;
     Ok(notification_events::finished(
         job,
         &record,
         result.as_ref(),
-        &store.settings_json(),
+        &json!(&state.library.index().settings),
     ))
 }
 fn emit_jobs(app: &tauri::AppHandle, state: &Runtime) {
-    match state.jobs.visible() {
-        Ok(jobs) => {
-            let _ = app.emit("escriba://jobs", jobs);
-        }
-        Err(error) => log_error(state, &error),
-    }
+    let _ = app.emit("escriba://jobs", state.jobs.visible());
     let _ = app.emit("escriba://changed", ());
 }
 async fn script_call(
@@ -1344,16 +1394,23 @@ async fn script_call(
             result
         })
     });
+    let (stages, mut staged) = tokio::sync::mpsc::unbounded_channel::<Value>();
     let weak = Arc::downgrade(state);
     let handle = app.clone();
-    let events: scripts::Events = Arc::new(move |event| {
-        if let Some(state) = weak.upgrade() {
-            if event["event"] == "jobs" {
-                if let Err(error) = state.jobs.stages(&event["value"]) {
-                    log_error(&state, &error);
-                }
-                emit_jobs(&handle, &state);
+    tauri::async_runtime::spawn(async move {
+        while let Some(value) = staged.recv().await {
+            let Some(state) = weak.upgrade() else {
+                return;
+            };
+            if let Err(error) = state.jobs.stages(&value).await {
+                log_error(&state, &error);
             }
+            emit_jobs(&handle, &state);
+        }
+    });
+    let events: scripts::Events = Arc::new(move |event| {
+        if event["event"] == "jobs" {
+            let _ = stages.send(event["value"].clone());
         }
     });
     state
@@ -1374,11 +1431,11 @@ fn start_jobs(app: tauri::AppHandle, state: Arc<Runtime>) {
 async fn run_lane(app: tauri::AppHandle, state: Arc<Runtime>, lane: jobs::Lane) {
     loop {
         if lane == jobs::Lane::Inference {
-            if let Err(error) = state.jobs.automatic() {
+            if let Err(error) = state.jobs.automatic().await {
                 log_error(&state, &error);
             }
         }
-        match state.jobs.claim(lane) {
+        match state.jobs.claim(lane).await {
             Ok(Some(job)) => {
                 emit_jobs(&app, &state);
                 let id = job["id"].as_str().unwrap_or("");
@@ -1390,8 +1447,8 @@ async fn run_lane(app: tauri::AppHandle, state: Arc<Runtime>, lane: jobs::Lane) 
                     job["args"].clone(),
                 )
                 .await;
-                let notice = job_notification(&state, &job, &result);
-                match state.jobs.finish(id, result) {
+                let notice = job_notification(&state, &job, &result).await;
+                match state.jobs.finish(id, result).await {
                     Ok(true) => match notice {
                         Ok(Some(notice)) => notify(&state, notice),
                         Err(error) => log_error(&state, &error),
@@ -1426,7 +1483,7 @@ fn start_knowledge_sync(state: Arc<Runtime>) {
                     .get_or_try_init(|| knowledge::Knowledge::open(&state.knowledge_path))
                     .await
                 {
-                    Ok(knowledge) => knowledge_commands::sync_step(knowledge, &state.store).await,
+                    Ok(knowledge) => knowledge_commands::sync_step(knowledge, &state.library).await,
                     Err(error) => Err(error),
                 }
             } else {
@@ -1456,9 +1513,12 @@ fn start_project_watcher(app: tauri::AppHandle, state: Arc<Runtime>) {
         let mut watching: Option<(String, notify::RecommendedWatcher)> = None;
         loop {
             let path = state
-                .store()
-                .ok()
-                .and_then(|store| store.data.settings.project_path.as_ref().cloned());
+                .library
+                .index()
+                .settings
+                .project_path
+                .as_ref()
+                .cloned();
             if watching.as_ref().map(|(current, _)| current) != path.as_ref() {
                 watching = match path {
                     Some(path) => match project_watch::watch(&path, sender.clone()) {
@@ -1526,34 +1586,30 @@ fn start_watcher(
                 _ => {}
             }
             let current = state
-                .store()
-                .map(|s| s.data.settings.watched_folders.as_ref().cloned());
-            match current {
-                Ok(current) if current != previous => {
-                    match folders(&state).and_then(|f| watcher::watch(&f, state.watch_wake.clone()))
-                    {
-                        Ok(next) => {
-                            for error in &next.errors {
-                                log_error(&state, &error.message);
-                                notify_problem(
-                                    &state,
-                                    Problem::FolderInaccessible(&error.path.to_string_lossy()),
-                                );
-                            }
-                            watcher = Some(next);
-                            previous = current;
+                .library
+                .index()
+                .settings
+                .watched_folders
+                .as_ref()
+                .cloned();
+            if current != previous {
+                match folders(&state).and_then(|f| watcher::watch(&f, state.watch_wake.clone())) {
+                    Ok(next) => {
+                        for error in &next.errors {
+                            log_error(&state, &error.message);
+                            notify_problem(
+                                &state,
+                                Problem::FolderInaccessible(&error.path.to_string_lossy()),
+                            );
                         }
-                        Err(error) => {
-                            log_error(&state, &error);
-                            notify_problem(&state, Problem::ScanFailed(&error));
-                        }
+                        watcher = Some(next);
+                        previous = current;
+                    }
+                    Err(error) => {
+                        log_error(&state, &error);
+                        notify_problem(&state, Problem::ScanFailed(&error));
                     }
                 }
-                Err(error) => {
-                    log_error(&state, &error);
-                    notify_problem(&state, Problem::ScanFailed(&error));
-                }
-                _ => {}
             }
             tokio::select! { _ = wake.recv() => {}, _ = tokio::time::sleep(Duration::from_secs(15)) => {} }
             std::hint::black_box(&watcher);
@@ -1595,15 +1651,17 @@ pub fn run() {
                     Path::new(env!("CARGO_MANIFEST_DIR")).join("vendor")
                 };
                 let engine = native::binary("EscribaNativeHost").map_err(std::io::Error::other)?;
-                let store = Arc::new(Mutex::new(store));
-                let jobs =
-                    Arc::new(jobs::Queue::new(store.clone()).map_err(std::io::Error::other)?);
+                let library = library::Library::new(store).map_err(std::io::Error::other)?;
+                let jobs = Arc::new(
+                    tauri::async_runtime::block_on(jobs::Queue::new(library.clone()))
+                        .map_err(std::io::Error::other)?,
+                );
                 let (watch_wake, wake) = tokio::sync::mpsc::channel(1);
                 let state = Arc::new(Runtime {
                     knowledge: tokio::sync::OnceCell::new(),
                     knowledge_wake: tokio::sync::Notify::new(),
                     knowledge_path: root.join("knowledge.rocksdb"),
-                    store,
+                    library,
                     jobs,
                     scripts: scripts::Scripts::new(
                         native::binary("escriba-runtime").map_err(std::io::Error::other)?,
@@ -1635,14 +1693,8 @@ pub fn run() {
                 });
                 app.manage(state.clone());
                 if isolated_root.is_none() {
-                    let enabled = state
-                        .store()
-                        .map_err(std::io::Error::other)?
-                        .data
-                        .settings
-                        .launch_at_login
-                        .as_ref()
-                        == Some(&true);
+                    let enabled =
+                        state.library.index().settings.launch_at_login.as_ref() == Some(&true);
                     if let Err(error) = login::synchronize(app.handle(), enabled) {
                         log_error(
                             &state,
@@ -1656,9 +1708,7 @@ pub fn run() {
                 let handle = app.handle().clone();
                 tauri::async_runtime::spawn(async move {
                     if let Ok(root) = voice_memos_root(&handle) {
-                        let seeded = state
-                            .store()
-                            .and_then(|mut store| store.seed_voice_memos(&root));
+                        let seeded = state.library.seed_voice_memos(root).await;
                         match seeded {
                             Ok(true) => {
                                 let _ = handle.emit("escriba://changed", ());

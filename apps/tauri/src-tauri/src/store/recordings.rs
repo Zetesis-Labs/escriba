@@ -19,40 +19,45 @@ impl Store {
         Ok(record)
     }
     pub fn item(&self, collection: &str, item_id: &str) -> Result<Value, String> {
-        self.data
-            .catalog(collection)?
-            .as_array()
-            .and_then(|items| items.iter().find(|item| item["id"] == item_id))
-            .cloned()
-            .ok_or_else(|| format!("No existe {item_id} en {collection}"))
+        item(&self.data, collection, item_id)
     }
     pub fn audio(&self, record_id: &str) -> Result<PathBuf, String> {
-        let record = self
-            .data
-            .recordings
-            .iter()
-            .find(|record| record.id == record_id)
-            .ok_or("Grabación no encontrada")?;
-        let path = PathBuf::from(
-            record
-                .audio_path
-                .as_ref()
-                .filter(|path| !path.is_empty())
-                .ok_or("Falta audioPath")?,
-        );
-        let canonical = path
-            .canonicalize()
-            .map_err(|e| format!("Audio no disponible: {e}"))?;
-        if !canonical.starts_with(
-            self.root
-                .join("audio")
-                .canonicalize()
-                .map_err(|e| e.to_string())?,
-        ) {
-            return Err("Audio fuera de la biblioteca".into());
-        }
-        Ok(canonical)
+        audio(&self.data, &self.root, record_id)
     }
+}
+
+pub(super) fn item(data: &LibraryData, collection: &str, item_id: &str) -> Result<Value, String> {
+    data.catalog(collection)?
+        .as_array()
+        .and_then(|items| items.iter().find(|item| item["id"] == item_id))
+        .cloned()
+        .ok_or_else(|| format!("No existe {item_id} en {collection}"))
+}
+
+pub(super) fn audio(data: &LibraryData, root: &Path, record_id: &str) -> Result<PathBuf, String> {
+    let record = data
+        .recordings
+        .iter()
+        .find(|record| record.id == record_id)
+        .ok_or("Grabación no encontrada")?;
+    let path = PathBuf::from(
+        record
+            .audio_path
+            .as_ref()
+            .filter(|path| !path.is_empty())
+            .ok_or("Falta audioPath")?,
+    );
+    let canonical = path
+        .canonicalize()
+        .map_err(|e| format!("Audio no disponible: {e}"))?;
+    if !canonical.starts_with(
+        root.join("audio")
+            .canonicalize()
+            .map_err(|e| e.to_string())?,
+    ) {
+        return Err("Audio fuera de la biblioteca".into());
+    }
+    Ok(canonical)
 }
 
 impl Recording {

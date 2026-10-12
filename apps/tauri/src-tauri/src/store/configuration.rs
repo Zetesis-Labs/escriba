@@ -2,17 +2,10 @@ use super::*;
 
 impl Store {
     pub(super) fn credential_path(&self, key: &str) -> Result<PathBuf, String> {
-        Ok(self
-            .root
-            .join("secrets")
-            .join(format!("{}.token", safe_id(key)?)))
+        credential_path(&self.root, key)
     }
     pub fn credential(&self, key: &str) -> Result<Option<String>, String> {
-        match fs::read_to_string(self.credential_path(key)?) {
-            Ok(s) => Ok(Some(s)),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
-            Err(e) => Err(format!("No se puede leer la credencial: {e}")),
-        }
+        credential(&self.root, key)
     }
     pub fn save_credential(&self, key: &str, value: &str) -> Result<(), String> {
         if self.item("accounts", key).is_err() && self.item("resolvers", key).is_err() {
@@ -324,5 +317,19 @@ impl Store {
             }
             _ => return Err(format!("Operación desconocida: {method}")),
         })
+    }
+}
+
+pub(super) fn credential_path(root: &Path, key: &str) -> Result<PathBuf, String> {
+    Ok(root
+        .join("secrets")
+        .join(format!("{}.token", safe_id(key)?)))
+}
+
+pub(super) fn credential(root: &Path, key: &str) -> Result<Option<String>, String> {
+    match fs::read_to_string(credential_path(root, key)?) {
+        Ok(s) => Ok(Some(s)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(format!("No se puede leer la credencial: {e}")),
     }
 }

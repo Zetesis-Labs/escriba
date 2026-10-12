@@ -176,13 +176,12 @@ async fn detalle_acota_textos_y_senala_recortes_sin_modificar_registros() {
 #[tokio::test]
 async fn comandos_sincronizan_la_base_y_rechazan_paginas_invalidas() {
     use crate::knowledge_commands::call as dispatch;
-    use std::sync::{Arc, Mutex};
     let temp = tempfile::tempdir().unwrap();
     let mut store = crate::store::Store::open(temp.path().join("library")).unwrap();
     let audio = temp.path().join("prueba.wav");
     std::fs::write(&audio, b"sintetico").unwrap();
     store.import(&audio, None).unwrap();
-    let store = Arc::new(Mutex::new(store));
+    let store = crate::library::Library::new(store).unwrap();
     let graph = Knowledge::open(&temp.path().join("graph")).await.unwrap();
     let roots = dispatch(
         &graph,

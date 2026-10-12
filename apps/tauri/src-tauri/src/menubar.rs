@@ -84,7 +84,7 @@ pub struct Bar {
     new_recording: Option<MenuItem<Wry>>,
 }
 
-fn current(state: &Runtime, previous: Option<&View>) -> Option<View> {
+fn current(state: &Runtime) -> View {
     let unreadable = state
         .watch_health
         .lock()
@@ -95,24 +95,19 @@ fn current(state: &Runtime, previous: Option<&View>) -> Option<View> {
                 .is_some_and(|issues| !issues.is_empty())
         })
         .unwrap_or(false);
-    let (jobs, count) = match state.store.try_lock() {
-        Ok(store) => (
-            store.jobs().unwrap_or_default(),
-            Some(store.data.recordings.len()),
-        ),
-        Err(_) => return previous.cloned(),
-    };
+    let jobs = state.library.active_jobs();
+    let count = Some(state.library.index().recordings.len());
     let problem = state
         .recording_problem
         .lock()
         .ok()
         .and_then(|problem| problem.as_ref().map(|p| p.message.clone()));
-    Some(View {
+    View {
         status: status(&jobs, unreadable),
         count,
         recording: recorder::is_recording(state),
         problem,
-    })
+    }
 }
 
 pub fn refresh(app: &AppHandle) {
@@ -127,9 +122,7 @@ fn apply(app: &AppHandle, state: &Runtime) {
     let Ok(mut bar) = state.menubar.lock() else {
         return;
     };
-    let Some(view) = current(state, bar.view.as_ref()) else {
-        return;
-    };
+    let view = current(state);
     if bar.view.as_ref() == Some(&view) {
         return;
     }

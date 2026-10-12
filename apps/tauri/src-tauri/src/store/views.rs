@@ -1,15 +1,9 @@
 use super::*;
 
 impl Store {
+    #[cfg(test)]
     pub fn library(&self) -> Value {
-        let mut value = crate::library_view::typed_library(&self.data);
-        value["settings"] = redacted_settings(&value["settings"]);
-        if let Some(settings) = value["settings"].as_object_mut() {
-            settings.remove("projectOntologies");
-        }
-        value["dataPath"] = json!(self.root);
-        self.mark_credentials(&mut value);
-        value
+        library(&self.data, &self.root)
     }
 
     pub fn snapshot(&self) -> Result<Value, String> {
@@ -79,14 +73,74 @@ impl Store {
     }
 
     pub(super) fn mark_credentials(&self, value: &mut Value) {
-        for key in ["accounts", "resolvers"] {
-            if let Some(items) = value[key].as_array_mut() {
-                for item in items {
-                    item["hasCredential"] = json!(self
-                        .credential_path(item["id"].as_str().unwrap_or(""))
-                        .is_ok_and(|p| p.is_file()));
-                }
+        mark_credentials(&self.root, value)
+    }
+}
+
+pub(super) fn library(data: &LibraryIndex, root: &Path) -> Value {
+    let mut value = crate::library_view::typed_library(data);
+    value["settings"] = redacted_settings(&value["settings"]);
+    if let Some(settings) = value["settings"].as_object_mut() {
+        settings.remove("projectOntologies");
+    }
+    value["dataPath"] = json!(root);
+    mark_credentials(root, &mut value);
+    value
+}
+
+fn mark_credentials(root: &Path, value: &mut Value) {
+    for key in ["accounts", "resolvers"] {
+        if let Some(items) = value[key].as_array_mut() {
+            for item in items {
+                item["hasCredential"] = json!(super::configuration::credential_path(
+                    root,
+                    item["id"].as_str().unwrap_or("")
+                )
+                .is_ok_and(|p| p.is_file()));
             }
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct IndexView {
+    index: Arc<LibraryIndex>,
+    root: Arc<Path>,
+}
+
+impl std::ops::Deref for IndexView {
+    type Target = LibraryIndex;
+    fn deref(&self) -> &Self::Target {
+        &self.index
+    }
+}
+
+impl IndexView {
+    pub fn root(&self) -> &Path {
+        &self.root
+    }
+    pub fn item(&self, collection: &str, item_id: &str) -> Result<Value, String> {
+        super::recordings::item(&self.index, collection, item_id)
+    }
+    pub fn audio(&self, record_id: &str) -> Result<PathBuf, String> {
+        super::recordings::audio(&self.index, &self.root, record_id)
+    }
+    pub fn credential(&self, key: &str) -> Result<Option<String>, String> {
+        super::configuration::credential(&self.root, key)
+    }
+    pub fn library(&self) -> Value {
+        library(&self.index, &self.root)
+    }
+    pub fn watched_folder_bookmarks(&self) -> Result<Vec<(String, PathBuf, Vec<u8>)>, String> {
+        super::settings::watched_folder_bookmarks(&self.index)
+    }
+}
+
+impl Store {
+    pub(crate) fn index_view(&self) -> IndexView {
+        IndexView {
+            index: Arc::new(self.data.clone()),
+            root: Arc::from(self.root.as_path()),
         }
     }
 }

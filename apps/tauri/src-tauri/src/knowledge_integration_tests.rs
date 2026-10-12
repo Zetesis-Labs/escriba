@@ -2,11 +2,7 @@ use crate::{
     catalog, knowledge::Knowledge, knowledge_commands, native, project, scripts, store::Store,
 };
 use serde_json::{json, Value};
-use std::{
-    path::Path,
-    sync::{Arc, Mutex},
-    time::Duration,
-};
+use std::{path::Path, sync::Arc, time::Duration};
 
 #[tokio::test]
 async fn receta_empaquetada_ejecuta_sdk_sobre_grafo_real_y_conserva_vinculos_al_cambiar_proyecto() {
@@ -74,7 +70,7 @@ export async function flujo(audio, api) {
         &json!({"recipes":[compiled],"destinations":[],"ontologies":[ontology.clone()]}),
     )
     .unwrap();
-    let store = Arc::new(Mutex::new(store));
+    let store = crate::library::Library::new(store).unwrap();
     let graph = Arc::new(Knowledge::open(&knowledge_path).await.unwrap());
     knowledge_commands::call(
         &graph,

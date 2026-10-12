@@ -37,10 +37,9 @@ pub async fn start(
     }
     set_problem(state, None);
     let (path, recipe_name) = {
-        let store = state.store()?;
+        let store = state.library.index();
         let name = recipe_id.as_deref().and_then(|id| {
             store
-                .data
                 .recipes
                 .as_array()?
                 .iter()
@@ -49,7 +48,7 @@ pub async fn start(
                 .map(str::to_owned)
         });
         let path = store
-            .root
+            .root()
             .join("captures")
             .join(recording::recording_name(chrono::Local::now()));
         (path, name)
@@ -125,14 +124,15 @@ async fn save(state: &Runtime, session: &Session) -> Result<Value, String> {
             .await
             .map_err(|e| e.to_string())??
     };
-    let updated = {
-        let mut store = state.store()?;
-        let record = store.import_staged(staged, &path, session.recipe_id.as_deref())?;
-        store.mutate(
-            "recording_update",
-            &json!({"id":record["id"],"duration":reply["duration"],"createdAt":session.started_at.to_rfc3339()}),
-        )?
-    };
+    let updated = state
+        .library
+        .import_recorded(
+            staged,
+            path.clone(),
+            session.recipe_id.clone(),
+            json!({"duration":reply["duration"],"createdAt":session.started_at.to_rfc3339()}),
+        )
+        .await?;
     fs::remove_file(&path)
         .map_err(|e| format!("Audio guardado; no se pudo retirar la captura temporal: {e}"))?;
     Ok(updated)
