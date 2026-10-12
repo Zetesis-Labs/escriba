@@ -1,17 +1,12 @@
 use super::*;
 
 impl Store {
+    #[cfg(test)]
     pub async fn jobs(&self) -> Result<Vec<Value>, String> {
         self.database.jobs().await
     }
-    pub async fn jobs_active(&self) -> Result<Vec<Value>, String> {
-        self.database.jobs_active().await
-    }
     pub async fn jobs_for(&self, recording_id: &str) -> Result<Vec<Value>, String> {
         self.database.jobs_for(recording_id).await
-    }
-    pub async fn job(&self, id: &str) -> Result<Option<Value>, String> {
-        self.database.job(id).await
     }
     pub async fn job_save(&mut self, job: &Value) -> Result<(), String> {
         self.recording_for_write(text(job, "recordingId")?)?;
@@ -27,19 +22,9 @@ impl Store {
         version_id: &str,
         fingerprint: &str,
     ) -> Result<String, String> {
-        if fingerprint.is_empty() {
-            return Err("Falta la huella de memoria".into());
-        }
-        let record = self.recording_for_write(recording_id)?;
-        if !record
-            .versions
-            .as_ref()
-            .is_some_and(|versions| versions.iter().any(|version| version.id == version_id))
-        {
-            return Err("La versión no pertenece a la grabación".into());
-        }
-        Ok(json!([recording_id, version_id, fingerprint]).to_string())
+        memory_key(&self.data, recording_id, version_id, fingerprint)
     }
+    #[cfg(test)]
     pub async fn memory_recall(
         &self,
         recording_id: &str,
@@ -73,7 +58,28 @@ impl Store {
         }
         self.database.trace_save(&trace).await
     }
+    #[cfg(test)]
     pub async fn trace_list(&self, recording_id: Option<&str>) -> Result<Vec<Value>, String> {
         self.database.trace_list(recording_id).await
     }
+}
+
+pub(super) fn memory_key(
+    data: &LibraryData,
+    recording_id: &str,
+    version_id: &str,
+    fingerprint: &str,
+) -> Result<String, String> {
+    if fingerprint.is_empty() {
+        return Err("Falta la huella de memoria".into());
+    }
+    let record = super::recordings::recording_for_write(data, recording_id)?;
+    if !record
+        .versions
+        .as_ref()
+        .is_some_and(|versions| versions.iter().any(|version| version.id == version_id))
+    {
+        return Err("La versión no pertenece a la grabación".into());
+    }
+    Ok(json!([recording_id, version_id, fingerprint]).to_string())
 }

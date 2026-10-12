@@ -125,7 +125,6 @@ async fn las_escrituras_no_se_solapan() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-#[ignore = "paso 3: hoy el detalle espera al cerrojo de la escritura en curso"]
 async fn leer_no_espera_a_un_commit() {
     let temp = tempfile::tempdir().unwrap();
     let library = open(&temp.path().join("library")).await;
@@ -230,7 +229,6 @@ async fn lees_lo_que_escribes_y_en_orden() {
 }
 
 #[tokio::test]
-#[ignore = "paso 3: hoy un pánico envenena el cerrojo de la biblioteca"]
 async fn un_error_no_inutiliza_la_biblioteca() {
     let temp = tempfile::tempdir().unwrap();
     let library = open(&temp.path().join("library")).await;
@@ -367,22 +365,23 @@ async fn cancelar_y_terminar_a_la_vez() {
     }
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[tokio::test]
 async fn cerrar_confirma_lo_encolado() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path().join("library");
     let library = open(&root).await;
     for index in 0..20 {
-        let library = library.clone();
-        tokio::spawn(async move {
-            library
-                .mutate(
-                    "log".into(),
-                    json!({"level":"error","message":format!("Orden encolada {index}")}),
-                )
-                .await
-        });
+        library
+            .log(json!({"level":"error","message":format!("Orden encolada {index}")}))
+            .unwrap();
     }
+    library.close().await.unwrap();
+    assert!(library
+        .log(json!({"level":"error","message":"Orden encolada tras cerrar"}))
+        .is_err());
+    assert!(retitle(&library, "cualquiera", "Tras cerrar")
+        .await
+        .is_err());
     drop(library);
     let lines = reopen(&root)
         .await

@@ -6,75 +6,98 @@ impl Store {
         library(&self.data, &self.root)
     }
 
+    #[cfg(test)]
     pub async fn snapshot(&self) -> Result<Value, String> {
-        let mut value = self.full_data_json().await?;
-        value["settings"] = redacted_settings(&value["settings"]);
-        value["dataPath"] = json!(self.root);
-        self.mark_credentials(&mut value);
-        Ok(value)
+        snapshot(&self.database, &self.root).await
     }
 
+    #[cfg(test)]
     pub async fn runtime_context(&self, recording_id: Option<&str>) -> Result<Value, String> {
-        let recordings = match recording_id {
-            Some(id) => {
-                let original = Recording::read(&self.recording(id).await?)?;
-                let audio_path = original
-                    .audio_path
-                    .as_ref()
-                    .filter(|path| !path.is_empty())
-                    .map(|_| "available");
-                let recording = json!({
-                    "id": original.id,
-                    "title": original.title,
-                    "createdAt": original.created_at,
-                    "source": format!("urn:escriba:recording:{id}"),
-                    "audioPath": audio_path,
-                    "audioHash": original.audio_hash,
-                    "duration": original.duration,
-                    "status": original.status,
-                    "error": original.error,
-                    "recipeId": original.recipe_id,
-                    "currentVersionId": original.current_version_id,
-                    "versions": original.versions,
-                    "publications": original.publications,
-                    "accountEffectPending": original.extra.get("accountEffectPending") == Some(&json!(true)),
-                });
-                vec![recording]
-            }
-            None => Vec::new(),
-        };
-        let mut accounts = self.data.accounts.clone();
-        if let Some(items) = accounts.as_array_mut() {
-            for account in items {
-                if let Some(folder) = account["folder"].as_str() {
-                    account["folder"] = json!(format!(
-                        "urn:escriba:folder:{:x}",
-                        Sha256::digest(folder.as_bytes())
-                    ));
-                }
-            }
-        }
-        let settings = &self.data.settings;
-        let mut value = json!({
-            "recordings": recordings,
-            "settings": {
-                "defaultRecipeId": settings.default_recipe_id,
-                "language": settings.language,
-                "whisperModel": settings.whisper_model,
-            },
-            "resolvers": self.data.resolvers,
-            "recipes": self.data.recipes,
-            "accounts": accounts,
-            "destinations": self.data.destinations,
-            "providers": self.data.providers,
-        });
-        self.mark_credentials(&mut value);
-        Ok(value)
+        runtime_context(&self.data, &self.root, &self.database, recording_id).await
     }
 
+    #[cfg(test)]
     pub(super) fn mark_credentials(&self, value: &mut Value) {
         mark_credentials(&self.root, value)
     }
+}
+
+pub(super) async fn recording(database: &Persistence, record_id: &str) -> Result<Value, String> {
+    database
+        .recording(record_id)
+        .await?
+        .ok_or_else(|| "Grabación no encontrada".into())
+}
+
+async fn snapshot(database: &Persistence, root: &Path) -> Result<Value, String> {
+    let mut value = database.load().await?.ok_or("Biblioteca sin inicializar")?;
+    value["settings"] = redacted_settings(&value["settings"]);
+    value["dataPath"] = json!(root);
+    mark_credentials(root, &mut value);
+    Ok(value)
+}
+
+async fn runtime_context(
+    data: &LibraryData,
+    root: &Path,
+    database: &Persistence,
+    recording_id: Option<&str>,
+) -> Result<Value, String> {
+    let recordings = match recording_id {
+        Some(id) => {
+            let original = Recording::read(&recording(database, id).await?)?;
+            let audio_path = original
+                .audio_path
+                .as_ref()
+                .filter(|path| !path.is_empty())
+                .map(|_| "available");
+            let recording = json!({
+                "id": original.id,
+                "title": original.title,
+                "createdAt": original.created_at,
+                "source": format!("urn:escriba:recording:{id}"),
+                "audioPath": audio_path,
+                "audioHash": original.audio_hash,
+                "duration": original.duration,
+                "status": original.status,
+                "error": original.error,
+                "recipeId": original.recipe_id,
+                "currentVersionId": original.current_version_id,
+                "versions": original.versions,
+                "publications": original.publications,
+                "accountEffectPending": original.extra.get("accountEffectPending") == Some(&json!(true)),
+            });
+            vec![recording]
+        }
+        None => Vec::new(),
+    };
+    let mut accounts = data.accounts.clone();
+    if let Some(items) = accounts.as_array_mut() {
+        for account in items {
+            if let Some(folder) = account["folder"].as_str() {
+                account["folder"] = json!(format!(
+                    "urn:escriba:folder:{:x}",
+                    Sha256::digest(folder.as_bytes())
+                ));
+            }
+        }
+    }
+    let settings = &data.settings;
+    let mut value = json!({
+        "recordings": recordings,
+        "settings": {
+            "defaultRecipeId": settings.default_recipe_id,
+            "language": settings.language,
+            "whisperModel": settings.whisper_model,
+        },
+        "resolvers": data.resolvers,
+        "recipes": data.recipes,
+        "accounts": accounts,
+        "destinations": data.destinations,
+        "providers": data.providers,
+    });
+    mark_credentials(root, &mut value);
+    Ok(value)
 }
 
 pub(super) fn library(data: &LibraryIndex, root: &Path) -> Value {
@@ -133,6 +156,32 @@ impl IndexView {
     }
     pub fn watched_folder_bookmarks(&self) -> Result<Vec<(String, PathBuf, Vec<u8>)>, String> {
         super::settings::watched_folder_bookmarks(&self.index)
+    }
+    pub async fn snapshot(&self, database: &Persistence) -> Result<Value, String> {
+        snapshot(database, &self.root).await
+    }
+    pub async fn runtime_context(
+        &self,
+        database: &Persistence,
+        recording_id: Option<&str>,
+    ) -> Result<Value, String> {
+        runtime_context(&self.index, &self.root, database, recording_id).await
+    }
+    pub async fn memory_recall(
+        &self,
+        database: &Persistence,
+        recording_id: &str,
+        version_id: &str,
+        fingerprint: &str,
+    ) -> Result<Option<Value>, String> {
+        database
+            .recall(&super::work::memory_key(
+                &self.index,
+                recording_id,
+                version_id,
+                fingerprint,
+            )?)
+            .await
     }
 }
 

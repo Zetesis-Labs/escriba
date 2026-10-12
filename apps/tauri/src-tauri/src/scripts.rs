@@ -853,10 +853,10 @@ mod tests {
         .await
         .unwrap()
         .unwrap();
+        store.close().await.unwrap();
         drop(scripts);
         drop(capability);
         drop(store);
-        tokio::task::yield_now().await;
         let reopened = crate::store::Store::open(library).await.unwrap();
         let saved = reopened.recording(&recording_id).await.unwrap();
         assert_eq!(saved["status"], "done");
@@ -977,10 +977,10 @@ mod tests {
         .unwrap()
         .unwrap();
         assert_eq!(store.recording("r".into()).await.unwrap()["status"], "done");
+        store.close().await.unwrap();
         drop(scripts);
         drop(capability);
         drop(store);
-        tokio::task::yield_now().await;
         let reopened = crate::store::Store::open(library).await.unwrap();
         let processed = reopened.recording("r").await.unwrap();
         assert_eq!(processed["status"], "done");

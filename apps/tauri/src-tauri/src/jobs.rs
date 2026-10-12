@@ -1,5 +1,6 @@
 use crate::error::{AppError, ErrorCode};
 use crate::library::Library;
+use crate::persistence::Persistence;
 use crate::store::{self, Store};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
@@ -149,14 +150,14 @@ fn parse(value: Value) -> Result<Job, String> {
 fn parse_all(values: Vec<Value>) -> Result<Vec<Job>, String> {
     values.into_iter().map(parse).collect()
 }
-async fn load_active(store: &Store) -> Result<Vec<Job>, String> {
-    parse_all(store.jobs_active().await?)
+async fn load_active(database: &Persistence) -> Result<Vec<Job>, String> {
+    parse_all(database.jobs_active().await?)
 }
-async fn load_for(store: &Store, recording: &str) -> Result<Vec<Job>, String> {
-    parse_all(store.jobs_for(recording).await?)
+async fn load_for(database: &Persistence, recording: &str) -> Result<Vec<Job>, String> {
+    parse_all(database.jobs_for(recording).await?)
 }
-async fn load_one(store: &Store, id: &str) -> Result<Option<Job>, String> {
-    store.job(id).await?.map(parse).transpose()
+async fn load_one(database: &Persistence, id: &str) -> Result<Option<Job>, String> {
+    database.job(id).await?.map(parse).transpose()
 }
 async fn save(store: &mut Store, job: &Job) -> Result<(), String> {
     store
@@ -174,7 +175,7 @@ pub enum Claimed {
 }
 
 pub(crate) async fn recover(store: &mut Store) -> Result<(), String> {
-    for mut job in load_active(store).await? {
+    for mut job in load_active(store.database()).await? {
         if job.state == JobState::Running {
             job.state = JobState::Queued;
             job.stage = "Recuperando trabajo interrumpido".into();
@@ -204,7 +205,7 @@ pub(crate) async fn enqueue(
         return Err("Restaura la grabación antes de procesarla".into());
     }
     let audio_hash = record.audio_hash.as_ref().cloned();
-    if let Some(job) = load_for(store, &recording_id)
+    if let Some(job) = load_for(store.database(), &recording_id)
         .await?
         .into_iter()
         .find(Job::active)
@@ -253,7 +254,7 @@ pub(crate) async fn automatic(store: &mut Store) -> Result<bool, String> {
         .collect();
     let mut enqueued = false;
     for (id, audio_hash) in pending {
-        let handled = load_for(store, &id).await?.iter().any(|job| {
+        let handled = load_for(store.database(), &id).await?.iter().any(|job| {
             job.operation == JobOperation::ProcessRecording
                 && !job.dry_run()
                 && (job.active() || job.audio_hash == audio_hash)
@@ -273,7 +274,7 @@ pub(crate) async fn automatic(store: &mut Store) -> Result<bool, String> {
 }
 
 pub(crate) async fn claim(store: &mut Store, lane: Lane, now: i64) -> Result<Claimed, String> {
-    let mut jobs = load_active(store).await?;
+    let mut jobs = load_active(store.database()).await?;
     let Some(index) = next_in_lane(&jobs, lane, now) else {
         return Ok(Claimed::Empty);
     };
@@ -311,7 +312,7 @@ pub(crate) async fn finish(
     id: &str,
     result: Result<Value, AppError>,
 ) -> Result<Option<Lane>, String> {
-    let Some(mut job) = load_one(store, id).await? else {
+    let Some(mut job) = load_one(store.database(), id).await? else {
         return Ok(None);
     };
     if job.state == JobState::Cancelled {
@@ -355,7 +356,7 @@ pub(crate) async fn finish(
 
 pub(crate) async fn stages(store: &mut Store, stages: &Value) -> Result<(), String> {
     let stages = stages.as_array().ok_or("Estado de trabajos inválido")?;
-    for mut job in load_active(store)
+    for mut job in load_active(store.database())
         .await?
         .into_iter()
         .filter(|job| job.state == JobState::Running)
@@ -376,7 +377,7 @@ pub(crate) async fn stages(store: &mut Store, stages: &Value) -> Result<(), Stri
 
 pub(crate) async fn cancel(store: &mut Store, recording: &str) -> Result<Cancellation, String> {
     let mut cancellation = Cancellation::default();
-    for mut job in load_for(store, recording)
+    for mut job in load_for(store.database(), recording)
         .await?
         .into_iter()
         .filter(Job::active)
@@ -401,25 +402,25 @@ pub(crate) async fn cancel(store: &mut Store, recording: &str) -> Result<Cancell
     Ok(cancellation)
 }
 
-pub(crate) async fn busy(store: &Store, recording: &str) -> Result<bool, String> {
-    Ok(load_for(store, recording).await?.iter().any(Job::active))
+pub(crate) async fn busy(database: &Persistence, recording: &str) -> Result<bool, String> {
+    Ok(load_for(database, recording).await?.iter().any(Job::active))
 }
 
-pub(crate) async fn visible(store: &Store) -> Result<Vec<Value>, String> {
-    let mut active = load_active(store).await?;
+pub(crate) async fn visible(database: &Persistence) -> Result<Vec<Value>, String> {
+    let mut active = load_active(database).await?;
     active.sort_by_key(|job| job.created_at);
     active.into_iter().map(value).collect()
 }
 
-pub(crate) async fn history(store: &Store) -> Result<Vec<Value>, String> {
-    parse_all(store.jobs().await?)?
+pub(crate) async fn history(database: &Persistence) -> Result<Vec<Value>, String> {
+    parse_all(database.jobs().await?)?
         .into_iter()
         .map(value)
         .collect()
 }
 
-pub(crate) async fn find(store: &Store, id: &str) -> Result<Option<Job>, String> {
-    load_one(store, id).await
+pub(crate) async fn find(database: &Persistence, id: &str) -> Result<Option<Job>, String> {
+    load_one(database, id).await
 }
 
 pub struct Queue {
@@ -788,7 +789,7 @@ mod tests {
         store
             .with_store(move |store| {
                 Box::pin(async move {
-                    let mut job = load_one(store, &waiting).await.unwrap().unwrap();
+                    let mut job = load_one(store.database(), &waiting).await.unwrap().unwrap();
                     job.next_attempt_at = 0;
                     save(store, &job).await.unwrap();
                 })
@@ -845,6 +846,7 @@ mod tests {
             queue.claim(Lane::Inference).await.unwrap().unwrap()["attempt"],
             1
         );
+        store.close().await.unwrap();
         drop(queue);
         drop(store);
         let queue = Queue::new(library(&root).await).await.unwrap();
@@ -866,6 +868,7 @@ mod tests {
         queue.automatic().await.unwrap();
         let first = queue.claim(Lane::Inference).await.unwrap().unwrap();
         assert_eq!(first["automatic"], true);
+        store.close().await.unwrap();
         drop(queue);
         drop(store);
         let queue = Queue::new(library(&root).await).await.unwrap();
@@ -901,6 +904,7 @@ mod tests {
             .with_store(move |store| Box::pin(async move { store.job_save(&old).await }))
             .await
             .unwrap();
+        store.close().await.unwrap();
         drop(store);
         let queue = Queue::new(library(&root).await).await.unwrap();
         let old = queue

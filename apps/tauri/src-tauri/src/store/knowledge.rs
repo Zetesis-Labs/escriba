@@ -1,10 +1,12 @@
 use super::Store;
+#[cfg(test)]
 use crate::persistence::CoreChange;
 
 impl Store {
     pub async fn knowledge_prepare(&self, epoch: &str) -> Result<(), String> {
         self.database.knowledge_prepare(epoch).await
     }
+    #[cfg(test)]
     pub async fn knowledge_change(&self) -> Result<Option<CoreChange>, String> {
         self.database.knowledge_change().await
     }
