@@ -333,7 +333,7 @@ async fn dispatch_app(
             }
             AppCommand::RuntimeJobs(Untyped(_)) => Ok(state.jobs.visible()),
             AppCommand::LogList(Untyped(p)) => state.library.log_list(p).await,
-            AppCommand::RuntimeHistory(Untyped(_)) => Ok(json!(state.jobs.jobs().await?)),
+            AppCommand::RuntimeHistory(query) => Ok(json!(state.jobs.history(query).await?)),
             AppCommand::MemoryRecall(Untyped(p)) => Ok(state
                 .library
                 .memory_recall(

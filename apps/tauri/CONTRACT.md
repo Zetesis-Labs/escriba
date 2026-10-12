@@ -105,8 +105,8 @@ incierto y se ofrece reintentar, sin inferir el resultado del texto del error.
 
 - runtime_run {operation,args} -> resultado del trabajo; la espera de la UI no es propietaria del trabajo.
   La cola duradera tiene dos carriles: procesar y resumir comparten el de inferencia (uno a la vez, como el motor nativo); publicar y retirar van por el de red (hasta tres a la vez). Una nota nunca tiene dos trabajos activos ni corre dos a la vez. El controlador TypeScript no añade otra cola: solo rechaza procesar una nota que ya se está procesando.
-- runtime_jobs -> JobState[] (pendientes, activos y en espera de reintento).
-- runtime_history -> trabajos duraderos, resultado y error.
+- runtime_jobs -> Job[] (pendientes, activos y en espera de reintento). Cada trabajo de procesar guarda la receta con la que se encoló y la actualiza al empezar; `startedAt` es cuándo empezó a ejecutarse y `finishedAt` cuándo terminó, falló o se canceló.
+- runtime_history {before?,state?,recipeId?,operation?,limit} -> HistoryPage {jobs,recipes,next}; solo trabajos terminados, fallidos o cancelados, del final más reciente al más antiguo. `next` es el cursor de la página siguiente o null; `recipes` son las recetas que aparecen en el historial.
 - runtime_cancel {recordingId} -> void; revoca capacidades y termina la receta.
 - recording_status -> {active,clock,recipeName,levels,problem} del panel de captura.
 - project_install {recipes,destinations,providers,ontologies?} -> void; actualización transaccional del catálogo y de las ontologías candidatas, sin instalar ontologías ni conceder acceso a cuentas.

@@ -11,6 +11,8 @@ import { LogPane } from "../log/LogPane";
 import { SettingsPane } from "../settings/SettingsPane";
 import { ConnectorsPane } from "../connectors/ConnectorsPane";
 import { PeoplePane } from "../people/PeoplePane";
+import { JobsPane } from "../jobs/JobsPane";
+import { runningCount } from "../core/jobs";
 import { dismissRecorderProblem, openMicrophoneSettings, useRecorderStatus, type RecorderProblem } from "../recording/useRecording";
 import { ContentUnavailable } from "../mac/controls";
 import { alertMessage } from "../mac/native";
@@ -77,11 +79,18 @@ function useRecorderAlert(problem: RecorderProblem | null) {
 }
 
 export function MainWindow() {
-  const { data, jobs, problem, refresh } = useAppData();
+  const { data, jobs, jobsProblem, problem, refresh } = useAppData();
   const [section, setSection] = useState<MainSection>(() => initialSection(window.location.search));
   const active = useWindowActive();
   const recorder = useRecorderStatus();
   const filters = useLibraryFilters();
+  const [reveal, setReveal] = useState<{ id: string; serial: number } | null>(null);
+  const running = runningCount(jobs);
+  const openNote = (id: string) => {
+    filters.clear();
+    setSection("library");
+    setReveal((previous) => ({ id, serial: (previous?.serial ?? 0) + 1 }));
+  };
   useSystemAccent();
   useNavigation(setSection);
   useRecorderAlert(recorder.problem);
@@ -108,6 +117,7 @@ export function MainWindow() {
     );
   else if (section === "library") detail = null;
   else if (section === "people") detail = null;
+  else if (section === "jobs") detail = <JobsPane data={data} jobs={jobs} jobsProblem={jobsProblem} onOpen={openNote} />;
   else if (section === "connectors") detail = null;
   else if (section === "stt") detail = <ResolversPane key="stt" data={data} role="stt" refresh={refresh} />;
   else if (section === "llms") detail = <ResolversPane key="llm" data={data} role="llm" refresh={refresh} />;
@@ -130,6 +140,7 @@ export function MainWindow() {
               >
                 <Icon size={16} strokeWidth={1.7} className="sidebar-icon" />
                 <span>{title}</span>
+                {id === "jobs" && running > 0 && <span className="sidebar-count" aria-label={`${running} en marcha`}>{running}</span>}
               </div>
               {id === "library" && <>
                 {filters.saved.map((filter) => (
@@ -154,7 +165,7 @@ export function MainWindow() {
       <section className="detail">
         {data && (
           <div className="section-host" hidden={section !== "library"}>
-            <LibraryView data={data} jobs={jobs} refresh={refresh} active={section === "library"} isRecording={recorder.active} filters={filters} />
+            <LibraryView data={data} jobs={jobs} refresh={refresh} active={section === "library"} isRecording={recorder.active} filters={filters} reveal={reveal} />
           </div>
         )}
         {data && (

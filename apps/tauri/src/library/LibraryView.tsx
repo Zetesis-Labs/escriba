@@ -59,6 +59,7 @@ export function LibraryView({
   active,
   isRecording,
   filters,
+  reveal,
 }: {
   data: Snapshot;
   jobs: JobState[];
@@ -66,6 +67,7 @@ export function LibraryView({
   active: boolean;
   isRecording: boolean;
   filters: LibraryFiltersController;
+  reveal?: { id: string; serial: number } | null;
 }) {
   const allRecordings = useMemo(() => libraryRecordings(data), [data]);
   const recordings = useMemo(() => filters.result?.ids ? allRecordings.filter((recording) => filters.result?.ids?.has(recording.id)) : filters.result ? [] : allRecordings, [allRecordings, filters.result]);
@@ -92,6 +94,17 @@ export function LibraryView({
       setReprocessing(null);
     }
   }, [active]);
+
+  useEffect(() => {
+    if (!reveal) return;
+    setEditRequest(null);
+    setSelectedId(reveal.id);
+  }, [reveal]);
+
+  useEffect(() => {
+    if (!reveal || selectedId !== reveal.id) return;
+    document.querySelector(`[data-recording-id="${CSS.escape(reveal.id)}"]`)?.scrollIntoView({ block: "nearest" });
+  }, [reveal, selectedId, recordings]);
 
   const perform = useCallback(
     async (work: () => Promise<unknown>) => {
@@ -327,6 +340,7 @@ export function LibraryView({
           {filters.result?.loading ? <div className="library-filter-list-state">Buscando notas…</div> : filters.result?.error ? <div className="library-filter-list-state warning" role="alert">{filters.result.error}</div> : filters.result && !recordings.length ? <div className="library-filter-list-state">No hay notas para este filtro.</div> : recordings.map((recording) => (
             <div
               key={recording.id}
+              data-recording-id={recording.id}
               role="option"
               aria-selected={recording.id === selectedId}
               className={`list-row ${recording.id === selectedId ? "selected" : ""}`}

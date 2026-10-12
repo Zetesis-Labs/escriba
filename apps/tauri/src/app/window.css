@@ -102,3 +102,6 @@
 .sidebar-child { margin-left: 23px; min-width: 0; font-weight: 400; }
 .sidebar-child span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sidebar-error { padding: 7px 9px 7px 31px; color: var(--red); font-size: 11px; }
+.sidebar-count { margin-left: auto; color: var(--secondary); font-size: 11px; font-variant-numeric: tabular-nums; }
+.sidebar-row.selected .sidebar-count { color: #fff; }
+.window.inactive .sidebar-row.selected .sidebar-count { color: var(--secondary); }

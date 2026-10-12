@@ -1,10 +1,11 @@
-import { AudioLines, AudioWaveform, Braces, Settings, Share, Sparkles, SquareMenu, Users } from "lucide-react";
+import { AudioLines, AudioWaveform, Braces, ListChecks, Settings, Share, Sparkles, SquareMenu, Users } from "lucide-react";
 
-export type MainSection = "library" | "people" | "connectors" | "stt" | "llms" | "recipes" | "log" | "settings";
+export type MainSection = "library" | "people" | "jobs" | "connectors" | "stt" | "llms" | "recipes" | "log" | "settings";
 
 export const sections: { id: MainSection; label: string; icon: typeof AudioLines }[] = [
   { id: "library", label: "Biblioteca", icon: AudioLines },
   { id: "people", label: "Personas", icon: Users },
+  { id: "jobs", label: "Trabajos", icon: ListChecks },
   { id: "connectors", label: "Conectores", icon: Share },
   { id: "stt", label: "STT", icon: AudioWaveform },
   { id: "llms", label: "LLMs", icon: Sparkles },

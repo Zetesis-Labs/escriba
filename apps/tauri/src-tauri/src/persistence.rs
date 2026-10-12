@@ -203,11 +203,15 @@ impl Persistence {
     pub async fn complete_audio_deletion(&self, id: &str) -> Result<(), String> {
         complete_audio_deletion(&self.db, id).await
     }
+    #[cfg(test)]
     pub async fn jobs(&self) -> Result<Vec<Value>, String> {
         jobs(&self.db).await
     }
     pub async fn jobs_active(&self) -> Result<Vec<Value>, String> {
         jobs_active(&self.db).await
+    }
+    pub async fn jobs_finished(&self) -> Result<Vec<Value>, String> {
+        jobs_finished(&self.db).await
     }
     pub async fn jobs_for(&self, recording: &str) -> Result<Vec<Value>, String> {
         jobs_for(&self.db, recording).await
@@ -918,6 +922,7 @@ async fn complete_audio_deletion(db: &Surreal<Db>, id: &str) -> Result<(), Strin
     Ok(())
 }
 
+#[cfg(test)]
 async fn jobs(db: &Surreal<Db>) -> Result<Vec<Value>, String> {
     Ok(rows(db, "job")
         .await?
@@ -939,6 +944,16 @@ async fn jobs_active(db: &Surreal<Db>) -> Result<Vec<Value>, String> {
         active.extend(rows);
     }
     Ok(active)
+}
+
+async fn jobs_finished(db: &Surreal<Db>) -> Result<Vec<Value>, String> {
+    let mut response = db
+        .query("SELECT VALUE payload FROM job WHERE state IN ['succeeded', 'failed', 'cancelled']")
+        .await
+        .map_err(|e| e.to_string())?
+        .check()
+        .map_err(|e| e.to_string())?;
+    response.take(0).map_err(|e| e.to_string())
 }
 
 async fn jobs_for(db: &Surreal<Db>, recording: &str) -> Result<Vec<Value>, String> {
