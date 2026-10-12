@@ -287,3 +287,6 @@ separado.
     `base_dispatch_sincroniza_ediciones_borrados_y_reconstruye_un_grafo_perdido`,
     en la misma tanda en que fallaban los tests de la cola que aún no cerraban
     antes de reabrir. No se ha repetido en tres ejecuciones completas.
+- **Paso 5, cierre** (2026-10-12). Rubén probó en pantalla la versión con el
+  actor y funciona. La decisión queda en el ADR-0009 y el plan de corrección
+  lo enlaza desde la fase B. Plan terminado.
