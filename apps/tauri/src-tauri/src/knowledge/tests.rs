@@ -4,7 +4,7 @@ use serde_json::json;
 #[tokio::test]
 async fn autentica_sesiones_de_registro_sin_escape_de_base() {
     let temp = tempfile::tempdir().unwrap();
-    let knowledge = Knowledge::open(&temp.path().join("knowledge.surrealkv"))
+    let knowledge = Knowledge::open(&temp.path().join("knowledge.rocksdb"))
         .await
         .unwrap();
     let root = knowledge.root.clone();
@@ -79,7 +79,7 @@ fn ontology(id: &str) -> Ontology {
 #[tokio::test]
 async fn aplica_ontologias_aisladas_y_versiones_inmutables_con_rollback() {
     let temp = tempfile::tempdir().unwrap();
-    let path = temp.path().join("knowledge.surrealkv");
+    let path = temp.path().join("knowledge.rocksdb");
     {
         let db = Knowledge::open(&path).await.unwrap();
         db.apply(ontology("one")).await.unwrap();
@@ -140,7 +140,7 @@ async fn aplica_ontologias_aisladas_y_versiones_inmutables_con_rollback() {
 async fn conserva_tipos_del_sdk_y_no_confirma_migraciones_interrumpidas() {
     let fixture = "o2JpZMiCZnBlcnNvbmNhZGFlcHJpY2XKZTEyLjM0ZGRhdGXMghplk30lAA==";
     let temp = tempfile::tempdir().unwrap();
-    let db = Knowledge::open(&temp.path().join("knowledge.surrealkv"))
+    let db = Knowledge::open(&temp.path().join("knowledge.rocksdb"))
         .await
         .unwrap();
     db.apply(ontology("typed")).await.unwrap();
@@ -187,7 +187,7 @@ async fn conserva_tipos_del_sdk_y_no_confirma_migraciones_interrumpidas() {
 #[tokio::test]
 async fn edita_con_conflictos_y_vincula_sin_perder_datos_compartidos() {
     let temp = tempfile::tempdir().unwrap();
-    let db = Knowledge::open(&temp.path().join("knowledge.surrealkv"))
+    let db = Knowledge::open(&temp.path().join("knowledge.rocksdb"))
         .await
         .unwrap();
     db.apply(ontology("crm")).await.unwrap();
@@ -307,7 +307,7 @@ async fn edita_con_conflictos_y_vincula_sin_perder_datos_compartidos() {
 #[tokio::test]
 async fn crea_relaciones_con_extremos_y_fechas_nativos() {
     let temp = tempfile::tempdir().unwrap();
-    let db = Knowledge::open(&temp.path().join("knowledge.surrealkv"))
+    let db = Knowledge::open(&temp.path().join("knowledge.rocksdb"))
         .await
         .unwrap();
     let mut definition = ontology("relations");
@@ -366,7 +366,7 @@ async fn crea_relaciones_con_extremos_y_fechas_nativos() {
 #[tokio::test]
 async fn rechaza_eventos_y_administracion_en_cualquier_nivel_de_la_migracion() {
     let temp = tempfile::tempdir().unwrap();
-    let db = Knowledge::open(&temp.path().join("knowledge.surrealkv"))
+    let db = Knowledge::open(&temp.path().join("knowledge.rocksdb"))
         .await
         .unwrap();
     for statement in [
@@ -388,7 +388,7 @@ async fn rechaza_eventos_y_administracion_en_cualquier_nivel_de_la_migracion() {
 #[tokio::test]
 async fn las_funciones_no_elevan_permisos_ni_sobrescriben_correcciones_manuales() {
     let temp = tempfile::tempdir().unwrap();
-    let db = Knowledge::open(&temp.path().join("knowledge.surrealkv"))
+    let db = Knowledge::open(&temp.path().join("knowledge.rocksdb"))
         .await
         .unwrap();
     let mut definition = ontology("functions");
@@ -440,7 +440,7 @@ async fn las_funciones_no_elevan_permisos_ni_sobrescriben_correcciones_manuales(
 #[tokio::test]
 async fn revierte_mutaciones_reservadas_dinamicas_y_no_permite_suplantar_auth() {
     let temp = tempfile::tempdir().unwrap();
-    let db = Knowledge::open(&temp.path().join("knowledge.surrealkv"))
+    let db = Knowledge::open(&temp.path().join("knowledge.rocksdb"))
         .await
         .unwrap();
     db.apply(ontology("private")).await.unwrap();
@@ -502,7 +502,7 @@ async fn revierte_mutaciones_reservadas_dinamicas_y_no_permite_suplantar_auth() 
 #[tokio::test]
 async fn instala_el_ejemplo_de_reuniones_y_acuerdos() {
     let temp = tempfile::tempdir().unwrap();
-    let db = Knowledge::open(&temp.path().join("knowledge.surrealkv"))
+    let db = Knowledge::open(&temp.path().join("knowledge.rocksdb"))
         .await
         .unwrap();
     db.sync_base_change(&crate::persistence::CoreChange {
@@ -554,7 +554,7 @@ async fn instala_el_ejemplo_de_reuniones_y_acuerdos() {
 #[tokio::test]
 async fn desvincula_una_nota_sin_borrar_el_registro_compartido_y_limpia_campos_opcionales() {
     let temp = tempfile::tempdir().unwrap();
-    let db = Knowledge::open(&temp.path().join("knowledge.surrealkv"))
+    let db = Knowledge::open(&temp.path().join("knowledge.rocksdb"))
         .await
         .unwrap();
     let mut definition = ontology("unlink");
@@ -621,7 +621,7 @@ async fn desvincula_una_nota_sin_borrar_el_registro_compartido_y_limpia_campos_o
 #[tokio::test]
 async fn consulta_tablas_internas_pero_solo_vincula_colecciones_presentables() {
     let temp = tempfile::tempdir().unwrap();
-    let db = Knowledge::open(&temp.path().join("knowledge.surrealkv"))
+    let db = Knowledge::open(&temp.path().join("knowledge.rocksdb"))
         .await
         .unwrap();
     let mut definition = ontology("presentation");
@@ -708,7 +708,7 @@ async fn el_cierre_forzado_revierte_esquema_datos_y_version_juntos() {
         panic!("The parent must terminate the child before commit");
     }
     let temp = tempfile::tempdir().unwrap();
-    let path = temp.path().join("knowledge.surrealkv");
+    let path = temp.path().join("knowledge.rocksdb");
     let checkpoint = temp.path().join("checkpoint");
     let db = Knowledge::open(&path).await.unwrap();
     db.apply(ontology("crash")).await.unwrap();
@@ -777,7 +777,7 @@ async fn el_cierre_forzado_revierte_esquema_datos_y_version_juntos() {
 #[tokio::test]
 async fn conserva_json_null_y_distingue_la_omision_del_campo() {
     let temp = tempfile::tempdir().unwrap();
-    let db = Knowledge::open(&temp.path().join("knowledge.surrealkv"))
+    let db = Knowledge::open(&temp.path().join("knowledge.rocksdb"))
         .await
         .unwrap();
     let mut definition = ontology("json");
@@ -830,7 +830,7 @@ async fn conserva_json_null_y_distingue_la_omision_del_campo() {
 #[tokio::test]
 async fn editar_y_vincular_manualmente_conserva_la_receta_de_origen() {
     let temp = tempfile::tempdir().unwrap();
-    let db = Knowledge::open(&temp.path().join("knowledge.surrealkv"))
+    let db = Knowledge::open(&temp.path().join("knowledge.rocksdb"))
         .await
         .unwrap();
     db.apply(ontology("provenance")).await.unwrap();

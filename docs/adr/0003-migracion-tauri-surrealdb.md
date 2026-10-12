@@ -15,7 +15,7 @@ las bibliotecas Tauri que ya tienen grabaciones conservan la importación manual
 
 TypeScript implementa interfaz, recetas, conectores y transformaciones. Rust
 custodia capacidades, archivos y credenciales y mantiene los trabajos en
-SurrealDB embebida con SurrealKV. Swift queda para WhisperKit/SpeakerKit,
+SurrealDB embebida con SurrealKV (sustituido por RocksDB en el ADR-0008). Swift queda para WhisperKit/SpeakerKit,
 FoundationModels, AVFoundation y materialización iCloud mediante APIs de Apple.
 
 La orquestación TypeScript corre en un ejecutable Deno compilado supervisado por

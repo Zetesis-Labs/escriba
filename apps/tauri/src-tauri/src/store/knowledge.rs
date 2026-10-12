@@ -197,7 +197,7 @@ mod tests {
         let id = recording["id"].as_str().unwrap();
         store.mutate("version_save", &json!({"recordingId":id,"transcript":{"text":"Texto íntegro","segments":[{"start":0,"end":1,"text":"Texto íntegro"}]}})).unwrap();
         let store = Arc::new(Mutex::new(store));
-        let graph = crate::knowledge::Knowledge::open(&dir.path().join("knowledge.surrealkv"))
+        let graph = crate::knowledge::Knowledge::open(&dir.path().join("knowledge.rocksdb"))
             .await
             .unwrap();
         let initial = crate::knowledge_commands::call(

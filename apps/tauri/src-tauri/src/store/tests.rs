@@ -1373,7 +1373,7 @@ fn runtime_context_limits_a_large_library_to_the_requested_recording() {
     );
 }
 #[test]
-fn surrealkv_preserves_versions_after_json_is_removed() {
+fn rocksdb_preserves_versions_after_json_is_removed() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("library");
     let audio = dir.path().join("note.wav");
@@ -1386,7 +1386,7 @@ fn surrealkv_preserves_versions_after_json_is_removed() {
         fs::remove_file(root.join("library.json")).unwrap();
     }
     let restored = Store::open(root.clone()).unwrap();
-    assert!(root.join("library.surrealkv").is_dir());
+    assert!(root.join("library.rocksdb").is_dir());
     assert_eq!(
         restored.recording(record["id"].as_str().unwrap()).unwrap()["versions"][0]["transcript"]
             ["text"],
@@ -1522,7 +1522,7 @@ fn private_store_directories_and_imported_audio_have_restricted_permissions() {
         0o700
     );
     assert_eq!(
-        fs::metadata(root.join("library.surrealkv"))
+        fs::metadata(root.join("library.rocksdb"))
             .unwrap()
             .permissions()
             .mode()
@@ -2008,7 +2008,9 @@ fn verifica_compatibilidad_de_copia_sin_mostrar_contenido() {
     let temporary = tempfile::tempdir().unwrap();
     fs::set_permissions(temporary.path(), fs::Permissions::from_mode(0o700)).unwrap();
     copy_tree(&source, &temporary.path().join("library.surrealkv"));
-    let database = Persistence::open(&temporary.path().join("library.surrealkv")).unwrap();
+    let started = std::time::Instant::now();
+    let database = Persistence::open(&temporary.path().join("library.rocksdb")).unwrap();
+    let converted = started.elapsed();
     let before = database
         .load()
         .unwrap()
@@ -2066,7 +2068,17 @@ fn verifica_compatibilidad_de_copia_sin_mostrar_contenido() {
             "El índice alteró recibos guardados"
         );
     }
-    eprintln!("Compatibilidad confirmada: {recordings} grabaciones, {versions} versiones, {} trabajos; contenido no mostrado", jobs.len());
+    let size = |path: &Path| -> u64 {
+        walkdir::WalkDir::new(path)
+            .into_iter()
+            .filter_map(Result::ok)
+            .filter_map(|entry| entry.metadata().ok())
+            .filter(|metadata| metadata.is_file())
+            .map(|metadata| metadata.len())
+            .sum::<u64>()
+            / 1_048_576
+    };
+    eprintln!("Compatibilidad confirmada: {recordings} grabaciones, {versions} versiones, {} trabajos; conversión {converted:?}, {} MB → {} MB; contenido no mostrado", jobs.len(), size(&source), size(&temporary.path().join("library.rocksdb")));
 }
 
 #[test]

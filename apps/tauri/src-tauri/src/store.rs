@@ -146,9 +146,9 @@ impl Store {
             .map_err(|e| e.to_string())?;
         lock.try_lock_exclusive()
             .map_err(|_| "Escriba ya está abierta con esta biblioteca")?;
-        let database = Persistence::open(&root.join("library.surrealkv"))?;
+        let database = Persistence::open(&root.join("library.rocksdb"))?;
         fs::set_permissions(
-            root.join("library.surrealkv"),
+            root.join("library.rocksdb"),
             fs::Permissions::from_mode(0o700),
         )
         .map_err(|e| format!("No se pudo proteger SurrealDB: {e}"))?;

@@ -1,12 +1,12 @@
 # Persistencia de Escriba
 
-Escriba guarda la biblioteca en SurrealDB 3.3 embebida con SurrealKV, bajo `library.surrealkv` dentro de su carpeta de Application Support. Un bloqueo de instancia impide abrir la misma biblioteca dos veces. La interfaz y el runtime TypeScript acceden mediante comandos Rust; no abren la base directamente. [SurrealDB documenta la conexión embebida y el bloqueo de la carpeta](https://surrealdb.com/docs/reference/rust/embedding).
+Escriba guarda la biblioteca en SurrealDB 3.3 embebida con RocksDB (ADR-0008), bajo `library.rocksdb` dentro de su carpeta de Application Support. Una biblioteca anterior en `library.surrealkv` se convierte al abrir y el original queda como `library.surrealkv.convertida`. Un bloqueo de instancia impide abrir la misma biblioteca dos veces. La interfaz y el runtime TypeScript acceden mediante comandos Rust; no abren la base directamente. [SurrealDB documenta la conexión embebida y el bloqueo de la carpeta](https://surrealdb.com/docs/reference/rust/embedding).
 
 ## Esquema
 
 La marca `meta:schema` vale `2`. Las tablas son `recording`, `version`, `publication`, `version_preview`, `publication_preview`, `account`, `resolver`, `recipe`, `destination`, `log`, `setting`, `job`, `memory`, `trace`, `person`, `person_voice`, `voice` y la cola privada `audio_deletion`. Cada entidad tiene una fila, con `key`, `parent` cuando corresponde, `position` y `payload` como valor nativo de SurrealDB. `position` ordena versiones, recibos y catálogos; las grabaciones se ordenan por `createdAt` descendente y después por `key`, y su `position` se ignora. No existe un documento JSON global. Grabaciones, versiones y jobs exponen además campos consultables directamente: `title`, `status`, `createdAt`, `backend`, `state` y `recordingId`. Cada tabla tiene un índice único en `key`; versiones, recibos, jobs, memorias, trazas y huellas tienen índice en `parent`. [Los índices únicos y normales son parte del esquema SurrealQL](https://surrealdb.com/docs/reference/query-language/statements/define/indexes).
 
-La caché en memoria de `Store` conserva solo el índice ligero de la biblioteca. Cada mutación edita una copia tipada y `persistence/changes.rs`, una función pura, calcula las filas que cambiaron comparando por identidad: incorporar una nota escribe esa fila y ninguna otra, y las versiones solo se comparan en la nota que la mutación declara. El escritor ejecuta esas operaciones y sus efectos asociados (proyecciones, borrados en cascada, huellas, borradores y alias de receta). Grabación, versiones y recibos, junto con las memorias, trazas y jobs eliminados al descartar y la petición de borrar su audio, se confirman en una sola transacción. Si falla una sentencia, la transacción se cancela y la caché permanece sin cambios. SurrealKV 3.3 usa sincronización de WAL en cada commit por defecto; el código no configura un modo de sincronización más débil. [SurrealDB describe las transacciones del SDK](https://surrealdb.com/docs/reference/rust/concepts/transaction).
+La caché en memoria de `Store` conserva solo el índice ligero de la biblioteca. Cada mutación edita una copia tipada y `persistence/changes.rs`, una función pura, calcula las filas que cambiaron comparando por identidad: incorporar una nota escribe esa fila y ninguna otra, y las versiones solo se comparan en la nota que la mutación declara. El escritor ejecuta esas operaciones y sus efectos asociados (proyecciones, borrados en cascada, huellas, borradores y alias de receta). Grabación, versiones y recibos, junto con las memorias, trazas y jobs eliminados al descartar y la petición de borrar su audio, se confirman en una sola transacción. Si falla una sentencia, la transacción se cancela y la caché permanece sin cambios. RocksDB sincroniza el WAL en cada commit por defecto (`SyncMode::Every`); el código no configura un modo más débil. [SurrealDB describe las transacciones del SDK](https://surrealdb.com/docs/reference/rust/concepts/transaction).
 
 El registro de la app vive en la tabla `log`, fuera del índice y de `library`/`snapshot`: cada línea es una fila con su propia transacción, se lee con `log_list` ordenada por `payload.at` y se recorta a las últimas 3000 al abrir y cada 64 líneas. Las líneas de bibliotecas anteriores se leen sin convertirlas. Registrar una línea no reescribe grabaciones ni emite `escriba://changed`; emite `escriba://log`.
 
@@ -112,15 +112,10 @@ grafo anterior, la base nueva se proyecta entera en segundo plano (7 s en
 release para una biblioteca de 199 notas) y la antigua se elimina con
 `REMOVE DATABASE`. Borrarla registro a registro, con sus aristas, tardaba casi
 una hora de CPU. `REMOVE DATABASE` solo retira la definición: una tarea de
-SurrealDB borra los datos pasados 10 minutos, clave a clave, porque SurrealKV no
-ofrece borrado de rangos. SurrealKV es un LSM y borrar escribe marcas: medido
-sobre la copia de 2,2 GB, tras 25 minutos el fichero ocupaba 2,5 GB y, cerrado
-y reabierto, 2,37 GB. Para recuperar el espacio, el test ignorado
-`reconstruye_una_copia_del_grafo_sin_lo_derivado_y_sin_mostrar_contenido`
-exporta el registro y las extensiones de una copia a un grafo nuevo, compara
-definiciones y registros, redefine el acceso de recetas (la exportación oculta
-su clave) y vuelve a proyectar la base desde la biblioteca: 2.217 → 80 MB. Una
-base antigua que fuera una extensión llamada `escriba` no se toca.
+SurrealDB borra los datos pasados 10 minutos, clave a clave, y la compactación
+de RocksDB, automática y al menos cada hora, devuelve el espacio. Con SurrealKV
+no lo devolvía (ADR-0008). Una base antigua que fuera una extensión llamada
+`escriba` no se toca.
 
 La base es una proyección persistida de la biblioteca. Los eventos privados de
 `recording`, `version` y `person` encolan el propietario afectado en
@@ -141,8 +136,9 @@ de tabla de sólo lectura. No permite guardar, borrar ni vincular registros por
 los formularios del grafo. El ID `escriba` está reservado; una extensión antigua
 que lo use provoca un error visible, conservando su esquema y datos.
 
-El grafo reside en `knowledge.surrealkv`, un almacén físico separado de
-`library.surrealkv`, dentro de Application Support. Usa el espacio `knowledge`
+El grafo reside en `knowledge.rocksdb`, un almacén físico separado de
+`library.rocksdb`, dentro de Application Support; un `knowledge.surrealkv`
+anterior se convierte al abrirlo, como la biblioteca. Usa el espacio `knowledge`
 y una base lógica distinta por ID estable de ontología. Un catálogo privado
 localiza las bases; cada una conserva su definición instalada y las tablas de
 registros, vínculos y correcciones manuales. Las ontologías candidatas del
@@ -262,7 +258,7 @@ Además del micrófono, se puede elegir un archivo de audio. Rust copia el archi
 
 ## Archivos locales
 
-La raíz de Application Support, SurrealKV y las carpetas de audio y credenciales tienen permisos `0700`; las copias de audio, `0600`. Esto restringe el acceso de otros usuarios locales del equipo, sin cifrar la biblioteca.
+La raíz de Application Support, RocksDB y las carpetas de audio y credenciales tienen permisos `0700`; las copias de audio, `0600`. Esto restringe el acceso de otros usuarios locales del equipo, sin cifrar la biblioteca.
 
 Para carpetas vigiladas, `sourceKey` incluye la carpeta y la identidad estable del archivo. Una nota de voz renombrada conserva la misma grabación y versiones; si cambian sus bytes se guarda una nueva copia de audio y se marca pendiente. Una nota inicialmente vacía se puede recuperar por esa identidad aun después de renombrarse. La importación manual conserva su deduplicación por hash de contenido.
 

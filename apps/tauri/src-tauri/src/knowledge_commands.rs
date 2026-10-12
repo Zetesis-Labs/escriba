@@ -729,7 +729,7 @@ mod tests {
             .filter(|recording| recording.status != crate::store::RecordingStatus::Discarded)
             .count();
         let store = Arc::new(Mutex::new(store));
-        let knowledge = Knowledge::open(&temporary.path().join("knowledge.surrealkv"))
+        let knowledge = Knowledge::open(&temporary.path().join("knowledge.rocksdb"))
             .await
             .expect("La copia del grafo no se puede abrir");
         let extensions = knowledge.list().await.unwrap().len();
@@ -778,7 +778,7 @@ mod tests {
         println!(
             "grafo original {} MB, tras sincronizar {} MB",
             size(Path::new(&graph)) / 1_048_576,
-            size(&temporary.path().join("knowledge.surrealkv")) / 1_048_576
+            size(&temporary.path().join("knowledge.rocksdb")) / 1_048_576
         );
     }
 
@@ -791,7 +791,7 @@ mod tests {
         let record = store.import(&audio, None).unwrap();
         store.mutate("version_save", &json!({"recordingId":record["id"],"backend":"test","transcript":{"text":"Sintético","segments":[]}})).unwrap();
         let store = Arc::new(Mutex::new(store));
-        let knowledge = Knowledge::open(&temp.path().join("knowledge.surrealkv"))
+        let knowledge = Knowledge::open(&temp.path().join("knowledge.rocksdb"))
             .await
             .unwrap();
         let filter = json!({"kind":"surrealql","ontologyId":"escriba","sql":"SELECT VALUE id FROM recording"});
@@ -870,7 +870,7 @@ mod tests {
         let dependency = json!({"id":"example","minVersion":1,"maxVersion":1});
         crate::catalog::install(&mut store, &json!({"recipes":[{"id":"graph","name":"Grafo","kind":"code","values":{},"bundle":"program","ontologies":[dependency]}],"destinations":[],"ontologies":[ontology]})).unwrap();
         let store = Arc::new(Mutex::new(store));
-        let graph = Knowledge::open(&temp.path().join("knowledge.surrealkv"))
+        let graph = Knowledge::open(&temp.path().join("knowledge.rocksdb"))
             .await
             .unwrap();
         let params = json!({"recipeId":"graph","recordingId":record["id"],"ontologyId":"example","dependency":dependency});
@@ -953,270 +953,6 @@ mod tests {
         assert_eq!(graph.list().await.unwrap().len(), 1);
         graph.close().await.unwrap();
     }
-    async fn connect_copy(
-        path: &Path,
-        password: &str,
-    ) -> surrealdb::Surreal<surrealdb::engine::local::Db> {
-        let credentials = surrealdb::opt::auth::Root {
-            username: "escriba".into(),
-            password: password.into(),
-        };
-        let config = surrealdb::opt::Config::new().user(credentials.clone());
-        let db = surrealdb::Surreal::new::<surrealdb::engine::local::SurrealKv>((path, config))
-            .await
-            .unwrap();
-        db.signin(credentials).await.unwrap();
-        db
-    }
-
-    async fn info(
-        db: &surrealdb::Surreal<surrealdb::engine::local::Db>,
-        sql: &str,
-    ) -> serde_json::Value {
-        let mut response = db.query(sql).await.unwrap().check().unwrap();
-        let value: surrealdb::types::Value = response.take(0).unwrap();
-        value.into_json_value()
-    }
-
-    async fn rows(
-        db: &surrealdb::Surreal<surrealdb::engine::local::Db>,
-        table: &str,
-    ) -> Vec<surrealdb::types::Value> {
-        let mut response = db
-            .query("SELECT * FROM type::table($table) ORDER BY id")
-            .bind(("table", table.to_owned()))
-            .await
-            .unwrap()
-            .check()
-            .unwrap();
-        response.take(0).unwrap()
-    }
-
-    #[tokio::test]
-    #[ignore = "Requiere copias privadas autorizadas de library.surrealkv y knowledge.surrealkv"]
-    async fn reconstruye_una_copia_del_grafo_sin_lo_derivado_y_sin_mostrar_contenido() {
-        use std::os::unix::fs::PermissionsExt;
-        let library = std::env::var_os("ESCRIBA_VERIFY_LIBRARY_COPY")
-            .expect("Falta la copia de la biblioteca");
-        let graph =
-            std::env::var_os("ESCRIBA_VERIFY_KNOWLEDGE_COPY").expect("Falta la copia del grafo");
-        let output = std::path::PathBuf::from(
-            std::env::var_os("ESCRIBA_REBUILT_KNOWLEDGE").expect("Falta el destino"),
-        );
-        assert!(!output.exists(), "El destino ya existe");
-        let temporary = tempfile::tempdir().unwrap();
-        std::fs::set_permissions(temporary.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
-        let source_path = temporary.path().join("knowledge.surrealkv");
-        copy_tree(Path::new(&graph), &source_path);
-        let password = std::fs::read_to_string(Path::new(&graph).with_extension("key"))
-            .expect("Falta knowledge.key junto a la copia del grafo");
-        let source = connect_copy(&source_path, &password).await;
-        let namespaces = info(&source, "INFO FOR ROOT").await;
-        let namespaces: Vec<&String> = namespaces["namespaces"]
-            .as_object()
-            .unwrap()
-            .keys()
-            .collect();
-        assert_eq!(
-            namespaces,
-            vec!["knowledge"],
-            "Espacio de nombres inesperado"
-        );
-        source.use_ns("knowledge").use_db("registry").await.unwrap();
-        let mut response = source
-            .query("SELECT VALUE ontology_id FROM ontology")
-            .await
-            .unwrap()
-            .check()
-            .unwrap();
-        let installed: Vec<String> = response.take(0).unwrap();
-        let mut kept = vec!["registry".to_owned()];
-        kept.extend(
-            installed
-                .iter()
-                .filter(|id| id.as_str() != "escriba")
-                .map(|id| crate::knowledge::hashed_database(id)),
-        );
-        let base = crate::knowledge::hashed_database("escriba");
-        let databases = info(&source, "INFO FOR NS").await;
-        let databases: Vec<String> = databases["databases"]
-            .as_object()
-            .unwrap()
-            .keys()
-            .cloned()
-            .collect();
-        for database in &databases {
-            assert!(
-                kept.contains(database) || database.starts_with(&base),
-                "Base de datos sin dueño conocido; no se descarta en silencio"
-            );
-        }
-        for database in &kept {
-            assert!(databases.contains(database), "Falta una base registrada");
-        }
-        let dumps = temporary.path().join("volcados");
-        std::fs::create_dir(&dumps).unwrap();
-        std::fs::set_permissions(&dumps, std::fs::Permissions::from_mode(0o700)).unwrap();
-        for (index, database) in kept.iter().enumerate() {
-            source.use_ns("knowledge").use_db(database).await.unwrap();
-            source
-                .export(dumps.join(format!("{index}.surql")))
-                .with_config()
-                .accesses(false)
-                .await
-                .unwrap();
-        }
-        std::fs::create_dir_all(&output).unwrap();
-        std::fs::set_permissions(&output, std::fs::Permissions::from_mode(0o700)).unwrap();
-        let key = output.with_extension("key");
-        std::fs::write(&key, &password).unwrap();
-        std::fs::set_permissions(&key, std::fs::Permissions::from_mode(0o600)).unwrap();
-        let target = connect_copy(&output, &password).await;
-        for (index, database) in kept.iter().enumerate() {
-            target.use_ns("knowledge").use_db(database).await.unwrap();
-            target
-                .import(dumps.join(format!("{index}.surql")))
-                .await
-                .unwrap();
-            source.use_ns("knowledge").use_db(database).await.unwrap();
-            let accesses = info(&source, "INFO FOR DB").await;
-            for name in accesses["accesses"].as_object().unwrap().keys() {
-                assert_eq!(
-                    name, "_escriba_recipe",
-                    "Acceso desconocido en la base {index}"
-                );
-                target
-                    .query(crate::knowledge::RECIPE_ACCESS)
-                    .await
-                    .unwrap()
-                    .check()
-                    .unwrap();
-            }
-        }
-        for (index, database) in kept.iter().enumerate() {
-            source.use_ns("knowledge").use_db(database).await.unwrap();
-            target.use_ns("knowledge").use_db(database).await.unwrap();
-            let definition = info(&source, "INFO FOR DB").await;
-            assert!(
-                definition == info(&target, "INFO FOR DB").await,
-                "La definición de la base {index} difiere"
-            );
-            let mut records = 0;
-            let tables: Vec<String> = definition["tables"]
-                .as_object()
-                .unwrap()
-                .keys()
-                .cloned()
-                .collect();
-            for (position, table) in tables.iter().enumerate() {
-                let sql = format!("INFO FOR TABLE `{table}`");
-                assert!(
-                    info(&source, &sql).await == info(&target, &sql).await,
-                    "La tabla {position} de la base {index} tiene otra definición"
-                );
-                let before = rows(&source, table).await;
-                assert!(
-                    before == rows(&target, table).await,
-                    "La tabla {position} de la base {index} tiene otros registros"
-                );
-                records += before.len();
-            }
-            println!(
-                "RECONSTRUCCIÓN base {index}: {} tablas, {records} registros idénticos",
-                tables.len()
-            );
-        }
-        drop(source);
-        drop(target);
-        let lock = output.join("LOCK");
-        let mut released = false;
-        for _ in 0..200 {
-            use fs2::FileExt;
-            let file = std::fs::OpenOptions::new()
-                .read(true)
-                .write(true)
-                .open(&lock)
-                .unwrap();
-            if file.try_lock_exclusive().is_ok() {
-                file.unlock().unwrap();
-                released = true;
-                break;
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(25)).await;
-        }
-        assert!(released, "SurrealKV no liberó el grafo reconstruido");
-        copy_tree(
-            Path::new(&library),
-            &temporary.path().join("library.surrealkv"),
-        );
-        let store = Store::open_with_audio_cleanup(temporary.path().into(), false)
-            .expect("La copia no se puede abrir");
-        let current = store
-            .data
-            .recordings
-            .iter()
-            .filter(|recording| recording.status != crate::store::RecordingStatus::Discarded)
-            .count();
-        let store = Arc::new(Mutex::new(store));
-        let knowledge = Knowledge::open(&output).await.unwrap();
-        let ontologies = knowledge.list().await.unwrap();
-        assert_eq!(ontologies.len(), installed.len());
-        let mut readable = 0;
-        for ontology in &ontologies {
-            for collection in &ontology.collections {
-                let counted = knowledge
-                    .query(
-                        &ontology.id,
-                        ontology.version,
-                        "SELECT VALUE count() FROM type::table($table) GROUP ALL",
-                        json!({"table": collection.table}),
-                    )
-                    .await
-                    .expect("Las recetas no pueden leer la ontología reconstruida");
-                readable += counted[0].as_array().map_or(0, |rows| {
-                    rows.iter()
-                        .filter_map(serde_json::Value::as_u64)
-                        .sum::<u64>()
-                });
-            }
-        }
-        println!("RECONSTRUCCIÓN registros legibles por recetas: {readable}");
-        let filters = knowledge.saved_filters().await.unwrap().len();
-        assert!(
-            synchronize_base(&knowledge, &store, None)
-                .await
-                .unwrap()
-                .complete
-        );
-        let projected = knowledge
-            .filter_notes(LibraryFilter::Surrealql {
-                ontology_id: "escriba".into(),
-                sql: "SELECT VALUE id FROM recording".into(),
-            })
-            .await
-            .unwrap()
-            .recording_ids
-            .len();
-        assert_eq!(projected, current);
-        knowledge.close().await.unwrap();
-        let size = |path: &Path| -> u64 {
-            walkdir::WalkDir::new(path)
-                .into_iter()
-                .filter_map(Result::ok)
-                .filter_map(|entry| entry.metadata().ok())
-                .filter(|metadata| metadata.is_file())
-                .map(|metadata| metadata.len())
-                .sum::<u64>()
-                / 1_048_576
-        };
-        println!(
-            "RECONSTRUCCIÓN ontologías {}, filtros {filters}, proyectadas {projected} de {current}, grafo {} MB → {} MB",
-            installed.len(),
-            size(Path::new(&graph)),
-            size(&output)
-        );
-    }
-
     #[tokio::test]
     #[ignore = "Requiere una copia privada autorizada de library.surrealkv"]
     async fn mide_la_proyeccion_de_una_copia_en_un_grafo_vacio() {
@@ -1230,7 +966,7 @@ mod tests {
         );
         let store = Store::open_with_audio_cleanup(temporary.path().into(), false).unwrap();
         let store = Arc::new(Mutex::new(store));
-        let path = temporary.path().join("knowledge.surrealkv");
+        let path = temporary.path().join("knowledge.rocksdb");
         let knowledge = Knowledge::open(&path).await.unwrap();
         let started = std::time::Instant::now();
         assert!(

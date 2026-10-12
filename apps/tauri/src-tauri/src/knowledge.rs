@@ -4,7 +4,7 @@ use serde_json::Value;
 use std::{path::Path, time::Duration};
 use surrealdb::types::{SurrealValue, Value as DbValue};
 use surrealdb::{
-    engine::local::{Db, SurrealKv},
+    engine::local::Db,
     opt::{
         auth::{Database, Record, Root},
         Config,
@@ -121,9 +121,10 @@ fn database(id: &str) -> String {
 
 impl Knowledge {
     pub async fn open(path: &Path) -> Result<Self, String> {
-        use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
-        std::fs::create_dir_all(path).map_err(error)?;
-        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700)).map_err(error)?;
+        use std::os::unix::fs::OpenOptionsExt;
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).map_err(error)?;
+        }
         use std::io::Write;
         let key_path = path.with_extension("key");
         let password = match std::fs::read_to_string(&key_path) {
@@ -157,10 +158,7 @@ impl Knowledge {
             .user(credentials.clone())
             .query_timeout(Duration::from_secs(10))
             .transaction_timeout(Duration::from_secs(30));
-        let root = Surreal::new::<SurrealKv>((path, config))
-            .await
-            .map_err(error)?;
-        root.signin(credentials).await.map_err(error)?;
+        let root = crate::storage::open(path, config, Some(credentials)).await?;
         root.use_ns("knowledge")
             .use_db("registry")
             .await
@@ -494,22 +492,7 @@ impl Knowledge {
 impl Knowledge {
     #[cfg(test)]
     pub async fn close(self) -> Result<(), String> {
-        use fs2::FileExt;
-        let path = self.path.join("LOCK");
         drop(self.root);
-        for _ in 0..200 {
-            if let Ok(file) = std::fs::OpenOptions::new()
-                .read(true)
-                .write(true)
-                .open(&path)
-            {
-                if file.try_lock_exclusive().is_ok() {
-                    file.unlock().map_err(error)?;
-                    return Ok(());
-                }
-            }
-            tokio::time::sleep(Duration::from_millis(25)).await;
-        }
-        Err("SurrealKV no liberó el bloqueo al cerrar".into())
+        crate::storage::released(&self.path).await
     }
 }

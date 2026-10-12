@@ -2,7 +2,7 @@
 
 Las recetas necesitan compartir entidades y relaciones entre notas sin convertir
 el proyecto de código en propietario de los datos. El grafo se guarda en
-`knowledge.surrealkv`, separado de la biblioteca de notas, con una base lógica
+`knowledge.rocksdb` (antes `knowledge.surrealkv`, ADR-0008), separado de la biblioteca de notas, con una base lógica
 por ID estable de ontología. La base integrada `escriba` está siempre disponible;
 el proyecto propone extensiones, pero la persona
 usuaria instala o actualiza cada ontología de forma explícita. Su versión y sus

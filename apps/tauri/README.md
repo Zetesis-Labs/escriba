@@ -25,7 +25,7 @@ incluye los ejecutables; no necesita Node, Bun ni npm en el Mac del usuario.
 
 La biblioteca vive en Application Support bajo el identificador de la app.
 `ESCRIBA_TAURI_DATA` permite elegir otra ubicación para pruebas aisladas.
-SurrealDB/SurrealKV guarda entidades, versiones, publicaciones, ajustes, memoria,
+SurrealDB/RocksDB guarda entidades, versiones, publicaciones, ajustes, memoria,
 trazas y trabajos. No se escribe una biblioteca JSON ni SQLite.
 
 ### Autorizar carpetas: opción recomendada
@@ -138,7 +138,7 @@ cargo clippy --all-targets -- -D warnings
 ```
 
 Preparar los ejecutables con `build-app.sh` antes del primer test Rust. Las
-pruebas usan SurrealKV real, procesos TypeScript compilados, reinicios y
+pruebas usan RocksDB real, procesos TypeScript compilados, reinicios y
 cancelaciones, servidores locales y audios sintéticos. Los
 tests Swift del adaptador están en `EscribaNativeHostTests`.
 

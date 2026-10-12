@@ -9,11 +9,7 @@ use std::{
     sync::mpsc,
     thread,
 };
-use surrealdb::{
-    engine::local::{Db, SurrealKv},
-    types::SurrealValue,
-    Surreal,
-};
+use surrealdb::{engine::local::Db, types::SurrealValue, Surreal};
 use tokio::sync::mpsc as async_mpsc;
 use uuid::Uuid;
 mod changes;
@@ -525,10 +521,7 @@ impl Drop for Persistence {
 }
 
 async fn connect(path: &Path) -> Result<Surreal<Db>, String> {
-    let path = path.to_str().ok_or("Ruta de SurrealDB no UTF-8")?;
-    let db = Surreal::new::<SurrealKv>(path)
-        .await
-        .map_err(|e| format!("No se pudo abrir SurrealKV: {e}"))?;
+    let db = crate::storage::open(path, surrealdb::opt::Config::new(), None).await?;
     db.use_ns("escriba")
         .use_db("library")
         .await

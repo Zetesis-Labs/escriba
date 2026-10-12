@@ -70,7 +70,7 @@ Seguridad, sin excepciones:
 - Nunca publiques notas de voz reales en Notion. Para probar en vivo, audio
   sintético (`say -o x.aiff "texto" && afconvert x.aiff x.m4a -f m4af -d aac`).
 - Nunca imprimas el texto de una nota en logs, salidas de comandos ni PRs. Si
-  necesitas inspeccionar la base de Rubén, copia `library.surrealkv` a un
+  necesitas inspeccionar la base de Rubén, copia `library.rocksdb` a un
   directorio temporal y saca solo recuentos, estados e ids.
 - Los tokens nunca llegan al JavaScript: viven en ficheros 0600 y los inyecta
   Rust (`connector_http`). Las huellas de voz nunca salen de Rust ni del Mac.
