@@ -415,9 +415,11 @@ Las pruebas de runtime necesitan el Bun fijado en el `PATH`
 `.build` propio de este worktree, creado en la fase E.
 
 Hecha la prueba con copias privadas: biblioteca intacta y 199 de 199 notas
-proyectadas. Pendiente: reconstruir el `knowledge.surrealkv` de Rubén para
-recuperar los 2,2 GB (conservando su ontología instalada), instalación y
-validación en pantalla por Rubén. La prueba cubre los dos almacenes: `verifica_compatibilidad_de_copia_sin_mostrar_contenido`
+proyectadas. El `knowledge.surrealkv` de Rubén se reconstruye con
+`reconstruye_una_copia_del_grafo_sin_lo_derivado_y_sin_mostrar_contenido`
+(además `ESCRIBA_REBUILT_KNOWLEDGE`, el destino), con la app cerrada y el
+original como respaldo hasta que Rubén valide. Pendiente: validación en
+pantalla por Rubén. La prueba cubre los dos almacenes: `verifica_compatibilidad_de_copia_sin_mostrar_contenido`
 (`ESCRIBA_VERIFY_LIBRARY_COPY`) para `library.surrealkv` y
 `verifica_grafo_de_copia_sin_mostrar_contenido` (además
 `ESCRIBA_VERIFY_KNOWLEDGE_COPY`) para `knowledge.surrealkv`, que es la primera

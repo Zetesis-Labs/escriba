@@ -106,6 +106,7 @@ fn error(e: impl std::fmt::Display) -> String {
     e.to_string()
 }
 const BASE_FORMAT: u32 = 2;
+pub(crate) const RECIPE_ACCESS: &str = "DEFINE ACCESS OVERWRITE _escriba_recipe ON DB TYPE RECORD SIGNIN (RETURN _escriba_principal:runtime) DURATION FOR SESSION 1h";
 pub(crate) fn hashed_database(id: &str) -> String {
     use sha2::{Digest, Sha256};
     format!("ontology_{:x}", Sha256::digest(id.as_bytes()))
@@ -399,7 +400,7 @@ impl Knowledge {
                 tests::migration_checkpoint(migration.version).await?;
             }
             if migrations::host_state(&tx).await? != before {return Err("La migración intentó modificar el estado reservado del host".into())}
-            tx.query("DEFINE TABLE OVERWRITE _escriba_manifest SCHEMALESS PERMISSIONS NONE; DEFINE TABLE OVERWRITE _escriba_manual SCHEMALESS PERMISSIONS FOR select FULL FOR create, update, delete NONE; DEFINE TABLE OVERWRITE _escriba_source SCHEMALESS PERMISSIONS FOR select FULL FOR create, update, delete NONE; DEFINE TABLE OVERWRITE _escriba_principal SCHEMALESS PERMISSIONS NONE; UPSERT _escriba_principal:runtime; DEFINE ACCESS OVERWRITE _escriba_recipe ON DB TYPE RECORD SIGNIN (RETURN _escriba_principal:runtime) DURATION FOR SESSION 1h; UPSERT _escriba_manifest:current SET definition = $definition;")
+            tx.query(format!("DEFINE TABLE OVERWRITE _escriba_manifest SCHEMALESS PERMISSIONS NONE; DEFINE TABLE OVERWRITE _escriba_manual SCHEMALESS PERMISSIONS FOR select FULL FOR create, update, delete NONE; DEFINE TABLE OVERWRITE _escriba_source SCHEMALESS PERMISSIONS FOR select FULL FOR create, update, delete NONE; DEFINE TABLE OVERWRITE _escriba_principal SCHEMALESS PERMISSIONS NONE; UPSERT _escriba_principal:runtime; {RECIPE_ACCESS}; UPSERT _escriba_manifest:current SET definition = $definition;"))
                 .bind(("definition",serde_json::to_value(&ontology).map_err(error)?)).await.map_err(error)?.check().map_err(error)?;
             let mut info=tx.query("INFO FOR DB").await.map_err(error)?.check().map_err(error)?;
             let info:DbValue=info.take(0).map_err(error)?;
