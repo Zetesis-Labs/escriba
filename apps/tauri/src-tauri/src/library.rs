@@ -181,6 +181,10 @@ enum Order {
         id: String,
         reply: Reply<(String, Lane)>,
     },
+    PurgeJobs {
+        now: i64,
+        reply: Reply<usize>,
+    },
     Close {
         done: oneshot::Sender<()>,
     },
@@ -486,6 +490,10 @@ impl Actor {
             }
             Order::RelaunchJob { id, reply } => {
                 let result = jobs::relaunch(store, &id).await;
+                self.answer(reply, result).await
+            }
+            Order::PurgeJobs { now, reply } => {
+                let result = jobs::purge(store, now).await;
                 self.answer(reply, result).await
             }
             Order::Close { done } => {
@@ -898,6 +906,10 @@ impl Library {
 
     pub async fn relaunch_job(&self, id: String) -> Result<(String, Lane), String> {
         self.request(|reply| Order::RelaunchJob { id, reply }).await
+    }
+
+    pub async fn purge_jobs(&self, now: i64) -> Result<usize, String> {
+        self.request(|reply| Order::PurgeJobs { now, reply }).await
     }
 }
 

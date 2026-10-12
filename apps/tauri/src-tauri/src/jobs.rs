@@ -570,6 +570,46 @@ pub(crate) async fn cancel(store: &mut Store, recording: &str) -> Result<Cancell
     Ok(cancellation)
 }
 
+pub fn history_days(setting: &store::Field<u32>) -> Option<u32> {
+    match setting {
+        store::Field::Missing => Some(7),
+        store::Field::Present(days) => *days,
+    }
+}
+
+pub fn expired(
+    jobs: &[Job],
+    cutoff: i64,
+    pending: &std::collections::HashSet<&str>,
+) -> Vec<String> {
+    jobs.iter()
+        .filter(|job| !job.active())
+        .filter(|job| job.ended_at() < cutoff)
+        .filter(|job| !pending.contains(job.recording_id.as_str()))
+        .map(|job| job.id.clone())
+        .collect()
+}
+
+pub(crate) async fn purge(store: &mut Store, now: i64) -> Result<usize, String> {
+    let Some(days) = history_days(&store.data.settings.job_history_days) else {
+        return Ok(0);
+    };
+    let pending: std::collections::HashSet<&str> = store
+        .data
+        .recordings
+        .iter()
+        .filter(|record| record.extra.get("accountEffectPending") == Some(&json!(true)))
+        .map(|record| record.id.as_str())
+        .collect();
+    let jobs = parse_all(store.database().jobs_finished().await?)?;
+    let gone = expired(&jobs, now - i64::from(days) * 86_400_000, &pending);
+    let count = gone.len();
+    if count > 0 {
+        store.database().remove_jobs(gone).await?;
+    }
+    Ok(count)
+}
+
 pub fn relaunch_args(job: &Job) -> Value {
     if job.operation == JobOperation::ProcessRecording && !job.dry_run() {
         json!({"recordingId":job.recording_id,"options":{"force":true}})
@@ -727,6 +767,13 @@ impl Queue {
         self.library.job_stages(stages.clone()).await?;
         self.changed.notify_waiters();
         Ok(())
+    }
+    pub async fn purge(&self, now: i64) -> Result<usize, String> {
+        let count = self.library.purge_jobs(now).await?;
+        if count > 0 {
+            self.changed.notify_waiters();
+        }
+        Ok(count)
     }
     pub async fn relaunch(&self, id: &str) -> Result<String, String> {
         let (id, lane) = self.library.relaunch_job(id.to_owned()).await?;
@@ -1758,5 +1805,222 @@ mod tests {
         let error = queue.relaunch(&failed).await.unwrap_err();
         assert!(error.contains("Revisa la operación externa"), "{error}");
         assert!(queue.visible().as_array().unwrap().is_empty());
+    }
+
+    const DAY: i64 = 86_400_000;
+
+    #[test]
+    fn el_plazo_por_defecto_es_una_semana_y_siempre_no_borra_nada() {
+        assert_eq!(history_days(&store::Field::Missing), Some(7));
+        assert_eq!(history_days(&store::Field::Present(Some(30))), Some(30));
+        assert_eq!(history_days(&store::Field::Present(None)), None);
+    }
+
+    #[test]
+    fn solo_caducan_los_terminados_fuera_de_plazo_y_sin_efecto_pendiente() {
+        let now = 100 * DAY;
+        let cutoff = now - 7 * DAY;
+        let mut jobs = vec![
+            finished(
+                "viejo",
+                JobOperation::ProcessRecording,
+                JobState::Succeeded,
+                cutoff - 1,
+                None,
+            ),
+            finished(
+                "fallido",
+                JobOperation::PublishRecording,
+                JobState::Failed,
+                cutoff - DAY,
+                None,
+            ),
+            finished(
+                "cancelado",
+                JobOperation::SummarizeRecording,
+                JobState::Cancelled,
+                cutoff - DAY,
+                None,
+            ),
+            finished(
+                "reciente",
+                JobOperation::ProcessRecording,
+                JobState::Succeeded,
+                cutoff + 1,
+                None,
+            ),
+            finished(
+                "pendiente",
+                JobOperation::PublishRecording,
+                JobState::Failed,
+                cutoff - DAY,
+                None,
+            ),
+            job(
+                "activo",
+                "nota-activo",
+                JobOperation::ProcessRecording,
+                JobState::Queued,
+                1,
+            ),
+            job(
+                "espera",
+                "nota-espera",
+                JobOperation::ProcessRecording,
+                JobState::Retry,
+                1,
+            ),
+        ];
+        let mut legacy = job(
+            "antiguo",
+            "nota-antiguo",
+            JobOperation::ProcessRecording,
+            JobState::Succeeded,
+            cutoff - DAY,
+        );
+        legacy.started_at = cutoff - DAY;
+        jobs.push(legacy);
+        let pending = std::collections::HashSet::from(["nota-pendiente"]);
+        let mut gone = expired(&jobs, cutoff, &pending);
+        gone.sort();
+        assert_eq!(gone, vec!["antiguo", "cancelado", "fallido", "viejo"]);
+    }
+
+    #[tokio::test]
+    async fn el_plazo_solo_admite_siete_treinta_noventa_dias_o_siempre() {
+        let temp = tempfile::tempdir().unwrap();
+        let store = library(&temp.path().join("library")).await;
+        for days in [json!(7), json!(30), json!(90), Value::Null] {
+            store
+                .mutate(
+                    "settings_save".into(),
+                    json!({"settings":{"jobHistoryDays":days}}),
+                )
+                .await
+                .unwrap();
+            assert_eq!(
+                store.index().settings.job_history_days,
+                store::Field::Present(days.as_u64().map(|days| days as u32))
+            );
+        }
+        for days in [json!(15), json!(0), json!("7")] {
+            assert!(store
+                .mutate(
+                    "settings_save".into(),
+                    json!({"settings":{"jobHistoryDays":days}}),
+                )
+                .await
+                .is_err());
+        }
+    }
+
+    #[tokio::test]
+    async fn guardar_siempre_sobrevive_a_reabrir_la_biblioteca() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("library");
+        let store = library(&root).await;
+        store
+            .mutate(
+                "settings_save".into(),
+                json!({"settings":{"jobHistoryDays":null}}),
+            )
+            .await
+            .unwrap();
+        store.close().await.unwrap();
+        drop(store);
+        let store = library(&root).await;
+        assert_eq!(history_days(&store.index().settings.job_history_days), None);
+        store
+            .mutate(
+                "settings_save".into(),
+                json!({"settings":{"jobHistoryDays":90}}),
+            )
+            .await
+            .unwrap();
+        store.close().await.unwrap();
+        drop(store);
+        let store = library(&root).await;
+        assert_eq!(
+            history_days(&store.index().settings.job_history_days),
+            Some(90)
+        );
+    }
+
+    async fn ended(store: &Library, id: &str, at: i64) {
+        let id = id.to_owned();
+        store
+            .with_store(move |store| {
+                Box::pin(async move {
+                    let mut job = load_one(store.database(), &id).await.unwrap().unwrap();
+                    job.finished_at = Some(at);
+                    save(store, &job).await.unwrap();
+                })
+            })
+            .await;
+    }
+
+    #[tokio::test]
+    async fn el_repaso_borra_solo_los_trabajos_caducados_y_nunca_las_notas() {
+        let temp = tempfile::tempdir().unwrap();
+        let store = library(&temp.path().join("library")).await;
+        let mut notes = Vec::new();
+        for name in ["vieja.wav", "reciente.wav", "pendiente.wav", "activa.wav"] {
+            let path = temp.path().join(name);
+            std::fs::write(&path, name.as_bytes()).unwrap();
+            notes.push(
+                store.import(&path).await.unwrap()["id"]
+                    .as_str()
+                    .unwrap()
+                    .to_owned(),
+            );
+        }
+        let queue = Queue::new(store.clone()).await.unwrap();
+        let publish = |note: &String| json!({"recordingId":note,"destinationId":"notion"});
+        let old = failed_job(&queue, "publishRecording", publish(&notes[0])).await;
+        let recent = failed_job(&queue, "publishRecording", publish(&notes[1])).await;
+        let pending = failed_job(&queue, "publishRecording", publish(&notes[2])).await;
+        let now = chrono::Utc::now().timestamp_millis();
+        ended(&store, &old, now - 8 * DAY).await;
+        ended(&store, &recent, now - 6 * DAY).await;
+        ended(&store, &pending, now - 8 * DAY).await;
+        store
+            .mutate(
+                "account_effect_begin".into(),
+                json!({"recordingId":notes[2]}),
+            )
+            .await
+            .unwrap();
+        let active = queue
+            .enqueue("publishRecording", publish(&notes[3]))
+            .await
+            .unwrap();
+        store
+            .mutate(
+                "settings_save".into(),
+                json!({"settings":{"jobHistoryDays":null}}),
+            )
+            .await
+            .unwrap();
+        assert_eq!(queue.purge(now).await.unwrap(), 0);
+        store
+            .mutate(
+                "settings_save".into(),
+                json!({"settings":{"jobHistoryDays":7}}),
+            )
+            .await
+            .unwrap();
+        assert_eq!(queue.purge(now).await.unwrap(), 1);
+        let mut left: Vec<String> = history(&queue)
+            .await
+            .into_iter()
+            .map(|job| job.id)
+            .collect();
+        left.sort();
+        let mut expected = vec![recent, pending];
+        expected.sort();
+        assert_eq!(left, expected);
+        assert_eq!(queue.visible()[0]["id"], active);
+        assert_eq!(store.index().recordings.len(), 4);
+        assert!(store.recording(notes[0].clone()).await.is_ok());
     }
 }

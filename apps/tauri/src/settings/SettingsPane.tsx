@@ -3,9 +3,9 @@ import { FolderPlus, Settings, Trash2, type LucideIcon } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { call } from "../api";
 import { Pane } from "../app/Pane";
-import { abbreviatedPath } from "../core/settings";
+import { abbreviatedPath, jobHistoryChoice, jobHistoryDays, jobHistoryOptions } from "../core/settings";
 import { folderDisplayName } from "../library/model";
-import { Button, FormRow, FormSection, LabeledRow, Toggle } from "../mac/controls";
+import { Button, FormRow, FormSection, LabeledRow, PopupButton, Toggle } from "../mac/controls";
 import { alertMessage, errorText } from "../mac/native";
 import type { Settings as AppSettings, Snapshot, WatchedFolder } from "../types";
 import "./settings.css";
@@ -64,6 +64,11 @@ export function SettingsPane({ data, refresh }: { data: Snapshot; refresh: () =>
             </LabeledRow>
             <LabeledRow label="Notificar cada transcripción">
               <Toggle label="Notificar cada transcripción" checked={settings.notifyEveryNote !== false} onChange={(notifyEveryNote) => void save({ notifyEveryNote })} />
+            </LabeledRow>
+          </FormSection>
+          <FormSection footer="Los trabajos terminados, fallidos y cancelados más antiguos se borran al abrir la app y una vez al día. Las notas no se tocan.">
+            <LabeledRow label="Historial de trabajos">
+              <PopupButton label="Historial de trabajos" value={jobHistoryChoice(settings)} options={jobHistoryOptions} onChange={(choice) => void save({ jobHistoryDays: jobHistoryDays(choice) })} />
             </LabeledRow>
           </FormSection>
         </Block>

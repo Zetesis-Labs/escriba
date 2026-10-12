@@ -213,6 +213,9 @@ impl Persistence {
     pub async fn jobs_finished(&self) -> Result<Vec<Value>, String> {
         jobs_finished(&self.db).await
     }
+    pub async fn remove_jobs(&self, ids: Vec<String>) -> Result<(), String> {
+        remove_jobs(&self.db, ids).await
+    }
     pub async fn jobs_for(&self, recording: &str) -> Result<Vec<Value>, String> {
         jobs_for(&self.db, recording).await
     }
@@ -985,6 +988,16 @@ async fn save_job(db: &Surreal<Db>, job: &Value) -> Result<(), String> {
     db.query("UPSERT type::record('job', $key) SET key = $key, parent = $parent, position = 0, payload = $payload, recordingId = $parent, state = $state")
         .bind(("key", key)).bind(("parent", parent)).bind(("payload", job.clone())).bind(("state", job["state"].clone()))
         .await.map_err(|e| e.to_string())?.check().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+async fn remove_jobs(db: &Surreal<Db>, ids: Vec<String>) -> Result<(), String> {
+    db.query("DELETE job WHERE key IN $keys AND state IN ['succeeded', 'failed', 'cancelled']")
+        .bind(("keys", ids))
+        .await
+        .map_err(|e| e.to_string())?
+        .check()
+        .map_err(|e| e.to_string())?;
     Ok(())
 }
 
