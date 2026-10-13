@@ -32,6 +32,15 @@
   display: flex;
   flex-direction: column;
 }
+.list-day + .list-day {
+  margin-top: 10px;
+}
+.list-day-heading {
+  padding: 6px 10px 3px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
 .list-row {
   border-radius: 8px;
   padding: 7px 10px;

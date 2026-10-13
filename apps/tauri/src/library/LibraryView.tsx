@@ -15,6 +15,7 @@ import { alertMessage, chooseFiles, confirmDestructive, errorText, header, item,
 import type { Destination, JobState, JSONObject, Recording, Snapshot } from "../types";
 import { currentVersion, currentVersionLabel, isPublished, libraryRecordings, liveDestinations, originName, providerLabel, versionsInOrder, versionTitle } from "./model";
 import * as operations from "./operations";
+import { groupByDay } from "../core/libraryDays";
 import { displayTitle, RecordingRow } from "./RecordingRow";
 import { LibraryFilters } from "./LibraryFilters";
 import type { LibraryFiltersController } from "./useLibraryFilters";
@@ -87,6 +88,7 @@ export function LibraryView({
   const folders = data.settings.watchedFolders;
   const canSummarize = data.native?.llm?.available !== false;
   const minute = useMemo(() => Math.floor(Date.now() / 60_000), [data]);
+  const days = useMemo(() => groupByDay(recordings, new Date(minute * 60_000)), [recordings, minute]);
   const jobFor = (recording: Recording) => jobs.find((job) => job.recordingId === recording.id);
 
   useEffect(() => {
@@ -337,17 +339,22 @@ export function LibraryView({
       </div>}
       <div className="list-detail">
         <div className="recording-list" role="listbox" aria-label="Grabaciones" tabIndex={0} onKeyDown={move}>
-          {filters.result?.loading ? <div className="library-filter-list-state">Buscando notas…</div> : filters.result?.error ? <div className="library-filter-list-state warning" role="alert">{filters.result.error}</div> : filters.result && !recordings.length ? <div className="library-filter-list-state">No hay notas para este filtro.</div> : recordings.map((recording) => (
-            <div
-              key={recording.id}
-              data-recording-id={recording.id}
-              role="option"
-              aria-selected={recording.id === selectedId}
-              className={`list-row ${recording.id === selectedId ? "selected" : ""}`}
-              onMouseDown={() => { setEditRequest(null); setSelectedId(recording.id); }}
-              onContextMenu={(event) => contextMenu(event, recording)}
-            >
-              <RecordingRow recording={recording} origin={originName(recording, folders)} minute={minute} destinations={data.destinations} accounts={data.accounts} />
+          {filters.result?.loading ? <div className="library-filter-list-state">Buscando notas…</div> : filters.result?.error ? <div className="library-filter-list-state warning" role="alert">{filters.result.error}</div> : filters.result && !recordings.length ? <div className="library-filter-list-state">No hay notas para este filtro.</div> : days.map((day) => (
+            <div key={day.key} role="group" aria-labelledby={`day-${day.key}`} className="list-day">
+              <div id={`day-${day.key}`} className="list-day-heading font-caption secondary">{day.heading}</div>
+              {day.items.map((recording) => (
+                <div
+                  key={recording.id}
+                  data-recording-id={recording.id}
+                  role="option"
+                  aria-selected={recording.id === selectedId}
+                  className={`list-row ${recording.id === selectedId ? "selected" : ""}`}
+                  onMouseDown={() => { setEditRequest(null); setSelectedId(recording.id); }}
+                  onContextMenu={(event) => contextMenu(event, recording)}
+                >
+                  <RecordingRow recording={recording} origin={originName(recording, folders)} minute={minute} destinations={data.destinations} accounts={data.accounts} />
+                </div>
+              ))}
             </div>
           ))}
         </div>

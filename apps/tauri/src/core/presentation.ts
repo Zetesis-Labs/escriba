@@ -64,6 +64,15 @@ export function longDate(date: Date, timeZone?: string) {
 
 const sameDay = (a: Parts, b: Parts) => a.year === b.year && a.month === b.month && a.day === b.day;
 
+export function dayLabel(date: Date, now: Date, timeZone?: string) {
+  const parts = dateParts(date, timeZone);
+  const today = dateParts(now, timeZone);
+  if (sameDay(parts, today)) return "Hoy";
+  if (sameDay(parts, dateParts(new Date(now.getTime() - 86_400_000), timeZone))) return "Ayer";
+  const day = `${parts.day} de ${monthNames[parts.month - 1]}`;
+  return parts.year === today.year ? day : `${day} de ${parts.year}`;
+}
+
 export function recordingWhen(date: Date, now: Date, timeZone?: string) {
   const parts = dateParts(date, timeZone);
   const today = dateParts(now, timeZone);
