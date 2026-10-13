@@ -1,3 +1,5 @@
+import { foldersFooter, offersFolderAuthorization, offersVoiceMemos } from "../core/platform";
+import { usePlatform } from "../app/platform";
 import { homeDir } from "@tauri-apps/api/path";
 import { FolderPlus, Settings, Trash2, type LucideIcon } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
@@ -31,6 +33,7 @@ function useHome() {
 }
 
 export function SettingsPane({ data, refresh }: { data: Snapshot; refresh: () => Promise<void> }) {
+  const platform = usePlatform();
   const settings = data.settings;
   const home = useHome();
   const [busy, setBusy] = useState(false);
@@ -83,7 +86,7 @@ export function SettingsPane({ data, refresh }: { data: Snapshot; refresh: () =>
           </FormSection>
           <FormSection
             header="Carpetas vigiladas"
-            footer="Cualquier audio que caiga en ellas lo procesa la receta por defecto, que se configura en Recetas. Si macOS impide leer una carpeta, puedes autorizarla; si aun así no deja leerla, la alternativa es el acceso total al disco."
+            footer={foldersFooter(platform)}
           >
             {settings.watchedFolders.length === 0 && (
               <FormRow>
@@ -99,9 +102,13 @@ export function SettingsPane({ data, refresh }: { data: Snapshot; refresh: () =>
                     <span className="font-caption secondary folder-path" title={folder.path}>
                       {abbreviatedPath(folder.path, home)}
                     </span>
-                    {problem && <span className="font-caption folder-problem">No se puede leer esta carpeta</span>}
+                    {problem && (
+                      <span className="font-caption folder-problem">
+                        {offersFolderAuthorization(platform) ? "No se puede leer esta carpeta" : `No se puede leer esta carpeta: ${problem.message}`}
+                      </span>
+                    )}
                   </div>
-                  {problem && (
+                  {problem && offersFolderAuthorization(platform) && (
                     <Button small disabled={busy} onClick={() => void authorize({ folderId: folder.id })}>
                       {folder.authorizationSaved ? "Volver a autorizar…" : "Autorizar…"}
                     </Button>
@@ -119,16 +126,20 @@ export function SettingsPane({ data, refresh }: { data: Snapshot; refresh: () =>
                 Añadir carpeta…
               </Button>
             </FormRow>
-            <FormRow>
-              <Button disabled={busy || hasVoiceMemos} onClick={() => void authorize({ style: "voiceMemos" })}>
-                Añadir Notas de Voz
-              </Button>
-            </FormRow>
-            <FormRow>
-              <Button disabled={busy} onClick={() => void perform(() => call("open_privacy_settings", { pane: "disk" }))}>
-                Acceso total al disco…
-              </Button>
-            </FormRow>
+            {offersVoiceMemos(platform) && (
+              <FormRow>
+                <Button disabled={busy || hasVoiceMemos} onClick={() => void authorize({ style: "voiceMemos" })}>
+                  Añadir Notas de Voz
+                </Button>
+              </FormRow>
+            )}
+            {offersFolderAuthorization(platform) && (
+              <FormRow>
+                <Button disabled={busy} onClick={() => void perform(() => call("open_privacy_settings", { pane: "disk" }))}>
+                  Acceso total al disco…
+                </Button>
+              </FormRow>
+            )}
           </FormSection>
         </Block>
       </div>

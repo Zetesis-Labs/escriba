@@ -4,6 +4,7 @@ import { expect, test } from "vitest";
 import { snapshot as demoSnapshot } from "../runtime/fixture";
 import { SettingsPane } from "../../src/settings/SettingsPane";
 import type { Snapshot } from "../../src/types";
+import { PlatformContext } from "../../src/app/platform";
 
 function renderFolder(authorizationSaved: boolean, watchIssues: Snapshot["watchIssues"] = []) {
   return renderToStaticMarkup(createElement(SettingsPane, {
@@ -37,4 +38,33 @@ test("el fallo de otra carpeta no pide autorizar una carpeta legible", () => {
   const issues = [{ folderId: "otra-carpeta", path: "/otra-carpeta", message: "Acceso denegado", permissionDenied: true }];
   expect(renderFolder(false, issues)).not.toContain("Autorizar…");
   expect(renderFolder(true, issues)).not.toContain("Volver a autorizar…");
+});
+
+function renderOnLinux(watchIssues: Snapshot["watchIssues"] = []) {
+  const pane = createElement(SettingsPane, {
+    data: {
+      ...demoSnapshot,
+      settings: {
+        ...demoSnapshot.settings,
+        watchedFolders: [{ id: "grabaciones", name: "Grabaciones", path: "/carpeta-sintetica", style: "any", enabled: true, authorizationSaved: false }],
+      },
+      watchIssues,
+    },
+    refresh: async () => {},
+  });
+  return renderToStaticMarkup(createElement(PlatformContext.Provider, { value: { system: "linux", recipesIsolated: false } }, pane));
+}
+
+test("en Linux Ajustes no ofrece Notas de Voz, autorizar ni acceso total al disco", () => {
+  const html = renderOnLinux();
+  expect(html).toContain("Añadir carpeta…");
+  expect(html).not.toContain("Notas de Voz");
+  expect(html).not.toContain("Acceso total al disco");
+  expect(html).not.toContain("macOS");
+});
+
+test("en Linux una carpeta ilegible muestra el motivo y no pide autorizar", () => {
+  const html = renderOnLinux([{ folderId: "grabaciones", path: "/carpeta-sintetica", message: "Permission denied (os error 13)", permissionDenied: true }]);
+  expect(html).toContain("No se puede leer esta carpeta: Permission denied (os error 13)");
+  expect(html).not.toContain("utorizar");
 });
