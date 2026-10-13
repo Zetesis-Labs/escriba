@@ -9,9 +9,10 @@ con la dirección de computación local, están en
 
 **Prioridad (Rubén, 2026-10-06)**: dejar bien el **camino 1** (huellas propias,
 por defecto en cada grabación). El **camino 2** (Sortformer con voces
-inscritas, como postprocesado para precisar una grabación) es una opción
-alternativa que solo se construye después y si el banco de pruebas lo
-justifica.
+inscritas) es una opción alternativa que solo se construye después y si el
+banco de pruebas lo justifica. **Replanteado el 2026-10-13**: ya no es una
+acción posterior sobre una grabación, sino una opción de `transcribir` que la
+receta decide, y exige guardar una muestra de audio por persona.
 
 ## Qué tiene que poder hacer el usuario
 
@@ -94,11 +95,11 @@ porque hoy las huellas se tiran al terminar. Eso es lo que mide el paso 2.
 
 | | Camino 1: huellas propias | Camino 2: Sortformer con inscripción |
 |---|---|---|
-| Papel | Por defecto, en cada grabación | Opcional, después, para precisar una grabación |
+| Papel | Por defecto, en cada grabación | Opcional, al transcribir, cuando la receta elige a quién inscribir |
 | Cómo reconoce | Compara la huella de cada hablante con las de cada persona | El modelo recibe clips de voz de personas conocidas y las nombra al diarizar |
 | Hablantes por grabación | Sin tope | Máximo 4, contando los inscritos |
 | Personas que reconoce | Todas | Hasta 4 por grabación: las que propone el camino 1 |
-| Memoria entre grabaciones | La guarda Escriba | Ninguna en el modelo; Escriba guarda los clips |
+| Memoria entre grabaciones | La guarda Escriba | Ninguna en el modelo; Escriba guarda una muestra de audio por persona |
 | Motor | El actual (SpeakerKit, pyannote Community-1) | FluidAudio |
 
 ## Camino 1 (prioridad): huellas propias, en tres pasos
@@ -162,47 +163,62 @@ va en `EscribaCore` como función pura y con test.
 *Criterio de salida*: en las grabaciones del paso 2, los nombres salen solos y
 ningún falso positivo pasa sin poder deshacerse.
 
-## Camino 2 (opción alternativa): precisar con Sortformer después
+## Camino 2 (opción alternativa): inscribir personas al transcribir
 
-FluidAudio (Apache-2.0, Swift + CoreML, v0.17.5 del 2026-10-01) trae el modelo
+FluidAudio (Apache-2.0, Swift + CoreML, v0.17.7 del 2026-10-08) trae el modelo
 **Sortformer** de NVIDIA, de diarización de extremo a extremo. Ordena a los
 hablantes por llegada, así que sus etiquetas son estables, y **permite
 inscribir voces conocidas** antes de diarizar un fichero completo
-(`enrollSpeaker` + `processComplete(keepingEnrolledSpeakers:)`). En una prueba
-de FluidAudio con cuatro personas, dos de voz muy parecida, las nombró a todas
-con alta confianza.
+(`enrollSpeaker(withAudio:sourceSampleRate:named:)` +
+`processComplete(_:keepingEnrolledSpeakers:)`, comprobado en el código el
+2026-10-13). En una prueba de FluidAudio con cuatro personas, dos de voz muy
+parecida, las nombró a todas con alta confianza.
 
-### Cómo funcionaría
+**La inscripción recibe audio, no huellas.** Las huellas del camino 1 son
+vectores de SpeakerKit y solo sirven para compararse entre sí; Sortformer no
+acepta vectores y su caché interna de hablantes no se exporta ni persiste entre
+grabaciones. Sin una muestra de audio por persona, este camino no arranca.
 
-- **Una acción sobre una grabación ya hecha**, «Precisar hablantes», no un paso
-  del pipeline. Más adelante podría lanzarse sola cuando el camino 1 dude (una
-  distancia cerca del umbral).
-- **No se vuelve a transcribir**: las palabras y sus tiempos ya están
-  guardados. Sortformer vuelve a diarizar el audio y cada palabra se reasigna
-  al hablante del tramo que más solapa.
-- **Se inscribe solo a quien propuso el camino 1**, hasta cuatro personas. El
-  camino 1 elige los candidatos y el 2 los afina.
-- **Sale como una versión nueva** de la transcripción, como al reprocesar: no
-  pisa la anterior y se puede volver a ella.
+### Cómo funcionaría (Rubén, 2026-10-13)
 
-### Requisitos
-
-- Solo se ofrece si la grabación tiene **cuatro hablantes o menos**.
+- **Es una opción de transcribir, no una acción posterior.** La receta la
+  pide: `escriba.transcribir(audio, { hablantes: { detectar: true, personas:
+  ["Ana", "Luis"] } })`, hasta cuatro personas. «Por defecto» la expone en su
+  formulario como una lista de Personas, y al añadir un audio o al grabar se
+  elige como cualquier otro valor de esa vez. Así entra por el mismo carril que
+  todo lo demás y no queda como un botón fuera de la receta
+  (`specs/escriba/recetas/functional-specs.md`, §6.4).
+- **Las personas inscritas son criterio de transcripción**: cambiarlas es una
+  versión nueva; mantenerlas reutiliza la transcripción guardada, igual que el
+  STT o el idioma.
+- **Cada persona guarda, además de sus huellas, N muestras de audio.** Las tres
+  entradas que hoy aprenden huellas guardan también la muestra:
+  - Registrar voz por micrófono: se conserva el clip (hoy se borra tras extraer
+    la huella). Los 30 s de habla que ya exige son la muestra.
+  - Registrar voz desde archivo: igual, recortado a los tramos de habla.
+  - Asignar un hablante de una nota a una persona: se recortan sus segmentos de
+    la copia del audio de la grabación y se guardan como muestra.
+- Las muestras siguen la regla de las huellas: viven en el Mac, en Rust, y
+  nunca salen a recetas, conectores ni exportaciones. Quitar a una persona
+  borra sus muestras.
+- **Una persona sin muestra no se puede inscribir**; la lista de Personas del
+  formulario lo dice al elegirla. Las personas registradas antes de este
+  cambio no tienen muestra hasta que se les asigne un hablante de una nota con
+  audio o se vuelva a registrar su voz.
 - Las palabras que caigan en un tramo donde Sortformer no detecta a nadie
   (pierde habla en voz baja) **conservan el hablante del camino 1**.
-- Cada persona guarda, además de sus huellas, **un clip corto de su voz** para
-  inscribirla: la inscripción no persiste entre grabaciones y el audio original
-  se puede quitar de la biblioteca. Los clips, como las huellas, no salen del
-  Mac.
 - Entra FluidAudio como dependencia. Si el camino 2 se queda, se pasa todo el
   diarizado a FluidAudio (también trae Community-1) en vez de mantener
   SpeakerKit y FluidAudio a la vez; las huellas viejas se invalidan por modelo.
 
-### Límites conocidos (documentación de FluidAudio, 2026-10-06)
+### Límites conocidos (documentación de FluidAudio, 2026-10-13)
 
-- Máximo cuatro hablantes únicos por grabación, inscritos incluidos.
+- Máximo cuatro hablantes únicos por grabación, inscritos incluidos. Una
+  grabación con más hablantes pierde a los que sobran; la receta decide si
+  inscribir o no.
 - La inscripción es por instancia del diarizador y no crea una base de voces
-  persistente.
+  persistente: Escriba inscribe a las personas elegidas en cada transcripción
+  a partir de sus muestras.
 - FluidAudio dice que la inscripción es **menos fiable que una base de huellas**
   de pyannote/WeSpeaker, que es lo que hace el camino 1. Por eso el camino 2
   afina y no sustituye.
@@ -211,9 +227,9 @@ con alta confianza.
 - La base de voces de FluidAudio (`SpeakerManager`) vive en memoria y solo
   funciona con su diarización en tiempo real, así que no sirve para el camino 1.
 
-*Criterio de entrada*: en el banco de pruebas, sobre grabaciones de hasta
-cuatro hablantes, el camino 2 atribuye mejor que el camino 1 solo. Si no
-mejora, no se construye.
+*Criterio de entrada* (sin cambios): en el banco de pruebas, sobre grabaciones
+de hasta cuatro hablantes, el camino 2 atribuye mejor que el camino 1 solo. Si
+no mejora, no se construye.
 
 Los modelos que transcriben y atribuyen hablante a la vez no son un tercer
 camino: no dan huellas entre grabaciones
