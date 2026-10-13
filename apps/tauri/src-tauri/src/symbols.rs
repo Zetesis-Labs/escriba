@@ -1,4 +1,6 @@
+#[cfg(target_os = "macos")]
 const CANVAS: f64 = 36.0;
+#[cfg(target_os = "macos")]
 const POINT_SIZE: f64 = 26.0;
 
 #[cfg(target_os = "macos")]

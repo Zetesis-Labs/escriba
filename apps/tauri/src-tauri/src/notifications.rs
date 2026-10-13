@@ -1,5 +1,7 @@
 use unicode_segmentation::UnicodeSegmentation;
 
+// Linux delivers nothing until it has desktop notifications.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub struct Notification {
     pub title: String,
     pub body: String,
