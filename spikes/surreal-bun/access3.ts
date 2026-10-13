@@ -1,0 +1,25 @@
+import { Surreal } from "surrealdb";
+import { createNodeEngines } from "@surrealdb/node";
+const path = process.argv[2];
+const db = new Surreal({ engines: createNodeEngines() });
+await db.connect(`rocksdb://${path}`, { namespace: "k", database: "o" });
+await db.query(`
+  DEFINE TABLE IF NOT EXISTS thing SCHEMAFULL PERMISSIONS FOR select FULL FOR create, update, delete NONE;
+  DEFINE FIELD IF NOT EXISTS title ON thing TYPE string;
+  DEFINE TABLE IF NOT EXISTS principal PERMISSIONS NONE;
+  UPSERT principal:runtime;
+  DEFINE ACCESS OVERWRITE recipe ON DB TYPE RECORD SIGNIN (RETURN principal:runtime) DURATION FOR SESSION 1h, FOR TOKEN 1h;
+  UPSERT thing:a CONTENT { title: 'a' };
+`);
+const token = await db.signin({ namespace: "k", database: "o", access: "recipe" } as never);
+console.log("token tipo", typeof token, String(token).slice(0, 20));
+const [auth, session] = await db.query<[unknown, unknown]>("RETURN $auth; RETURN { ac: $session.ac, rd: $session.rd, tk: type::is_none($token) };");
+console.log("auth", JSON.stringify(auth), "session", JSON.stringify(session));
+await db.authenticate(String(token)).then(() => console.log("authenticate ok")).catch((e) => console.log("authenticate:", String(e).slice(0, 60)));
+const [auth2] = await db.query<[unknown]>("RETURN $auth");
+console.log("auth tras authenticate", JSON.stringify(auth2));
+const cr = await db.query("CREATE thing CONTENT { title: 'x' }").then(() => "creó").catch((e) => "denegado: " + String(e).slice(0, 50));
+console.log("create", cr);
+const [info] = await db.query<[unknown]>("INFO FOR DB").then((r) => r).catch((e) => ["denegado: " + String(e).slice(0, 40)]);
+console.log("INFO FOR DB", typeof info === "string" ? info : "permitido");
+await db.close();

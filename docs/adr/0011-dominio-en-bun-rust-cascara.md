@@ -52,8 +52,16 @@ para macOS y Linux en x64 y arm64.
 2. **Rust queda como cáscara**: ventana, menús, bandeja, notificaciones,
    permisos del sistema (carpetas, micrófono), arranque y supervisión de
    procesos (el controlador, las recetas, los hosts nativos), aislamiento, y la
-   captura e inferencia que exigen APIs del sistema. Rust no abre la base de
-   datos.
+   captura e inferencia que exigen APIs del sistema. Rust no abre la
+   biblioteca. **Excepción justificada (comprobada el 2026-10-13):** el
+   conocimiento (`knowledge.rocksdb`) sigue en Rust, porque validar que el
+   SurrealQL de una receta es de solo lectura y filtrar sus migraciones exige
+   el parser (`surrealdb-expr`), y porque el motor embebido de Node no tiene
+   opción de autenticación: con una sesión `RECORD` rellena `$auth` pero no
+   aplica los `PERMISSIONS` de tabla, así que la garantía de que una receta
+   solo escribe donde su ontología lo permite solo existe en Rust. Es otro
+   directorio RocksDB; lo que necesita de la biblioteca lo pide al
+   controlador.
 3. **Las recetas siguen aisladas en procesos aparte** sin credenciales, rutas
    de audio ni huellas. El límite de seguridad del producto es ese proceso, no
    el lenguaje.

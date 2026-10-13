@@ -31,3 +31,14 @@ bun run spike.ts /tmp/spike-kv surrealkv  # SurrealKV
 bun build --compile spike.ts --outfile spike-bin && codesign -s - -f spike-bin
 ./spike-bin /tmp/spike-db2
 ```
+
+## Sondas añadidas (2026-10-13, plan del ADR-0011)
+
+- `inspect.ts <ruta> [ns db]`: namespaces y bases de un almacén, o recuentos
+  por tabla de una base. Con una copia de la biblioteca real: abre y lee.
+- `access.ts`, `access2.ts`, `access3.ts`: sesión `RECORD`. Resultado: `$auth`
+  y `$session` se rellenan e `INFO FOR DB` se deniega, pero los `PERMISSIONS`
+  de tabla **no se aplican** porque el motor de Node no permite activar la
+  autenticación (`ConnectionOptions` solo admite `capabilities`, `defaults` y
+  tiempos). Una segunda `Surreal` sobre el mismo RocksDB falla aunque sea en el
+  mismo proceso. `BEGIN … CANCEL` funciona.
