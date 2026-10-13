@@ -22,6 +22,7 @@ mod menubar;
 mod native;
 mod notification_delivery;
 mod notifications;
+mod platform;
 mod project;
 mod project_watch;
 mod recorder;
@@ -171,7 +172,7 @@ fn directory_size(path: &std::path::Path) -> u64 {
 
 fn models_root(status: &Value) -> Result<PathBuf, String> {
     let root = PathBuf::from(text(&status["whisper"], "modelsPath")?);
-    if !root.ends_with("Application Support/escriba/models") {
+    if !platform::is_models_root(&root) {
         return Err("La carpeta de modelos no es la de Escriba".into());
     }
     Ok(root)
@@ -391,9 +392,7 @@ async fn dispatch_app(
                 if !path.is_dir() {
                     return Err("La ruta del proyecto no es una carpeta".into());
                 }
-                let status = std::process::Command::new("/usr/bin/open")
-                    .args(["-b", "com.microsoft.VSCode"])
-                    .arg(path)
+                let status = platform::open_vscode(&path)
                     .status()
                     .map_err(|e| format!("No se pudo abrir VS Code: {e}"))?;
                 if !status.success() {
@@ -444,13 +443,11 @@ async fn dispatch_app(
                 if !path.exists() {
                     return Err("El archivo no existe".into());
                 }
-                let status = std::process::Command::new("/usr/bin/open")
-                    .args(["-R"])
-                    .arg(path)
+                let status = platform::reveal(&path)
                     .status()
                     .map_err(|e| e.to_string())?;
                 if !status.success() {
-                    return Err("Finder no pudo abrir la ubicación".into());
+                    return Err(platform::REVEAL_FAILED.into());
                 }
                 Ok(Value::Null)
             }
@@ -459,8 +456,7 @@ async fn dispatch_app(
                 if !["http", "https"].contains(&url.scheme()) {
                     return Err("Solo se pueden abrir enlaces web".into());
                 }
-                let status = std::process::Command::new("/usr/bin/open")
-                    .arg(url.as_str())
+                let status = platform::open(std::ffi::OsStr::new(url.as_str()))
                     .status()
                     .map_err(|e| e.to_string())?;
                 if !status.success() {
@@ -471,17 +467,7 @@ async fn dispatch_app(
             AppCommand::SystemAppearance(Untyped(_)) => Ok(json!({"accent": appearance::accent()})),
             AppCommand::WhisperModel(Untyped(p)) => whisper_model(state, &p).await,
             AppCommand::OpenPrivacySettings(Untyped(p)) => {
-                let pane = match p["pane"].as_str() {
-                    Some("microphone") => {
-                        "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone"
-                    }
-                    Some("disk") => {
-                        "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles"
-                    }
-                    _ => "x-apple.systempreferences:com.apple.preference.security",
-                };
-                let status = std::process::Command::new("/usr/bin/open")
-                    .arg(pane)
+                let status = platform::privacy_settings(p["pane"].as_str())?
                     .status()
                     .map_err(|e| format!("No se pudieron abrir los ajustes: {e}"))?;
                 if !status.success() {
@@ -1074,16 +1060,12 @@ async fn shell_capability(
                 &params["account"],
                 Path::new(text(&params, "path")?),
             )?;
-            let mut command = std::process::Command::new("/usr/bin/open");
-            match text(&params, "action")? {
-                "open" => {}
-                "reveal" => {
-                    command.arg("-R");
-                }
+            let mut command = match text(&params, "action")? {
+                "open" => platform::open(path.as_os_str()),
+                "reveal" => platform::reveal(&path),
                 _ => return Err("Acción de archivo OKF desconocida".into()),
-            }
+            };
             if !command
-                .arg(path)
                 .status()
                 .map_err(|e| e.to_string())?
                 .success()
