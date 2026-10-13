@@ -252,3 +252,4 @@ referencia a módulos borrados.
 | Fecha | Vertical | Estado | Notas |
 | --- | --- | --- | --- |
 | 2026-10-13 | V0 | hecha | plan, ADR corregido, Bun 1.4.2 local |
+| 2026-10-13 | V1 | tests verdes; pendiente ver en pantalla | `command` con origen, `controller_status`, controlador sin sandbox desde el arranque, `.node` como recurso; 344 vitest y 25 Rust de comandos/controlador |
