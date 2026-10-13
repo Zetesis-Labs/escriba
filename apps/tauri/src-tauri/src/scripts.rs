@@ -195,7 +195,8 @@ fn spawn(
     if !executable.is_file() {
         return Err("El motor TypeScript no es un archivo".into());
     }
-    let mut command = if worker {
+    // Only recipe workers are isolated; the controller needs the library and the network.
+    let mut command = if worker && crate::platform::recipes_isolated() {
         let mut command = Command::new("/usr/bin/sandbox-exec");
         command
             .arg("-p")
@@ -206,7 +207,11 @@ fn spawn(
             .arg("--worker");
         command
     } else {
-        Command::new(executable)
+        let mut command = Command::new(executable);
+        if worker {
+            command.arg("--worker");
+        }
+        command
     };
     let mut child = command
         .env_clear()

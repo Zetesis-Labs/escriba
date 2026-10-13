@@ -276,17 +276,23 @@ fn run_development(
     } else {
         DEV_SANDBOX.to_owned()
     };
-    let mut command = Command::new("/usr/bin/sandbox-exec");
+    let mut command = if crate::platform::recipes_isolated() {
+        let mut command = Command::new("/usr/bin/sandbox-exec");
+        command
+            .arg("-p")
+            .arg(profile)
+            .arg("-D")
+            .arg(format!("EXECUTABLE={}", executable.display()))
+            .arg("-D")
+            .arg(format!("PROJECT={}", root.display()))
+            .arg("-D")
+            .arg(format!("VENDOR={}", vendor.display()))
+            .arg(&executable);
+        command
+    } else {
+        Command::new(&executable)
+    };
     command
-        .arg("-p")
-        .arg(profile)
-        .arg("-D")
-        .arg(format!("EXECUTABLE={}", executable.display()))
-        .arg("-D")
-        .arg(format!("PROJECT={}", root.display()))
-        .arg("-D")
-        .arg(format!("VENDOR={}", vendor.display()))
-        .arg(&executable)
         .args(arguments)
         .env_clear()
         .env("TMPDIR", managed.join("tmp"))
@@ -421,6 +427,11 @@ fn launcher_source(runtime: &Path, vendor: &Path, checker: &Path) -> Result<Stri
     let checker = shell_quote(checker.to_str().ok_or("Ruta TypeScript no UTF-8")?);
     let profile = shell_quote(DEV_SANDBOX);
     let install_profile = shell_quote(&format!("{DEV_SANDBOX}{INSTALL_NETWORK}"));
+    let sandbox = if crate::platform::recipes_isolated() {
+        r#"/usr/bin/sandbox-exec -p "$profile" -D "EXECUTABLE=$executable" -D "PROJECT=$ROOT" -D "VENDOR=$VENDOR" "#
+    } else {
+        ""
+    };
     Ok(format!(
         r#"{LAUNCHER_MARKER}set -eu
 ROOT=$(CDPATH= cd -- "$(/usr/bin/dirname -- "$0")" && pwd -P)
@@ -445,9 +456,9 @@ run() {{
   bun=$3
   shift 3
   if [ "$bun" = yes ]; then
-    exec /usr/bin/env -i TMPDIR="$ROOT/.escriba/tmp" BUN_INSTALL_CACHE_DIR="$ROOT/.escriba/cache" BUN_BE_BUN=1 /usr/bin/sandbox-exec -p "$profile" -D "EXECUTABLE=$executable" -D "PROJECT=$ROOT" -D "VENDOR=$VENDOR" "$executable" "$@"
+    exec /usr/bin/env -i TMPDIR="$ROOT/.escriba/tmp" BUN_INSTALL_CACHE_DIR="$ROOT/.escriba/cache" BUN_BE_BUN=1 {sandbox}"$executable" "$@"
   fi
-  exec /usr/bin/env -i TMPDIR="$ROOT/.escriba/tmp" BUN_INSTALL_CACHE_DIR="$ROOT/.escriba/cache" /usr/bin/sandbox-exec -p "$profile" -D "EXECUTABLE=$executable" -D "PROJECT=$ROOT" -D "VENDOR=$VENDOR" "$executable" "$@"
+  exec /usr/bin/env -i TMPDIR="$ROOT/.escriba/tmp" BUN_INSTALL_CACHE_DIR="$ROOT/.escriba/cache" {sandbox}"$executable" "$@"
 }}
 if [ "$#" -ne 1 ]; then
   printf '%s\n' 'Uso: ./escriba install|check|test|build' >&2
@@ -1601,6 +1612,8 @@ mod tests {
         );
     }
 
+    // Proves the sandbox-exec profile; Linux has no recipe isolation yet.
+    #[cfg(target_os = "macos")]
     #[test]
     fn herramienta_test_no_puede_leer_fuera_del_proyecto() {
         let folder = tempfile::tempdir().unwrap();
@@ -1740,6 +1753,32 @@ mod tests {
         fs::remove_file(&launcher).unwrap();
         load_with_tools(folder.path(), &runtime, &vendor).unwrap();
         assert!(!launcher.exists());
+    }
+
+    #[test]
+    fn el_lanzador_aisla_las_herramientas_solo_donde_el_sistema_lo_permite() {
+        let source = launcher_source(
+            Path::new("/opt/escriba/runtime"),
+            Path::new("/opt/escriba/vendor"),
+            Path::new("/opt/escriba/tsgo"),
+        )
+        .unwrap();
+        let runs = source
+            .lines()
+            .filter(|line| line.contains(r#""$executable" "$@""#))
+            .collect::<Vec<_>>();
+        assert_eq!(runs.len(), 2);
+        for run in runs {
+            assert!(
+                run.trim_start().starts_with("exec /usr/bin/env -i "),
+                "{run}"
+            );
+            assert_eq!(
+                run.contains("/usr/bin/sandbox-exec"),
+                crate::platform::recipes_isolated(),
+                "{run}"
+            );
+        }
     }
 
     #[test]
@@ -2089,10 +2128,13 @@ mod tests {
         .unwrap();
         write(&project, "evil/receta.ts", "import { secret } from '../../outside.ts'; export const receta = { nombre: secret }; export async function flujo() { console.log(secret) }").unwrap();
         let error = build(&project, &runtime, &vendor).unwrap_err();
-        assert!(
-            error.contains("No se pudo compilar evil/receta.ts"),
-            "{error}"
-        );
+        // Without the sandbox the compiler reads the file and Escriba's own check rejects it.
+        let expected = if crate::platform::recipes_isolated() {
+            "No se pudo compilar evil/receta.ts"
+        } else {
+            "El paquete evil/receta.ts importa una fuente fuera del proyecto"
+        };
+        assert!(error.contains(expected), "{error}");
         assert!(!project.join("dist/escriba.json").exists());
     }
 }
