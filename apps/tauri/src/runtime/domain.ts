@@ -15,6 +15,7 @@ import { validVoice } from "./library/voices";
 import { notification, resolverProblem, settingsChanged, type Notification } from "./notifications";
 import * as remote from "./remote";
 import type { NativeStatus } from "../types";
+import { missingLlm } from "./platform";
 
 export interface Tasks {
   run<T>(id: string, recordingId: string | undefined, body: () => Promise<T>): Promise<T>;
@@ -100,6 +101,8 @@ async function inference(deps: DomainDependencies, method: "transcribe" | "summa
   const { library, host, credentials } = deps;
   const transport = deps.transport ?? fetch;
   const key = optionalText(p.resolverId) ?? (method === "transcribe" ? "local-stt" : "local-llm");
+  const missing = missingLlm(key);
+  if (missing) throw Error(missing);
   const resolver = library.item("resolvers", key);
   if (resolver.enabled === false) throw Error("El resolutor está apagado");
   const secret = async () => (await credentials.read(key))?.trim();

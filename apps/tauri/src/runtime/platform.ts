@@ -15,3 +15,7 @@ export const defaultResolvers = (platform: NodeJS.Platform = process.platform): 
 
 export const localSttTryProblem = (platform: NodeJS.Platform = process.platform) =>
   `${platform === "linux" ? "Whisper · en este equipo" : "Whisper en este Mac"} no tiene prueba`;
+
+// Without a bundled LLM, a recipe that picks none cannot summarize.
+export const missingLlm = (resolverId: string, platform: NodeJS.Platform = process.platform) =>
+  platform === "linux" && resolverId === "local-llm" ? "La receta no tiene un LLM elegido: elígelo en Recetas" : null;
