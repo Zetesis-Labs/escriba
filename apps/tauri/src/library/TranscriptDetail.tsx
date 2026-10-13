@@ -1,3 +1,5 @@
+import { device } from "../core/platform";
+import { usePlatform } from "../app/platform";
 import { AlertTriangle, Clock, FileText, ListTree, Pencil, Sparkles, Tag, VolumeX, Workflow } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { audioURL, call } from "../api";
@@ -44,6 +46,7 @@ export function TranscriptDetail({ recording, origin, job, recipes, canSummarize
   recording: Recording; loading: boolean; active: boolean; origin: string; job?: JobState; recipes: Recipe[]; canSummarize: boolean;
   editRequest: NoteEditRequest | null; onDraftState(locked: boolean): void; onRefresh(): Promise<void>; onReprocess(): void; onSummarize(): void;
 }) {
+  const platform = usePlatform();
   const player = usePlayer(recording.audioPath ? audioURL(recording.audioPath) : null);
   const version = currentVersion(recording);
   const versions = versionsInOrder(recording);
@@ -156,7 +159,7 @@ export function TranscriptDetail({ recording, origin, job, recipes, canSummarize
   return <div className="transcript-detail">
     {recording.audioPath ? <PlayerBar player={player} /> : <div className="audio-missing font-caption secondary"><VolumeX size={13} /> Solo queda la transcripción: el audio ya no existe</div>}
     <div className="note-edit-bar">
-      <div className="draft-status font-caption" role="status">{editing ? <><span className="draft-dot" /><strong>Borrador</strong><span className="secondary">{state.busy ? "Guardando cambios…" : state.saving ? "Conservando borrador…" : state.error ? "No se pudo conservar" : "Conservado en este Mac"}</span></> : <span className="secondary">{loading || state.loading ? "Cargando nota…" : "Contenido de la nota"}</span>}</div>
+      <div className="draft-status font-caption" role="status">{editing ? <><span className="draft-dot" /><strong>Borrador</strong><span className="secondary">{state.busy ? "Guardando cambios…" : state.saving ? "Conservando borrador…" : state.error ? "No se pudo conservar" : `Conservado en este ${device(platform)}`}</span></> : <span className="secondary">{loading || state.loading ? "Cargando nota…" : "Contenido de la nota"}</span>}</div>
       {editing ? <><Button small disabled={state.busy || state.commitPending} onClick={() => setDiscarding(true)}>Descartar</Button><Button small prominent disabled={state.busy || state.conflict || !!job} onClick={commit}>{state.commitPending ? "Reintentar guardado" : "Guardar cambios"}</Button></> : <Button small icon={Pencil} disabled={disabled || !version} onClick={() => void run(() => session.begin())}>Editar</Button>}
     </div>
     {error && <div className="draft-error font-callout" role="alert"><span>{error}</span>{editing && !state.commitPending && <Button small onClick={() => void run(() => session.flush())}>Reintentar</Button>}{editing && <Button small disabled={state.busy || state.saving} onClick={() => setRecovering(true)}>Recuperar guardado…</Button>}{!editing && <Button small onClick={() => void run(async () => { if (publicationFailed) { await republish(recording); setPublicationFailed(false); await onRefresh(); } else await session.load(); })}>Reintentar</Button>}</div>}
@@ -183,7 +186,7 @@ export function TranscriptDetail({ recording, origin, job, recipes, canSummarize
       </form>
     </div>
     {picker && <SpeakerPicker speakerColors={speakerColors} people={people} speakers={speakers(picker.transcript)} target={picker.target} excerpt={picker.target.kind === "selection" ? picker.target.ranges.map((range) => transcriptWithSegments(picker.transcript).segments[range.segment]?.text.slice(range.start, range.end) ?? "").join(" ") : ""} error={peopleError} onChoose={chooseSpeaker} onCancel={() => setPicker(null)} />}
-    {recovering && <Sheet onCancel={() => setRecovering(false)}><div className="font-title3">¿Recuperar el borrador guardado?</div><p className="secondary">Se cargarán las últimas correcciones conservadas en este Mac. Los cambios que aún no se hayan podido guardar se perderán.</p><div className="sheet-actions"><Button onClick={() => setRecovering(false)}>Cancelar</Button><Button prominent onClick={() => { setRecovering(false); setTagInput(""); void run(() => session.load()); }}>Recuperar borrador</Button></div></Sheet>}
+    {recovering && <Sheet onCancel={() => setRecovering(false)}><div className="font-title3">¿Recuperar el borrador guardado?</div><p className="secondary">Se cargarán las últimas correcciones conservadas en este {device(platform)}. Los cambios que aún no se hayan podido guardar se perderán.</p><div className="sheet-actions"><Button onClick={() => setRecovering(false)}>Cancelar</Button><Button prominent onClick={() => { setRecovering(false); setTagInput(""); void run(() => session.load()); }}>Recuperar borrador</Button></div></Sheet>}
     {discarding && <Sheet onCancel={() => setDiscarding(false)}><div className="font-title3">¿Descartar este borrador?</div><p className="secondary">Se quitarán sus correcciones. La versión guardada se conserva.</p><div className="sheet-actions"><Button onClick={() => setDiscarding(false)}>Cancelar</Button><Button prominent onClick={() => { setDiscarding(false); setTagInput(""); void run(() => session.discard()); }}>Descartar borrador</Button></div></Sheet>}
   </div>;
 }

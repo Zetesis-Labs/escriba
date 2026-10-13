@@ -1,9 +1,20 @@
 import type { Resolver } from "../types";
+import { device, macOS, type Platform } from "./platform";
 
 export type Role = "stt" | "llm";
 
 export const roleLabel = (role: Role) => (role === "stt" ? "STT" : "LLMs");
-export const localName = (role: Role) => (role === "stt" ? "Whisper en este Mac" : "Apple Intelligence");
+export const localName = (role: Role, platform: Platform = macOS) =>
+  role === "llm" ? "Apple Intelligence" : platform.system === "linux" ? "Whisper · en este equipo" : "Whisper en este Mac";
+export const hasLocal = (role: Role, platform: Platform = macOS) => role === "stt" || platform.system !== "linux";
+
+export const resolversFooter = (role: Role, platform: Platform = macOS) =>
+  `Cada receta elige con qué ${role === "stt" ? "transcribir" : "resumir"}, en Recetas. ${
+    hasLocal(role, platform) ? `La que no elige usa ${localName(role, platform)}.` : "La que no elige no puede resumir."
+  }`;
+
+export const removedResolverNote = (role: Role, platform: Platform = macOS) =>
+  `Se borra su clave. ${hasLocal(role, platform) ? `Las recetas que lo usaban pasan a ${localName(role, platform)}.` : "Las recetas que lo usaban se quedan sin LLM."}`;
 export const localId = (role: Role) => (role === "stt" ? "local-stt" : "local-llm");
 
 export interface RemotePreset {
@@ -74,9 +85,9 @@ export function resolverProblem(resolver: Pick<Resolver, "local" | "url" | "mode
   return resolver.model?.trim() ? null : "Elige el modelo.";
 }
 
-export function resolverSubtitle(resolver: Resolver, problem: string | null) {
+export function resolverSubtitle(resolver: Resolver, problem: string | null, platform: Platform = macOS) {
   if (problem && !resolver.local) return "Sin terminar de configurar";
-  if (resolver.local) return "En este Mac";
+  if (resolver.local) return `En este ${device(platform)}`;
   let host = resolver.url ?? "";
   try {
     host = new URL(resolver.url ?? "").host || host;

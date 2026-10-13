@@ -1,3 +1,5 @@
+import { device } from "../core/platform";
+import { usePlatform } from "../app/platform";
 import { AlertTriangle, CheckCircle2, Globe, Laptop, Minus, Plus, Sparkles, AudioWaveform } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
@@ -6,8 +8,11 @@ import { Pane } from "../app/Pane";
 import { progressForModel } from "../core/downloadProgress";
 import {
   bytesLabel,
+  hasLocal,
   localId,
   localName,
+  removedResolverNote,
+  resolversFooter,
   localProblem,
   nextResolverName,
   presetFor,
@@ -39,6 +44,7 @@ function useNativeStatus(model: string) {
 }
 
 export function ResolversPane({ data, role, refresh }: { data: Snapshot; role: Role; refresh: () => Promise<void> }) {
+  const platform = usePlatform();
   const resolvers = [...data.resolvers.filter((resolver) => resolver.role === role)].sort((a, b) => Number(b.local) - Number(a.local));
   const [chosen, setSelected] = useState<string>(localId(role));
   const selected = resolvers.some((resolver) => resolver.id === chosen) ? chosen : (resolvers.find((resolver) => resolver.local)?.id ?? chosen);
@@ -72,12 +78,12 @@ export function ResolversPane({ data, role, refresh }: { data: Snapshot; role: R
   };
   const remove = async () => {
     if (!current || current.local) return;
-    const confirmed = await confirmDestructive(`¿Quitar «${current.name}»?`, `Se borra su clave. Las recetas que lo usaban pasan a ${localName(role)}.`, "Quitar");
+    const confirmed = await confirmDestructive(`¿Quitar «${current.name}»?`, removedResolverNote(role, platform), "Quitar");
     if (!confirmed) return;
     try {
       await call("config_remove", { collection: "resolvers", id: current.id });
       await call("credential_save", { id: current.id, value: "" }).catch(() => undefined);
-      setSelected(localId(role));
+      setSelected(hasLocal(role, platform) ? localId(role) : "");
     } catch (failure) {
       await alertMessage("No se pudo", errorText(failure));
     } finally {
@@ -102,8 +108,8 @@ export function ResolversPane({ data, role, refresh }: { data: Snapshot; role: R
                 >
                   {resolver.local ? <Laptop size={15} strokeWidth={1.7} className="secondary" /> : <Globe size={15} strokeWidth={1.7} className="secondary" />}
                   <div className="resolver-row-text">
-                    <div>{resolver.local ? localName(role) : resolver.name}</div>
-                    <div className={`font-caption ${problem && !resolver.local ? "warning" : "secondary"}`}>{resolverSubtitle(resolver, problem)}</div>
+                    <div>{resolver.local ? localName(role, platform) : resolver.name}</div>
+                    <div className={`font-caption ${problem && !resolver.local ? "warning" : "secondary"}`}>{resolverSubtitle(resolver, problem, platform)}</div>
                   </div>
                 </div>
               );
@@ -144,6 +150,7 @@ function ResolverEditor({
   refresh: () => Promise<void>;
   reloadStatus: () => void;
 }) {
+  const platform = usePlatform();
   const [name, setName] = useState(resolver.name);
   const [url, setURL] = useState(resolver.url ?? "");
   const [model, setModel] = useState(resolver.model ?? "");
@@ -219,12 +226,10 @@ function ResolverEditor({
       <div className="form-pane">
         <FormSection
           footer={
-            role === "stt"
-              ? `Cada receta elige con qué transcribir, en Recetas. La que no elige usa ${localName(role)}.`
-              : `Cada receta elige con qué resumir, en Recetas. La que no elige usa ${localName(role)}.`
+            resolversFooter(role, platform)
           }
         >
-          <LabeledRow label="Nombre">{resolver.local ? localName(role) : <InlineField value={name} onChange={setName} />}</LabeledRow>
+          <LabeledRow label="Nombre">{resolver.local ? localName(role, platform) : <InlineField value={name} onChange={setName} />}</LabeledRow>
           {readiness && (
             <FormRow>
               <span className="font-caption secondary readiness">
@@ -240,7 +245,7 @@ function ResolverEditor({
             <FormRow>
               <span className="font-caption secondary">
                 {role === "stt"
-                  ? "Whisper transcribe en el propio Mac y es el único que detecta hablantes. El audio no sale de aquí."
+                  ? `Whisper transcribe en el propio ${device(platform)} y es el único que detecta hablantes. El audio no sale de aquí.`
                   : "Apple Intelligence resume en el propio Mac: nada del audio ni del texto sale de aquí. Su ventana es pequeña, así que una nota larga se resume por trozos."}
               </span>
             </FormRow>
@@ -252,8 +257,8 @@ function ResolverEditor({
             header="Servicio compatible con OpenAI"
             footer={
               role === "stt"
-                ? "El audio de cada nota sale del Mac hacia este servicio. Con un servicio remoto no se detectan hablantes. OpenAI y Groq admiten audios de hasta 25 MB."
-                : "El texto de cada nota sale del Mac hacia este servicio. Sirve cualquier API compatible con OpenAI: OpenAI, OpenRouter, Groq o, en tu red, LM Studio y Ollama."
+                ? `El audio de cada nota sale del ${device(platform)} hacia este servicio. Con un servicio remoto no se detectan hablantes. OpenAI y Groq admiten audios de hasta 25 MB.`
+                : `El texto de cada nota sale del ${device(platform)} hacia este servicio. Sirve cualquier API compatible con OpenAI: OpenAI, OpenRouter, Groq o, en tu red, LM Studio y Ollama.`
             }
           >
             <LabeledRow label="Servicio">
@@ -336,6 +341,7 @@ function ResolverEditor({
 }
 
 function WhisperModelSection({ model, onChange }: { model: string; onChange: () => void }) {
+  const platform = usePlatform();
   const [info, setInfo] = useState<{ model: string; available: boolean; bytes: number } | null>(null);
   const [downloadProgress, setDownloadProgress] = useState<number | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
@@ -406,7 +412,7 @@ function WhisperModelSection({ model, onChange }: { model: string; onChange: () 
             </Button>
           </FormRow>
           <FormRow>
-            <span className="font-caption secondary">Sin el modelo no se transcribe nada en este Mac hasta volver a descargarlo.</span>
+            <span className="font-caption secondary">Sin el modelo no se transcribe nada en este {device(platform)} hasta volver a descargarlo.</span>
           </FormRow>
         </>
       ) : downloadProgress !== null ? (

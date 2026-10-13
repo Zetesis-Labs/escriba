@@ -1,3 +1,5 @@
+import { offersSystemSettings, platformOf } from "../core/platform";
+import { PlatformContext } from "./platform";
 import { Filter, Users } from "lucide-react";
 import { Fragment, useEffect, useState, type KeyboardEvent } from "react";
 import { listen } from "@tauri-apps/api/event";
@@ -65,17 +67,17 @@ function useNavigation(go: (section: MainSection) => void) {
   }, [go]);
 }
 
-function useRecorderAlert(problem: RecorderProblem | null) {
+function useRecorderAlert(problem: RecorderProblem | null, settingsLink: boolean) {
   useEffect(() => {
     if (!problem) return;
     void (async () => {
-      if (problem.denied) {
+      if (problem.denied && settingsLink) {
         const open = await ask(problem.message, { title: "Grabadora", kind: "warning", okLabel: "Abrir Ajustes del Sistema", cancelLabel: "Vale" });
         if (open) await openMicrophoneSettings().catch(() => undefined);
       } else await alertMessage("Grabadora", problem.message);
       await dismissRecorderProblem().catch(() => undefined);
     })();
-  }, [problem]);
+  }, [problem, settingsLink]);
 }
 
 export function MainWindow() {
@@ -93,7 +95,8 @@ export function MainWindow() {
   };
   useSystemAccent();
   useNavigation(setSection);
-  useRecorderAlert(recorder.problem);
+  const platform = platformOf(data);
+  useRecorderAlert(recorder.problem, offersSystemSettings(platform));
 
   const move = (event: KeyboardEvent) => {
     if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
@@ -126,6 +129,7 @@ export function MainWindow() {
   else detail = <SettingsPane data={data} refresh={refresh} />;
 
   return (
+    <PlatformContext.Provider value={platform}>
     <div className={`window ${active ? "" : "inactive"}`}>
       <aside className="sidebar" data-tauri-drag-region>
         <div className="sidebar-top" data-tauri-drag-region />
@@ -181,5 +185,6 @@ export function MainWindow() {
         {detail}
       </section>
     </div>
+    </PlatformContext.Provider>
   );
 }

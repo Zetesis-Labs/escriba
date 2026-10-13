@@ -1,3 +1,5 @@
+import { openInFolder, revealShort, unisolatedRecipesWarning } from "../core/platform";
+import { usePlatform } from "../app/platform";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import { AlertTriangle, BadgeCheck, Braces, ChevronRight, Minus, Plus, SlidersHorizontal, Clock, CheckCircle2 } from "lucide-react";
@@ -192,6 +194,7 @@ export function RecipesPane({ data, refresh }: { data: Snapshot; refresh: () => 
 }
 
 function ProjectFooter({ path, phase, onChoose, onEditor }: { path: string | null; phase: Phase; onChoose: () => void; onEditor: () => void }) {
+  const platform = usePlatform();
   return (
     <div className="project-footer">
       <div className="font-caption secondary project-path" title={path ?? undefined}>
@@ -202,7 +205,7 @@ function ProjectFooter({ path, phase, onChoose, onEditor }: { path: string | nul
           {path ? "Cambiar…" : "Elegir carpeta…"}
         </Button>
         {path && (
-          <><Button small onClick={onEditor}>Abrir editor</Button><Button small onClick={() => void call("reveal", { path })}>Finder</Button></>
+          <><Button small onClick={onEditor}>Abrir editor</Button><Button small onClick={() => void call("reveal", { path })}>{revealShort(platform)}</Button></>
         )}
       </div>
       {phase.phase === "building" && (
@@ -249,6 +252,7 @@ function RecipeDetail({
   onDefault: () => void;
   onSaveAsForm: () => void;
 }) {
+  const platform = usePlatform();
   const names = useMemo(() => data.recipes.map((item) => item.name).join("|"), [data.recipes]);
   const load = useRecipeForm(recipe, names);
   const [name, setName] = useState(recipe.name);
@@ -385,7 +389,7 @@ function RecipeDetail({
           {data.settings.projectPath && (
             <FormRow>
               <Button onClick={() => void revealRecipe()}>
-                Abrir en el Finder
+                {openInFolder(platform)}
               </Button>
             </FormRow>
           )}

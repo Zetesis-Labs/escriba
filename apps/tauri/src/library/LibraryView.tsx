@@ -1,3 +1,5 @@
+import { revealInFolder } from "../core/platform";
+import { usePlatform } from "../app/platform";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { AlertTriangle, AudioLines, CircleStop, Ellipsis, FolderPlus, History, ListFilter, Mic, Users, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState, type KeyboardEvent, type MouseEvent } from "react";
@@ -70,6 +72,7 @@ export function LibraryView({
   filters: LibraryFiltersController;
   reveal?: { id: string; serial: number } | null;
 }) {
+  const platform = usePlatform();
   const allRecordings = useMemo(() => libraryRecordings(data), [data]);
   const recordings = useMemo(() => filters.result?.ids ? allRecordings.filter((recording) => filters.result?.ids?.has(recording.id)) : filters.result ? [] : allRecordings, [allRecordings, filters.result]);
   const [filterEditorOpen, setFilterEditorOpen] = useState(false);
@@ -191,7 +194,7 @@ export function LibraryView({
         ...(destination.provider === "notion" && url ? [item(`Abrir en ${kind}`, () => void perform(() => operations.openURL(url)))] : []),
         ...(file ? [
           item("Abrir el .md", () => void perform(() => operations.okfFile(accountId, file, "open"))),
-          item("Mostrar en Finder", () => void perform(() => operations.okfFile(accountId, file, "reveal"))),
+          item(revealInFolder(platform), () => void perform(() => operations.okfFile(accountId, file, "reveal"))),
         ] : []),
         item(`Actualizar en ${kind}`, () => void perform(() => operations.publish(recording, destination.id))),
         separator,

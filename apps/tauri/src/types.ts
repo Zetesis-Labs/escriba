@@ -204,6 +204,7 @@ export interface Snapshot {
   settings: Settings;
   dataPath: string;
   native?: NativeStatus;
+  platform?: import("./core/platform").Platform;
   watchIssues?: Array<{
     folderId: string;
     path: string;

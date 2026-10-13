@@ -1,3 +1,5 @@
+import { device } from "../core/platform";
+import { usePlatform } from "../app/platform";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import { AudioLines, Mic, Minus, Plus, Trash2, Users, CircleDot, TriangleAlert } from "lucide-react";
@@ -193,6 +195,7 @@ export function PeoplePane({ active }: { active: boolean }) {
 function PersonDetail({ person, others, busy, onRename, onColor, onRemoveVoice, onRegister }: {
   person: Person; others: string[]; busy: boolean; onRename: (name: string, raw: string) => void; onColor: (name: string, color: string) => void; onRemoveVoice: (id: string) => void; onRegister: (name: string) => void;
 }) {
+  const platform = usePlatform();
   const [name, setName] = useState(person.name);
   return <div className="form-pane people-form">
     <FormSection footer="Pulsa Intro para cambiar el nombre. Si ya hay alguien con ese nombre, se juntan sus huellas.">
@@ -200,7 +203,7 @@ function PersonDetail({ person, others, busy, onRename, onColor, onRemoveVoice, 
       <label className="form-row"><span className="form-label">Color</span><input type="color" className="person-color-well" aria-label="Color de la persona" value={personColor(person.name, [person])} disabled={busy} onChange={(event) => onColor(person.name, event.target.value)} /></label>
       {others.length > 0 && <div className="form-row form-row-free"><Button disabled={busy} onClick={() => void popupMenu(others.map((other) => item(other, () => onRename(person.name, other))))}>Juntar con…</Button></div>}
     </FormSection>
-    <FormSection header="Huellas" footer="Al registrar su voz se añade una huella, y Escriba compara con la más cercana. Las huellas no salen de este Mac.">
+    <FormSection header="Huellas" footer={`Al registrar su voz se añade una huella, y Escriba compara con la más cercana. Las huellas no salen de este ${device(platform)}.`}>
       {person.voices.map((voice) => <div className="form-row people-voice" key={voice.id}>
         {voice.source === sampleSource ? <Mic size={16} className="secondary" /> : <AudioLines size={16} className="secondary" />}
         <div className="people-voice-info"><span>{voice.source === sampleSource ? "Muestra de voz" : voice.source}</span><span className="font-caption secondary">{voiceDate.format(new Date(voice.addedAt))}</span></div>
@@ -212,6 +215,7 @@ function PersonDetail({ person, others, busy, onRename, onColor, onRemoveVoice, 
 }
 
 function SampleSheet({ initialName, sample, choosingAudio, onStart, onStop, onImport, onCancel }: { initialName: string; sample: VoiceRegistration; choosingAudio: boolean; onStart: (name: string) => void; onStop: (name: string) => void; onImport: (name: string) => void; onCancel: () => void }) {
+  const platform = usePlatform();
   const [name, setName] = useState(initialName);
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
@@ -233,7 +237,7 @@ function SampleSheet({ initialName, sample, choosingAudio, onStart, onStop, onIm
     }}>
       <div className="font-headline">Registrar una voz</div>
       <input className="text-field selectable" aria-label="Nombre" placeholder="Nombre" value={name} autoFocus onChange={(event) => setName(event.target.value)} disabled={busy || choosingAudio} />
-      <p className="font-callout secondary">Pulsa Grabar y habla con normalidad durante un minuto, por ejemplo leyendo un texto en voz alta. Hacen falta al menos 30 segundos de voz. También puedes elegir un audio con al menos 30 segundos de voz; el original se conserva. Si grabas con el micrófono, el audio de la muestra se borra al terminar: solo queda su huella, que no sale de este Mac.</p>
+      <p className="font-callout secondary">Pulsa Grabar y habla con normalidad durante un minuto, por ejemplo leyendo un texto en voz alta. Hacen falta al menos 30 segundos de voz. También puedes elegir un audio con al menos 30 segundos de voz; el original se conserva. Si grabas con el micrófono, el audio de la muestra se borra al terminar: solo queda su huella, que no sale de este {device(platform)}.</p>
       {sample.state === "requesting" && <div className="people-sample-status"><Spinner />Pidiendo permiso para el micrófono…</div>}
       {sample.state === "recording" && <div className="people-sample-status"><CircleDot size={16} color="var(--red)" /> <span className="people-clock">{clock}</span></div>}
       {sample.state === "analyzing" && <div className="people-sample-status"><Spinner />Sacando la huella…</div>}

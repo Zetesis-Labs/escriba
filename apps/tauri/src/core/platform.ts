@@ -1,0 +1,32 @@
+export type System = "macos" | "linux";
+
+export interface Platform {
+  system: System;
+  recipesIsolated: boolean;
+}
+
+export const macOS: Platform = { system: "macos", recipesIsolated: true };
+
+export const platformOf = (data: { platform?: Platform } | null | undefined): Platform => data?.platform ?? macOS;
+
+const isLinux = (platform: Platform) => platform.system === "linux";
+
+export const device = (platform: Platform) => (isLinux(platform) ? "equipo" : "Mac");
+export const offersVoiceMemos = (platform: Platform) => !isLinux(platform);
+export const offersFolderAuthorization = (platform: Platform) => !isLinux(platform);
+export const offersSystemSettings = (platform: Platform) => !isLinux(platform);
+
+export const revealInFolder = (platform: Platform) => (isLinux(platform) ? "Mostrar en la carpeta" : "Mostrar en Finder");
+export const openInFolder = (platform: Platform) => (isLinux(platform) ? "Mostrar en la carpeta" : "Abrir en el Finder");
+export const revealShort = (platform: Platform) => (isLinux(platform) ? "Carpeta" : "Finder");
+export const shortcut = (platform: Platform, key: string) => (isLinux(platform) ? `Ctrl+${key}` : `⌘${key}`);
+
+export const foldersFooter = (platform: Platform) =>
+  isLinux(platform)
+    ? "Cualquier audio que caiga en ellas lo procesa la receta por defecto, que se configura en Recetas."
+    : "Cualquier audio que caiga en ellas lo procesa la receta por defecto, que se configura en Recetas. Si macOS impide leer una carpeta, puedes autorizarla; si aun así no deja leerla, la alternativa es el acceso total al disco.";
+
+export const unisolatedRecipesWarning = (platform: Platform) =>
+  platform.recipesIsolated
+    ? null
+    : "Este equipo no permite aislar las recetas: su código se ejecuta con tus permisos y podría leer tus archivos o conectarse a internet.";

@@ -1,3 +1,5 @@
+import { revealInFolder } from "../core/platform";
+import { usePlatform } from "../app/platform";
 import { builtinProviders, type Configuration, type ConnectorAction, type ConnectorEditorResult, type ConnectorField, type ConnectorView, type Provider } from "@escriba/conectores";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useEffect, useRef, useState, type ReactNode } from "react";
@@ -45,6 +47,7 @@ export function ConnectorFieldControl({ field, configuration, onChange, onAction
   inline?: boolean;
   standalone?: boolean;
 }) {
+  const platform = usePlatform();
   if (!isSafeFieldPath(field.path)) return <LabeledRow label={field.label}><SectionText problem>El proveedor declaró una ruta de campo no válida.</SectionText></LabeledRow>;
   const raw = field.path.length ? fieldValue(configuration, field.path) : "value" in field ? field.value as JSONValue : undefined;
   const value = typeof raw === "string" ? raw : "";
@@ -76,7 +79,7 @@ export function ConnectorFieldControl({ field, configuration, onChange, onAction
   } else if (field.type === "folder") {
     control = <div className="connector-folder-control">
       <span className="connector-folder" title={value}>{value ? abbreviatedPath(value, home) : "Sin elegir"}</span>
-      {value && <Button small onClick={() => void call("reveal", { path: value }).catch((failure) => alertMessage("No se pudo mostrar la carpeta", errorText(failure)))}>Mostrar en Finder</Button>}
+      {value && <Button small onClick={() => void call("reveal", { path: value }).catch((failure) => alertMessage("No se pudo mostrar la carpeta", errorText(failure)))}>{revealInFolder(platform)}</Button>}
       <Button small onClick={() => void open({ directory: true, title: field.label }).then((path) => { if (typeof path === "string") change(path); }).catch((failure) => alertMessage("No se pudo elegir la carpeta", errorText(failure)))}>Elegir…</Button>
     </div>;
   } else {

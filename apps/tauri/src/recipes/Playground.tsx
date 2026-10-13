@@ -1,3 +1,5 @@
+import { shortcut } from "../core/platform";
+import { usePlatform } from "../app/platform";
 import { EditorView, keymap } from "@codemirror/view";
 import { javascript } from "@codemirror/lang-javascript";
 import { autocompletion } from "@codemirror/autocomplete";
@@ -88,6 +90,7 @@ export function Playground({ path, onClose, onBuilt }: {
   onClose: () => void;
   onBuilt: () => Promise<void>;
 }) {
+  const platform = usePlatform();
   const [files, setFiles] = useState<string[] | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [drafts, setDrafts] = useState(() => pendingDrafts.get(path) ?? projectDrafts());
@@ -290,7 +293,7 @@ export function Playground({ path, onClose, onBuilt }: {
           </div>
         </div>
         <div className="playground-source">
-          {selected && draft && working !== "Recargando" ? <SourceEditor key={selected} entry={selected} source={draft.source} onChange={(source) => apply({ type: "edited", entry: selected, source })} onSave={() => void saveFile(selected)} /> : <ContentUnavailable title={selected ? "Cargando archivo" : "Elige un archivo"} icon={FileCode2} description="Los cambios se guardan con ⌘S o con Guardar." />}
+          {selected && draft && working !== "Recargando" ? <SourceEditor key={selected} entry={selected} source={draft.source} onChange={(source) => apply({ type: "edited", entry: selected, source })} onSave={() => void saveFile(selected)} /> : <ContentUnavailable title={selected ? "Cargando archivo" : "Elige un archivo"} icon={FileCode2} description={`Los cambios se guardan con ${shortcut(platform, "S")} o con Guardar.`} />}
         </div>
         <div className="playground-console" aria-live="polite">
           <div className="font-caption secondary">Consola</div>
