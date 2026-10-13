@@ -1,0 +1,15 @@
+import { Surreal } from "surrealdb";
+import { createNodeEngines, engineVersion } from "@surrealdb/node";
+console.log("engine", engineVersion());
+const path = process.argv[2];
+const engine = process.argv[3] ?? "rocksdb";
+const db = new Surreal({ engines: createNodeEngines() });
+await db.connect(`${engine}://${path}`, { namespace: "escriba", database: "spike" });
+await db.query("DEFINE TABLE IF NOT EXISTS nota SCHEMAFULL; DEFINE FIELD IF NOT EXISTS titulo ON nota TYPE string;");
+await db.query("UPSERT nota:uno CONTENT { titulo: 'hola' }");
+const [rows] = await db.query<[{ titulo: string }[]]>("SELECT titulo FROM nota");
+console.log("rows", JSON.stringify(rows));
+await db.query("BEGIN; CREATE nota:dos CONTENT { titulo: 'dos' }; THROW 'abortar'; COMMIT;").catch((e) => console.log("tx abortada:", String(e).slice(0, 60)));
+const [count] = await db.query<[{ count: number }[]]>("SELECT count() FROM nota GROUP ALL");
+console.log("count tras abortar", JSON.stringify(count));
+await db.close();

@@ -1,5 +1,5 @@
 ---
-status: modificado por ADR-0004
+status: modificado por ADR-0004; reparto Rust/TypeScript corregido por ADR-0011
 ---
 
 # Tauri y SurrealDB como destino de Escriba
@@ -37,3 +37,8 @@ Corrección del 2026-10-12: el ejecutable de orquestación es Bun compilado con
 `bun build --compile`, no Deno. Rust lo arranca, a él y a cada receta, bajo el
 perfil de `sandbox-exec` por proceso descrito en `apps/tauri/runtime-host/README.md`.
 El resto de esta decisión no cambia.
+
+Corrección del 2026-10-13 (ADR-0011): «Rust custodia credenciales» venía de
+la etapa Swift, cuando TypeScript era solo la receta. El límite del producto es
+el proceso de la receta; el dominio y las credenciales se mueven al controlador
+Bun y Rust queda como cáscara.

@@ -78,6 +78,13 @@ cosa grande tiene su documento con el análisis y los criterios de salida.
 - Resumir con un proveedor externo: PR #2, junto a los resolutores de STT y
   LLM.
 
+## Dirección fijada, sin planificar
+
+- **El dominio en Bun y Rust como cáscara** (ADR-0011, 2026-10-13): mover
+  biblioteca, conocimiento, cola y credenciales al controlador TypeScript.
+  Condición comprobada en `spikes/surreal-bun/`; quedan las comprobaciones
+  del ADR. Va después de Linux (ADR-0010).
+
 ## Aparcado o descartado (no reabrir sin pedirlo)
 
 - **Escritorio en Windows**: fuera del encargo de Linux (ADR-0010). Linux se
