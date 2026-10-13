@@ -99,4 +99,3 @@ test("resolver_try usa el motor local por la cáscara y el remoto con la clave e
   assert.deepEqual(stt, { text: "hola" });
   assert.equal(seen.at(-1)?.headers.get("authorization"), null);
 });
-
