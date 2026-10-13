@@ -762,7 +762,9 @@ export class Store {
     }
   }
   async authorizeWatchedFolder(folderId: string | undefined, path: string, name: string | undefined, style: string, bookmark: number[]): Promise<Json> {
-    if (!bookmark.length) throw Error("La autorización de carpeta está vacía");
+    if (!bookmark.length && process.platform === "darwin") throw Error("La autorización de carpeta está vacía");
+    // Linux has no bookmarks: the folder is read through its path.
+    const access: Json = bookmark.length ? bookmark : null;
     if (!STYLES.includes(style)) throw Error("Estilo de carpeta desconocido");
     const canonical = canonicalFolder(path);
     const next = this.edit();
@@ -785,12 +787,12 @@ export class Store {
       }
       if (relocation && folders.some((folder, index) => index !== found && sameFolder(folder.path, canonical))) throw Error("La nueva ubicación ya pertenece a otra carpeta vigilada");
       if (relocation) existing.path = canonical;
-      existing.accessBookmark = bookmark;
+      existing.accessBookmark = access;
       delete (existing as Record<string, unknown>).authorizationSaved;
       saved = clone(existing) as unknown as Json;
     } else {
       const defaultName = canonical.split("/").filter(Boolean).at(-1) ?? "Carpeta";
-      const folder: Json = { id: newId(), path: canonical, name: name?.trim() ? name : defaultName, style, enabled: true, accessBookmark: bookmark };
+      const folder: Json = { id: newId(), path: canonical, name: name?.trim() ? name : defaultName, style, enabled: true, accessBookmark: access };
       folders.push(readSettings({ watchedFolders: [folder] }).watchedFolders![0]!);
       saved = folder;
     }

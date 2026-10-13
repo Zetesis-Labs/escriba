@@ -210,6 +210,28 @@ test("carpeta autorizada persiste y el bookmark no sale en respuestas", async ()
   assert.ok(!JSON.stringify(await store.snapshot()).includes("synthetic-private-bookmark"));
 });
 
+test.runIf(process.platform === "linux")("en Linux una carpeta se guarda sin bookmark y se vigila por su ruta", async () => {
+  const folder = space.path("Grabaciones");
+  mkdirSync(folder, { recursive: true });
+  const store = await space.open();
+  const created = obj(await store.authorizeWatchedFolder(undefined, folder, undefined, "any", []));
+  assert.equal(created.authorizationSaved, false);
+  assert.equal(created.accessBookmark, undefined);
+  assert.deepEqual(store.watchedFolderBookmarks(), []);
+  const folders = arr(obj((await store.snapshot()).settings).watchedFolders);
+  assert.equal(folders[0]!.path, realpathSync(folder));
+  assert.equal(folders[0]!.name, "Grabaciones");
+  const again = obj(await store.authorizeWatchedFolder(undefined, folder, undefined, "any", []));
+  assert.equal(again.id, created.id);
+});
+
+test.runIf(process.platform === "darwin")("en macOS una carpeta sin autorización no se guarda", async () => {
+  const folder = space.path("Grabaciones");
+  mkdirSync(folder, { recursive: true });
+  const store = await space.open();
+  await assert.rejects(store.authorizeWatchedFolder(undefined, folder, undefined, "any", []), /La autorización de carpeta está vacía/);
+});
+
 test("reautorizar misma ruta conserva metadatos y cambiar o quitar revoca", async () => {
   const first = space.path("first");
   const second = space.path("second");

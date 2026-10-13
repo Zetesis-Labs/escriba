@@ -624,12 +624,19 @@ fn surreal_native(app: &tauri::AppHandle) -> Option<PathBuf> {
         .find(|path| path.is_file())
 }
 
+#[cfg(target_os = "macos")]
 fn voice_memos_root(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     Ok(app
         .path()
         .home_dir()
         .map_err(|e| e.to_string())?
         .join("Library/Group Containers/group.com.apple.VoiceMemos.shared/Recordings"))
+}
+
+// Voice Memos and its iCloud folder only exist on macOS.
+#[cfg(not(target_os = "macos"))]
+fn voice_memos_root(_: &tauri::AppHandle) -> Result<PathBuf, String> {
+    Err("Notas de Voz solo existe en macOS".into())
 }
 
 #[cfg(target_os = "macos")]
