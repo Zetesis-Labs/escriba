@@ -44,3 +44,16 @@ async fn una_base_surrealkv_sin_convertir_no_se_sustituye_por_una_vacia() {
     assert!(!target.exists());
     assert!(legacy.is_dir());
 }
+
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn en_linux_liberada_espera_a_que_rocksdb_suelte_el_bloqueo() {
+    let temp = tempfile::tempdir().unwrap();
+    let target = temp.path().join("library.rocksdb");
+    let db = open(&target, Config::new(), None).await.unwrap();
+    db.use_ns("escriba").use_db("library").await.unwrap();
+    assert!(held_by_this_process(&target.join("LOCK")));
+    drop(db);
+    released(&target).await.unwrap();
+    assert!(!held_by_this_process(&target.join("LOCK")));
+}

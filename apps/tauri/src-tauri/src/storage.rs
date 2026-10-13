@@ -74,7 +74,7 @@ async fn connect(path: &Path, config: Config, root: Option<&Root>) -> Result<Sur
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "macos"))]
 pub(crate) async fn released(path: &Path) -> Result<(), String> {
     use fs2::FileExt;
     let lock = path.join("LOCK");
@@ -93,6 +93,32 @@ pub(crate) async fn released(path: &Path) -> Result<(), String> {
         }
     }
     Err(format!("{} no liberó su bloqueo", path.display()))
+}
+
+// RocksDB locks with fcntl, which on Linux neither conflicts with flock nor
+// with other locks of the same process; its open LOCK descriptor does tell.
+#[cfg(all(test, target_os = "linux"))]
+pub(crate) async fn released(path: &Path) -> Result<(), String> {
+    let lock = path.join("LOCK");
+    for _ in 0..400 {
+        if !held_by_this_process(&lock) {
+            return Ok(());
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    Err(format!("{} no liberó su bloqueo", path.display()))
+}
+
+#[cfg(all(test, target_os = "linux"))]
+fn held_by_this_process(lock: &Path) -> bool {
+    let Ok(lock) = lock.canonicalize() else {
+        return false;
+    };
+    std::fs::read_dir("/proc/self/fd")
+        .into_iter()
+        .flatten()
+        .filter_map(|entry| std::fs::read_link(entry.ok()?.path()).ok())
+        .any(|target| target == lock)
 }
 
 #[cfg(test)]
