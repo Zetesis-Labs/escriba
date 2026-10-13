@@ -30,10 +30,33 @@ fn protect(path: &Path) -> Result<(), String> {
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700)).map_err(error)
 }
 
+#[cfg(not(test))]
+async fn engine(path: &Path, config: Config) -> surrealdb::Result<Surreal<Db>> {
+    Surreal::new::<RocksDb>((path.to_path_buf(), config)).await
+}
+
+// Each #[tokio::test] drops its runtime on return, which cuts the datastore
+// shutdown short and leaks its threads, open files and memtables.
+#[cfg(test)]
+async fn engine(path: &Path, config: Config) -> surrealdb::Result<Surreal<Db>> {
+    static RUNTIME: std::sync::LazyLock<tokio::runtime::Runtime> = std::sync::LazyLock::new(|| {
+        tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .enable_all()
+            .build()
+            .expect("runtime de bases de prueba")
+    });
+    let path = path.to_path_buf();
+    RUNTIME
+        .spawn(async move { Surreal::new::<RocksDb>((path, config)).await })
+        .await
+        .expect("la apertura de la base de prueba no terminó")
+}
+
 async fn connect(path: &Path, config: Config, root: Option<&Root>) -> Result<Surreal<Db>, String> {
     let mut attempts = 0;
     loop {
-        match Surreal::new::<RocksDb>((path.to_path_buf(), config.clone())).await {
+        match engine(path, config.clone()).await {
             Ok(db) => {
                 if let Some(root) = root {
                     db.signin(root.clone())
