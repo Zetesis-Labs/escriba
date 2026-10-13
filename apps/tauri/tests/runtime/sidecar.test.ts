@@ -17,9 +17,13 @@ import { build } from "esbuild";
 import { CborCodec, RecordId } from "surrealdb";
 import { controllerEnvironment } from "./native";
 import type { Recipe, Recording, Snapshot } from "../../src/types";
+// Every test launches recipe workers under sandbox-exec, which only exists on macOS.
+const macos = process.platform === "darwin";
+const sandboxed = test.runIf(macos);
 let directory = "";
 let executable = "";
 beforeAll(async () => {
+  if (!macos) return;
   directory = await mkdtemp(join(tmpdir(), "escriba-runtime-"));
   executable = join(directory, "runtime");
   const build = fileURLToPath(
@@ -31,6 +35,7 @@ beforeAll(async () => {
   assert.equal(result.status, 0, result.stderr);
 }, 30000);
 afterAll(async () => {
+  if (!directory) return;
   await rm(directory, { recursive: true, force: true });
 });
 function launch(data: string, worker = false) {
@@ -255,7 +260,7 @@ function supervisor(options: Options = {}) {
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const versions = async (host: ReturnType<typeof supervisor>, id: string) => (await host.detail(id)).versions;
 
-test("un dist externo aporta formularios, acciones y publicación en Bun aislado sin sus fuentes", async () => {
+sandboxed("un dist externo aporta formularios, acciones y publicación en Bun aislado sin sus fuentes", async () => {
   const project = join(directory, "external");
   await mkdir(project);
   await cp(new URL("../../../../examples/conectores/src", import.meta.url), join(project, "src"), { recursive: true });
@@ -301,7 +306,7 @@ test("un dist externo aporta formularios, acciones y publicación en Bun aislado
     assert.ok(service.seen.every((request) => request.headers["x-api-key"] === "token-sintético"));
   } finally { host.close(); service.close(); }
 }, 30000);
-test("el SDK oficial de Notion consulta y escribe desde una receta en Bun aislado", async () => {
+sandboxed("el SDK oficial de Notion consulta y escribe desde una receta en Bun aislado", async () => {
   const service = await localHttp(() => ({ status: 200, body: '{"object":"list","results":[],"has_more":false,"next_cursor":null}' }));
   const bundled = await build({
     stdin: { resolveDir: fileURLToPath(new URL("../..", import.meta.url)), contents: `import {Client} from '@notionhq/client';
@@ -332,7 +337,7 @@ test("el SDK oficial de Notion consulta y escribe desde una receta en Bun aislad
     assert.equal(detail.status, "done");
   } finally { host.close(); service.close(); }
 });
-test("notificaciones consultan solo el contexto de configuración y devuelven los problemas", async () => {
+sandboxed("notificaciones consultan solo el contexto de configuración y devuelven los problemas", async () => {
   const host = supervisor();
   try {
     await host.ready;
@@ -350,7 +355,7 @@ test("notificaciones consultan solo el contexto de configuración y devuelven lo
   }
 });
 
-test("el controlador abre la biblioteca, rechaza orígenes ajenos y devuelve la versión creada", async () => {
+sandboxed("el controlador abre la biblioteca, rechaza orígenes ajenos y devuelve la versión creada", async () => {
   const host = supervisor();
   try {
     await host.ready;
@@ -367,7 +372,7 @@ test("el controlador abre la biblioteca, rechaza orígenes ajenos y devuelve la 
     host.close();
   }
 });
-test("sidecar compilado preserva transcripción entre reinicios y las capacidades llevan el id del trabajo", async () => {
+sandboxed("sidecar compilado preserva transcripción entre reinicios y las capacidades llevan el id del trabajo", async () => {
   let host = supervisor();
   let id = "";
   try {
@@ -392,7 +397,7 @@ test("sidecar compilado preserva transcripción entre reinicios y las capacidade
   }
 });
 
-test("el sidecar aplica los valores puntuales sin cambiar la receta guardada", async () => {
+sandboxed("el sidecar aplica los valores puntuales sin cambiar la receta guardada", async () => {
   const host = supervisor();
   try {
     await host.ready;
@@ -406,7 +411,7 @@ test("el sidecar aplica los valores puntuales sin cambiar la receta guardada", a
   }
 });
 
-test("cancelación mata receta CPU y sidecar sigue disponible", async () => {
+sandboxed("cancelación mata receta CPU y sidecar sigue disponible", async () => {
   const host = supervisor();
   try {
     await host.ready;
@@ -420,7 +425,7 @@ test("cancelación mata receta CPU y sidecar sigue disponible", async () => {
     host.close();
   }
 });
-test("el ejecutable usa Bun y conserva el recorrido de transcribir y guardar", async () => {
+sandboxed("el ejecutable usa Bun y conserva el recorrido de transcribir y guardar", async () => {
   const host = supervisor();
   try {
     await host.ready;
@@ -437,7 +442,7 @@ test("el ejecutable usa Bun y conserva el recorrido de transcribir y guardar", a
   }
 });
 
-test("las recetas pueden comparar texto con Intl dentro del sandbox", async () => {
+sandboxed("las recetas pueden comparar texto con Intl dentro del sandbox", async () => {
   const host = supervisor();
   try {
     await host.ready;
@@ -456,7 +461,7 @@ test("las recetas pueden comparar texto con Intl dentro del sandbox", async () =
   }
 });
 
-test("una receta usa el SDK SurrealDB dentro del worker Bun aislado", async () => {
+sandboxed("una receta usa el SDK SurrealDB dentro del worker Bun aislado", async () => {
   const built = await build({
     stdin: {
       contents: `import { RecordId } from 'surrealdb';
@@ -509,7 +514,7 @@ test("una receta usa el SDK SurrealDB dentro del worker Bun aislado", async () =
   }
 });
 
-test("el sandbox impide leer y escribir archivos y mantiene separado el canal de capacidades", async () => {
+sandboxed("el sandbox impide leer y escribir archivos y mantiene separado el canal de capacidades", async () => {
   const canary = join(directory, "canary.txt");
   await writeFile(canary, "private-fixture");
   const host = supervisor();
@@ -541,7 +546,7 @@ test("el sandbox impide leer y escribir archivos y mantiene separado el canal de
   }
 });
 
-test("el sandbox rechaza conexiones a un servidor local que sí está escuchando", async () => {
+sandboxed("el sandbox rechaza conexiones a un servidor local que sí está escuchando", async () => {
   let connections = 0;
   const server = createServer((socket) => { connections++; socket.end(); });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -571,7 +576,7 @@ test("el sandbox rechaza conexiones a un servidor local que sí está escuchando
   }
 });
 
-test("cancelar inferencia sin respuesta libera cola para la siguiente grabación", async () => {
+sandboxed("cancelar inferencia sin respuesta libera cola para la siguiente grabación", async () => {
   const host = supervisor({ hangFirstTranscribe: true });
   try {
     await host.ready;
@@ -588,7 +593,7 @@ test("cancelar inferencia sin respuesta libera cola para la siguiente grabación
     host.close();
   }
 });
-test("el sandbox impide crear procesos y relanzar el propio ejecutable", async () => {
+sandboxed("el sandbox impide crear procesos y relanzar el propio ejecutable", async () => {
   const host = supervisor();
   try {
     await host.ready;
@@ -614,7 +619,7 @@ test("el sandbox impide crear procesos y relanzar el propio ejecutable", async (
   }
 });
 
-test("las dependencias empaquetadas usan módulos nativos de Bun sin acceder al disco", async () => {
+sandboxed("las dependencias empaquetadas usan módulos nativos de Bun sin acceder al disco", async () => {
   const host = supervisor();
   try {
     await host.ready;
