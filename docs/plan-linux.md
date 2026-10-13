@@ -262,11 +262,26 @@ añade aquí.
 | `watcher.rs:4,213` | 2 | `std::os::macos` y `st_flags` |
 | `lib.rs:1669` | 1 | `macos_launcher` del plugin de autostart |
 
+**L0 en Ubuntu 25.10 x86_64** (2026-10-13, `feat/linux` @ `1198013`, rustc
+1.99, Node 22.23.3, Bun 1.4.2). Rubén da por buena la 25.10 como equipo de
+trabajo.
+
+- `cargo check --all-targets` da los mismos 16 errores de la tabla.
+- Antes, el `build.rs` de Tauri se para porque no existen los `externalBin`
+  `binaries/EscribaNativeHost-x86_64-unknown-linux-gnu` y
+  `binaries/escriba-runtime-x86_64-unknown-linux-gnu`. Hasta el script de L2 se
+  crean marcadores en esa carpeta, que git ignora:
+  `printf '#!/bin/sh\nexit 1\n' > <ruta> && chmod +x <ruta>`.
+- `npm test`: 316 pasan, 15 se saltan y 10 fallan, los de `/private/tmp`.
+  Con Bun instalado, `knowledgeVendor.test.ts` pasa y `sidecar.test.ts` cae
+  entero en el `codesign` de `runtime-host/build.mjs:69`, antes de llegar a
+  `sandbox-exec`.
+
 ## Registro
 
 | Fase | Estado | Commit | Validada por Rubén | Para la sesión del Mac |
 |---|---|---|---|---|
-| L0 | pendiente | | | |
+| L0 | hecha | (este commit) | | Nada: solo diagnóstico |
 | L1 | pendiente | | | |
 | L2 | pendiente | | | |
 | L3 | pendiente | | | |
