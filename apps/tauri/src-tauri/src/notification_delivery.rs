@@ -68,12 +68,67 @@ mod macos {
 #[cfg(target_os = "macos")]
 pub use macos::{request_authorization, send};
 
-#[cfg(not(target_os = "macos"))]
-pub fn request_authorization() -> Result<(), String> {
-    Err("Las notificaciones nativas solo están disponibles en macOS".into())
+#[cfg(target_os = "linux")]
+mod linux {
+    use super::Notification;
+
+    pub fn desktop(notification: &Notification) -> notify_rust::Notification {
+        let mut desktop = notify_rust::Notification::new();
+        desktop
+            .appname("Escriba")
+            .summary(&notification.title)
+            .body(&notification.body);
+        if notification.sound {
+            desktop.sound_name("message-new-instant");
+        }
+        desktop
+    }
+
+    /// Desktop notifications need no permission on Linux.
+    pub fn request_authorization() -> Result<(), String> {
+        Ok(())
+    }
+
+    // Like macOS, sending does not wait for the desktop to show it.
+    pub fn send(notification: &Notification) -> Result<(), String> {
+        let desktop = desktop(notification);
+        std::thread::Builder::new()
+            .name("notificación".into())
+            .spawn(move || {
+                if let Err(error) = desktop.show() {
+                    eprintln!("No se pudo mostrar la notificación: {error}");
+                }
+            })
+            .map(|_| ())
+            .map_err(|error| format!("No se pudo enviar la notificación: {error}"))
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn la_notificacion_del_escritorio_lleva_titulo_cuerpo_y_sonido_si_toca() {
+            let sounding = desktop(&Notification {
+                title: "Nota transcrita".into(),
+                body: "Reunión del jueves".into(),
+                sound: true,
+            });
+            assert_eq!(sounding.appname, "Escriba");
+            assert_eq!(sounding.summary, "Nota transcrita");
+            assert_eq!(sounding.body, "Reunión del jueves");
+            assert!(sounding
+                .hints
+                .contains(&notify_rust::Hint::SoundName("message-new-instant".into())));
+            let silent = desktop(&Notification {
+                title: "t".into(),
+                body: "b".into(),
+                sound: false,
+            });
+            assert!(silent.hints.is_empty());
+        }
+    }
 }
 
-#[cfg(not(target_os = "macos"))]
-pub fn send(_notification: &Notification) -> Result<(), String> {
-    Err("Las notificaciones nativas solo están disponibles en macOS".into())
-}
+#[cfg(target_os = "linux")]
+pub use linux::{request_authorization, send};
