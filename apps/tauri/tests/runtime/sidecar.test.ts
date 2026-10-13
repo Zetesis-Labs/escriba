@@ -6,7 +6,7 @@ import {
   type ChildProcessWithoutNullStreams,
 } from "node:child_process";
 import { cp, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
-import { readFileSync, realpathSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -15,8 +15,8 @@ import { connect, createServer } from "node:net";
 import { createServer as createHttpServer, type IncomingHttpHeaders, type IncomingMessage } from "node:http";
 import { build } from "esbuild";
 import { CborCodec, RecordId } from "surrealdb";
-import { snapshot, runtimeContext } from "./fixture";
-import type { Snapshot, Version } from "../../src/types";
+import { controllerEnvironment } from "./native";
+import type { Recipe, Recording, Snapshot } from "../../src/types";
 let directory = "";
 let executable = "";
 beforeAll(async () => {
@@ -33,9 +33,9 @@ beforeAll(async () => {
 afterAll(async () => {
   await rm(directory, { recursive: true, force: true });
 });
-function launch(worker = false) {
+function launch(data: string, worker = false) {
   const path = realpathSync(executable);
-  if (!worker) return spawn(path, [], { env: { ESCRIBA_DATA: directory }, cwd: "/" });
+  if (!worker) return spawn(path, [], { env: controllerEnvironment(data), cwd: "/" });
   const profile = readFileSync(new URL("../../runtime-host/sandbox.sb", import.meta.url), "utf8");
   return spawn("/usr/bin/sandbox-exec", [
     "-p", profile, "-D", `EXECUTABLE=${path}`, path, "--worker",
@@ -61,19 +61,25 @@ function localHttp(handle: (request: IncomingMessage, body: string) => { status:
     });
   });
 }
-function supervisor(state: Snapshot, hangFirstTranscribe = false, onCall?: (method: string, params: Record<string, unknown>) => void, capability?: (method: string, params: Record<string, unknown>) => Promise<unknown>) {
+const FORM_RECIPE: Recipe = { id: "default", name: "Por defecto", kind: "form", values: { resumir: false } };
+interface Options {
+  data?: string;
+  hangFirstTranscribe?: boolean;
+  capability?: (method: string, params: Record<string, unknown>) => Promise<unknown>;
+}
+function supervisor(options: Options = {}) {
+  const data = options.data ?? mkdtempSync(join(directory, "data-"));
   let hung = false;
-  const cancelled = new Set<string>();
-  const child = launch();
+  const child = launch(data);
   const workers = new Map<string, ChildProcessWithoutNullStreams>();
   const pending = new Map<
     string,
     { resolve: (value: unknown) => void; reject: (error: Error) => void }
   >();
   const methods: string[] = [];
-  const contextRequests: Record<string, unknown>[] = [];
-  const taskIds: unknown[] = [];
-  const events: unknown[] = [];
+  const nativeMethods: string[] = [];
+  const calls: { method: string; native?: string; taskId: unknown }[] = [];
+  const events: { event: string; value: unknown }[] = [];
   let readyResolve!: () => void;
   let readyReject!: (error: Error) => void;
   const ready = new Promise<void>((resolve, reject) => {
@@ -97,7 +103,7 @@ function supervisor(state: Snapshot, hangFirstTranscribe = false, onCall?: (meth
       return;
     }
     if (value.type === "worker_create") {
-      const worker = launch(true);
+      const worker = launch(data, true);
       workers.set(id, worker);
       createInterface({ input: worker.stdout }).on("line", (output) => {
         try {
@@ -132,7 +138,7 @@ function supervisor(state: Snapshot, hangFirstTranscribe = false, onCall?: (meth
       return;
     }
     if (value.type === "event") {
-      events.push(value);
+      events.push({ event: value.event, value: value.value });
       return;
     }
     if (value.type === "result" || value.type === "error") {
@@ -143,68 +149,37 @@ function supervisor(state: Snapshot, hangFirstTranscribe = false, onCall?: (meth
       return;
     }
     if (value.type === "call") {
-      if (cancelled.has(String(value.taskId))) return;
       methods.push(value.method);
-      if (value.method === "transcribe" && hangFirstTranscribe && !hung) {
-        hung = true;
-        return;
-      }
-      taskIds.push(value.taskId);
+      const params = value.params as Record<string, unknown>;
+      calls.push({ method: value.method, ...(value.method === "shell.native" ? { native: String(params.method) } : {}), taskId: value.taskId });
       let result: unknown = null;
-      const params = value.params;
-      const record =
-        state.recordings.find(
-          (r) => r.id === params.recordingId || r.id === params.id,
-        ) || state.recordings[0];
-      if (value.method === "runtime_context") {
-        contextRequests.push(params);
-        result = runtimeContext(state, params.recordingId);
-      }
-      else if (value.method === "transcribe")
-        result = { text: "Texto preservado", segments: [] };
-      else if (value.method === "recording_update")
-        Object.assign(record, params);
-      else if (value.method === "version_save") {
-        const version = {
-          ...params,
-          id: `v${record.versions.length + 1}`,
-          createdAt: "now",
-        } as Version;
-        record.versions.push(version);
-        record.currentVersionId = version.id;
-        result = version;
-      } else if (value.method === "version_update") {
-        Object.assign(
-          record.versions.find((v) => v.id === params.versionId)!,
-          params,
-        );
-      } else if (value.method === "version_select")
-        record.currentVersionId = params.versionId;
-      else if (
-        ![
-          "log",
-          "native_cancel",
-          "trace_save",
-          "memory_recall",
-          "memory_keep",
-        ].includes(value.method)
-      ) {
-        if (capability) {
-          try { result = await capability(value.method, params); }
-          catch (error) {
-            send({ type: "reject", id, message: String(error) });
+      if (value.method === "shell.native") {
+        const native = String(params.method);
+        nativeMethods.push(native);
+        if (native === "status") result = { protocolVersion: 1, whisper: { available: true }, llm: { available: true } };
+        else if (native === "transcribe") {
+          if (options.hangFirstTranscribe && !hung) {
+            hung = true;
             return;
           }
-        } else {
-        send({
-          type: "reject",
-          id,
-          message: `Capacidad no esperada ${value.method}`,
-        });
-        return;
+          result = { text: "Texto preservado", segments: [] };
+        } else if (native === "summarize") result = { title: "Título", summary: "Resumen sintético", tags: [] };
+        else {
+          send({ type: "reject", id, message: `Método nativo no esperado ${native}` });
+          return;
+        }
+      } else if (!["shell.native_cancel", "shell.notify", "shell.autolaunch", "shell.validate_catalog"].includes(value.method)) {
+        if (!options.capability) {
+          send({ type: "reject", id, message: `Capacidad no esperada ${value.method}` });
+          return;
+        }
+        try {
+          result = await options.capability(value.method, params);
+        } catch (error) {
+          send({ type: "reject", id, message: String(error) });
+          return;
         }
       }
-      onCall?.(value.method, params);
       send({ type: "resolve", id, value: result });
     }
   });
@@ -213,23 +188,60 @@ function supervisor(state: Snapshot, hangFirstTranscribe = false, onCall?: (meth
     for (const waiter of pending.values())
       waiter.reject(Error(`sidecar ${code}: ${stderr}`));
   });
-  return {
+  function command<T = unknown>(method: string, params: Record<string, unknown> = {}, origin: "ui" | "shell" = "ui") {
+    const id = `command-${++counter}`;
+    const result = new Promise<T>((resolve, reject) =>
+      pending.set(id, { resolve: (value) => resolve(value as T), reject }),
+    );
+    send({ type: "command", id, method, params, origin });
+    return result;
+  }
+  const host = {
+    data,
     ready,
     methods,
-    contextRequests,
-    taskIds,
+    nativeMethods,
+    calls,
     events,
-    run(operation: string, args: Record<string, unknown>) {
-      const id = `task-${++counter}`;
-      const result = new Promise<unknown>((resolve, reject) =>
-        pending.set(id, { resolve, reject }),
-      );
-      send({ type: "run", id, operation, args });
-      return { id, result };
+    command,
+    run: <T = unknown>(operation: string, args: Record<string, unknown>) => command<T>("runtime_run", { operation, args }),
+    cancel: (recordingId: string) => command("runtime_cancel", { recordingId }),
+    async drain() {
+      for (let attempt = 0; attempt < 500; attempt++) {
+        if (!(await command<unknown[]>("runtime_jobs")).length) return;
+        await sleep(20);
+      }
+      throw Error("La cola no se vació");
     },
-    cancel(id: string) {
-      cancelled.add(id);
-      send({ type: "cancel", id });
+    async process<T = { versionId: string }>(id: string, options?: Record<string, unknown>): Promise<T> {
+      if (options) return command<T>("runtime_run", { operation: "processRecording", args: { recordingId: id, options } });
+      for (let attempt = 0; attempt < 1500; attempt++) {
+        const page = await command<{ jobs: { recordingId: string; state: string; result: unknown; error: string | null }[] }>("runtime_history", { limit: 50 });
+        const job = page.jobs.find((entry) => entry.recordingId === id && ["succeeded", "failed", "cancelled"].includes(entry.state));
+        if (job) {
+          if (job.state !== "succeeded") throw Error(job.error ?? "El trabajo falló");
+          return job.result as T;
+        }
+        await sleep(20);
+      }
+      throw Error("El trabajo automático no terminó");
+    },
+    detail: (id: string) => command<Recording>("recording_detail", { id }),
+    library: () => command<Snapshot>("library"),
+    async recipe(recipe: Recipe) {
+      await command("config_save", { collection: "recipes", item: recipe });
+      await command("settings_save", { settings: { defaultRecipeId: recipe.id } });
+    },
+    async importAudio(name = "nota.wav", content = "audio sintetico") {
+      mkdirSync(join(data, "inbox"), { recursive: true });
+      const inbox = join(data, "inbox", name);
+      writeFileSync(inbox, content);
+      const [record] = await command<Recording[]>("import_inbox", { files: [{ inbox, source: `/origen/${name}` }] }, "shell");
+      return record!.id;
+    },
+    async note(recipe: Recipe = FORM_RECIPE) {
+      await host.recipe(recipe);
+      return host.importAudio();
     },
     close() {
       for (const worker of workers.values()) worker.kill("SIGKILL");
@@ -238,7 +250,11 @@ function supervisor(state: Snapshot, hangFirstTranscribe = false, onCall?: (meth
       frames.close();
     },
   };
+  return host;
 }
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+const versions = async (host: ReturnType<typeof supervisor>, id: string) => (await host.detail(id)).versions;
+
 test("un dist externo aporta formularios, acciones y publicación en Bun aislado sin sus fuentes", async () => {
   const project = join(directory, "external");
   await mkdir(project);
@@ -250,48 +266,42 @@ test("un dist externo aporta formularios, acciones y publicación en Bun aislado
     const source = join(project, "src", entry.name);
     await writeFile(source, (await readFile(source, "utf8")).replace("'https://api.example.test'", JSON.stringify(service.origin)));
   }
-  await mkdir(join(directory, "secrets"), { recursive: true });
-  await writeFile(join(directory, "secrets/external-account.token"), "token-sintético\n");
   await writeFile(join(project, "package.json"), '{"type":"module"}');
   const vendor = fileURLToPath(new URL("../../node_modules", import.meta.url));
   const built = spawnSync(executable, ["--project-build", project, vendor], { encoding: "utf8" });
   assert.equal(built.status, 0, built.stderr);
   const program = await readFile(join(project, "dist/conectores.js"), "utf8");
   await rm(join(project, "src"), { recursive: true });
-  const state = structuredClone(snapshot);
-  const grant = { capability: "http" as const, origin: service.origin, allowedHeaders: ["content-type", "accept"], credential: { label: "Clave del servicio", header: "X-API-Key" } };
-  state.providers = [{ id: "synthetic-notes", name: "Notas de ejemplo", ...grant, defaultConfiguration: {}, program }];
-  state.accounts = [{ id: "external-account", name: "Ejemplo", provider: "synthetic-notes", enabled: true, grant }];
-  state.destinations = [{ id: "external-account", account: "external-account", name: "Ejemplo", provider: "synthetic-notes", enabled: true, managed: true, configuration: { workspace: "demo", collection: "notes" }, program }];
-  state.recordings[0].versions = [{ id: "v", createdAt: "now", backend: "local-stt", transcript: { text: "Contenido sintético", segments: [] } }];
-  const receipts: Record<string, unknown>[] = [];
-  const host = supervisor(state, false, undefined, async (method, params) => {
-    if (method === "publication_save") { receipts.push(params); return null; }
-    throw Error(`Capacidad inesperada: ${method}`);
-  });
+  const host = supervisor();
   try {
     await host.ready;
+    const grant = { capability: "http" as const, origin: service.origin, allowedHeaders: ["content-type", "accept"], credential: { label: "Clave del servicio", header: "X-API-Key" } };
+    await host.command("project_install", { recipes: [], providers: [{ id: "synthetic-notes", name: "Notas de ejemplo", ...grant, defaultConfiguration: {}, program }], destinations: [], ontologies: [] });
+    await host.command("connector_save", {
+      account: { id: "external-account", name: "Ejemplo", provider: "synthetic-notes", enabled: true, grant },
+      destination: { id: "external-account", account: "external-account", name: "Ejemplo", provider: "synthetic-notes", enabled: true, configuration: { workspace: "demo", collection: "notes" } },
+    });
+    await host.command("credential_save", { id: "external-account", value: "token-sintético\n" });
+    const id = await host.importAudio();
+    await host.drain();
+    await host.command("version_save", { recordingId: id, backend: "local-stt", transcript: { text: "Contenido sintético", segments: [] } });
     const request = { providerId: "synthetic-notes", accountId: "external-account", configuration: { workspace: "demo", collection: "notes" } };
-    const view = await host.run("connectorEditor", { operation: "describe", request }).result as { view: { sections: unknown[] } };
+    const view = await host.run<{ view: { sections: unknown[] } }>("connectorEditor", { operation: "describe", request });
     assert.equal(view.view.sections.length, 1);
     assert.equal(service.seen.length, 0);
-    const action = await host.run("connectorEditor", { operation: "action", request: { ...request, action: "refresh-collections" } }).result as { state: { collections: unknown[] } };
+    const action = await host.run<{ state: { collections: unknown[] } }>("connectorEditor", { operation: "action", request: { ...request, action: "refresh-collections" } });
     assert.deepEqual(action.state.collections, [{ id: "notes", name: "Notas" }]);
-    await host.run("publishRecording", { recordingId: "r", destinationId: "external-account" }).result;
-    assert.equal((receipts.at(-1)?.receipt as { locator: string }).locator, "created-1");
-    assert.equal(receipts.at(-1)?.managed, true);
-    assert.equal(receipts.at(-1)?.program, program);
+    await host.run("publishRecording", { recordingId: id, destinationId: "external-account" });
+    const publication = (await host.detail(id)).publications.at(-1) as Record<string, unknown> | undefined;
+    assert.equal((publication?.receipt as { locator: string }).locator, "created-1");
+    assert.equal(publication?.managed, true);
+    assert.equal(publication?.program, program);
     assert.equal(service.seen.filter((request) => request.method === "POST").length, 1);
     assert.ok(service.seen.every((request) => request.headers["x-api-key"] === "token-sintético"));
-    assert.ok(!host.methods.includes("connector_http"));
   } finally { host.close(); service.close(); }
 }, 30000);
 test("el SDK oficial de Notion consulta y escribe desde una receta en Bun aislado", async () => {
-  const pendingAtPost: boolean[] = [];
-  const service = await localHttp((request) => {
-    if (request.method === "POST") pendingAtPost.push(state.recordings[0].accountEffectPending === true);
-    return { status: 200, body: '{"object":"list","results":[],"has_more":false,"next_cursor":null}' };
-  });
+  const service = await localHttp(() => ({ status: 200, body: '{"object":"list","results":[],"has_more":false,"next_cursor":null}' }));
   const bundled = await build({
     stdin: { resolveDir: fileURLToPath(new URL("../..", import.meta.url)), contents: `import {Client} from '@notionhq/client';
       export async function flujo(audio, escriba) {
@@ -303,167 +313,143 @@ test("el SDK oficial de Notion consulta y escribe desde una receta en Bun aislad
     bundle: true, write: false, platform: "browser", format: "iife", globalName: "__recipe",
   });
   const grant = { capability: "http" as const, origin: service.origin, allowedHeaders: ["content-type", "accept", "notion-version"], credential: { label: "Token", header: "Authorization", prefix: "Bearer " } };
-  const state: Snapshot = structuredClone(snapshot);
-  state.recipes[0] = { id: "default", name: "SDK", kind: "code", values: {}, bundle: bundled.outputFiles[0].text };
-  state.providers = [{ id: "notion-local", name: "Notion local", ...grant, defaultConfiguration: {} }];
-  state.accounts = [{ id: "notion-sdk", name: "Trabajo", provider: "notion-local", enabled: true, grant }];
-  await mkdir(join(directory, "secrets"), { recursive: true });
-  await writeFile(join(directory, "secrets/notion-sdk.token"), "token-notion-sintético");
-  const host = supervisor(state, false, undefined, async (method) => {
-    if (method === "account_effect_begin") { state.recordings[0].accountEffectPending = true; return null; }
-    throw Error(`Capacidad inesperada: ${method}`);
-  });
+  const host = supervisor();
   try {
     await host.ready;
-    await host.run("processRecording", { recordingId: "r" }).result;
+    await host.command("project_install", { recipes: [], providers: [{ id: "notion-local", name: "Notion local", ...grant, defaultConfiguration: {}, program: "var __connector={}" }], destinations: [], ontologies: [] });
+    await host.command("connector_save", {
+      account: { id: "notion-sdk", name: "Trabajo", provider: "notion-local", enabled: true, grant },
+      destination: { id: "notion-sdk", account: "notion-sdk", name: "Trabajo", provider: "notion-local", enabled: true, configuration: {} },
+    });
+    await host.command("credential_save", { id: "notion-sdk", value: "token-notion-sintético" });
+    const id = await host.note({ id: "default", name: "SDK", kind: "code", values: {}, bundle: bundled.outputFiles[0].text });
+    await host.process(id);
     assert.deepEqual(service.seen.map((request) => request.method), ["GET", "POST"]);
     assert.ok(service.seen.every((request) => request.headers.authorization === "Bearer token-notion-sintético"));
-    assert.deepEqual(pendingAtPost, [true]);
-    assert.equal(state.recordings[0].accountEffectPending, true);
-    assert.equal(state.recordings[0].status, "done");
+    const detail = await host.detail(id);
+    assert.equal(detail.accountEffectPending, true);
+    assert.equal(detail.status, "done");
   } finally { host.close(); service.close(); }
 });
 test("notificaciones consultan solo el contexto de configuración y devuelven los problemas", async () => {
-  const state = structuredClone(snapshot);
-  const host = supervisor(state);
+  const host = supervisor();
   try {
     await host.ready;
     const result = await host.run("notificationProblems", {
       status: { protocolVersion: 1, whisper: { available: false }, llm: { available: false, reason: "modelo aún no disponible" } },
-    }).result;
+    });
     assert.deepEqual(result, [
-      { role: "stt", name: "Whisper", reason: "el modelo de Whisper no está descargado; descárgalo aquí abajo" },
-      { role: "llm", name: "Apple", reason: "modelo aún no disponible" },
+      { role: "stt", name: "Whisper · en este Mac", reason: "el modelo de Whisper no está descargado; descárgalo aquí abajo" },
+      { role: "llm", name: "Apple Intelligence", reason: "modelo aún no disponible" },
     ]);
-    assert.deepEqual(host.methods, ["runtime_context"]);
-    assert.deepEqual(host.contextRequests, [{}]);
+    assert.deepEqual(host.methods.filter((method) => method !== "shell.native"), []);
+    assert.deepEqual(host.nativeMethods, ["status"]);
   } finally {
     host.close();
   }
 });
 
-test("procesar devuelve la versión creada aunque cambie la selección durante el cierre", async () => {
-  const state = structuredClone(snapshot);
-  state.recipes[0].values = { resumir: false };
-  state.recordings[0].versions.push({
-    id: "v0", createdAt: "antes", backend: "Whisper", recipeId: "default",
-    transcript: { text: "Anterior", segments: [] }, inputs: {},
-  });
-  state.recordings[0].currentVersionId = "v0";
-  const host = supervisor(state, false, (method, params) => {
-    if (method === "recording_update" && params.status === "done") state.recordings[0].currentVersionId = "v0";
-  });
+test("el controlador abre la biblioteca, rechaza orígenes ajenos y devuelve la versión creada", async () => {
+  const host = supervisor();
   try {
     await host.ready;
-    const result = await host.run("processRecording", { recordingId: "r" }).result;
-    assert.deepEqual(result, { versionId: "v2" });
-    assert.equal(state.recordings[0].currentVersionId, "v0");
+    const id = await host.note();
+    await assert.rejects(host.command("import_inbox", { files: [] }), /Origen no permitido para import_inbox/);
+    await assert.rejects(host.command("snapshot", {}, "shell"), /Origen no permitido para snapshot/);
+    const result = await host.process(id);
+    const detail = await host.detail(id);
+    assert.equal(detail.currentVersionId, result.versionId);
+    assert.equal(detail.versions[0]?.transcript.text, "Texto preservado");
+    assert.ok(host.events.some((event) => event.event === "jobs"));
+    assert.ok(host.events.some((event) => event.event === "status"));
   } finally {
     host.close();
   }
 });
-test("sidecar compilado preserva transcripción entre reinicios y emite jobs/capacidades con taskId", async () => {
-  const state = structuredClone(snapshot);
-  state.recipes[0].values = { resumir: false };
-  let host = supervisor(state);
+test("sidecar compilado preserva transcripción entre reinicios y las capacidades llevan el id del trabajo", async () => {
+  let host = supervisor();
+  let id = "";
   try {
     await host.ready;
-    await host.run("processRecording", {
-      recordingId: "r",
-      options: { force: false },
-    }).result;
-    assert.equal(state.recordings[0].versions.length, 1);
-    assert.ok(host.methods.includes("transcribe"));
-    assert.ok(host.taskIds.every((id) => id === "task-1"));
-    assert.ok(host.events.length > 0);
+    id = await host.note();
+    await host.process(id);
+    assert.equal((await versions(host, id)).length, 1);
+    assert.ok(host.nativeMethods.includes("transcribe"));
+    const jobTasks = host.calls.filter((call) => call.native === "transcribe").map((call) => call.taskId);
+    assert.ok(jobTasks.length > 0 && jobTasks.every((task) => typeof task === "string" && task === jobTasks[0]), JSON.stringify(jobTasks));
   } finally {
     host.close();
   }
-  host = supervisor(state);
+  host = supervisor({ data: host.data });
   try {
     await host.ready;
-    await host.run("processRecording", {
-      recordingId: "r",
-      options: { force: false },
-    }).result;
-    assert.equal(state.recordings[0].versions.length, 1);
-    assert.ok(!host.methods.includes("transcribe"));
+    await host.run("processRecording", { recordingId: id, options: { force: false } });
+    assert.equal((await versions(host, id)).length, 1);
+    assert.ok(!host.nativeMethods.includes("transcribe"));
   } finally {
     host.close();
   }
 });
 
 test("el sidecar aplica los valores puntuales sin cambiar la receta guardada", async () => {
-  const state = structuredClone(snapshot);
-  state.recipes[0].values = { idioma: "en", resumir: false };
-  const host = supervisor(state);
+  const host = supervisor();
   try {
     await host.ready;
-    await host.run("processRecording", {
-      recordingId: "r",
-      options: { recipeId: "default", force: true, values: { idioma: "es", resumir: false } },
-    }).result;
-    await host.run("processRecording", { recordingId: "r", options: { force: true } }).result;
-    assert.deepEqual(state.recordings[0].versions.map((version) => version.inputs?.language), ["es", "en"]);
-    assert.deepEqual(state.recipes[0].values, { idioma: "en", resumir: false });
+    const id = await host.note({ ...FORM_RECIPE, values: { idioma: "en", resumir: false } });
+    await host.process(id);
+    await host.process(id, { recipeId: "default", force: true, values: { idioma: "es", resumir: false } });
+    assert.deepEqual((await versions(host, id)).map((version) => version.inputs?.language), ["en", "es"]);
+    assert.deepEqual((await host.library()).recipes[0]?.values, { idioma: "en", resumir: false });
   } finally {
     host.close();
   }
 });
 
 test("cancelación mata receta CPU y sidecar sigue disponible", async () => {
-  const state = structuredClone(snapshot);
-  state.recipes[0] = {
-    id: "default",
-    name: "Bucle",
-    kind: "code",
-    values: {},
-    bundle: "var __recipe={flujo(){while(true){}}}",
-  };
-  const host = supervisor(state);
+  const host = supervisor();
   try {
     await host.ready;
-    const task = host.run("processRecording", { recordingId: "r" });
-    setTimeout(() => host.cancel(task.id), 200);
-    await assert.rejects(task.result, /cancelado/);
-    state.recipes[0] = structuredClone(snapshot.recipes[0]);
-    await host.run("getRecipeSchema", { recipeId: "default" }).result;
+    const id = await host.note({ id: "default", name: "Bucle", kind: "code", values: {}, bundle: "var __recipe={flujo(){while(true){}}}" });
+    const task = host.process(id);
+    setTimeout(() => void host.cancel(id), 200);
+    await assert.rejects(task, /cancelado/);
+    await host.recipe(FORM_RECIPE);
+    await host.run("getRecipeSchema", { recipeId: "default" });
   } finally {
     host.close();
   }
 });
 test("el ejecutable usa Bun y conserva el recorrido de transcribir y guardar", async () => {
-  const state = structuredClone(snapshot);
-  state.recipes[0] = {
-    id: "default", name: "Bun", kind: "code", values: {},
-    bundle: `var __recipe={async flujo(audio,api){const p=await import('node:process');if(!p.versions.bun)throw Error('El ejecutable no usa Bun');await(await api.transcribir(audio)).guardar()}}`,
-  };
-  const host = supervisor(state);
+  const host = supervisor();
   try {
     await host.ready;
-    await host.run("processRecording", { recordingId: "r" }).result;
-    assert.equal(state.recordings[0].versions.length, 1);
-    assert.equal(state.recordings[0].status, "done");
+    const id = await host.note({
+      id: "default", name: "Bun", kind: "code", values: {},
+      bundle: `var __recipe={async flujo(audio,api){const p=await import('node:process');if(!p.versions.bun)throw Error('El ejecutable no usa Bun');await(await api.transcribir(audio)).guardar()}}`,
+    });
+    await host.process(id);
+    const detail = await host.detail(id);
+    assert.equal(detail.versions.length, 1);
+    assert.equal(detail.status, "done");
   } finally {
     host.close();
   }
 });
 
 test("las recetas pueden comparar texto con Intl dentro del sandbox", async () => {
-  const state = structuredClone(snapshot);
-  state.recipes[0] = {
-    id: "default", name: "Orden", kind: "code", values: {},
-    bundle: `var __recipe={async flujo(audio,api){
-      const palabras=['zeta','ábaco'].sort((a,b)=>a.localeCompare(b,'es'));
-      if(palabras[0]!=='ábaco')throw Error('Orden incorrecto');
-      await(await api.transcribir(audio)).guardar();
-    }}`,
-  };
-  const host = supervisor(state);
+  const host = supervisor();
   try {
     await host.ready;
-    await host.run("processRecording", { recordingId: "r" }).result;
-    assert.equal(state.recordings[0].versions.length, 1);
+    const id = await host.note({
+      id: "default", name: "Orden", kind: "code", values: {},
+      bundle: `var __recipe={async flujo(audio,api){
+        const palabras=['zeta','ábaco'].sort((a,b)=>a.localeCompare(b,'es'));
+        if(palabras[0]!=='ábaco')throw Error('Orden incorrecto');
+        await(await api.transcribir(audio)).guardar();
+      }}`,
+    });
+    await host.process(id);
+    assert.equal((await versions(host, id)).length, 1);
   } finally {
     host.close();
   }
@@ -490,32 +476,33 @@ test("una receta usa el SDK SurrealDB dentro del worker Bun aislado", async () =
     globalName: "__recipe",
     nodePaths: [fileURLToPath(new URL("../../node_modules", import.meta.url))],
   });
-  const state = structuredClone(snapshot);
-  state.recipes[0] = {
-    id: "default", name: "Grafo", kind: "code", values: {},
-    ontologies: [{ id: "personas", minVersion: 2, maxVersion: 3 }],
-    bundle: built.outputFiles[0].text,
-  };
-  const methods: string[] = [];
-  const host = supervisor(state, false, (method) => methods.push(method), async (method, params) => {
-    if (method === "knowledge_open") return { version: 3 };
-    if (method === "account_effect_begin") return null;
-    if (method === "knowledge_query") {
-      assert.equal(params.ontologyId, "personas");
-      assert.equal(params.expectedVersion, 3);
-      const bindings = CborCodec.DEFAULT.decode<Record<string, unknown>>(
-        Buffer.from(String(params.bindings), "base64"),
-      );
-      assert.ok(bindings.id instanceof RecordId);
-      return Buffer.from(CborCodec.DEFAULT.encode([[{ id: bindings.id }]])).toString("base64");
-    }
-    throw Error(`Capacidad inesperada: ${method}`);
+  const host = supervisor({
+    capability: async (method, params) => {
+      if (method === "knowledge_open") return { version: 3 };
+      if (method === "knowledge_query") {
+        assert.equal(params.ontologyId, "personas");
+        assert.equal(params.expectedVersion, 3);
+        const bindings = CborCodec.DEFAULT.decode<Record<string, unknown>>(
+          Buffer.from(String(params.bindings), "base64"),
+        );
+        assert.ok(bindings.id instanceof RecordId);
+        return Buffer.from(CborCodec.DEFAULT.encode([[{ id: bindings.id }]])).toString("base64");
+      }
+      throw Error(`Capacidad inesperada: ${method}`);
+    },
   });
   try {
     await host.ready;
-    await host.run("processRecording", { recordingId: "r" }).result;
-    assert.ok(methods.includes("knowledge_query"));
-    assert.equal(state.recordings[0].versions.length, 1);
+    const id = await host.note({
+      id: "default", name: "Grafo", kind: "code", values: {},
+      ontologies: [{ id: "personas", minVersion: 2, maxVersion: 3 }],
+      bundle: built.outputFiles[0].text,
+    });
+    await host.process(id);
+    assert.ok(host.methods.includes("knowledge_query"));
+    const detail = await host.detail(id);
+    assert.equal(detail.versions.length, 1);
+    assert.equal(detail.accountEffectPending, true);
   } finally {
     host.close();
   }
@@ -524,34 +511,30 @@ test("una receta usa el SDK SurrealDB dentro del worker Bun aislado", async () =
 test("el sandbox impide leer y escribir archivos y mantiene separado el canal de capacidades", async () => {
   const canary = join(directory, "canary.txt");
   await writeFile(canary, "private-fixture");
-  const state = structuredClone(snapshot);
-  state.recipes[0] = {
-    id: "default",
-    name: "Sandbox",
-    kind: "code",
-    values: {},
-    bundle: `var __recipe={async flujo(audio,api){
-      const fs=await import('node:fs/promises');
-      for(const attempt of [()=>fs.readFile(${JSON.stringify(canary)}),()=>Bun.file(${JSON.stringify(canary)}).text(),()=>fs.writeFile(${JSON.stringify(canary)},'overwrite')]){
-        let denied=false;
-        try{await attempt()}catch(error){denied=['EPERM','EACCES'].includes(error.code)}
-        if(!denied)throw Error('sandbox de archivos abierto');
-      }
-      await(await api.transcribir(audio)).guardar();
-    }}`,
-  };
-  const host = supervisor(state);
+  const host = supervisor();
   try {
     await host.ready;
-    await host.run("processRecording", { recordingId: "r" }).result;
-    assert.equal(state.recordings[0].versions.length, 1);
-    state.recipes[0].bundle = `var __recipe={async flujo(){const p=await import('node:process');p.stdout.write(JSON.stringify({type:'call',id:'forged',method:'credential_save',params:{id:'a',value:'fake'}})+'\\n');await new Promise(()=>{})}}`;
-    await assert.rejects(
-      host.run("processRecording", { recordingId: "r" }).result,
-      /Solicitud del Worker no válida/,
-    );
+    const id = await host.note({
+      id: "default",
+      name: "Sandbox",
+      kind: "code",
+      values: {},
+      bundle: `var __recipe={async flujo(audio,api){
+        const fs=await import('node:fs/promises');
+        for(const attempt of [()=>fs.readFile(${JSON.stringify(canary)}),()=>Bun.file(${JSON.stringify(canary)}).text(),()=>fs.writeFile(${JSON.stringify(canary)},'overwrite')]){
+          let denied=false;
+          try{await attempt()}catch(error){denied=['EPERM','EACCES'].includes(error.code)}
+          if(!denied)throw Error('sandbox de archivos abierto');
+        }
+        await(await api.transcribir(audio)).guardar();
+      }}`,
+    });
+    await host.process(id);
+    assert.equal((await versions(host, id)).length, 1);
+    await host.recipe({ id: "default", name: "Forjada", kind: "code", values: {}, bundle: `var __recipe={async flujo(){const p=await import('node:process');p.stdout.write(JSON.stringify({type:'call',id:'forged',method:'credential_save',params:{id:'a',value:'fake'}})+'\\n');await new Promise(()=>{})}}` });
+    await assert.rejects(host.process(id, { force: true }), /Solicitud del Worker no válida/);
     assert.ok(!host.methods.includes("credential_save"));
-    await host.run("getRecipeSchema", { recipeId: "default" }).result;
+    await host.run("getRecipeSchema", { recipeId: "default" });
   } finally {
     host.close();
   }
@@ -567,20 +550,19 @@ test("el sandbox rechaza conexiones a un servidor local que sí está escuchando
     const socket = connect(address.port, "127.0.0.1", () => { socket.destroy(); resolve(); });
     socket.on("error", reject);
   });
-  const state = structuredClone(snapshot);
-  state.recipes[0] = {
-    id: "default", name: "Red", kind: "code", values: {},
-    bundle: `var __recipe={async flujo(audio,api){
-      const net=await import('node:net');let denied=false;
-      try{await new Promise((resolve,reject)=>{const socket=net.connect(${address.port},'127.0.0.1',()=>{socket.destroy();resolve()});socket.on('error',reject)})}catch(error){denied=['EPERM','EACCES','ECONNREFUSED'].includes(error.code)}
-      if(!denied)throw Error('sandbox de red abierto');
-      await(await api.transcribir(audio)).guardar();
-    }}`,
-  };
-  const host = supervisor(state);
+  const host = supervisor();
   try {
     await host.ready;
-    await host.run("processRecording", { recordingId: "r" }).result;
+    const id = await host.note({
+      id: "default", name: "Red", kind: "code", values: {},
+      bundle: `var __recipe={async flujo(audio,api){
+        const net=await import('node:net');let denied=false;
+        try{await new Promise((resolve,reject)=>{const socket=net.connect(${address.port},'127.0.0.1',()=>{socket.destroy();resolve()});socket.on('error',reject)})}catch(error){denied=['EPERM','EACCES','ECONNREFUSED'].includes(error.code)}
+        if(!denied)throw Error('sandbox de red abierto');
+        await(await api.transcribir(audio)).guardar();
+      }}`,
+    });
+    await host.process(id);
     assert.equal(connections, 1);
   } finally {
     host.close();
@@ -589,67 +571,65 @@ test("el sandbox rechaza conexiones a un servidor local que sí está escuchando
 });
 
 test("cancelar inferencia sin respuesta libera cola para la siguiente grabación", async () => {
-  const state = structuredClone(snapshot);
-  state.recipes[0].values = { resumir: false };
-  const host = supervisor(state, true);
+  const host = supervisor({ hangFirstTranscribe: true });
   try {
     await host.ready;
-    const first = host.run("processRecording", { recordingId: "r" });
-    while (!host.methods.includes("transcribe"))
+    const id = await host.note();
+    const first = host.process(id);
+    while (!host.nativeMethods.includes("transcribe"))
       await new Promise((resolve) => setTimeout(resolve, 10));
-    host.cancel(first.id);
-    await assert.rejects(first.result, /cancelado/);
-    await host.run("processRecording", { recordingId: "r" }).result;
-    assert.equal(state.recordings[0].versions.length, 1);
+    await host.cancel(id);
+    await assert.rejects(first, /cancelado/);
+    assert.ok(host.methods.includes("shell.native_cancel"));
+    await host.process(id, { force: true });
+    assert.equal((await versions(host, id)).length, 1);
   } finally {
     host.close();
   }
 });
 test("el sandbox impide crear procesos y relanzar el propio ejecutable", async () => {
-  const state = structuredClone(snapshot);
-  state.recipes[0] = {
-    id: "default", name: "Procesos", kind: "code", values: {},
-    bundle: `var __recipe={async flujo(audio,api){
-      const cp=await import('node:child_process');
-      const p=await import('node:process');
-      for(const path of ['/usr/bin/true',p.execPath]){
-        const result=cp.spawnSync(path,['--worker'],{timeout:100});
-        if(!['EPERM','EACCES'].includes(result.error?.code))throw Error('subproceso permitido: '+result.error?.code);
-        let denied=false;
-        try{Bun.spawnSync([path,'--worker'],{timeout:100})}catch(error){denied=['EPERM','EACCES'].includes(error.code)}
-        if(!denied)throw Error('subproceso Bun permitido');
-      }
-      await(await api.transcribir(audio)).guardar();
-    }}`,
-  };
-  const host = supervisor(state);
+  const host = supervisor();
   try {
     await host.ready;
-    await host.run("processRecording", { recordingId: "r" }).result;
-    assert.equal(state.recordings[0].versions.length, 1);
+    const id = await host.note({
+      id: "default", name: "Procesos", kind: "code", values: {},
+      bundle: `var __recipe={async flujo(audio,api){
+        const cp=await import('node:child_process');
+        const p=await import('node:process');
+        for(const path of ['/usr/bin/true',p.execPath]){
+          const result=cp.spawnSync(path,['--worker'],{timeout:100});
+          if(!['EPERM','EACCES'].includes(result.error?.code))throw Error('subproceso permitido: '+result.error?.code);
+          let denied=false;
+          try{Bun.spawnSync([path,'--worker'],{timeout:100})}catch(error){denied=['EPERM','EACCES'].includes(error.code)}
+          if(!denied)throw Error('subproceso Bun permitido');
+        }
+        await(await api.transcribir(audio)).guardar();
+      }}`,
+    });
+    await host.process(id);
+    assert.equal((await versions(host, id)).length, 1);
   } finally {
     host.close();
   }
 });
 
 test("las dependencias empaquetadas usan módulos nativos de Bun sin acceder al disco", async () => {
-  const state = structuredClone(snapshot);
-  state.recipes[0] = {
-    id: "default", name: "Módulos nativos", kind: "code", values: {},
-    bundle: `var __recipe=(()=>{const module={exports:{}};const exports=module.exports;
-      const path=require('node:path');const crypto=require('node:crypto');
-      exports.flujo=async(audio,api)=>{
-        if(path.basename('/a/nota.m4a')!=='nota.m4a'||crypto.createHash('sha256').update('synthetic').digest('hex').length!==64)throw Error('API nativa incorrecta');
-        let denied=false;try{require('unbundled-package')}catch{denied=true}
-        if(!denied)throw Error('Se cargó una dependencia externa');
-        await(await api.transcribir(audio)).guardar();
-      };return module.exports;})()`,
-  };
-  const host = supervisor(state);
+  const host = supervisor();
   try {
     await host.ready;
-    await host.run("processRecording", { recordingId: "r" }).result;
-    assert.equal(state.recordings[0].versions.length, 1);
+    const id = await host.note({
+      id: "default", name: "Módulos nativos", kind: "code", values: {},
+      bundle: `var __recipe=(()=>{const module={exports:{}};const exports=module.exports;
+        const path=require('node:path');const crypto=require('node:crypto');
+        exports.flujo=async(audio,api)=>{
+          if(path.basename('/a/nota.m4a')!=='nota.m4a'||crypto.createHash('sha256').update('synthetic').digest('hex').length!==64)throw Error('API nativa incorrecta');
+          let denied=false;try{require('unbundled-package')}catch{denied=true}
+          if(!denied)throw Error('Se cargó una dependencia externa');
+          await(await api.transcribir(audio)).guardar();
+        };return module.exports;})()`,
+    });
+    await host.process(id);
+    assert.equal((await versions(host, id)).length, 1);
   } finally {
     host.close();
   }

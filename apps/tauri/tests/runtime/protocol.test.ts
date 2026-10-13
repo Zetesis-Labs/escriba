@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createInterface } from "node:readline";
+import { controllerEnvironment } from "./native";
 
 let directory = "";
 let executable = "";
@@ -26,7 +27,7 @@ interface Frame extends Record<string, unknown> {
 }
 function controller() {
   const child: ChildProcessWithoutNullStreams = spawn(executable, [], {
-    env: { ESCRIBA_DATA: directory },
+    env: controllerEnvironment(directory),
     cwd: "/",
   });
   const frames: Frame[] = [];
@@ -37,6 +38,7 @@ function controller() {
   });
   createInterface({ input: child.stdout }).on("line", (line) => {
     const frame = JSON.parse(line) as Frame;
+    if (frame.type === "call" || frame.type === "event") return;
     const waiter = waiters.shift();
     if (waiter) waiter(frame);
     else frames.push(frame);
@@ -85,9 +87,9 @@ test("un método que no es del controlador falla nombrándolo, sin cerrar el can
   const host = controller();
   try {
     await host.next();
-    const unknown = await host.command("c1", "snapshot");
+    const unknown = await host.command("c1", "inventado");
     assert.equal(unknown.type, "error");
-    assert.equal(unknown.message, "Método desconocido: snapshot");
+    assert.equal(unknown.message, "Método desconocido: inventado");
     const origin = await host.command("c2", "controller_status", {}, "recipe");
     assert.equal(origin.type, "error");
     assert.equal(origin.message, "Origen del comando no permitido");

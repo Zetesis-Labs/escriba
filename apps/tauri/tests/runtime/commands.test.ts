@@ -37,7 +37,6 @@ test("la lista de métodos reenviados por Rust coincide con la del controlador",
 
 test("cada comando solo admite su origen y los desconocidos fallan nombrándolos", async () => {
   const f = fixture();
-  await assert.rejects(f.commands.dispatch("remote_ask", {}, "ui"), /Origen no permitido para remote_ask/);
   await assert.rejects(f.commands.dispatch("credential_save", { id: "x", value: "" }, "shell"), /Origen no permitido/);
   await assert.rejects(f.commands.dispatch("inventado", {}, "ui"), /Método desconocido: inventado/);
   assert.deepEqual(await f.commands.dispatch("controller_status", {}, "ui"), { protocolVersion: 1, dataPath: "/datos" });
@@ -101,14 +100,3 @@ test("resolver_try usa el motor local por la cáscara y el remoto con la clave e
   assert.equal(seen.at(-1)?.headers.get("authorization"), null);
 });
 
-test("remote_ask y remote_transcribe solo los pide la cáscara y leen la clave guardada", async () => {
-  const seen: Request[] = [];
-  const f = fixture(async (request) => {
-    seen.push(request);
-    return new Response(JSON.stringify({ choices: [{ message: { content: "respuesta" } }] }), { status: 200 });
-  });
-  const answer = await f.commands.dispatch("remote_ask", { resolver: { url: "https://llm.example/v1", model: "m" }, resolverId: "remote-llm", instructions: "i", prompt: "p" }, "shell");
-  assert.equal(answer, "respuesta");
-  assert.equal(seen[0]?.headers.get("authorization"), "Bearer clave-llm");
-  await assert.rejects(f.commands.dispatch("remote_transcribe", { resolver: { url: "https://stt.example/v1", model: "m" }, path: "/no/existe.m4a" }, "shell"), /No se pudo leer el audio/);
-});

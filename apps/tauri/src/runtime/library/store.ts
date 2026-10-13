@@ -863,6 +863,9 @@ export class Store {
   knowledgeChange() {
     return this.database.knowledgeChange();
   }
+  knowledgeChanges(limit: number) {
+    return this.database.knowledgeChanges(limit);
+  }
   knowledgeAck(key: string, revision: string) {
     return this.database.knowledgeAck(key, revision);
   }

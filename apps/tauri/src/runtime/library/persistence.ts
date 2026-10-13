@@ -196,8 +196,11 @@ export class Persistence {
   knowledgePrepare(epoch: string) {
     return knowledgePrepare(this.db, epoch);
   }
-  knowledgeChange() {
-    return knowledgeChange(this.db);
+  async knowledgeChange() {
+    return (await knowledgeChanges(this.db, 1))[0];
+  }
+  knowledgeChanges(limit: number) {
+    return knowledgeChanges(this.db, limit);
   }
   knowledgeAck(key: string, revision: string) {
     return knowledgeAck(this.db, key, revision);
@@ -734,18 +737,21 @@ async function recordingSnapshot(db: Database, id: string): Promise<Json | null>
   });
   return result;
 }
-async function knowledgeChange(db: Database): Promise<CoreChange | undefined> {
-  const [found] = await run<[{ key: string; revision: string; kind: string; entity_id: string }[]]>(db, "SELECT key, revision, kind, entity_id FROM knowledge_dirty ORDER BY key LIMIT 1");
-  const row = found?.[0];
-  if (!row) return undefined;
-  let value: Json | null;
-  if (row.kind === "recording") value = await recordingSnapshot(db, row.entity_id);
-  else if (row.kind === "person") {
-    const [people] = await run<[Json[]]>(db, "SELECT payload.id AS id, payload.name AS name, payload.color AS color, payload.created_at AS createdAt FROM type::record('person', $key)", { key: row.entity_id });
-    const person = people?.[0];
-    value = person === undefined ? null : strings(person, ["id", "name", "color", "createdAt"]);
-  } else throw Error("Tipo de cambio de conocimiento desconocido");
-  return { key: row.key, revision: row.revision, kind: row.kind, id: row.entity_id, value };
+async function knowledgeChanges(db: Database, limit: number): Promise<CoreChange[]> {
+  if (!Number.isInteger(limit) || limit < 1 || limit > 1000) throw Error("Límite de cambios inválido");
+  const [found] = await run<[{ key: string; revision: string; kind: string; entity_id: string }[]]>(db, "SELECT key, revision, kind, entity_id FROM knowledge_dirty ORDER BY key LIMIT $limit", { limit });
+  const changes: CoreChange[] = [];
+  for (const row of found ?? []) {
+    let value: Json | null;
+    if (row.kind === "recording") value = await recordingSnapshot(db, row.entity_id);
+    else if (row.kind === "person") {
+      const [people] = await run<[Json[]]>(db, "SELECT payload.id AS id, payload.name AS name, payload.color AS color, payload.created_at AS createdAt FROM type::record('person', $key)", { key: row.entity_id });
+      const person = people?.[0];
+      value = person === undefined ? null : strings(person, ["id", "name", "color", "createdAt"]);
+    } else throw Error("Tipo de cambio de conocimiento desconocido");
+    changes.push({ key: row.key, revision: row.revision, kind: row.kind, id: row.entity_id, value });
+  }
+  return changes;
 }
 async function knowledgeAck(db: Database, key: string, revision: string) {
   await run(db, "DELETE type::record('knowledge_dirty', $key) WHERE revision = $revision", { key, revision });

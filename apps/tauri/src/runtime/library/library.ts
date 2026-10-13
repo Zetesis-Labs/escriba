@@ -17,6 +17,7 @@ export class Library {
   private queue: Promise<unknown> = Promise.resolve();
   private published: Published;
   private closing = false;
+  private readonly listeners = new Set<() => void>();
 
   private constructor(private readonly store: Store, published: Published) {
     this.published = published;
@@ -36,6 +37,21 @@ export class Library {
   }
   activeJobs(): Json[] {
     return this.published.activeJobs;
+  }
+  subscribe(listener: () => void): () => void {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  }
+  libraryView(): Record<string, Json> {
+    return this.store.library();
+  }
+  settingsJson(): Json {
+    return this.store.settingsJson();
+  }
+  watchedFolderBookmarks() {
+    return this.store.watchedFolderBookmarks();
   }
   async close() {
     this.closing = true;
@@ -68,6 +84,7 @@ export class Library {
     } catch (error) {
       throw Error(`La biblioteca guardó el cambio pero no pudo leer los trabajos activos: ${(error as Error).message}`);
     }
+    for (const listener of this.listeners) listener();
   }
   withStore<T>(operation: (store: Store) => Promise<T>): Promise<T> {
     return this.order(operation);
@@ -104,6 +121,9 @@ export class Library {
   }
   knowledgeChange(): Promise<CoreChange | undefined> {
     return this.store.knowledgeChange();
+  }
+  knowledgeChanges(limit: number): Promise<CoreChange[]> {
+    return this.store.knowledgeChanges(limit);
   }
   credential(key: string) {
     return this.store.credential(key);

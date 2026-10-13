@@ -858,7 +858,7 @@ export function createRuntime(
     rebuildProject(options: { loadOnly?: boolean } = {}) {
       const rebuilding = projectQueue.then(async () => {
         const snapshot = await readContext(host);
-        const built = object(await host.call(options.loadOnly ? "project_load" : "project_build"));
+        const built = object(await host.call(options.loadOnly ? "shell.project_load" : "shell.project_build"));
         if (!Array.isArray(built.recipes))
           throw Error("El proyecto no devolvió recetas");
         const recipes: Recipe[] = built.recipes.map((raw) => {

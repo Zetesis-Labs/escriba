@@ -133,7 +133,7 @@ test("instalar un proveedor externo no necesita crear su cuenta por adelantado",
   f.state.accounts = [];
   const provider = { id: "agenda", name: "Agenda", capability: "http", origin: "https://agenda.example", allowedHeaders: ["content-type"], defaultConfiguration: { board: "" } };
   const runtime = createRuntime({ call: async (method, params = {}) => {
-    if (method === "project_build") return { recipes: [], connectorProgram: "external" };
+    if (method === "shell.project_build") return { recipes: [], connectorProgram: "external" };
     return f.host.call(method, params);
   } }, { run: async () => ({ destinations: [], providers: [provider] }) });
   await runtime.rebuildProject();

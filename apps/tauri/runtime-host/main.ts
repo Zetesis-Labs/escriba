@@ -9,7 +9,11 @@ import {
 } from "../src/runtime/workerClient";
 import { object, text, message, errorCode, protocolError, jsonObject, json } from "../src/runtime/contracts";
 import { createCommands, isOrigin, registerControllerCommands } from "../src/runtime/commands";
+import { registerDomainCommands, warnAboutUnusable, type Tasks } from "../src/runtime/domain";
+import { startHistorySweep, startLanes } from "../src/runtime/lanes";
 import { fileCredentials } from "../src/runtime/credentials";
+import { Library } from "../src/runtime/library/library";
+import { Queue } from "../src/runtime/library/queue";
 import type { NativeStatus, ProcessOptions } from "../src/types";
 declare const __WORKER_SOURCE__: string;
 declare const __BUILTIN_PROGRAM__: string;
@@ -97,6 +101,16 @@ async function workerProcess() {
   await writing;
 }
 async function main() {
+  const dataPath = process.env.ESCRIBA_DATA;
+  if (!dataPath) throw Error("Falta la carpeta de datos (ESCRIBA_DATA)");
+  const library = await Library.open(dataPath);
+  try {
+    await serve(library, dataPath);
+  } finally {
+    await library.close();
+  }
+}
+async function serve(library: Library, dataPath: string) {
   const context = new AsyncLocalStorage<ID>();
   const pending = new Map<
     string,
@@ -186,18 +200,48 @@ async function main() {
   const runtime = createRuntime(host, scopedRunner, {
     builtinProgram: __BUILTIN_PROGRAM__,
   });
-  runtime.subscribeJobs(() => {
-    void send({ type: "event", event: "jobs", value: runtime.getJobs() });
-  });
-  const dataPath = process.env.ESCRIBA_DATA ?? "";
-  registerControllerCommands(commands, {
-    host,
-    dataPath,
-    credentials: fileCredentials(dataPath),
-    emit: (event, value) => {
-      void send({ type: "event", event, value: value ?? null });
+  const emit = (event: string, value?: unknown) => {
+    void send({ type: "event", event, value: value ?? null });
+  };
+  const log = (text: string) => {
+    try {
+      library.log({ message: text, level: "error" });
+    } catch (error) {
+      process.stderr.write(`${text}: ${message(error)}\n`);
+    }
+  };
+  const tasks: Tasks = {
+    current: () => {
+      const id = context.getStore();
+      return typeof id === "string" ? id : undefined;
     },
+    run(id, recordingId, body) {
+      if (running.has(id)) return Promise.reject(Error("ID de ejecución repetido"));
+      running.set(id, { recordingId, abort: new AbortController() });
+      return context.run(id, body).finally(() => {
+        running.delete(id);
+      });
+    },
+    cancel(id) {
+      const task = running.get(id);
+      if (!task) return;
+      context.run(id, () => {
+        task.abort.abort();
+        for (const [callId, waiter] of pending) {
+          if (waiter.taskId === id) {
+            pending.delete(callId);
+            waiter.reject(new DOMException("Proceso cancelado", "AbortError"));
+          }
+        }
+        if (task.recordingId) runtime.cancelProcessing(task.recordingId);
+      });
+    },
+  };
+  const queue = await Queue.open(library);
+  runtime.subscribeJobs(() => {
+    void queue.stages(runtime.getJobs()).catch((error) => log(message(error)));
   });
+  library.subscribe(() => emit("status", { recordings: library.index().recordings.length, jobs: queue.visible() }));
   async function execute(operation: string, args: Record<string, unknown>) {
     switch (operation) {
       case "notificationProblems":
@@ -254,7 +298,31 @@ async function main() {
         throw Error(`Operación no permitida: ${operation}`);
     }
   }
+  const domain = {
+    library,
+    queue,
+    host,
+    credentials: fileCredentials(dataPath),
+    tasks,
+    execute,
+    notificationProblems: (status: NativeStatus) => runtime.notificationProblems(status),
+    emit,
+    log,
+  };
+  registerControllerCommands(commands, { host, dataPath, credentials: domain.credentials, emit });
+  registerDomainCommands(commands, domain);
+  void (async () => {
+    for (;;) {
+      await queue.changed.notified();
+      if (closing) return;
+      emit("jobs", queue.visible());
+      emit("changed");
+    }
+  })();
+  const stopLanes = startLanes(domain);
+  const stopSweep = startHistorySweep(queue, log);
   await send({ type: "ready", protocolVersion: 1 });
+  void warnAboutUnusable(domain).catch((error) => log(message(error)));
   let channelError: unknown;
   try {
     for await (const raw of frames()) {
@@ -282,60 +350,24 @@ async function main() {
         continue;
       }
       if (frame.type === "cancel") {
-        const task = running.get(id);
-        if (task)
-          context.run(id, () => {
-            task.abort.abort();
-            for (const [callId, waiter] of pending) {
-              if (waiter.taskId === id) {
-                pending.delete(callId);
-                waiter.reject(
-                  new DOMException("Proceso cancelado", "AbortError"),
-                );
-              }
-            }
-            if (task.recordingId) runtime.cancelProcessing(task.recordingId);
-          });
+        tasks.cancel(String(id));
         continue;
       }
-      if (frame.type === "command") {
-        if (running.has(id)) {
-          await send({ type: "error", id, message: "ID de ejecución repetido" });
-          continue;
-        }
-        running.set(id, { abort: new AbortController() });
-        void context.run(id, async () => {
-          try {
-            if (!isOrigin(frame.origin)) throw Error("Origen del comando no permitido");
-            const result = await commands.dispatch(
-              text(frame.method, "método"),
-              object(frame.params ?? {}),
-              frame.origin,
-            );
-            if (!closing) await send({ type: "result", id, value: result ?? null });
-          } catch (error) {
-            if (!closing) await send({ type: "error", id, message: message(error), code: errorCode(error) });
-          } finally {
-            running.delete(id);
-          }
-        });
-        continue;
-      }
-      if (frame.type !== "run") throw Error("Trama de protocolo no permitida");
+      if (frame.type !== "command") throw Error("Trama de protocolo no permitida");
       if (running.has(id)) {
         await send({ type: "error", id, message: "ID de ejecución repetido" });
         continue;
       }
-      const args = object(frame.args || {});
-      const operation = text(frame.operation, "operación");
-      running.set(id, {
-        recordingId:
-          typeof args.recordingId === "string" ? args.recordingId : undefined,
-        abort: new AbortController(),
-      });
+      if (!isOrigin(frame.origin)) {
+        await send({ type: "error", id, message: "Origen del comando no permitido" });
+        continue;
+      }
+      const origin = frame.origin;
+      const params = object(frame.params ?? {});
+      running.set(id, { abort: new AbortController() });
       void context.run(id, async () => {
         try {
-          const result = await execute(operation, args);
+          const result = await commands.dispatch(text(frame.method, "método"), params, origin);
           if (!closing) await send({ type: "result", id, value: result ?? null });
         } catch (error) {
           if (!closing) await send({ type: "error", id, message: message(error), code: errorCode(error) });
@@ -355,6 +387,8 @@ async function main() {
     throw error;
   } finally {
     closing ??= Error(channelError ? message(channelError) : "El host cerró el canal");
+    stopLanes();
+    stopSweep();
     for (const waiter of pending.values())
       waiter.reject(closing);
     pending.clear();
@@ -362,6 +396,7 @@ async function main() {
     for (const worker of workers.values()) worker.terminate();
     workers.clear();
     workerTasks.clear();
+    queue.changed.notifyWaiters();
   }
   await writing;
 }

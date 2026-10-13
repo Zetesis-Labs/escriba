@@ -18,7 +18,7 @@ test("serializa construcción e instalación y permite reintentar después de un
     call: async (method) => {
       events.push(method);
       if (method === "runtime_context") return runtimeContext(snapshot);
-      if (method === "project_build" || method === "project_load") return { recipes: [] };
+      if (method === "shell.project_build" || method === "shell.project_load") return { recipes: [] };
       if (method === "project_install" && ++installations === 1) {
         entered();
         await paused;
@@ -32,15 +32,15 @@ test("serializa construcción e instalación y permite reintentar después de un
   const second = runtime.rebuildProject({ loadOnly: true });
   await new Promise<void>((resolve) => setImmediate(resolve));
   try {
-    assert.deepEqual(events, ["runtime_context", "project_build", "project_install"]);
+    assert.deepEqual(events, ["runtime_context", "shell.project_build", "project_install"]);
   } finally {
     release();
     await first;
     await second;
   }
   assert.deepEqual(events, [
-    "runtime_context", "project_build", "project_install",
-    "runtime_context", "project_load", "project_install",
+    "runtime_context", "shell.project_build", "project_install",
+    "runtime_context", "shell.project_load", "project_install",
   ]);
 });
 
@@ -448,7 +448,7 @@ test("catálogo se instala solo después de inspeccionar todo y conserva ajustes
   const installed: Record<string, unknown>[] = [];
   const host: RuntimeHost = {
     call: async (method, params) => {
-      if (method === "project_build")
+      if (method === "shell.project_build")
         return {
           recipes: [
             {
@@ -512,8 +512,8 @@ test("cargar dist inspecciona e instala el artefacto sin reconstruir las fuentes
   const host: RuntimeHost = {
     call: async (method, params) => {
       calls.push(method);
-      if (method === "project_build") throw Error("No debe compilar fuentes");
-      if (method === "project_load") return { recipes: [
+      if (method === "shell.project_build") throw Error("No debe compilar fuentes");
+      if (method === "shell.project_load") return { recipes: [
         { id: "externa", name: "Externa", entry: "src/recetas/externa/receta.ts", bundle: "external-dist" },
       ] };
       if (method === "project_install") return null;
@@ -529,8 +529,8 @@ test("cargar dist inspecciona e instala el artefacto sin reconstruir las fuentes
     },
   });
   await controller.rebuildProject({ loadOnly: true });
-  assert.ok(!calls.includes("project_build"));
-  assert.ok(calls.includes("project_load"));
+  assert.ok(!calls.includes("shell.project_build"));
+  assert.ok(calls.includes("shell.project_load"));
   assert.ok(calls.includes("project_install"));
   assert.deepEqual(inspected, ["external-dist"]);
 });

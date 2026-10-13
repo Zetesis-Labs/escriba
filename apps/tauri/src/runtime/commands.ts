@@ -3,7 +3,7 @@ import { object, readContext, text, type RuntimeHost } from "./contracts";
 import type { CredentialStore } from "./credentials";
 import { authorizedAccess, httpWithGrant, type AudioFile, type HttpTransport } from "./http";
 import * as remote from "./remote";
-import { UI_CONTROLLER_METHODS, SHELL_CONTROLLER_METHODS } from "./controllerMethods";
+import { publicReply } from "./library/voices";
 
 export type CommandOrigin = "ui" | "shell";
 export type CommandHandler = (params: Record<string, unknown>, origin: CommandOrigin) => Promise<unknown>;
@@ -25,7 +25,7 @@ export function createCommands(): CommandRegistry {
       const entry = handlers.get(method);
       if (!entry) throw Error(`Método desconocido: ${method}`);
       if (!entry.origins.includes(origin)) throw Error(`Origen no permitido para ${method}`);
-      return entry.handler(params, origin);
+      return publicReply(await entry.handler(params, origin));
     },
   };
 }
@@ -37,7 +37,6 @@ export interface ControllerDependencies {
   emit(event: string, value?: unknown): void;
 }
 const UI: readonly CommandOrigin[] = ["ui"];
-const SHELL: readonly CommandOrigin[] = ["shell"];
 const ANY: readonly CommandOrigin[] = ["ui", "shell"];
 function optionalText(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value : undefined;
@@ -104,14 +103,4 @@ export function registerControllerCommands(commands: CommandRegistry, deps: Cont
     if (llm) return remote.ask(resolver, secret, { ...request, schema: remote.digestSchema() }, transport);
     return { text: await remote.probeTranscription(resolver, secret, transport) };
   });
-  commands.register("remote_transcribe", SHELL, async (params) => {
-    const secret = await storedSecret(credentials, params);
-    return remote.transcribe(resolverFrom(params), secret, text(params.path, "path"), params, transport);
-  });
-  commands.register("remote_ask", SHELL, async (params) => {
-    const secret = await storedSecret(credentials, params);
-    return remote.ask(resolverFrom(params), secret, params, transport);
-  });
-  for (const method of [...UI_CONTROLLER_METHODS, ...SHELL_CONTROLLER_METHODS])
-    if (!commands.owns(method)) throw Error(`Falta el comando ${method}`);
 }

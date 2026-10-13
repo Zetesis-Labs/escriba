@@ -1,6 +1,5 @@
 import { chmodSync, existsSync, mkdirSync } from "node:fs";
 import { Surreal } from "surrealdb";
-import { createNodeEngines } from "@surrealdb/node";
 import type { Json } from "./json";
 
 export type Database = Surreal;
@@ -19,7 +18,7 @@ export async function openDatabase(path: string, namespace: string, database: st
   chmodSync(path, 0o700);
   for (let attempt = 0; ; attempt++) {
     const db = new Surreal({
-      engines: createNodeEngines({
+      engines: (await import("@surrealdb/node")).createNodeEngines({
         defaults: false,
         capabilities: { scripting: false, guest_access: false, live_query_notifications: false, network_targets: false, experimental: false },
       }),
