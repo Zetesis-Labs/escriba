@@ -2,7 +2,8 @@ import { afterEach, test } from "vitest";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
-import { cp, mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { cp, mkdtemp, mkdir, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { runInNewContext } from "node:vm";
@@ -22,7 +23,7 @@ afterEach(async () => {
 });
 
 async function project() {
-  const folder = await mkdtemp(join("/private/tmp", "escriba-project-"));
+  const folder = await mkdtemp(join(await realpath(tmpdir()), "escriba-project-"));
   folders.push(folder);
   return folder;
 }
