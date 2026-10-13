@@ -7,7 +7,7 @@ async fn la_base_expone_la_biblioteca_y_solo_permite_consultarla() {
     let graph = Knowledge::open(&temp.path().join("knowledge.rocksdb"))
         .await
         .unwrap();
-    let change = crate::persistence::CoreChange {
+    let change = crate::knowledge::CoreChange {
         key: "recording:audio".into(),
         revision: "one".into(),
         kind: "recording".into(),
@@ -94,7 +94,7 @@ async fn la_base_expone_la_biblioteca_y_solo_permite_consultarla() {
         .is_err());
     assert!(graph.apply(base_definition()).await.is_err());
     graph
-        .sync_base_change(&crate::persistence::CoreChange {
+        .sync_base_change(&crate::knowledge::CoreChange {
             value: None,
             revision: "two".into(),
             ..change
@@ -221,12 +221,12 @@ async fn una_extension_anterior_llamada_escriba_no_se_retira_ni_se_sustituye() {
     assert!(error.contains("identificador reservado"), "{error}");
 }
 
-fn note(title: &str, versions: Value) -> crate::persistence::CoreChange {
+fn note(title: &str, versions: Value) -> crate::knowledge::CoreChange {
     note_at(title, Some("v1"), versions)
 }
 
-fn note_at(title: &str, current: Option<&str>, versions: Value) -> crate::persistence::CoreChange {
-    crate::persistence::CoreChange {
+fn note_at(title: &str, current: Option<&str>, versions: Value) -> crate::knowledge::CoreChange {
+    crate::knowledge::CoreChange {
         key: "recording:nota".into(),
         revision: Uuid::new_v4().to_string(),
         kind: "recording".into(),
@@ -291,7 +291,7 @@ async fn solo_se_proyecta_la_version_vigente_y_elegir_otra_la_sustituye() {
         .await
         .unwrap();
     graph
-        .sync_base_change(&crate::persistence::CoreChange {
+        .sync_base_change(&crate::knowledge::CoreChange {
             key: "person:ana".into(),
             revision: "p".into(),
             kind: "person".into(),

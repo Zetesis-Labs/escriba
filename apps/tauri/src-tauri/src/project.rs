@@ -1279,10 +1279,7 @@ fn bounded_output(mut stream: impl Read, limit: usize) -> Result<LimitedOutput, 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::{
-        os::unix::fs::symlink,
-        sync::{Arc, Mutex},
-    };
+    use std::{os::unix::fs::symlink, sync::Arc};
 
     fn initialize_test(path: &Path, accounts: &Value, vendor: &Path) -> Result<bool, String> {
         let runtime = crate::native::binary("escriba-runtime")?;
@@ -1987,95 +1984,95 @@ mod tests {
         initialize_test(folder.path(), &json!([]), &vendor).unwrap();
         write(folder.path(), "recetas/mi-receta/receta.js", "export const receta={nombre:'Mi receta heredada'}; export async function flujo(audio,escriba){ const nota=await escriba.transcribir(audio); await nota.guardar(); }").unwrap();
         let recipes = build(folder.path(), &runtime, &vendor).unwrap()["recipes"].clone();
-        let state = Arc::new(Mutex::new(json!({
-            "recordings":[{"id":"r","title":"Nota","createdAt":"2026-10-09T10:00:00Z","source":"sintético","audioPath":"/opaque","duration":0,"status":"pending","versions":[],"publications":[]}],
-            "resolvers":[{"id":"local-stt","name":"Whisper","role":"stt","local":true,"enabled":true},{"id":"local-llm","name":"Apple","role":"llm","local":true,"enabled":true}],
-            "recipes":recipes,"accounts":[],"destinations":[],
-            "settings":{"defaultRecipeId":"mi-receta","projectPath":null,"watchedFolders":[],"language":"es","whisperModel":"large","autoProcess":false,"launchAtLogin":false,"theme":"system"},
-            "logs":[],"dataPath":"/synthetic"
-        })));
-        let capability: crate::scripts::Capability = {
-            let state = state.clone();
-            Arc::new(move |method, params, _, lease| {
-                let state = state.clone();
-                Box::pin(async move {
-                    lease.ensure_active()?;
-                    let mut snapshot = state.lock().unwrap();
-                    let record = &mut snapshot["recordings"][0];
-                    match method.as_str() {
-                        "runtime_context" => {
-                            let mut context = snapshot.clone();
-                            context["recordings"] = json!(snapshot["recordings"]
-                                .as_array()
-                                .unwrap()
-                                .iter()
-                                .filter(|recording| params["recordingId"] == recording["id"])
-                                .cloned()
-                                .collect::<Vec<_>>());
-                            Ok(context)
-                        }
-                        "transcribe" => Ok(json!({"text":"Audio sintético","segments":[]})),
-                        "version_save" => {
-                            let mut version = params.clone();
-                            version["id"] = json!("v1");
-                            version["createdAt"] = json!("now");
-                            record["versions"]
-                                .as_array_mut()
-                                .unwrap()
-                                .push(version.clone());
-                            record["currentVersionId"] = json!("v1");
-                            Ok(version)
-                        }
-                        "version_update" => Ok(Value::Null),
-                        "version_select" => {
-                            record["currentVersionId"] = params["versionId"].clone();
-                            Ok(Value::Null)
-                        }
-                        "recording_update" => {
-                            for key in ["status", "error", "recipeId"] {
-                                if let Some(value) = params.get(key) {
-                                    record[key] = value.clone();
-                                }
-                            }
-                            Ok(record.clone())
-                        }
-                        "log" | "memory_recall" | "memory_keep" | "trace_save" => Ok(Value::Null),
-                        _ => Err(format!("Capacidad inesperada: {method}")),
-                    }
-                    .map_err(Into::into)
-                })
+        let data = tempfile::tempdir().unwrap();
+        let scripts = crate::scripts::Scripts::new(runtime)
+            .with_env(crate::scripts::controller_env(data.path()));
+        let capability: crate::scripts::Capability = Arc::new(|method, params| {
+            Box::pin(async move {
+                match method.as_str() {
+                    "shell.native" => match params["method"].as_str() {
+                        Some("status") => Ok(
+                            json!({"protocolVersion":1,"whisper":{"available":true},"llm":{"available":true},"problems":[]}),
+                        ),
+                        Some("transcribe") => Ok(json!({"text":"Audio sintético","segments":[]})),
+                        _ => Err("Método nativo inesperado".into()),
+                    },
+                    "shell.notify" | "shell.native_cancel" | "shell.autolaunch" => Ok(Value::Null),
+                    _ => Err(format!("Capacidad inesperada: {method}").into()),
+                }
             })
-        };
-        let scripts =
-            crate::scripts::Scripts::new(crate::native::binary("escriba-runtime").unwrap());
+        });
         let events: crate::scripts::Events = Arc::new(|_| {});
         let schema = scripts
-            .call(
-                "legacy-schema",
-                "getRecipeSchema",
-                json!({"recipeId":"mi-receta"}),
+            .command(
+                "config_save",
+                json!({"collection":"recipes","item":recipes.as_array().unwrap().iter().find(|item| item["id"] == "mi-receta").unwrap()}),
+                crate::scripts::Origin::Ui,
+                capability.clone(),
+                events.clone(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(schema["id"], "mi-receta");
+        scripts
+            .command(
+                "settings_save",
+                json!({"settings":{"defaultRecipeId":"mi-receta"}}),
+                crate::scripts::Origin::Ui,
+                capability.clone(),
+                events.clone(),
+            )
+            .await
+            .unwrap();
+        let schema = scripts
+            .command(
+                "runtime_run",
+                json!({"operation":"getRecipeSchema","args":{"recipeId":"mi-receta"}}),
+                crate::scripts::Origin::Ui,
                 capability.clone(),
                 events.clone(),
             )
             .await
             .unwrap();
         assert!(schema.is_null());
-        scripts
-            .call(
-                "legacy-run",
-                "processRecording",
-                json!({"recordingId":"r","options":{"force":false}}),
-                capability,
-                events,
+        let inbox = data.path().join("inbox");
+        fs::create_dir_all(&inbox).unwrap();
+        let audio = inbox.join("legacy.wav");
+        fs::write(&audio, b"audio sintetico").unwrap();
+        let imported = scripts
+            .command(
+                "import_inbox",
+                json!({"files":[{"inbox":audio,"source":"/origen/legacy.wav"}]}),
+                crate::scripts::Origin::Shell,
+                capability.clone(),
+                events.clone(),
             )
             .await
             .unwrap();
-        let saved = state.lock().unwrap();
-        assert_eq!(saved["recordings"][0]["status"], "done");
-        assert_eq!(
-            saved["recordings"][0]["versions"].as_array().unwrap().len(),
-            1
-        );
+        let id = imported[0]["id"].as_str().unwrap();
+        let saved = tokio::time::timeout(std::time::Duration::from_secs(20), async {
+            loop {
+                let saved = scripts
+                    .command(
+                        "recording_detail",
+                        json!({"id":id}),
+                        crate::scripts::Origin::Ui,
+                        capability.clone(),
+                        events.clone(),
+                    )
+                    .await
+                    .unwrap();
+                if saved["status"] == "done" || saved["status"] == "failed" {
+                    break saved;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(saved["status"], "done");
+        assert_eq!(saved["versions"].as_array().unwrap().len(), 1);
+        scripts.shutdown().await;
     }
 
     #[test]

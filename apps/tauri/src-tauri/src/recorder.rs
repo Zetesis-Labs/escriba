@@ -1,5 +1,5 @@
 use crate::recording::{self, Problem, Session};
-use crate::{menubar, store::text, Runtime};
+use crate::{menubar, util::text, Runtime};
 use serde_json::{json, Value};
 use std::{fs, path::PathBuf, sync::Arc, time::Duration};
 use tauri::{
@@ -36,23 +36,18 @@ pub async fn start(
         return Ok(view(state));
     }
     set_problem(state, None);
-    let (path, recipe_name) = {
-        let store = state.library.index();
-        let name = recipe_id.as_deref().and_then(|id| {
-            store
-                .recipes
-                .as_array()?
-                .iter()
-                .find(|recipe| recipe["id"] == id)
-                .and_then(|recipe| recipe["name"].as_str())
-                .map(str::to_owned)
-        });
-        let path = store
-            .root()
-            .join("captures")
-            .join(recording::recording_name(chrono::Local::now()));
-        (path, name)
+    let recipe_name = match recipe_id.as_deref() {
+        Some(id) => state
+            .controller("recipe_name", json!({"id": id}))
+            .await?
+            .as_str()
+            .map(str::to_owned),
+        None => None,
     };
+    let path = state
+        .library_root
+        .join("captures")
+        .join(recording::recording_name(chrono::Local::now()));
     match state
         .recorder
         .call("recordingStart", json!({"outputPath":path}))
@@ -83,8 +78,6 @@ pub async fn stop(app: &AppHandle, state: &Arc<Runtime>) -> Result<Value, String
         set_problem(state, Some(Problem::saving(error)));
     }
     changed(app, state);
-    let _ = app.emit("escriba://changed", ());
-    state.jobs.wake_all();
     saved
 }
 
@@ -110,32 +103,21 @@ pub fn dismiss(app: &AppHandle, state: &Runtime) {
     changed(app, state);
 }
 
-async fn save(state: &Runtime, session: &Session) -> Result<Value, String> {
+async fn save(state: &Arc<Runtime>, session: &Session) -> Result<Value, String> {
     let reply = state
         .recorder
         .call("recordingStop", json!({}))
         .await
         .map_err(|error| error.to_string())?;
     let path = PathBuf::from(text(&reply, "audioPath")?);
-    let staged = {
-        let root = state.library_root.clone();
-        let path = path.clone();
-        tokio::task::spawn_blocking(move || crate::store::stage_audio(&root, &path, false))
-            .await
-            .map_err(|e| e.to_string())??
-    };
-    let updated = state
-        .library
-        .import_recorded(
-            staged,
-            path.clone(),
-            session.recipe_id.clone(),
-            json!({"duration":reply["duration"],"createdAt":session.started_at.to_rfc3339()}),
-        )
-        .await?;
-    fs::remove_file(&path)
-        .map_err(|e| format!("Audio guardado; no se pudo retirar la captura temporal: {e}"))?;
-    Ok(updated)
+    crate::audio_ingress::recorded(
+        &crate::audio_port(state),
+        path,
+        session.recipe_id.clone(),
+        reply["duration"].clone(),
+        session.started_at.to_rfc3339(),
+    )
+    .await
 }
 
 fn take(state: &Runtime) -> Result<Option<Session>, String> {

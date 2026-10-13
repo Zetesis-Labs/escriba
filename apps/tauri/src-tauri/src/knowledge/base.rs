@@ -1,5 +1,5 @@
 use super::*;
-use crate::persistence::CoreChange;
+use crate::knowledge::CoreChange;
 use serde_json::json;
 use std::collections::BTreeMap;
 use surrealdb::types::{Object, RecordId};

@@ -251,6 +251,11 @@ export function registerDomainCommands(commands: CommandRegistry, deps: DomainDe
   });
   named("okf_file", UI, undefined, (p) => host.call("shell.okf_file", { account: library.item("accounts", text(p.accountId, "accountId")), path: text(p.path, "path"), action: text(p.action, "action") }));
   named("settings_read", SHELL, undefined, async () => library.settingsJson());
+  named("recipe_name", SHELL, undefined, async (p) => {
+    const recipes = library.index().recipes;
+    const found = Array.isArray(recipes) ? recipes.find((entry) => isObject(entry) && entry.id === p.id) : undefined;
+    return isObject(found) && typeof found.name === "string" ? found.name : null;
+  });
   named("project_context", SHELL, undefined, async () => {
     const index = library.index();
     return { path: index.settings.projectPath ?? null, accounts: projectAccounts(index.accounts, index.destinations) };

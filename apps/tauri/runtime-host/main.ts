@@ -241,7 +241,8 @@ async function serve(library: Library, dataPath: string) {
   runtime.subscribeJobs(() => {
     void queue.stages(runtime.getJobs()).catch((error) => log(message(error)));
   });
-  library.subscribe(() => emit("status", { recordings: library.index().recordings.length, jobs: queue.visible() }));
+  const status = () => emit("status", { recordings: library.index().recordings.filter((entry) => entry.status !== "discarded").length, jobs: queue.visible(), settings: library.settingsJson() });
+  library.subscribe(status);
   async function execute(operation: string, args: Record<string, unknown>) {
     switch (operation) {
       case "notificationProblems":
@@ -309,7 +310,7 @@ async function serve(library: Library, dataPath: string) {
     emit,
     log,
   };
-  registerControllerCommands(commands, { host, dataPath, credentials: domain.credentials, emit });
+  registerControllerCommands(commands, { host, dataPath, credentials: domain.credentials, audioPath: (recordingId) => library.audio(recordingId), emit });
   registerDomainCommands(commands, domain);
   void (async () => {
     for (;;) {
@@ -322,12 +323,14 @@ async function serve(library: Library, dataPath: string) {
   const stopLanes = startLanes(domain);
   const stopSweep = startHistorySweep(queue, log);
   await send({ type: "ready", protocolVersion: 1 });
+  status();
   void warnAboutUnusable(domain).catch((error) => log(message(error)));
   let channelError: unknown;
   try {
     for await (const raw of frames()) {
       const frame = object(raw);
       const id = identifier(frame.id);
+      if (frame.type === "shutdown") break;
       if (frame.type === "resolve" || frame.type === "reject") {
         const waiter = pending.get(String(id));
         if (!waiter) continue;
@@ -408,7 +411,10 @@ try {
     if (!root || !vendor) throw Error("Falta el proyecto o las dependencias incluidas");
     await buildProject(root, vendor);
   } else if (process.argv.includes("--worker")) await workerProcess();
-  else await main();
+  else {
+    await main();
+    process.exit(0);
+  }
 } catch (error) {
   process.stderr.write(`${message(error)}\n`);
   process.exitCode = 1;

@@ -1,9 +1,7 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::cmp::Ordering;
-use std::collections::{HashMap, HashSet};
-
-pub const MATCH_THRESHOLD: f32 = 0.30;
+use std::collections::HashMap;
 
 pub fn public_reply(value: Value) -> Result<Value, String> {
     fn has_embedding(value: &Value) -> bool {
@@ -22,27 +20,11 @@ pub fn public_reply(value: Value) -> Result<Value, String> {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub struct SpeakerVoice {
     pub speaker: String,
     pub embedding: Vec<f32>,
     pub model: String,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct KnownVoice {
-    pub person: String,
-    pub person_id: String,
-    pub embedding: Vec<f32>,
-    pub model: String,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct Recognition {
-    pub speaker: String,
-    pub person: String,
-    pub person_id: String,
-    pub distance: f32,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
@@ -50,81 +32,6 @@ pub struct SpeakerSpan {
     pub speaker: String,
     pub start: f64,
     pub end: f64,
-}
-
-pub fn cosine_distance(a: &[f32], b: &[f32]) -> Option<f32> {
-    if a.is_empty() || a.len() != b.len() {
-        return None;
-    }
-    let (dot, norm_a, norm_b) = a.iter().zip(b).fold((0.0, 0.0, 0.0), |sum, (a, b)| {
-        (sum.0 + a * b, sum.1 + a * a, sum.2 + b * b)
-    });
-    if !dot.is_finite()
-        || !norm_a.is_finite()
-        || !norm_b.is_finite()
-        || norm_a <= 0.0
-        || norm_b <= 0.0
-    {
-        return None;
-    }
-    Some((1.0 - dot / (norm_a.sqrt() * norm_b.sqrt())).clamp(0.0, 2.0))
-}
-
-pub fn recognize(voices: &[SpeakerVoice], known: &[KnownVoice]) -> Vec<Recognition> {
-    let mut candidates = Vec::new();
-    let mut speakers = HashSet::new();
-    for voice in voices {
-        if !speakers.insert(voice.speaker.as_str()) {
-            continue;
-        }
-        let mut people = HashSet::new();
-        for person in known {
-            if !people.insert(person.person.as_str()) {
-                continue;
-            }
-            let nearest = voices
-                .iter()
-                .filter(|own| own.speaker == voice.speaker)
-                .flat_map(|own| {
-                    known
-                        .iter()
-                        .filter(move |candidate| {
-                            candidate.person == person.person && candidate.model == own.model
-                        })
-                        .filter_map(move |candidate| {
-                            cosine_distance(&own.embedding, &candidate.embedding)
-                        })
-                })
-                .min_by(|left, right| left.partial_cmp(right).unwrap_or(Ordering::Equal));
-            if let Some(distance) = nearest.filter(|distance| *distance <= MATCH_THRESHOLD) {
-                candidates.push(Recognition {
-                    speaker: voice.speaker.clone(),
-                    person: person.person.clone(),
-                    person_id: person.person_id.clone(),
-                    distance,
-                });
-            }
-        }
-    }
-    candidates.sort_by(|left, right| {
-        left.distance
-            .partial_cmp(&right.distance)
-            .unwrap_or(Ordering::Equal)
-    });
-    let mut used_speakers = HashSet::new();
-    let mut used_people = HashSet::new();
-    candidates
-        .into_iter()
-        .filter(|candidate| {
-            if used_speakers.contains(&candidate.speaker) || used_people.contains(&candidate.person)
-            {
-                return false;
-            }
-            used_speakers.insert(candidate.speaker.clone());
-            used_people.insert(candidate.person.clone());
-            true
-        })
-        .collect()
 }
 
 pub fn speech_by_speaker(spans: &[SpeakerSpan]) -> HashMap<String, f64> {
@@ -166,65 +73,6 @@ mod tests {
         }
     }
 
-    fn known(person: &str, embedding: &[f32], model: &str) -> KnownVoice {
-        KnownVoice {
-            person_id: person.into(),
-            person: person.into(),
-            embedding: embedding.into(),
-            model: model.into(),
-        }
-    }
-
-    #[test]
-    fn coseno_mide_direccion_y_descarta_huellas_invalidas() {
-        assert_eq!(cosine_distance(&[1.0, 0.0], &[2.0, 0.0]), Some(0.0));
-        assert_eq!(cosine_distance(&[1.0, 0.0], &[-1.0, 0.0]), Some(2.0));
-        assert_eq!(cosine_distance(&[1.0, 0.0], &[0.0, 1.0]), Some(1.0));
-        assert_eq!(cosine_distance(&[1.0], &[1.0, 0.0]), None);
-        assert_eq!(cosine_distance(&[0.0, 0.0], &[1.0, 0.0]), None);
-    }
-
-    #[test]
-    fn reconoce_por_modelo_y_umbral_con_asignacion_uno_a_uno() {
-        let found = recognize(
-            &[
-                voice("Speaker 1", &[1.0, 0.2], "m"),
-                voice("Speaker 2", &[1.0, 0.05], "m"),
-                voice("Speaker 3", &[0.0, 1.0], "otro"),
-            ],
-            &[
-                known("Rubén", &[1.0, 0.0], "m"),
-                known("Nuria", &[0.0, 1.0], "m"),
-            ],
-        );
-        assert_eq!(found.len(), 1);
-        assert_eq!(found[0].speaker, "Speaker 2");
-        assert_eq!(found[0].person, "Rubén");
-        assert!(found[0].distance < 0.01);
-    }
-
-    #[test]
-    fn reconoce_la_huella_mas_cercana_entre_varias_de_cada_persona() {
-        let found = recognize(
-            &[
-                voice("Speaker 1", &[0.01, 1.0], "m"),
-                voice("Speaker 1", &[1.0, 0.0], "m"),
-                voice("Speaker 2", &[0.0, 1.0], "m"),
-            ],
-            &[
-                known("Rubén", &[1.0, 0.01], "m"),
-                known("Nuria", &[0.0, 1.0], "m"),
-            ],
-        );
-        assert_eq!(
-            found
-                .iter()
-                .map(|item| (item.speaker.as_str(), item.person.as_str()))
-                .collect::<Vec<_>>(),
-            vec![("Speaker 2", "Nuria"), ("Speaker 1", "Rubén")]
-        );
-    }
-
     #[test]
     fn la_muestra_elige_la_voz_que_habla_al_menos_treinta_segundos() {
         let voices = vec![voice("S1", &[1.0, 0.0], "m"), voice("S2", &[0.0, 1.0], "m")];
@@ -251,6 +99,15 @@ mod tests {
             Some(voices[1].clone())
         );
         assert_eq!(dominant_voice(&voices, &spans, 32.0), None);
+    }
+
+    #[test]
+    fn la_voz_se_serializa_para_guardarla_en_el_controlador() {
+        let value = serde_json::to_value(voice("S1", &[1.0, 0.0], "m")).unwrap();
+        assert_eq!(
+            value,
+            serde_json::json!({"speaker":"S1","embedding":[1.0,0.0],"model":"m"})
+        );
     }
 
     #[test]

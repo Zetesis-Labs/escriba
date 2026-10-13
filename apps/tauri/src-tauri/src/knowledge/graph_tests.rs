@@ -65,7 +65,7 @@ async fn recorre_referencias_entre_ontologias_y_conserva_destinos_borrados() {
     let (_temp, graph) = fixture().await;
     graph.apply(serde_json::from_value(json!({"id":"contacts","name":"Contactos","version":1,"migrations":[{"version":1,"sql":"DEFINE TABLE contact SCHEMALESS PERMISSIONS FULL;"}],"collections":[{"table":"contact","label":"Contactos","titleField":"name","fields":[{"key":"person","label":"Persona","type":"reference","reference":{"ontologyId":"escriba","table":"person"}}]}]})).unwrap()).await.unwrap();
     graph
-        .sync_base_change(&crate::persistence::CoreChange {
+        .sync_base_change(&crate::knowledge::CoreChange {
             key: "person:ada".into(),
             revision: "one".into(),
             kind: "person".into(),
@@ -177,13 +177,9 @@ async fn detalle_acota_textos_y_senala_recortes_sin_modificar_registros() {
 async fn comandos_sincronizan_la_base_y_rechazan_paginas_invalidas() {
     use crate::knowledge_commands::call as dispatch;
     let temp = tempfile::tempdir().unwrap();
-    let mut store = crate::store::Store::open(temp.path().join("library"))
-        .await
-        .unwrap();
-    let audio = temp.path().join("prueba.wav");
-    std::fs::write(&audio, b"sintetico").unwrap();
-    store.import(&audio, None).await.unwrap();
-    let store = crate::library::Library::new(store).await.unwrap();
+    let state = crate::knowledge_commands::testing::FakeLibrary::new();
+    state.lock().unwrap().add_recording("nota", vec![]);
+    let store = crate::knowledge_commands::testing::port(state);
     let graph = Knowledge::open(&temp.path().join("graph")).await.unwrap();
     let roots = dispatch(
         &graph,
@@ -253,7 +249,7 @@ async fn pagina_raices_y_conserva_el_tipo_de_detalles_json_cortos() {
 async fn los_segmentos_se_conectan_por_referencia_con_su_transcripcion_y_su_hablante() {
     let (_temp, graph) = fixture().await;
     graph
-        .sync_base_change(&crate::persistence::CoreChange {
+        .sync_base_change(&crate::knowledge::CoreChange {
             key: "recording:audio".into(),
             revision: "uno".into(),
             kind: "recording".into(),

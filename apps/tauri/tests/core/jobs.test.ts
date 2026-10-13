@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { activeOrder, appendPage, historyKinds, historyQuery, jobActions, jobAttempts, jobKind, jobStatus, jobTimes, refreshedHistory, runningCount } from "../../src/core/jobs";
-import type { Job } from "../../src/generated/Job";
+import type { Job } from "../../src/runtime/library/jobs";
 
 const madrid = "Europe/Madrid";
 const at = (text: string) => new Date(`${text}:00+02:00`).getTime();
@@ -9,6 +9,7 @@ const now = new Date(at("2026-10-12 10:45"));
 function job(id: string, fields: Partial<Job> = {}): Job {
   return {
     id,
+    extra: {},
     recordingId: `nota-${id}`,
     operation: "processRecording",
     args: { recordingId: `nota-${id}` },

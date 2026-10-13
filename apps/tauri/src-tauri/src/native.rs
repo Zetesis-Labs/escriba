@@ -19,7 +19,7 @@ async fn exchange(
     params: Value,
     on_progress: &mut impl FnMut(f64),
 ) -> Result<Result<Value, AppError>, String> {
-    let request_id = crate::store::id();
+    let request_id = crate::util::id();
     let mut request = serde_json::to_vec(&json!({"id":request_id,"method":method,"params":params}))
         .map_err(|e| e.to_string())?;
     if request.len() as u64 > MAX_FRAME {

@@ -34,6 +34,7 @@ export interface ControllerDependencies {
   dataPath: string;
   credentials: CredentialStore;
   transport?: HttpTransport;
+  audioPath(recordingId: string): string;
   emit(event: string, value?: unknown): void;
 }
 const UI: readonly CommandOrigin[] = ["ui"];
@@ -83,8 +84,7 @@ export function registerControllerCommands(commands: CommandRegistry, deps: Cont
     const reference = parts.map((part) => (part && typeof part === "object" ? (part as { audio?: unknown }).audio : undefined)).find((value) => value !== undefined);
     if (reference !== undefined) {
       const recordingId = text(object(reference).recordingId, "recordingId");
-      const located = object(await host.call("shell.audio_path", { recordingId }));
-      audio = { path: text(located.path, "path"), recordingId };
+      audio = { path: deps.audioPath(recordingId), recordingId };
     }
     return httpWithGrant(account as unknown as Record<string, unknown>, grant, secret, params, audio, transport);
   });

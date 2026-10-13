@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { library } from "../api";
 import { errorText } from "../mac/native";
 import { getJobs, subscribeJobs } from "../runtime";
-import type { Job } from "../generated/Job";
+import type { Job } from "../runtime/library/jobs";
 import type { Snapshot } from "../types";
 
 export function useAppData() {

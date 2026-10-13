@@ -1,9 +1,14 @@
 use crate::{
-    catalog, knowledge::Knowledge, knowledge_commands::call as dispatch, store::Store,
-    voices::SpeakerVoice,
+    knowledge::Knowledge,
+    knowledge_commands::{
+        call,
+        testing::{port, FakeLibrary},
+        LibraryPort,
+    },
 };
 use base64::Engine;
 use serde_json::{json, Value};
+use std::sync::{Arc, Mutex};
 use surrealdb::types::Value as DbValue;
 
 fn extension() -> Value {
@@ -17,22 +22,21 @@ fn extension() -> Value {
     })
 }
 
-async fn library(path: &std::path::Path) -> (crate::library::Library, String) {
-    let audio = path.join("sintetico.wav");
-    std::fs::write(&audio, b"audio sintetico").unwrap();
-    let mut store = Store::open(path.join("library")).await.unwrap();
-    let recording = store.import(&audio, None).await.unwrap();
-    catalog::install(&mut store, &json!({"recipes":[{"id":"sintetica","name":"Sintética","kind":"code","values":{},"bundle":"programa sintetico"}],"destinations":[],"ontologies":[extension()]})).await.unwrap();
-    (
-        crate::library::Library::new(store).await.unwrap(),
-        recording["id"].as_str().unwrap().into(),
-    )
+fn library() -> (Arc<Mutex<FakeLibrary>>, LibraryPort) {
+    let state = FakeLibrary::new();
+    {
+        let mut library = state.lock().unwrap();
+        library.recipes.push(json!({"id":"sintetica","name":"Sintética","kind":"code","values":{},"bundle":"programa sintético"}));
+        library.ontologies.push(extension());
+    }
+    let adapter = port(state.clone());
+    (state, adapter)
 }
 
-async fn page(graph: &Knowledge, store: &crate::library::Library, table: &str) -> Value {
-    dispatch(
+async fn page(graph: &Knowledge, adapter: &LibraryPort, table: &str) -> Value {
+    call(
         graph,
-        store,
+        adapter,
         "knowledge_records",
         json!({"id":"escriba","table":table}),
     )
@@ -40,21 +44,10 @@ async fn page(graph: &Knowledge, store: &crate::library::Library, table: &str) -
     .unwrap()
 }
 
-async fn words(graph: &Knowledge, store: &crate::library::Library) -> Option<usize> {
-    page(graph, store, "segment").await["records"][0]["values"]["words"]
-        .as_array()
-        .map(Vec::len)
-}
-
-async fn query(
-    graph: &Knowledge,
-    store: &crate::library::Library,
-    recording: &str,
-    sql: &str,
-) -> DbValue {
-    let result = dispatch(
+async fn query(graph: &Knowledge, adapter: &LibraryPort, recording: &str, sql: &str) -> DbValue {
+    let result = call(
         graph,
-        store,
+        adapter,
         "knowledge_query",
         json!({
             "recipeId":"sintetica", "recordingId":recording, "ontologyId":"escriba",
@@ -75,53 +68,53 @@ fn count(page: &Value) -> usize {
 }
 
 #[tokio::test]
-async fn base_dispatch_expone_biblioteca_con_sdk_cbor_sin_declaracion_ni_datos_privados() {
+async fn base_dispatch_expone_cbor_sin_datos_privados_y_rechaza_escritura_de_receta() {
     let temporary = tempfile::tempdir().unwrap();
-    let (store, recording) = library(temporary.path()).await;
+    let (state, adapter) = library();
     {
-        store
-            .add_person_voice(
-                "Ana sintética".into(),
-                SpeakerVoice {
-                    speaker: "Speaker 1".into(),
-                    model: "MODELO_PRIVADO".into(),
-                    embedding: vec![0.25, 0.75],
-                },
-                "RUTA_PRIVADA".into(),
-            )
-            .await
-            .unwrap();
-        store.mutate("version_save".into(), json!({"recordingId":recording,"backend":"sintetico","transcript":{"text":"Texto sintético","language":"es","segments":[{"start":0,"end":1,"text":"Texto sintético","speaker":"Ana sintética","secret":"EXTRA_PRIVADO","words":[{"start":0,"end":1,"text":"Texto","secret":"EXTRA_PRIVADO"}]}],"secret":"EXTRA_PRIVADO"},"inputs":{"token":"TOKEN_PRIVADO"},"data":{"secret":"DATO_PRIVADO"}})).await.unwrap();
+        let mut library = state.lock().unwrap();
+        library.put_person("ana", "Ana sintética");
+        library.add_recording("nota", vec![json!({
+            "id":"v1","createdAt":"2026-10-13T10:00:00+00:00", "backend":"sintetico",
+            "transcript":{"text":"Texto sintético","language":"es","segments":[{
+                "start":0,"end":1,"text":"Texto sintético","speaker":"Ana sintética",
+                "secret":"EXTRA_PRIVADO","words":[{"start":0,"end":1,"text":"Texto","secret":"EXTRA_PRIVADO"}]
+            }],"secret":"EXTRA_PRIVADO"},
+            "inputs":{"token":"TOKEN_PRIVADO"},"digest":{"secret":"DATO_PRIVADO"}
+        })]);
+        library.people[0]["embedding"] = json!([0.25, 0.75]);
+        library.people[0]["model"] = json!("MODELO_PRIVADO");
+        library.recordings[0]["audioPath"] = json!("RUTA_PRIVADA");
+        library.recordings[0]["sourceKey"] = json!("ORIGEN_PRIVADO");
+        library.mark_dirty("nota");
     }
     let graph = Knowledge::open(&temporary.path().join("knowledge.rocksdb"))
         .await
         .unwrap();
-    let listed = dispatch(&graph, &store, "knowledge_list", json!({}))
+    let listed = call(&graph, &adapter, "knowledge_list", json!({}))
         .await
         .unwrap();
-    assert_eq!(listed.as_array().unwrap().len(), 1);
     assert_eq!(listed[0]["id"], "escriba");
     assert_eq!(listed[0]["builtIn"], true);
-    dispatch(
+    call(
         &graph,
-        &store,
+        &adapter,
         "knowledge_install",
         json!({"definition":extension()}),
     )
     .await
     .unwrap();
-    let listed = dispatch(&graph, &store, "knowledge_list", json!({}))
-        .await
-        .unwrap();
-    assert_eq!(listed.as_array().unwrap().len(), 2);
-    assert!(listed
-        .as_array()
-        .unwrap()
-        .iter()
-        .any(|o| o["id"] == "sintetica"));
-    let opened = dispatch(&graph, &store, "knowledge_open", json!({"recipeId":"sintetica","recordingId":recording,"ontologyId":"escriba","dependency":{"id":"escriba","minVersion":1,"maxVersion":1}})).await.unwrap();
-    assert_eq!(opened["version"], 1);
-    let result = query(&graph, &store, &recording, "SELECT * FROM person; SELECT * FROM recording; SELECT * FROM version; SELECT * FROM transcript; SELECT * FROM segment;").await;
+    assert_eq!(
+        call(&graph, &adapter, "knowledge_list", json!({}))
+            .await
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
+    assert_eq!(call(&graph, &adapter, "knowledge_open", json!({"recipeId":"sintetica","recordingId":"nota","ontologyId":"escriba","dependency":{"id":"escriba","minVersion":1,"maxVersion":1}})).await.unwrap()["version"], 1);
+    let result = query(&graph, &adapter, "nota", "SELECT * FROM person; SELECT * FROM recording; SELECT * FROM version; SELECT * FROM transcript; SELECT * FROM segment;").await;
     let DbValue::Array(statements) = &result else {
         panic!("El SDK no devolvió un lote")
     };
@@ -140,6 +133,7 @@ async fn base_dispatch_expone_biblioteca_con_sdk_cbor_sin_declaracion_ni_datos_p
     for forbidden in [
         "MODELO_PRIVADO",
         "RUTA_PRIVADA",
+        "ORIGEN_PRIVADO",
         "EXTRA_PRIVADO",
         "TOKEN_PRIVADO",
         "DATO_PRIVADO",
@@ -149,73 +143,75 @@ async fn base_dispatch_expone_biblioteca_con_sdk_cbor_sin_declaracion_ni_datos_p
     ] {
         assert!(!public.contains(forbidden), "Se expuso {forbidden}");
     }
-    assert_eq!(count(&page(&graph, &store, "has_version").await), 1);
-    assert!(
-        page(&graph, &store, "segment").await["records"][0]["values"]["words"]
-            .as_array()
-            .is_some_and(|words| !words.is_empty())
-    );
-    assert_eq!(
-        count(&page(&graph, &store, "identified_as").await),
-        0,
-        "Un nombre histórico no prueba identidad"
-    );
-    let rejected = dispatch(
+    assert_eq!(count(&page(&graph, &adapter, "has_version").await), 1);
+    assert_eq!(count(&page(&graph, &adapter, "identified_as").await), 0);
+    let rejected = call(
         &graph,
-        &store,
+        &adapter,
         "knowledge_query",
         json!({
-            "recipeId":"sintetica", "recordingId":recording, "ontologyId":"escriba",
+            "recipeId":"sintetica","recordingId":"nota","ontologyId":"escriba",
             "dependency":{"id":"escriba","minVersion":1,"maxVersion":1},
-            "expectedVersion":1,"sql":"UPDATE person SET name = 'Alterada'", "bindings":"oA=="
+            "expectedVersion":1,"sql":"UPDATE person SET name = 'Alterada'","bindings":"oA=="
         }),
     )
     .await
     .unwrap_err();
     assert!(rejected.contains("consultas de lectura"), "{rejected}");
-    let unchanged = query(&graph, &store, &recording, "SELECT VALUE name FROM person")
-        .await
-        .into_json_value();
-    assert_eq!(unchanged[0][0], "Ana sintética");
+    assert_eq!(
+        query(&graph, &adapter, "nota", "SELECT VALUE name FROM person")
+            .await
+            .into_json_value()[0][0],
+        "Ana sintética"
+    );
     graph.close().await.unwrap();
 }
 
 #[tokio::test]
-async fn base_dispatch_sincroniza_ediciones_borrados_y_reconstruye_un_grafo_perdido() {
+async fn base_dispatch_sincroniza_cambios_borrados_y_reconstruye_grafo_perdido() {
     let temporary = tempfile::tempdir().unwrap();
-    let (store, recording) = library(temporary.path()).await;
+    let (state, adapter) = library();
+    state.lock().unwrap().add_recording("nota", vec![]);
     let graph_path = temporary.path().join("knowledge.rocksdb");
     let graph = Knowledge::open(&graph_path).await.unwrap();
     let epoch = graph.base_epoch().await.unwrap();
-    assert_eq!(count(&page(&graph, &store, "recording").await), 1);
-    store
-        .mutate(
-            "recording_update".into(),
-            json!({"id":recording,"title":"Título corregido"}),
-        )
-        .await
-        .unwrap();
+    assert_eq!(count(&page(&graph, &adapter, "recording").await), 1);
+    {
+        let mut library = state.lock().unwrap();
+        library.recordings[0]["title"] = json!("Título corregido");
+        library.mark_dirty("nota");
+    }
     assert_eq!(
-        page(&graph, &store, "recording").await["records"][0]["values"]["title"],
+        page(&graph, &adapter, "recording").await["records"][0]["values"]["title"],
         "Título corregido"
     );
-    store.mutate("version_save".into(), json!({"recordingId":recording,"transcript":{"text":"Primera versión","segments":[{"start":0,"end":1,"text":"Primera versión","words":[{"start":0,"end":1,"text":"Primera"}]}]}})).await.unwrap();
-    assert_eq!(count(&page(&graph, &store, "version").await), 1);
+    {
+        let mut library = state.lock().unwrap();
+        library.recordings[0]["versions"] = json!([{"id":"v1","transcript":{"text":"Primera versión","segments":[{"start":0,"end":1,"text":"Primera versión","words":[{"start":0,"end":1,"text":"Primera"}]}]}}]);
+        library.recordings[0]["currentVersionId"] = json!("v1");
+        library.mark_dirty("nota");
+    }
+    assert_eq!(count(&page(&graph, &adapter, "version").await), 1);
     graph.close().await.unwrap();
     let graph = Knowledge::open(&graph_path).await.unwrap();
     assert_eq!(graph.base_epoch().await.unwrap(), epoch);
-    assert_eq!(words(&graph, &store).await, Some(1));
+    assert_eq!(
+        page(&graph, &adapter, "segment").await["records"][0]["values"]["words"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
     graph.close().await.unwrap();
     std::fs::remove_dir_all(&graph_path).unwrap();
     let graph = Knowledge::open(&graph_path).await.unwrap();
     assert_ne!(graph.base_epoch().await.unwrap(), epoch);
-    assert_eq!(count(&page(&graph, &store, "recording").await), 1);
-    assert_eq!(count(&page(&graph, &store, "version").await), 1);
-    assert_eq!(words(&graph, &store).await, Some(1));
-    store
-        .mutate("recording_discard".into(), json!({"id":recording}))
-        .await
-        .unwrap();
+    assert_eq!(count(&page(&graph, &adapter, "version").await), 1);
+    {
+        let mut library = state.lock().unwrap();
+        library.recordings[0]["status"] = json!("discarded");
+        library.mark_dirty("nota");
+    }
     for table in [
         "recording",
         "version",
@@ -225,7 +221,7 @@ async fn base_dispatch_sincroniza_ediciones_borrados_y_reconstruye_un_grafo_perd
         "speaker",
     ] {
         assert_eq!(
-            count(&page(&graph, &store, table).await),
+            count(&page(&graph, &adapter, table).await),
             0,
             "{table} retuvo contenido descartado"
         );
@@ -234,44 +230,31 @@ async fn base_dispatch_sincroniza_ediciones_borrados_y_reconstruye_un_grafo_perd
 }
 
 #[tokio::test]
-async fn base_dispatch_ampliacion_reutiliza_persona_y_conserva_referencia_huerfana_sin_recrearla() {
+async fn ampliacion_conserva_referencia_huerfana_sin_permitir_otra_nueva() {
     let temporary = tempfile::tempdir().unwrap();
-    let (store, _) = library(temporary.path()).await;
-    store
-        .add_person_voice(
-            "Ana".into(),
-            SpeakerVoice {
-                speaker: "Speaker 1".into(),
-                model: "sintetico".into(),
-                embedding: vec![0.5],
-            },
-            "sintetico".into(),
-        )
-        .await
-        .unwrap();
+    let (state, adapter) = library();
+    state.lock().unwrap().put_person("ana", "Ana");
     let graph = Knowledge::open(&temporary.path().join("knowledge.rocksdb"))
         .await
         .unwrap();
-    dispatch(
+    call(
         &graph,
-        &store,
+        &adapter,
         "knowledge_install",
         json!({"definition":extension()}),
     )
     .await
     .unwrap();
-    let people = page(&graph, &store, "person").await;
+    let people = page(&graph, &adapter, "person").await;
     let reference =
         json!({"ontologyId":"escriba","table":"person","id":people["records"][0]["id"]});
-    let saved = dispatch(&graph,&store,"knowledge_save",json!({"id":"sintetica","table":"annotation","expectedVersion":1,"values":{"title":"Acuerdo","person":reference}})).await.unwrap();
+    let saved = call(&graph, &adapter, "knowledge_save", json!({"id":"sintetica","table":"annotation","expectedVersion":1,"values":{"title":"Acuerdo","person":reference}})).await.unwrap();
     assert_eq!(saved["values"]["person"], reference);
-    assert_eq!(count(&page(&graph, &store, "person").await), 1);
-    store.remove_person("Ana".into()).await.unwrap();
-    assert_eq!(count(&page(&graph, &store, "person").await), 0);
-    let corrected = dispatch(&graph,&store,"knowledge_save",json!({"id":"sintetica","table":"annotation","expectedVersion":1,"recordId":saved["id"],"expectedRev":saved["rev"],"values":{"title":"Acuerdo corregido","person":reference}})).await.unwrap();
+    state.lock().unwrap().remove_person("ana");
+    assert_eq!(count(&page(&graph, &adapter, "person").await), 0);
+    let corrected = call(&graph, &adapter, "knowledge_save", json!({"id":"sintetica","table":"annotation","expectedVersion":1,"recordId":saved["id"],"expectedRev":saved["rev"],"values":{"title":"Acuerdo corregido","person":reference}})).await.unwrap();
     assert_eq!(corrected["values"]["person"], reference);
-    let rejected = dispatch(&graph,&store,"knowledge_save",json!({"id":"sintetica","table":"annotation","expectedVersion":1,"values":{"title":"Nueva referencia inexistente","person":reference}})).await.unwrap_err();
+    let rejected = call(&graph, &adapter, "knowledge_save", json!({"id":"sintetica","table":"annotation","expectedVersion":1,"values":{"title":"Nueva referencia inexistente","person":reference}})).await.unwrap_err();
     assert!(rejected.contains("no existe"), "{rejected}");
-    assert_eq!(count(&page(&graph, &store, "person").await), 0);
     graph.close().await.unwrap();
 }

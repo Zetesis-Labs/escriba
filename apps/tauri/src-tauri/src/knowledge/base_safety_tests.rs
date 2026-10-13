@@ -1,5 +1,5 @@
 use super::*;
-use crate::persistence::CoreChange;
+use crate::knowledge::CoreChange;
 use serde_json::json;
 
 fn recording(segments: Value) -> CoreChange {

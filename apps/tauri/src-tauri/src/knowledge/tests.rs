@@ -505,7 +505,7 @@ async fn instala_el_ejemplo_de_reuniones_y_acuerdos() {
     let db = Knowledge::open(&temp.path().join("knowledge.rocksdb"))
         .await
         .unwrap();
-    db.sync_base_change(&crate::persistence::CoreChange {
+    db.sync_base_change(&crate::knowledge::CoreChange {
         key: "recording:note1".into(),
         revision: "one".into(),
         kind: "recording".into(),

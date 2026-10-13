@@ -2,9 +2,7 @@ import { AlertTriangle, Ban, CheckCircle2, Clock, ListChecks, Loader } from "luc
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Pane } from "../app/Pane";
 import { activeOrder, appendPage, historyKinds, historyQuery, historyStates, jobActions, jobAttempts, jobKind, jobStatus, jobTimes, refreshedHistory, type HistoryState } from "../core/jobs";
-import type { HistoryCursor } from "../generated/HistoryCursor";
-import type { Job } from "../generated/Job";
-import type { RecipeRef } from "../generated/RecipeRef";
+import type { HistoryCursor, Job, RecipeRef } from "../runtime/library/jobs";
 import { displayTitle } from "../library/RecordingRow";
 import { TraceDetail } from "../library/TraceCard";
 import { Button, ContentUnavailable, PopupButton } from "../mac/controls";

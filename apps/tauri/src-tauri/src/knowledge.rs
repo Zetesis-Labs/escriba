@@ -15,6 +15,15 @@ use tokio::sync::Mutex;
 use ts_rs::TS;
 use uuid::Uuid;
 
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+pub struct CoreChange {
+    pub key: String,
+    pub revision: String,
+    pub kind: String,
+    pub id: String,
+    pub value: Option<Value>,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, TS)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Ontology {

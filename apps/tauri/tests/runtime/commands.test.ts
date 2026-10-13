@@ -13,19 +13,19 @@ function fixture(transport?: (request: Request) => Promise<Response>) {
   state.accounts = [{ id: "notion-a", name: "Trabajo", provider: "notion", enabled: true }];
   const calls: { method: string; params: Record<string, unknown> }[] = [];
   const events: string[] = [];
+  const located: string[] = [];
   const host: RuntimeHost = {
     async call(method, params = {}) {
       calls.push({ method, params });
       if (method === "runtime_context") return runtimeContext(state, params.recordingId);
-      if (method === "shell.audio_path") return { path: "/ruta/opaca.m4a" };
       if (method === "shell.native") return { title: "Local", summary: "resumen", tags: [] };
       throw Error(`Capacidad inesperada: ${method}`);
     },
   };
   const credentials = memoryCredentials({ "notion-a": "secreto-notion", "remote-llm": "clave-llm" });
   const commands = createCommands();
-  registerControllerCommands(commands, { host, dataPath: "/datos", credentials, transport, emit: (event) => events.push(event) });
-  return { state, calls, events, commands, credentials };
+  registerControllerCommands(commands, { host, dataPath: "/datos", credentials, transport, audioPath: (recordingId) => { located.push(recordingId); return "/ruta/opaca.m4a"; }, emit: (event) => events.push(event) });
+  return { state, calls, events, commands, credentials, located };
 }
 
 test("la lista de métodos reenviados por Rust coincide con la del controlador", () => {
@@ -65,7 +65,7 @@ test("connector_http inyecta la credencial de la cuenta y el secreto no vuelve e
   assert.equal(result.headers["request-id"], "[redacted]-1");
   await assert.rejects(f.commands.dispatch("connector_http", { accountId: "notion-a", url: "https://evil.example/v1" }, "shell"), /fuera del origen/);
   await assert.rejects(f.commands.dispatch("connector_http", { accountId: "nadie", url: "https://api.notion.com/v1" }, "ui"), /La cuenta no existe/);
-  assert.ok(!f.calls.some((call) => call.method === "shell.audio_path"));
+  assert.deepEqual(f.located, []);
 });
 
 test("connector_http pide a la cáscara la ruta del audio solo cuando hay una parte de audio", async () => {
@@ -74,7 +74,7 @@ test("connector_http pide a la cáscara la ruta del audio solo cuando hay una pa
     f.commands.dispatch("connector_http", { accountId: "notion-a", url: "https://api.notion.com/v1/upload", method: "POST", multipart: [{ name: "file", audio: { recordingId: "r" } }] }, "shell"),
     /Audio no disponible/,
   );
-  assert.deepEqual(f.calls.filter((call) => call.method === "shell.audio_path").map((call) => call.params), [{ recordingId: "r" }]);
+  assert.deepEqual(f.located, ["r"]);
 });
 
 test("resolver_try usa el motor local por la cáscara y el remoto con la clave escrita o guardada", async () => {

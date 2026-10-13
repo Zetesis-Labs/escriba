@@ -18,32 +18,6 @@ use tokio::{
     sync::{oneshot, Mutex},
 };
 
-#[derive(Clone)]
-pub struct Lease {
-    active: Arc<AtomicBool>,
-    trusted: bool,
-}
-impl Lease {
-    fn new(trusted: bool) -> Self {
-        Self {
-            active: Arc::new(AtomicBool::new(true)),
-            trusted,
-        }
-    }
-    fn revoke(&self) {
-        self.active.store(false, Ordering::SeqCst);
-    }
-    pub fn ensure_active(&self) -> Result<(), String> {
-        if self.active.load(Ordering::SeqCst) {
-            Ok(())
-        } else {
-            Err("Proceso cancelado".into())
-        }
-    }
-    pub fn trusted(&self) -> bool {
-        self.trusted
-    }
-}
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Origin {
     Ui,
@@ -58,19 +32,13 @@ impl Origin {
     }
 }
 pub type Capability = Arc<
-    dyn Fn(
-            String,
-            Value,
-            String,
-            Lease,
-        ) -> Pin<Box<dyn Future<Output = Result<Value, AppError>> + Send>>
+    dyn Fn(String, Value) -> Pin<Box<dyn Future<Output = Result<Value, AppError>> + Send>>
         + Send
         + Sync,
 >;
 pub type Events = Arc<dyn Fn(Value) + Send + Sync>;
 struct PendingTask {
     reply: oneshot::Sender<Result<Value, AppError>>,
-    lease: Lease,
 }
 type Pending = Arc<Mutex<HashMap<String, PendingTask>>>;
 type Input = Arc<Mutex<ChildStdin>>;
@@ -154,7 +122,7 @@ impl Drop for Worker {
     }
 }
 struct Session {
-    _child: Child,
+    child: Mutex<Child>,
     _stderr: StderrCapture,
     input: Input,
     pending: Pending,
@@ -172,6 +140,7 @@ pub struct Scripts {
     path: PathBuf,
     env: Vec<(String, String)>,
     session: Mutex<Option<Arc<Session>>>,
+    closed: AtomicBool,
 }
 async fn frame<R: AsyncRead + Unpin>(reader: &mut BufReader<R>) -> Result<Value, AppError> {
     let mut bytes = Vec::new();
@@ -362,12 +331,20 @@ fn monitor_worker(
         }
     })
 }
+fn command_timeout(method: &str) -> Duration {
+    if method == "runtime_run" {
+        Duration::from_secs(7200)
+    } else {
+        Duration::from_secs(1800)
+    }
+}
 impl Scripts {
     pub fn new(path: PathBuf) -> Self {
         Self {
             path,
             env: Vec::new(),
             session: Mutex::new(None),
+            closed: AtomicBool::new(false),
         }
     }
     pub fn with_env(mut self, env: Vec<(String, String)>) -> Self {
@@ -383,10 +360,20 @@ impl Scripts {
         events: Events,
     ) -> Result<Arc<Session>, AppError> {
         let mut slot = self.session.lock().await;
+        if self.closed.load(Ordering::SeqCst) {
+            return Err(AppError::new(
+                ErrorCode::RuntimeUnavailable,
+                "El motor TypeScript ya se cerró",
+            ));
+        }
         if let Some(session) = slot.as_ref().filter(|s| s.alive.load(Ordering::SeqCst)) {
             return Ok(session.clone());
         }
-        *slot = None;
+        if let Some(previous) = slot.take() {
+            let mut child = previous.child.lock().await;
+            let _ = child.start_kill();
+            let _ = child.wait().await;
+        }
         let (mut child, mut stderr) = spawn(&self.path, false, &self.env)
             .map_err(|error| AppError::new(ErrorCode::RuntimeUnavailable, error))?;
         let input = Arc::new(Mutex::new(
@@ -444,33 +431,19 @@ impl Scripts {
                             } else {
                                 Err(AppError::from_frame(&value))
                             };
-                            task.lease.revoke();
                             let _ = task.reply.send(result);
                         }
                     }
                     "event" => events(value),
                     "call" => {
                         let method = value["method"].as_str().unwrap_or("").to_owned();
-                        let task = value["taskId"].as_str().unwrap_or("").to_owned();
-                        let lease = reader_pending
-                            .lock()
-                            .await
-                            .get(&task)
-                            .map(|pending| pending.lease.clone());
                         let input = reader_input.clone();
                         let callback = capability.clone();
                         let pending = reader_pending.clone();
                         let workers = reader_workers.clone();
                         let alive = reader_alive.clone();
                         tokio::spawn(async move {
-                            let result = if let Some(lease) = lease {
-                                callback(method, value["params"].clone(), task.clone(), lease).await
-                            } else {
-                                Err("Capacidad no autorizada o trabajo terminado".into())
-                            };
-                            if !pending.lock().await.contains_key(&task) {
-                                return;
-                            }
+                            let result = callback(method, value["params"].clone()).await;
                             let response = match result {
                                 Ok(v) => json!({"type":"resolve","id":value["id"],"value":v}),
                                 Err(e) => {
@@ -483,7 +456,6 @@ impl Scripts {
                                     alive.store(false, Ordering::SeqCst);
                                     workers.lock().await.clear();
                                     for (_, task) in pending.lock().await.drain() {
-                                        task.lease.revoke();
                                         let _ = task.reply.send(Err(AppError::new(
                                             ErrorCode::RuntimeUnavailable,
                                             format!("Se perdió el canal TypeScript: {error}"),
@@ -496,11 +468,7 @@ impl Scripts {
                     "worker_create" => {
                         let task = value["taskId"].as_str().unwrap_or("").to_owned();
                         let mut slots = reader_workers.lock().await;
-                        if key.is_empty()
-                            || slots.contains_key(&key)
-                            || slots.len() >= 8
-                            || !reader_pending.lock().await.contains_key(&task)
-                        {
+                        if key.is_empty() || slots.contains_key(&key) || slots.len() >= 8 {
                             let _ = send(&reader_input, &json!({"type":"worker_error","id":key,"message":"No se puede abrir este proceso de receta"})).await;
                             continue;
                         }
@@ -588,12 +556,11 @@ impl Scripts {
             reader_alive.store(false, Ordering::SeqCst);
             reader_workers.lock().await.clear();
             for (_, task) in reader_pending.lock().await.drain() {
-                task.lease.revoke();
                 let _ = task.reply.send(Err(error.clone()));
             }
         });
         let session = Arc::new(Session {
-            _child: child,
+            child: Mutex::new(child),
             _stderr: stderr,
             input,
             pending,
@@ -603,56 +570,6 @@ impl Scripts {
         });
         *slot = Some(session.clone());
         Ok(session)
-    }
-    pub async fn call(
-        &self,
-        id: &str,
-        operation: &str,
-        args: Value,
-        capability: Capability,
-        events: Events,
-    ) -> Result<Value, AppError> {
-        let session = self.session(capability, events).await?;
-        let (tx, rx) = oneshot::channel();
-        {
-            let mut pending = session.pending.lock().await;
-            if pending.contains_key(id) {
-                return Err("ID de ejecución repetido".into());
-            }
-            pending.insert(
-                id.to_owned(),
-                PendingTask {
-                    reply: tx,
-                    lease: Lease::new(false),
-                },
-            );
-        }
-        if let Err(error) = send(
-            &session.input,
-            &json!({"type":"run","id":id,"operation":operation,"args":args}),
-        )
-        .await
-        {
-            if let Some(task) = session.pending.lock().await.remove(id) {
-                task.lease.revoke();
-            }
-            session.alive.store(false, Ordering::SeqCst);
-            return Err(error);
-        }
-        match tokio::time::timeout(Duration::from_secs(7200), rx).await {
-            Ok(Ok(result)) => result,
-            Ok(Err(_)) => Err(AppError::new(
-                ErrorCode::RuntimeUnavailable,
-                "El proceso TypeScript perdió el trabajo",
-            )),
-            Err(_) => {
-                self.cancel(id).await;
-                Err(AppError::new(
-                    ErrorCode::Failed,
-                    "El trabajo superó dos horas",
-                ))
-            }
-        }
     }
     pub async fn command(
         &self,
@@ -665,26 +582,23 @@ impl Scripts {
         let session = self.session(capability, events).await?;
         let id = format!("command-{}", uuid::Uuid::new_v4());
         let (tx, rx) = oneshot::channel();
-        session.pending.lock().await.insert(
-            id.clone(),
-            PendingTask {
-                reply: tx,
-                lease: Lease::new(true),
-            },
-        );
+        session
+            .pending
+            .lock()
+            .await
+            .insert(id.clone(), PendingTask { reply: tx });
         if let Err(error) = send(
             &session.input,
             &json!({"type":"command","id":id,"method":method,"params":params,"origin":origin.label()}),
         )
         .await
         {
-            if let Some(task) = session.pending.lock().await.remove(&id) {
-                task.lease.revoke();
-            }
+            session.pending.lock().await.remove(&id);
             session.alive.store(false, Ordering::SeqCst);
             return Err(error);
         }
-        match tokio::time::timeout(Duration::from_secs(1800), rx).await {
+        let limit = command_timeout(method);
+        match tokio::time::timeout(limit, rx).await {
             Ok(Ok(result)) => result,
             Ok(Err(_)) => Err(AppError::new(
                 ErrorCode::RuntimeUnavailable,
@@ -694,7 +608,7 @@ impl Scripts {
                 self.cancel(&id).await;
                 Err(AppError::new(
                     ErrorCode::Failed,
-                    "El comando superó treinta minutos",
+                    format!("El comando superó {} minutos", limit.as_secs() / 60),
                 ))
             }
         }
@@ -703,7 +617,6 @@ impl Scripts {
         let session = self.session.lock().await.clone();
         if let Some(session) = session {
             if let Some(task) = session.pending.lock().await.remove(id) {
-                task.lease.revoke();
                 let _ = task.reply.send(Err("Proceso cancelado".into()));
             }
             let _ = send(&session.input, &json!({"type":"cancel","id":id})).await;
@@ -714,6 +627,53 @@ impl Scripts {
                 .retain(|_, worker| worker.task != id);
         }
     }
+    pub async fn shutdown(&self) {
+        let mut slot = self.session.lock().await;
+        self.closed.store(true, Ordering::SeqCst);
+        let Some(session) = slot.take() else { return };
+        session.alive.store(false, Ordering::SeqCst);
+        let graceful =
+            tokio::time::timeout(Duration::from_secs(5), async {
+                send(&session.input, &json!({"type":"shutdown","id":"shutdown"})).await?;
+                session.child.lock().await.wait().await.map_err(|error| {
+                    AppError::new(ErrorCode::RuntimeUnavailable, error.to_string())
+                })?;
+                Ok::<(), AppError>(())
+            })
+            .await;
+        if !matches!(graceful, Ok(Ok(()))) {
+            let mut child = session.child.lock().await;
+            let _ = child.start_kill();
+            let _ = child.wait().await;
+        }
+        session.workers.lock().await.clear();
+        for (_, task) in session.pending.lock().await.drain() {
+            let _ = task.reply.send(Err(AppError::new(
+                ErrorCode::RuntimeUnavailable,
+                "El motor TypeScript se cerró",
+            )));
+        }
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn controller_env(data: &Path) -> Vec<(String, String)> {
+    let arch = if cfg!(target_arch = "aarch64") {
+        "arm64"
+    } else {
+        "x64"
+    };
+    let native = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../node_modules/@surrealdb/node")
+        .with_file_name(format!("node-native-darwin-{arch}"))
+        .join(format!("surrealdb-node.darwin-{arch}.node"));
+    vec![
+        ("ESCRIBA_DATA".into(), data.to_string_lossy().into_owned()),
+        (
+            "NAPI_RS_NATIVE_LIBRARY_PATH".into(),
+            native.to_string_lossy().into_owned(),
+        ),
+    ]
 }
 
 #[cfg(test)]
@@ -753,7 +713,7 @@ mod tests {
     }
 
     async fn wait_until(mut condition: impl AsyncFnMut() -> bool) {
-        tokio::time::timeout(Duration::from_secs(5), async {
+        tokio::time::timeout(Duration::from_secs(10), async {
             while !condition().await {
                 tokio::time::sleep(Duration::from_millis(10)).await;
             }
@@ -762,489 +722,43 @@ mod tests {
         .expect("No llegó el estado esperado del sidecar");
     }
 
-    fn fixture() -> Value {
-        json!({
-            "recordings":[{"id":"r","title":"Nota","createdAt":"2026-10-09T10:00:00Z","source":"sintético","audioPath":"/opaque","duration":0,"status":"pending","versions":[],"publications":[]}],
-            "resolvers":[{"id":"local-stt","name":"Whisper","role":"stt","local":true,"enabled":true},{"id":"local-llm","name":"Apple","role":"llm","local":true,"enabled":true}],
-            "recipes":[{"id":"default","name":"Por defecto","kind":"form","values":{"resumir":false}}],
-            "accounts":[],"destinations":[],"settings":{"defaultRecipeId":"default","projectPath":null,"watchedFolders":[],"language":"es","whisperModel":"large","autoProcess":false,"launchAtLogin":false,"theme":"system"},
-            "logs":[],"dataPath":"/synthetic"
-        })
-    }
-
-    fn fake_host(state: Arc<StdMutex<Value>>) -> Capability {
-        Arc::new(move |method, params, _task, lease| {
-            let state = state.clone();
+    /// Cáscara falsa: solo contesta a lo nativo que el controlador pide al arrancar y al trabajar.
+    fn shell(calls: Arc<StdMutex<Vec<String>>>) -> Capability {
+        Arc::new(move |method, params| {
+            let calls = calls.clone();
             Box::pin(async move {
-                lease.ensure_active()?;
-                let mut snapshot = state.lock().unwrap();
-                let record = &mut snapshot["recordings"][0];
+                calls.lock().unwrap().push(method.clone());
                 match method.as_str() {
-                    "runtime_context" => {
-                        let mut context = snapshot.clone();
-                        context["recordings"] = json!(snapshot["recordings"]
-                            .as_array()
-                            .unwrap()
-                            .iter()
-                            .filter(|recording| params["recordingId"].as_str()
-                                == recording["id"].as_str())
-                            .cloned()
-                            .collect::<Vec<_>>());
-                        Ok(context)
-                    }
-                    "transcribe" => Ok(json!({"text":"Audio sintético","segments":[]})),
-                    "version_save" => {
-                        let mut version = params.clone();
-                        version["id"] = json!("v1");
-                        version["createdAt"] = json!("now");
-                        record["versions"]
-                            .as_array_mut()
-                            .unwrap()
-                            .push(version.clone());
-                        record["currentVersionId"] = json!("v1");
-                        Ok(version)
-                    }
-                    "version_update" => {
-                        for key in ["digest", "data"] {
-                            if let Some(value) = params.get(key) {
-                                record["versions"][0][key] = value.clone();
-                            }
-                        }
-                        Ok(Value::Null)
-                    }
-                    "version_select" => {
-                        record["currentVersionId"] = params["versionId"].clone();
-                        Ok(Value::Null)
-                    }
-                    "recording_update" => {
-                        for key in ["status", "error", "recipeId"] {
-                            if let Some(value) = params.get(key) {
-                                record[key] = value.clone();
-                            }
-                        }
-                        Ok(record.clone())
-                    }
-                    "log" | "memory_recall" | "memory_keep" | "trace_save" => Ok(Value::Null),
-                    _ => Err(format!("Capacidad inesperada: {method}")),
+                    "shell.native" => match params["method"].as_str() {
+                        Some("status") => Ok(
+                            json!({"protocolVersion":1,"whisper":{"available":true},"llm":{"available":true}}),
+                        ),
+                        Some("transcribe") => Ok(json!({"text":"Audio sintético","segments":[]})),
+                        Some(other) => Err(format!("Método nativo inesperado: {other}").into()),
+                        None => Err("Método nativo ausente".into()),
+                    },
+                    "shell.notify" | "shell.native_cancel" | "shell.autolaunch" => Ok(Value::Null),
+                    _ => Err(format!("Capacidad inesperada: {method}").into()),
                 }
-                .map_err(Into::into)
             })
         })
     }
 
-    fn store_host(
-        store: crate::library::Library,
-        native: Option<Arc<crate::native::Native>>,
-    ) -> Capability {
-        Arc::new({
-            let store = store.clone();
-            move |method, params, _task, lease| {
-                let store = store.clone();
-                let native = native.clone();
-                Box::pin(async move {
-                    lease.ensure_active()?;
-                    if let Some(native) = native {
-                        if method == "transcribe" {
-                            let index = store.index();
-                            let audio = index.audio(crate::store::text(&params, "recordingId")?)?;
-                            let model = json!(index.settings.whisper_model.as_ref());
-                            return native.transcribe(&audio, model, params).await;
-                        }
-                        if method == "summarize" || method == "ask" {
-                            return native.call(&method, params).await;
-                        }
-                    }
-                    let text = |key: &str| crate::store::text(&params, key).map(str::to_owned);
-                    match method.as_str() {
-                        "runtime_context" => {
-                            store
-                                .runtime_context(params["recordingId"].as_str().map(str::to_owned))
-                                .await
-                        }
-                        "transcribe" => Ok(json!({"text":"Audio sintético","segments":[]})),
-                        "recording_update" | "version_save" | "version_select"
-                        | "version_update" | "log" => {
-                            store.mutate(method.clone(), params.clone()).await
-                        }
-                        "memory_recall" => Ok(store
-                            .memory_recall(
-                                text("recordingId")?,
-                                text("versionId")?,
-                                text("fingerprint")?,
-                            )
-                            .await?
-                            .unwrap_or(Value::Null)),
-                        "memory_keep" => {
-                            store
-                                .memory_keep(
-                                    text("recordingId")?,
-                                    text("versionId")?,
-                                    text("fingerprint")?,
-                                    params["value"].clone(),
-                                )
-                                .await?;
-                            Ok(Value::Null)
-                        }
-                        "trace_save" => {
-                            store.trace_save(params.clone()).await?;
-                            Ok(Value::Null)
-                        }
-                        _ => Err(format!("Capacidad inesperada: {method}")),
-                    }
-                    .map_err(Into::into)
-                })
-            }
-        })
+    fn runtime(data: &Path) -> Scripts {
+        Scripts::new(crate::native::binary("escriba-runtime").unwrap())
+            .with_env(controller_env(data))
     }
 
-    #[tokio::test]
-    #[ignore = "Requiere Whisper y Apple Intelligence ya instalados; solo audio sintético"]
-    async fn receta_predeterminada_transcribe_y_resume_con_motores_locales() {
-        let directory = tempfile::tempdir().unwrap();
-        let audio = directory.path().join("synthetic.aiff");
-        let status = Command::new("/usr/bin/say")
-            .args(["-v", "Mónica", "-o"])
-            .arg(&audio)
-            .arg("Esta es una prueba de transcripción de Escriba. El equipo ha decidido revisar el diseño mañana. Después guardaremos un resumen y comprobaremos que no se pierde la grabación.")
-            .status().await.unwrap();
-        assert!(status.success());
-        let native = Arc::new(crate::native::Native::new(
-            crate::native::binary("EscribaNativeHost").unwrap(),
-        ));
-        let available = native.call("status", json!({})).await.unwrap();
-        assert_eq!(
-            available["whisper"]["available"], true,
-            "Whisper no está instalado"
-        );
-        assert_eq!(
-            available["llm"]["available"], true,
-            "Apple Intelligence no está disponible"
-        );
-        let library = directory.path().join("library");
-        let mut store = crate::store::Store::open(library.clone()).await.unwrap();
-        let recording = store.import(&audio, None).await.unwrap();
-        let recording_id = recording["id"].as_str().unwrap().to_owned();
-        let store = crate::library::Library::new(store).await.unwrap();
-        let capability = store_host(store.clone(), Some(native));
-        let scripts = Scripts::new(crate::native::binary("escriba-runtime").unwrap());
-        tokio::time::timeout(
-            Duration::from_secs(180),
-            scripts.call(
-                "real-local",
-                "processRecording",
-                json!({"recordingId":recording_id}),
-                capability.clone(),
-                Arc::new(|_| {}),
-            ),
-        )
-        .await
-        .unwrap()
-        .unwrap();
-        store.close().await.unwrap();
-        drop(scripts);
-        drop(capability);
-        drop(store);
-        let reopened = crate::store::Store::open(library).await.unwrap();
-        let saved = reopened.recording(&recording_id).await.unwrap();
-        assert_eq!(saved["status"], "done");
-        let version = &saved["versions"][0];
-        assert!(version["transcript"]["text"].as_str().unwrap().len() > 20);
-        assert!(version["transcript"]["duration"].as_f64().unwrap() > 1.0);
-        assert!(!version["transcript"]["segments"]
-            .as_array()
-            .unwrap()
-            .is_empty());
-        assert!(!version["digest"]["summary"].as_str().unwrap().is_empty());
-        assert!(!version["digest"]["title"].as_str().unwrap().is_empty());
-        assert!(version["inputs"]["speakers"].is_null());
-        assert!(saved["publications"].as_array().unwrap().is_empty());
-    }
-
-    #[tokio::test]
-    async fn error_nativo_cruza_bun_y_la_cola_con_codigo_de_reintento() {
-        let directory = tempfile::tempdir().unwrap();
-        let audio = directory.path().join("synthetic.wav");
-        std::fs::write(&audio, b"synthetic audio").unwrap();
-        let store = crate::library::Library::new(
-            crate::store::Store::open(directory.path().join("library"))
-                .await
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-        let recording = store.import(&audio).await.unwrap();
-        let recording_id = recording["id"].as_str().unwrap().to_owned();
-        let queue = crate::jobs::Queue::new(store).await.unwrap();
-        let id = queue
-            .enqueue("processRecording", json!({"recordingId":recording_id}))
-            .await
-            .unwrap();
-        queue
-            .claim(crate::jobs::Lane::Inference)
-            .await
-            .unwrap()
-            .unwrap();
-        let native = Arc::new(crate::native::Native::new(
-            crate::native::binary("EscribaNativeHost").unwrap(),
-        ));
-        let scripts = Scripts::new(crate::native::binary("escriba-runtime").unwrap());
-        let mut state = fixture();
-        state["recordings"][0]["id"] = json!(recording_id);
-        let fake = fake_host(Arc::new(StdMutex::new(state)));
-        let capability: Capability = Arc::new(move |method, params, task, lease| {
-            if method == "transcribe" {
-                let native = native.clone();
-                let audio = audio.clone();
-                Box::pin(async move {
-                    lease.ensure_active()?;
-                    native
-                        .transcribe(&audio, json!("escriba_test_model_not_installed"), params)
-                        .await
-                })
-            } else {
-                fake(method, params, task, lease)
-            }
-        });
-        let error = tokio::time::timeout(
-            Duration::from_secs(20),
-            scripts.call(
-                &id,
-                "processRecording",
-                json!({"recordingId":recording_id}),
-                capability,
-                Arc::new(|_| {}),
-            ),
-        )
-        .await
-        .unwrap()
-        .unwrap_err();
-        assert_eq!(error.code, ErrorCode::BackendUnavailable);
-        assert!(!error.message.contains("speakers"), "{error}");
-        queue.finish(&id, Err(error)).await.unwrap();
-        let saved = queue.visible()[0].clone();
-        assert_eq!(saved["id"], id);
-        assert_eq!(saved["state"], "retry");
-        assert_eq!(saved["errorCode"], "backend_unavailable");
-    }
-
-    #[tokio::test]
-    async fn procesa_nota_con_biblioteca_mayor_que_el_canal() {
-        let scripts = Scripts::new(crate::native::binary("escriba-runtime").unwrap());
-        let mut data = fixture();
-        let mut historical = data["recordings"][0].clone();
-        historical["id"] = json!("other-recording");
-        historical["versions"] = json!([{"id":"historical-version","transcript":{"text":"x".repeat(33 * 1024 * 1024),"segments":[]}}]);
-        data["recordings"].as_array_mut().unwrap().push(historical);
-        let directory = tempfile::tempdir().unwrap();
-        let mut store = crate::store::Store::open(directory.path().join("library"))
-            .await
-            .unwrap();
-        data["schemaVersion"] = json!(1);
-        store.replace(data.clone()).await.unwrap();
-        assert!(store.snapshot().await.unwrap().to_string().len() > MAX_FRAME as usize);
-        let library = store.root.clone();
-        let store = crate::library::Library::new(store).await.unwrap();
-        let capability = store_host(store.clone(), None);
-        tokio::time::timeout(
-            Duration::from_secs(20),
-            scripts.call(
-                "large-library",
-                "processRecording",
-                json!({"recordingId":"r"}),
-                capability.clone(),
-                Arc::new(|_| {}),
-            ),
-        )
-        .await
-        .unwrap()
-        .unwrap();
-        assert_eq!(store.recording("r".into()).await.unwrap()["status"], "done");
-        store.close().await.unwrap();
-        drop(scripts);
-        drop(capability);
-        drop(store);
-        let reopened = crate::store::Store::open(library).await.unwrap();
-        let processed = reopened.recording("r").await.unwrap();
-        assert_eq!(processed["status"], "done");
-        assert_eq!(processed["versions"].as_array().unwrap().len(), 1);
-        assert_eq!(
-            processed["versions"][0]["transcript"]["text"],
-            "Audio sintético"
-        );
-        assert_eq!(
-            processed["currentVersionId"],
-            processed["versions"][0]["id"]
-        );
-        let preserved = reopened.recording("other-recording").await.unwrap();
-        assert_eq!(preserved["versions"][0]["id"], "historical-version");
-        assert_eq!(
-            preserved["versions"][0]["transcript"]["text"]
-                .as_str()
-                .unwrap()
-                .len(),
-            33 * 1024 * 1024
-        );
-    }
-
-    #[tokio::test]
-    async fn respuesta_demasiado_grande_falla_y_permite_otro_trabajo() {
-        let scripts = Scripts::new(crate::native::binary("escriba-runtime").unwrap());
-        let state = Arc::new(StdMutex::new(fixture()));
-        let fake = fake_host(state);
-        let capability: Capability = Arc::new(move |method, params, task, lease| {
-            if method == "runtime_context" && params["recordingId"] == "r" {
-                Box::pin(async move {
-                    lease.ensure_active()?;
-                    Ok(json!({"large":"x".repeat(MAX_FRAME as usize)}))
-                })
-            } else {
-                fake(method, params, task, lease)
-            }
-        });
-        let events: Events = Arc::new(|_| {});
-        let error = tokio::time::timeout(
-            Duration::from_secs(10),
-            scripts.call(
-                "oversized",
-                "processRecording",
-                json!({"recordingId":"r"}),
-                capability.clone(),
-                events.clone(),
-            ),
-        )
-        .await
-        .unwrap()
-        .unwrap_err();
-        assert!(error.message.contains("32 MiB"), "{error}");
-        let schema = tokio::time::timeout(
-            Duration::from_secs(10),
-            scripts.call(
-                "next",
-                "getRecipeSchema",
-                json!({"recipeId":"default"}),
-                capability,
-                events,
-            ),
-        )
-        .await
-        .unwrap()
-        .unwrap();
-        assert!(schema["properties"]["idioma"].is_object());
-    }
-
-    #[tokio::test]
-    async fn sidecar_compilado_inspecciona_formulario_y_procesa_nota() {
-        let path = crate::native::binary("escriba-runtime").unwrap();
-        let scripts = Scripts::new(path);
-        let state = Arc::new(StdMutex::new(fixture()));
-        let cap = fake_host(state.clone());
-        let events: Events = Arc::new(|_| {});
-        let schema = tokio::time::timeout(
-            Duration::from_secs(20),
-            scripts.call(
-                "schema-1",
-                "getRecipeSchema",
-                json!({"recipeId":"default"}),
-                cap.clone(),
-                events.clone(),
-            ),
-        )
-        .await
-        .unwrap()
-        .unwrap();
-        assert!(schema["properties"]["idioma"].is_object(), "{schema}");
-        tokio::time::timeout(
-            Duration::from_secs(20),
-            scripts.call(
-                "job-1",
-                "processRecording",
-                json!({"recordingId":"r","options":{"force":false}}),
-                cap,
-                events,
-            ),
-        )
-        .await
-        .unwrap()
-        .unwrap();
-        let saved = state.lock().unwrap();
-        assert_eq!(
-            saved["recordings"][0]["versions"].as_array().unwrap().len(),
-            1
-        );
-        assert_eq!(saved["recordings"][0]["status"], "done");
-    }
-
-    #[tokio::test]
-    async fn receta_compilada_con_paquete_local_se_ejecuta_en_bun() {
-        let directory = tempfile::tempdir().unwrap();
-        let recipe = directory.path().join("recetas/paquete");
-        let dependency = directory.path().join("node_modules/demo-package");
-        std::fs::create_dir_all(&recipe).unwrap();
-        std::fs::create_dir_all(&dependency).unwrap();
-        std::fs::write(
-            dependency.join("package.json"),
-            r#"{"name":"demo-package","version":"1.0.0","main":"index.js"}"#,
-        )
-        .unwrap();
-        std::fs::write(
-            dependency.join("index.js"),
-            "export const marker = 'paquete-del-usuario';",
-        )
-        .unwrap();
-        std::fs::write(
-            recipe.join("receta.ts"),
-            "import { marker } from 'demo-package'; export const receta={nombre:marker}; export async function flujo(audio,api){if(marker!=='paquete-del-usuario')throw Error('Paquete incorrecto');await(await api.transcribir(audio)).guardar()}",
-        )
-        .unwrap();
-        let vendor = Path::new(env!("CARGO_MANIFEST_DIR")).join("vendor");
-        let runtime = crate::native::binary("escriba-runtime").unwrap();
-        let catalog = crate::project::build(directory.path(), &runtime, &vendor).unwrap();
-        let mut data = fixture();
-        data["recipes"] = catalog["recipes"].clone();
-        data["settings"]["defaultRecipeId"] = json!("paquete");
-        let state = Arc::new(StdMutex::new(data));
-        let scripts = Scripts::new(crate::native::binary("escriba-runtime").unwrap());
+    async fn command(
+        scripts: &Scripts,
+        method: &str,
+        params: Value,
+        origin: Origin,
+        cap: &Capability,
+    ) -> Result<Value, AppError> {
         scripts
-            .call(
-                "external-package",
-                "processRecording",
-                json!({"recordingId":"r"}),
-                fake_host(state.clone()),
-                Arc::new(|_| {}),
-            )
+            .command(method, params, origin, cap.clone(), Arc::new(|_| {}))
             .await
-            .unwrap();
-        assert_eq!(state.lock().unwrap()["recordings"][0]["status"], "done");
-    }
-
-    #[tokio::test]
-    async fn receta_no_puede_leer_un_archivo_fuera_del_runtime() {
-        let directory = tempfile::tempdir().unwrap();
-        let canary = directory.path().join("canary");
-        std::fs::write(&canary, b"synthetic").unwrap();
-        let path = serde_json::to_string(&canary.to_string_lossy()).unwrap();
-        let program = format!(
-            "var __recipe={{async flujo(audio,api){{let denied=false;try{{await(await import('node:fs/promises')).readFile({path})}}catch(error){{denied=error.code==='EPERM'||error.code==='EACCES'}}if(!denied)throw Error('La receta leyó un archivo');await(await api.transcribir(audio)).guardar()}}}}"
-        );
-        let mut data = fixture();
-        data["recipes"][0] =
-            json!({"id":"default","name":"Prueba","kind":"code","values":{},"bundle":program});
-        let state = Arc::new(StdMutex::new(data));
-        let scripts = Scripts::new(crate::native::binary("escriba-runtime").unwrap());
-        tokio::time::timeout(
-            Duration::from_secs(20),
-            scripts.call(
-                "sandbox-file",
-                "processRecording",
-                json!({"recordingId":"r"}),
-                fake_host(state.clone()),
-                Arc::new(|_| {}),
-            ),
-        )
-        .await
-        .unwrap()
-        .unwrap();
-        assert_eq!(state.lock().unwrap()["recordings"][0]["status"], "done");
     }
 
     #[tokio::test]
@@ -1253,14 +767,8 @@ mod tests {
         let executable = directory.path().join("runtime-no-ejecutable");
         std::fs::write(&executable, b"synthetic").unwrap();
         let scripts = Scripts::new(executable);
-        let error = scripts
-            .call(
-                "startup-error",
-                "getRecipeSchema",
-                json!({"recipeId":"default"}),
-                fake_host(Arc::new(StdMutex::new(fixture()))),
-                Arc::new(|_| {}),
-            )
+        let cap = shell(Arc::new(StdMutex::new(Vec::new())));
+        let error = command(&scripts, "controller_status", json!({}), Origin::Ui, &cap)
             .await
             .unwrap_err();
         assert_eq!(error.code, ErrorCode::RuntimeUnavailable);
@@ -1271,30 +779,138 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn cancelacion_cierra_worker_cpu_y_deja_sidecar_usable() {
-        let path = crate::native::binary("escriba-runtime").unwrap();
-        let scripts = Arc::new(Scripts::new(path));
-        let mut fixture = fixture();
-        fixture["recipes"][0] = json!({"id":"default","name":"Bucle","kind":"code","values":{},"bundle":"var __recipe={flujo(){while(true){}}}"});
-        let state = Arc::new(StdMutex::new(fixture));
-        let cap = fake_host(state.clone());
-        let events: Events = Arc::new(|_| {});
-        let handle = {
-            let scripts = scripts.clone();
-            let cap = cap.clone();
-            let events = events.clone();
-            tokio::spawn(async move {
-                scripts
-                    .call(
-                        "cpu",
-                        "processRecording",
-                        json!({"recordingId":"r"}),
-                        cap,
-                        events,
-                    )
-                    .await
-            })
-        };
+    async fn una_biblioteca_ilegible_impide_arrancar_con_su_motivo() {
+        let directory = tempfile::tempdir().unwrap();
+        std::fs::write(directory.path().join("library.surrealkv"), b"legacy").unwrap();
+        let scripts = runtime(directory.path());
+        let cap = shell(Arc::new(StdMutex::new(Vec::new())));
+        let error = command(&scripts, "controller_status", json!({}), Origin::Ui, &cap)
+            .await
+            .unwrap_err();
+        assert_eq!(error.code, ErrorCode::RuntimeUnavailable);
+        assert!(error.message.contains("SurrealKV"), "{error}");
+    }
+
+    #[tokio::test]
+    async fn el_controlador_abre_su_biblioteca_y_reinicia_tras_caerse() {
+        let directory = tempfile::tempdir().unwrap();
+        let scripts = runtime(directory.path());
+        let calls = Arc::new(StdMutex::new(Vec::new()));
+        let cap = shell(calls.clone());
+        let status = command(&scripts, "controller_status", json!({}), Origin::Ui, &cap)
+            .await
+            .unwrap();
+        assert_eq!(
+            status["dataPath"],
+            json!(directory.path().to_string_lossy())
+        );
+        assert!(directory.path().join("library.rocksdb").is_dir());
+        assert_eq!(
+            command(
+                &scripts,
+                "import_inbox",
+                json!({"files":[]}),
+                Origin::Ui,
+                &cap
+            )
+            .await
+            .unwrap_err()
+            .message,
+            "Origen no permitido para import_inbox"
+        );
+        wait_until(|| async { calls.lock().unwrap().contains(&"shell.native".to_owned()) }).await;
+        let old = scripts.session.lock().await.clone().unwrap();
+        let old_pid = old.child.lock().await.id().unwrap();
+        unsafe {
+            libc::kill(old_pid as i32, libc::SIGKILL);
+        }
+        wait_until(|| async { !old.alive.load(Ordering::SeqCst) }).await;
+        let again = command(&scripts, "controller_status", json!({}), Origin::Ui, &cap)
+            .await
+            .unwrap();
+        assert_eq!(again["protocolVersion"], 1);
+        assert_ne!(
+            scripts
+                .session
+                .lock()
+                .await
+                .as_ref()
+                .unwrap()
+                .child
+                .lock()
+                .await
+                .id(),
+            Some(old_pid)
+        );
+    }
+
+    #[tokio::test]
+    async fn cierre_ordenado_libera_la_biblioteca_para_otro_controlador() {
+        let directory = tempfile::tempdir().unwrap();
+        let scripts = runtime(directory.path());
+        let cap = shell(Arc::new(StdMutex::new(Vec::new())));
+        command(&scripts, "controller_status", json!({}), Origin::Ui, &cap)
+            .await
+            .unwrap();
+        let session = scripts.session.lock().await.clone().unwrap();
+        let pid = session.child.lock().await.id().unwrap();
+        scripts.shutdown().await;
+        assert!(scripts.session.lock().await.is_none());
+        assert!(!session.alive.load(Ordering::SeqCst));
+        assert!(session.child.lock().await.try_wait().unwrap().is_some());
+        let closed = command(&scripts, "controller_status", json!({}), Origin::Ui, &cap)
+            .await
+            .unwrap_err();
+        assert_eq!(closed.code, ErrorCode::RuntimeUnavailable);
+        assert!(scripts.session.lock().await.is_none());
+        let second = runtime(directory.path());
+        let status = command(&second, "controller_status", json!({}), Origin::Ui, &cap)
+            .await
+            .unwrap();
+        assert_eq!(status["protocolVersion"], 1);
+        assert_ne!(
+            second
+                .session
+                .lock()
+                .await
+                .as_ref()
+                .unwrap()
+                .child
+                .lock()
+                .await
+                .id(),
+            Some(pid)
+        );
+        second.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn cancelar_una_nota_cierra_su_worker_y_deja_el_controlador_usable() {
+        let directory = tempfile::tempdir().unwrap();
+        let scripts = Arc::new(runtime(directory.path()));
+        let cap = shell(Arc::new(StdMutex::new(Vec::new())));
+        command(&scripts, "config_save", json!({"collection":"recipes","item":{"id":"default","name":"Bucle","kind":"code","values":{},"bundle":"var __recipe={flujo(){while(true){}}}"}}), Origin::Ui, &cap).await.unwrap();
+        command(
+            &scripts,
+            "settings_save",
+            json!({"settings":{"defaultRecipeId":"default"}}),
+            Origin::Ui,
+            &cap,
+        )
+        .await
+        .unwrap();
+        let inbox = directory.path().join("nota.wav");
+        std::fs::write(&inbox, b"audio sintetico").unwrap();
+        let imported = command(
+            &scripts,
+            "import_inbox",
+            json!({"files":[{"inbox":inbox,"source":"/origen/nota.wav"}]}),
+            Origin::Shell,
+            &cap,
+        )
+        .await
+        .unwrap();
+        let recording = imported[0]["id"].as_str().unwrap().to_owned();
         wait_until(|| async {
             let session = scripts.session.lock().await.clone();
             if let Some(session) = session {
@@ -1304,122 +920,40 @@ mod tests {
             }
         })
         .await;
-        scripts.cancel("cpu").await;
-        let error = tokio::time::timeout(Duration::from_secs(5), handle)
+        command(
+            &scripts,
+            "runtime_cancel",
+            json!({"recordingId":recording}),
+            Origin::Ui,
+            &cap,
+        )
+        .await
+        .unwrap();
+        wait_until(|| async {
+            let session = scripts.session.lock().await.clone().unwrap();
+            let empty = session.workers.lock().await.is_empty();
+            empty
+        })
+        .await;
+        let jobs = command(&scripts, "runtime_jobs", json!({}), Origin::Ui, &cap)
             .await
-            .unwrap()
-            .unwrap()
-            .unwrap_err();
-        assert!(error.message.contains("cancelado"), "{error}");
-        let session = scripts.session.lock().await.clone().unwrap();
-        assert!(session.workers.lock().await.is_empty());
-        state.lock().unwrap()["recipes"][0] =
-            json!({"id":"default","name":"Por defecto","kind":"form","values":{"resumir":false}});
-        tokio::time::timeout(
-            Duration::from_secs(5),
-            scripts.call(
-                "schema-after-cancel",
-                "getRecipeSchema",
-                json!({"recipeId":"default"}),
-                cap,
-                events,
+            .unwrap();
+        assert!(jobs.as_array().unwrap().is_empty(), "{jobs}");
+        command(&scripts, "config_save", json!({"collection":"recipes","item":{"id":"default","name":"Por defecto","kind":"form","values":{"resumir":false}}}), Origin::Ui, &cap).await.unwrap();
+        let schema = tokio::time::timeout(
+            Duration::from_secs(10),
+            command(
+                &scripts,
+                "runtime_run",
+                json!({"operation":"getRecipeSchema","args":{"recipeId":"default"}}),
+                Origin::Ui,
+                &cap,
             ),
         )
         .await
         .unwrap()
         .unwrap();
-    }
-
-    #[tokio::test]
-    async fn caida_del_sidecar_reinicia_en_siguiente_peticion() {
-        let scripts = Scripts::new(crate::native::binary("escriba-runtime").unwrap());
-        let cap = fake_host(Arc::new(StdMutex::new(fixture())));
-        let events: Events = Arc::new(|_| {});
-        scripts
-            .call(
-                "schema-before-crash",
-                "getRecipeSchema",
-                json!({"recipeId":"default"}),
-                cap.clone(),
-                events.clone(),
-            )
-            .await
-            .unwrap();
-        let old = scripts.session.lock().await.clone().unwrap();
-        let old_pid = old._child.id().unwrap();
-        unsafe {
-            libc::kill(old_pid as i32, libc::SIGKILL);
-        }
-        wait_until(|| async { !old.alive.load(Ordering::SeqCst) }).await;
-        let schema = scripts
-            .call(
-                "schema-after-crash",
-                "getRecipeSchema",
-                json!({"recipeId":"default"}),
-                cap,
-                events,
-            )
-            .await
-            .unwrap();
         assert!(schema["properties"]["idioma"].is_object());
-        assert_ne!(
-            scripts.session.lock().await.as_ref().unwrap()._child.id(),
-            Some(old_pid)
-        );
-    }
-
-    #[tokio::test]
-    async fn lease_revocada_impide_efecto_tardio_tras_cancelacion() {
-        let scripts = Arc::new(Scripts::new(
-            crate::native::binary("escriba-runtime").unwrap(),
-        ));
-        let started = Arc::new(AtomicBool::new(false));
-        let wrote = Arc::new(AtomicBool::new(false));
-        let fixture = fixture();
-        let cap: Capability = {
-            let started = started.clone();
-            let wrote = wrote.clone();
-            Arc::new(move |method, _, _, lease| {
-                let started = started.clone();
-                let wrote = wrote.clone();
-                let fixture = fixture.clone();
-                Box::pin(async move {
-                    if method != "runtime_context" {
-                        return Err("Capacidad inesperada".into());
-                    }
-                    started.store(true, Ordering::SeqCst);
-                    tokio::time::sleep(Duration::from_millis(100)).await;
-                    lease.ensure_active()?;
-                    wrote.store(true, Ordering::SeqCst);
-                    Ok(fixture)
-                })
-            })
-        };
-        let events: Events = Arc::new(|_| {});
-        let handle = {
-            let scripts = scripts.clone();
-            tokio::spawn(async move {
-                scripts
-                    .call(
-                        "late",
-                        "processRecording",
-                        json!({"recordingId":"r"}),
-                        cap,
-                        events,
-                    )
-                    .await
-            })
-        };
-        wait_until(|| async { started.load(Ordering::SeqCst) }).await;
-        scripts.cancel("late").await;
-        let error = tokio::time::timeout(Duration::from_secs(5), handle)
-            .await
-            .unwrap()
-            .unwrap()
-            .unwrap_err();
-        assert!(error.message.contains("cancelado"), "{error}");
-        tokio::time::sleep(Duration::from_millis(150)).await;
-        assert!(!wrote.load(Ordering::SeqCst));
     }
 
     #[tokio::test]
@@ -1432,26 +966,26 @@ mod tests {
             .contains("incompleto"));
     }
 
-    async fn protocol_error_reaches_running_job(invalid: &[u8], expected: &str) {
+    async fn protocol_error_reaches_pending_command(invalid: &[u8], expected: &str) {
+        let directory = tempfile::tempdir().unwrap();
         let path = crate::native::binary("escriba-runtime").unwrap();
-        let (mut child, _stderr) = spawn(&path, false, &[]).unwrap();
+        let (mut child, _stderr) = spawn(&path, false, &controller_env(directory.path())).unwrap();
         let mut input = child.stdin.take().unwrap();
         let mut output = BufReader::new(child.stdout.take().unwrap());
         assert_eq!(frame(&mut output).await.unwrap()["type"], "ready");
-        input.write_all(b"{\"type\":\"run\",\"id\":\"broken\",\"operation\":\"processRecording\",\"args\":{\"recordingId\":\"r\"}}\n").await.unwrap();
-        loop {
-            if frame(&mut output).await.unwrap()["type"] == "call" {
-                break;
-            }
-        }
+        input.write_all(b"{\"type\":\"command\",\"id\":\"broken\",\"method\":\"runtime_run\",\"params\":{\"operation\":\"getRecipeSchema\",\"args\":{\"recipeId\":\"inexistente\"}},\"origin\":\"ui\"}\n").await.unwrap();
         input.write_all(invalid).await.unwrap();
         input.flush().await.unwrap();
-        let result = tokio::time::timeout(Duration::from_secs(5), frame(&mut output))
-            .await
-            .unwrap()
-            .unwrap();
-        assert_eq!(result["type"], "error");
-        assert_eq!(result["id"], "broken");
+        let result = tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                let value = frame(&mut output).await.unwrap();
+                if value["type"] == "error" && value["id"] == "broken" {
+                    return value;
+                }
+            }
+        })
+        .await
+        .unwrap();
         assert!(
             result["message"].as_str().unwrap().contains(expected),
             "{result}"
@@ -1459,14 +993,29 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn protocolo_invalido_informa_al_trabajo_activo() {
-        protocol_error_reaches_running_job(b"not-json\n", "JSON").await;
+    async fn protocolo_invalido_informa_al_comando_pendiente() {
+        protocol_error_reaches_pending_command(b"not-json\n", "JSON").await;
     }
 
     #[tokio::test]
-    async fn trama_entrante_grande_informa_al_trabajo_activo() {
+    async fn trama_entrante_grande_informa_al_comando_pendiente() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = crate::native::binary("escriba-runtime").unwrap();
+        let (mut child, mut stderr) =
+            spawn(&path, false, &controller_env(directory.path())).unwrap();
+        let mut input = child.stdin.take().unwrap();
+        let mut output = BufReader::new(child.stdout.take().unwrap());
+        assert_eq!(frame(&mut output).await.unwrap()["type"], "ready");
         let mut oversized = vec![b' '; MAX_FRAME as usize + 1];
         oversized.push(b'\n');
-        protocol_error_reaches_running_job(&oversized, "32 MiB").await;
+        let _ = input.write_all(&oversized).await;
+        drop(input);
+        let status = tokio::time::timeout(Duration::from_secs(10), child.wait())
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(!status.success());
+        let error = stderr.startup_error(String::new()).await;
+        assert!(error.contains("32 MiB"), "{error}");
     }
 }

@@ -88,7 +88,7 @@ async function fixture() {
       logs.push(message);
     },
   };
-  registerControllerCommands(commands, { host, dataPath: dir, credentials: deps.credentials, emit: deps.emit });
+  registerControllerCommands(commands, { host, dataPath: dir, credentials: deps.credentials, audioPath: (recordingId) => library.audio(recordingId), emit: deps.emit });
   registerDomainCommands(commands, deps);
   const ui = (method: string, params: Record<string, unknown> = {}) => commands.dispatch(method, params, "ui");
   const shell = (method: string, params: Record<string, unknown> = {}) => commands.dispatch(method, params, "shell");
@@ -251,6 +251,59 @@ test("el feed de conocimiento entrega lotes y acusa por clave y revisión", asyn
   await f.shell("knowledge_feed_ack", { acks: changes.map((change) => ({ key: change.key, revision: change.revision })) });
   assert.deepEqual(await f.shell("knowledge_feed_changes", { limit: 10 }), []);
   await assert.rejects(f.shell("knowledge_feed_changes", { limit: 0 }), /Límite de cambios inválido/);
+});
+
+test("el feed de conocimiento proyecta la nota y la persona sin rutas, secretos ni huellas", async () => {
+  const id = await f.imported("inbox/privada.wav", "/origen/privada.wav");
+  await f.shell("watch_folder_save", { path: f.dir, name: "Privada", style: "any", bookmark: [11, 22, 33] });
+  await f.shell("people_add_voice", {
+    name: "Ana sintética",
+    voice: { speaker: "Speaker 1", model: "MODELO_PRIVADO", embedding: [0.25, 0.75] },
+    source: "MUESTRA_PRIVADA",
+  });
+  await f.shell("version_save", {
+    recordingId: id,
+    backend: "sintético",
+    transcript: {
+      text: "Texto proyectado",
+      language: "es",
+      segments: [{ start: 0, end: 1, text: "Hola", speaker: "Speaker 1", words: [{ start: 0, end: 1, text: "Hola", secret: "PALABRA_PRIVADA" }], secret: "SEGMENTO_PRIVADO" }],
+      secret: "TRANSCRIPCION_PRIVADA",
+    },
+    digest: { title: "Nota proyectada", summary: "Resumen proyectado", secret: "RESUMEN_PRIVADO" },
+    inputs: { token: "TOKEN_PRIVADO" },
+    data: { secret: "DATO_PRIVADO" },
+  });
+  await f.shell("knowledge_feed_prepare", { epoch: "proyección-privada" });
+  const changes = arr(await f.shell("knowledge_feed_changes", { limit: 10 }));
+  const recording = changes.find((change) => change.kind === "recording" && change.id === id);
+  const person = changes.find((change) => change.kind === "person");
+  assert.ok(recording);
+  assert.ok(person);
+  const snapshot = obj(recording.value);
+  assert.equal(snapshot.id, id);
+  assert.equal(arr(snapshot.versions).length, 1);
+  const version = obj(arr(snapshot.versions)[0]);
+  assert.equal(obj(version.transcript).text, "Texto proyectado");
+  assert.equal(obj(version.digest).summary, "Resumen proyectado");
+  assert.equal(obj(person.value).name, "Ana sintética");
+  const projection = JSON.stringify(changes);
+  for (const forbidden of [
+    f.library.audio(id),
+    "/origen/privada.wav",
+    "accessBookmark",
+    "11,22,33",
+    "MODELO_PRIVADO",
+    "MUESTRA_PRIVADA",
+    "embedding",
+    "0.25",
+    "TOKEN_PRIVADO",
+    "PALABRA_PRIVADA",
+    "SEGMENTO_PRIVADO",
+    "TRANSCRIPCION_PRIVADA",
+    "RESUMEN_PRIVADO",
+    "DATO_PRIVADO",
+  ]) assert.ok(!projection.includes(forbidden), `El feed expuso ${forbidden}`);
 });
 
 test("las capturas de la grabadora se incorporan y se retiran, incluidas las recuperadas al arrancar", async () => {

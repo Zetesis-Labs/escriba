@@ -95,8 +95,11 @@ fn current(state: &Runtime) -> View {
                 .is_some_and(|issues| !issues.is_empty())
         })
         .unwrap_or(false);
-    let jobs = state.library.active_jobs();
-    let count = Some(state.library.index().recordings.len());
+    let (jobs, count) = state
+        .facts
+        .lock()
+        .map(|facts| (facts.jobs.clone(), facts.recordings))
+        .unwrap_or_default();
     let problem = state
         .recording_problem
         .lock()
@@ -104,7 +107,7 @@ fn current(state: &Runtime) -> View {
         .and_then(|problem| problem.as_ref().map(|p| p.message.clone()));
     View {
         status: status(&jobs, unreadable),
-        count,
+        count: Some(count),
         recording: recorder::is_recording(state),
         problem,
     }

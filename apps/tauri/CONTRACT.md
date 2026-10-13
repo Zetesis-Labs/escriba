@@ -5,17 +5,22 @@ Una aplicación: **Escriba.app** (ADR-0005). El identificador técnico
 `ESCRIBA_TAURI_DATA` selecciona una biblioteca aislada para pruebas.
 No pruebas contra Notion ni tokens reales.
 
-TypeScript: UI React, formularios Zod, recetas, conectores npm y orquestación en un proceso propio.
-Rust: SurrealDB, cola duradera, biblioteca y versiones, configuración, cuentas/secretos 0600, transporte
-autenticado, archivos autorizados, vigilancia, ejecución del proceso nativo.
+TypeScript/Bun: UI React, formularios Zod, recetas, conectores npm, SurrealDB de la
+biblioteca, cola duradera, versiones, configuración, credenciales 0600 y transporte autenticado.
+Rust: conocimiento en otra base SurrealDB, archivos autorizados, vigilancia,
+captura, supervisión de procesos y acceso al host nativo.
 Swift: WhisperKit/SpeakerKit, FoundationModels y captura/metadatos AVFoundation.
 
-Rust implementa un único comando Tauri `app_command {method, params}` y lo
-deserializa a un enum etiquetado (`src-tauri/src/command.rs`): un método
-desconocido o un parámetro de más falla antes de ejecutar nada. Cada variante
-declara si refresca la biblioteca y si las recetas pueden llamarla; añadir un
-comando obliga a decidir ambas cosas y a documentarlo aquí, porque un test
-comprueba que todos figuran en este contrato.
+Rust implementa un único comando Tauri `app_command {method, params}`. Reenvía
+los métodos de `CONTROLLER_METHODS` al controlador Bun con `origin: ui`. Los
+comandos de cáscara (`AppCommand`) y conocimiento (`KnowledgeCommand`) se
+deserializan en Rust; un método desconocido falla antes de ejecutarse y los
+parámetros tipados de conocimiento rechazan campos adicionales. El controlador
+decide los permisos de recetas y los eventos de cambios de la biblioteca;
+Rust emite cambios de conocimiento tras sus mutaciones. Los tres grupos de
+comandos figuran en este contrato.
+`knowledge_open`, `knowledge_query` y `knowledge_link` son capacidades de
+recetas: la entrada de la UI las rechaza antes de deserializar sus parámetros.
 
 Los tipos de `src/generated/` se generan desde Rust con ts-rs:
 `cargo test --lib los_tipos_generados` falla si están desfasados y
@@ -26,12 +31,23 @@ parámetros como JSON hasta que cada módulo tipa los suyos. `src/types.ts`
 sigue siendo el modelo compartido de la biblioteca.
 Errores rechazan la promesa con texto legible; nunca éxitos vacíos.
 
-## Comandos Rust
+## Comandos de la interfaz
+
+Rust ejecuta directamente `import_audio`, `recording_status`,
+`recording_start`, `recording_stop`, `recording_dismiss`, `recording_cancel`,
+`voice_registration_status`, `voice_registration_start`,
+`voice_registration_import`, `voice_registration_stop`,
+`voice_registration_cancel`, `voice_registration_dismiss`, `native`,
+`project_init`, `project_list`, `project_open_vscode`, `project_tool`,
+`project_read`, `project_write`, `export_file`, `reveal`, `open_url`,
+`open_privacy_settings`, `system_appearance`, `whisper_model`, `watch_scan` y
+`watch_folder_authorize`. El resto de métodos de interfaz de esta sección se
+reenvía a Bun; los comandos `knowledge_*` se atienden en Rust.
 
 - library -> Snapshot ligero (metadatos, extractos y huellas de revisión; sin segmentos, resumen completo ni datos de receta). Es la lectura del arranque y los refrescos.
 - recording_detail {id} -> Recording completa de la selección, leída de SurrealDB bajo demanda.
 - snapshot -> Snapshot completo solo bajo solicitud explícita (jamás secretos).
-- runtime_context {recordingId?} -> RuntimeContext (catálogos y ajustes de procesamiento; solo la grabación solicitada, sin registros, carpetas vigiladas ni rutas de audio). El controlador TypeScript usa esta consulta; La interfaz usa `library` y `recording_detail`; no necesita `snapshot` para mostrar la biblioteca.
+- runtime_context {recordingId?} -> RuntimeContext (catálogos y ajustes de procesamiento; solo la grabación solicitada, sin registros, carpetas vigiladas ni rutas de audio). El controlador consulta su biblioteca; la interfaz usa `library` y `recording_detail` y no necesita `snapshot` para mostrar la biblioteca.
 - import_audio {paths:string[], recipeId?} -> Recording[] (copia audio).
 - recording_update {id, title?, status?, error?, duration?, recipeId?} -> Recording.
 - recording_discard {id} -> void.
@@ -54,7 +70,7 @@ Errores rechazan la promesa con texto legible; nunca éxitos vacíos.
 - log {message,level?,recordingId?,recipeId?} -> void (`level` info, warn o error; emite `escriba://log`, no `escriba://changed`).
 - log_list {recordingId?,before?,limit?} -> LogEntry[] (más recientes primero, hasta 3000; `before` pagina por `at`). `library` y `snapshot` no incluyen el registro.
 - native {method,params} -> resultado sidecar; native_cancel -> void (interrumpe proceso y se reinicia a demanda).
-- transcribe {recordingId,resolverId,language?,diarize?,speakers?} -> Transcript (local por el host nativo; remoto lo pide Rust al controlador con `remote_transcribe`); Rust reconoce hablantes en ambos casos.
+- transcribe {recordingId,resolverId,language?,diarize?,speakers?} -> Transcript (Bun elige el resolutor y pide inferencia local mediante `shell.native` o realiza la petición remota; el controlador conserva las huellas y reconoce hablantes).
 - summarize {resolverId,instructions,prompt} -> Digest (una petición; troceo TS).
 - ask {resolverId,instructions,prompt,schema?} -> JSON.
 - recording_start {recipeId?} -> estado del panel; recording_stop -> Recording | null.
@@ -66,8 +82,6 @@ Errores rechazan la promesa con texto legible; nunca éxitos vacíos.
 - system_appearance -> {accent:string|null} (color de acento del sistema).
 - whisper_model {action:'info'|'delete'} -> {model,available,bytes} | void (solo la carpeta de modelos de Escriba).
 - project_init {path} -> {hasDist:boolean} (crea ausentes; si ya existe el artefacto no añade fuentes).
-- project_build -> {recipes:Recipe[],connectorProgram?:string,ontologyProgram?:string} (Bun aislado construye `dist/` y el cargador lo lee; conserva el artefacto anterior si falla la construcción).
-- project_load -> el mismo resultado que project_build, leyendo solo `dist/escriba.json` y sus paquetes JavaScript.
 - project_open_vscode -> void (abre la carpeta del proyecto en VS Code).
 - project_list -> {files:string[]} (fuentes y JSON/Markdown; excluye dist, node_modules, .git, .escriba y enlaces).
 - project_read {entry} -> {source:string}; project_write {entry,source,expectedSource?,createNew?} -> void (confinado al proyecto, escritura atómica; rechaza una versión externa distinta o un archivo existente al crear).
@@ -98,10 +112,10 @@ está, repetir `note_draft_commit` con el id y la revisión originales recupera 
 recibo idempotente. Si tampoco se puede consultar, el estado sigue siendo
 incierto y se ofrece reintentar, sin inferir el resultado del texto del error.
 
-## Comandos del controlador
+## Protocolo del controlador
 
 Los métodos de `CONTROLLER_METHODS` (`src-tauri/src/command.rs`) no son
-variantes del enum: Rust los reenvía al controlador TypeScript como trama
+variantes del enum: Rust los reenvía al controlador Bun como trama
 `command {id,method,params,origin}` y devuelve su `result` o `error`. El
 controlador arranca con la app, sin perfil de `sandbox-exec`, con `ESCRIBA_DATA`
 y `NAPI_RS_NATIVE_LIBRARY_PATH` en su entorno; las recetas conservan el suyo.
@@ -110,27 +124,40 @@ Los eventos que emite (`changed`, `log`, `imported`, `project`,
 `escriba://<evento>`.
 
 - controller_status -> {protocolVersion, dataPath} (el controlador está vivo y sabe dónde están los datos).
-- credential_save {id, value} -> void (ficheros 0600 en `secrets/`, escritos por el controlador; vacío elimina; nunca lectura a JS; emite `changed`). Rust solo comprueba que el fichero existe (`hasCredential`) y lo borra al retirar la cuenta o el resolutor.
-- connector_http {accountId,expectedGrant,url,method?,headers?,body?,multipart?} -> {status,headers,body} (cuenta fija origen y cabeceras; el controlador inyecta el secreto, no sigue redirecciones y redacta el secreto de la respuesta; multipart [{name,value? ,audio?:{recordingId,start?,end?},filename?,type?}]; la ruta del audio la pide a la cáscara con `shell.audio_path`). Lo usa también el propio controlador para las recetas y conectores, sin pasar por Rust.
+- credential_save {id, value} -> void (ficheros 0600 en `secrets/`, escritos por el controlador; vacío elimina; nunca lectura a la UI o recetas; emite `changed`).
+- connector_http {accountId,expectedGrant,url,method?,headers?,body?,multipart?} -> {status,headers,body} (cuenta fija origen y cabeceras; el controlador inyecta el secreto, no sigue redirecciones y redacta el secreto de la respuesta; multipart [{name,value?,audio?:{recordingId,start?,end?},filename?,type?}]; el controlador consulta internamente la ruta del audio). Lo usa también para recetas y conectores.
 - resolver_models {resolver,key?,resolverId?} -> string[] (modelos del servicio compatible con OpenAI); resolver_try {resolver,key?,resolverId?,role,instructions?,prompt?} -> Digest | {text} (prueba sin guardar; la clave escrita prevalece sobre la guardada; el LLM local se prueba por `shell.native`).
 
-Solo la cáscara (`origin: shell`) puede pedir `remote_transcribe
-{resolver,resolverId,path,language?,diarize?}` y `remote_ask
-{resolver,resolverId,instructions,prompt,schema?}`: son las ramas remotas de
-`transcribe`, `summarize` y `ask`, que siguen entrando por Rust.
+El controlador resuelve `transcribe`, `summarize` y `ask`. Solo la cáscara
+(`origin: shell`) llama sus métodos auxiliares de biblioteca, vigilancia y
+conocimiento: `settings_read`, `recipe_name`, `project_context`,
+`people_add_voice`, `import_inbox`, `recording_recorded`, `captures_recover`,
+`watch_folders`, `watch_incorporate`, `recording_abandoned`,
+`watch_folder_save`, `watch_folder_refresh`, `watch_seed_voice_memos`,
+`knowledge_ontologies`, `knowledge_context`, `knowledge_feed_prepare`,
+`knowledge_feed_changes` y `knowledge_feed_ack`.
 
 El controlador pide a Rust capacidades `shell.*` por el mismo canal `call`:
-`shell.audio_path {recordingId}` -> {path} y `shell.native {method,params}`
-(solo `status`, `summarize` y `ask` del host nativo). Nunca llegan a una receta.
+`shell.native {method,params}`, `shell.native_cancel`, `shell.notify`,
+`shell.autolaunch`, `shell.files`, `shell.okf_file`,
+`shell.validate_catalog`, `shell.project_build`, `shell.project_load` y
+`knowledge_open`, `knowledge_query`, `knowledge_link` para recetas. Son
+capacidades del controlador; las recetas solo reciben los métodos que este les
+concede.
+
+`shell.project_build` devuelve `{recipes:Recipe[],connectorProgram?,ontologyProgram?}`:
+una herramienta Bun aislada construye `dist/`, conserva el artefacto anterior
+si falla y el controlador carga el resultado. `shell.project_load` devuelve la
+misma estructura leyendo solo `dist/escriba.json` y sus paquetes JavaScript.
 
 ## Trabajos y estado de la interfaz
 
 - runtime_run {operation,args} -> resultado del trabajo; la espera de la UI no es propietaria del trabajo.
-  La cola duradera tiene dos carriles: procesar y resumir comparten el de inferencia (uno a la vez, como el motor nativo); publicar y retirar van por el de red (hasta tres a la vez). Una nota nunca tiene dos trabajos activos ni corre dos a la vez. El controlador TypeScript no añade otra cola: solo rechaza procesar una nota que ya se está procesando.
+  La cola duradera de Bun tiene dos carriles: procesar y resumir comparten el de inferencia (uno a la vez, como el motor nativo); publicar y retirar van por el de red (hasta tres a la vez). Una nota nunca tiene dos trabajos activos ni corre dos a la vez.
 - runtime_jobs -> Job[] (pendientes, activos y en espera de reintento). Cada trabajo de procesar guarda la receta con la que se encoló y la actualiza al empezar; `startedAt` es cuándo empezó a ejecutarse y `finishedAt` cuándo terminó, falló o se canceló.
 - runtime_history {before?,state?,recipeId?,operation?,limit} -> HistoryPage {jobs,recipes,next}; solo trabajos terminados, fallidos o cancelados, del final más reciente al más antiguo. `next` es el cursor de la página siguiente o null; `recipes` son las recetas que aparecen en el historial.
 - runtime_cancel {recordingId} -> void; revoca capacidades y termina la receta.
-- runtime_job_steps {id} -> RecipeTrace[]; las ejecuciones de cada intento de un trabajo, la última primero. Rust apunta en cada `trace_save` el trabajo que la lanzó (`jobId`, tomado de la tarea, no de la receta); las guardadas antes se asocian por nota y hora al último trabajo de procesar que empezó antes que ellas.
+- runtime_job_steps {id} -> RecipeTrace[]; las ejecuciones de cada intento de un trabajo, la última primero. El controlador apunta en cada `trace_save` el trabajo que la lanzó (`jobId`, tomado de la tarea, no de la receta); las guardadas antes se asocian por nota y hora al último trabajo de procesar que empezó antes que ellas.
 - runtime_relaunch {id} -> {id}; encola un trabajo nuevo a partir de uno fallido o cancelado y conserva el original. Procesar reprocesa con la receta vigente de la nota (`force: true`); una prueba de receta y las acciones manuales repiten sus argumentos. Se rechaza si la nota ya tiene un trabajo activo o un efecto externo incierto pendiente.
 - recording_status -> {active,clock,recipeName,levels,problem} del panel de captura.
 - project_install {recipes,destinations,providers,ontologies?} -> void; actualización transaccional del catálogo y de las ontologías candidatas, sin instalar ontologías ni conceder acceso a cuentas.
@@ -175,8 +202,8 @@ referencias arbitrarias en JSON quedan fuera de este visor.
 - memory_recall / memory_keep {recordingId,versionId,fingerprint,value?} -> JSON / void.
 - trace_save {recordingId,...} -> void; trace_list {recordingId?} -> trazas.
 
-`src/runtime/index.ts` solo es cliente IPC. Rust mantiene la cola y ejecuta el
-controlador de `runtime-host` incluso sin ventana. Véase el protocolo del
+`src/runtime/index.ts` solo es cliente IPC. Bun mantiene la cola; Rust ejecuta y
+supervisa el controlador de `runtime-host` incluso sin ventana. Véase el protocolo del
 [proceso TypeScript](runtime-host/README.md). La UI escucha `escriba://changed`
 y `escriba://jobs`; el sondeo de respaldo es de 15 s, o 2 s durante captura.
 Las consultas de estado y de formularios no emiten `escriba://changed`, para que
@@ -267,8 +294,9 @@ siempre se muestra. Los escaneos automáticos y manuales se ejecutan en serie.
 Cada carpeta puede tener `authorizationSaved` en el snapshot. Indica que se
 conserva una selección, no que macOS permita leerla ahora: el resultado actual
 se comunica mediante `watchIssues`. Los bytes del bookmark (`accessBookmark`)
-se guardan en SurrealDB, sólo los manipula Rust y nunca se incluyen en snapshots
-ni respuestas a TypeScript. Guardar ajustes conserva la selección cuando sigue
+se guardan en SurrealDB por el controlador; Rust los recibe para la vigilancia
+y el acceso nativo, pero nunca se incluyen en snapshots ni respuestas a la UI
+o recetas. Guardar ajustes conserva la selección cuando sigue
 correspondiendo al mismo id y ruta; quitar la carpeta elimina esa referencia.
 
 Rust restaura el bookmark antes del escaneo y de registrar FSEvents, renueva los

@@ -1,53 +1,21 @@
 use crate::{
-    catalog, knowledge::Knowledge, knowledge_commands, native, project, scripts, store::Store,
+    knowledge::Knowledge,
+    knowledge_commands::{
+        call,
+        testing::{port, FakeLibrary},
+    },
 };
-use serde_json::{json, Value};
-use std::{path::Path, sync::Arc, time::Duration};
+use base64::Engine;
+use serde_json::json;
+use surrealdb::types::Value as DbValue;
 
 #[tokio::test]
-async fn receta_empaquetada_ejecuta_sdk_sobre_grafo_real_y_conserva_vinculos_al_cambiar_proyecto() {
+async fn grafo_real_conserva_consultas_tipos_y_vinculos_al_reabrir() {
     let temporary = tempfile::tempdir().unwrap();
-    let project_root = temporary.path().join("proyecto");
-    let recipe_root = project_root.join("recetas/grafo");
-    std::fs::create_dir_all(&recipe_root).unwrap();
-    std::fs::write(recipe_root.join("receta.ts"), r#"
-import { RecordId, Table } from "surrealdb";
-export const receta = { nombre: "Grafo sintético" };
-export const ontologias = [{ id: "ejemplo.grafo", minVersion: 1, maxVersion: 1 }];
-export async function flujo(audio, api) {
-  const base = await api.grafo("escriba");
-  const recordings = await base.query("SELECT id FROM recording");
-  if (!(recordings[0]?.[0]?.id instanceof RecordId)) throw Error("La base no conserva la identidad de la grabación");
-  const db = await api.grafo("ejemplo.grafo");
-  const ada = new RecordId("person", "ada");
-  const grace = new RecordId("person", "grace");
-  await db.create(ada).content({ name: "Ada" });
-  await db.create(grace).content({ name: "Grace" });
-  await db.relate(ada, new Table("knows"), grace, { since: "2026-10-11" });
-  const selected = await db.select(ada);
-  if (!selected || selected.name !== "Ada" || !(selected.id instanceof RecordId)) throw Error("SDK perdió el registro tipado");
-  const names = await db.query("SELECT VALUE ->knows->person.name FROM person:ada");
-  if (names[0]?.[0]?.[0] !== "Grace") throw Error("No se recorrió la relación");
-  const note = await api.transcribir(audio);
-  await note.guardar();
-  const transcripts = await base.query("SELECT id, text FROM transcript");
-  if (transcripts[0]?.[0]?.text !== "Audio sintético" || !(transcripts[0]?.[0]?.id instanceof RecordId)) throw Error("La base no sincronizó la nota confirmada");
-  await note.vincular("ejemplo.grafo", "person:ada");
-}
-"#).unwrap();
-
-    let runtime = native::binary("escriba-runtime").unwrap();
-    let vendor = Path::new(env!("CARGO_MANIFEST_DIR")).join("vendor");
-    let modules = project_root.join("node_modules");
-    std::fs::create_dir_all(&modules).unwrap();
-    std::os::unix::fs::symlink(
-        vendor.join("node_modules/surrealdb"),
-        modules.join("surrealdb"),
-    )
-    .unwrap();
-    let built = project::build(&project_root, &runtime, &vendor).unwrap();
+    let graph_path = temporary.path().join("knowledge.rocksdb");
+    let state = FakeLibrary::new();
     let ontology = json!({
-        "id":"ejemplo.grafo", "name":"Personas", "version":1,
+        "id":"ejemplo.grafo","name":"Personas","version":1,
         "migrations":[{"version":1,"sql":"DEFINE TABLE person SCHEMAFULL PERMISSIONS FULL; DEFINE FIELD name ON person TYPE string; DEFINE TABLE knows TYPE RELATION IN person OUT person ENFORCED SCHEMAFULL PERMISSIONS FULL; DEFINE FIELD since ON knows TYPE string;"}],
         "collections":[
             {"table":"person","label":"Personas","titleField":"name","fields":[{"key":"name","label":"Nombre","type":"text","required":true}]},
@@ -55,96 +23,94 @@ export async function flujo(audio, api) {
         ]
     });
     let dependency = json!({"id":"ejemplo.grafo","minVersion":1,"maxVersion":1});
-    let mut compiled = built["recipes"][0].clone();
-    compiled["ontologies"] = json!([dependency]);
-
-    let audio = temporary.path().join("audio-sintetico.wav");
-    std::fs::write(&audio, b"audio sintetico").unwrap();
-    let library_path = temporary.path().join("library.rocksdb");
-    let knowledge_path = temporary.path().join("knowledge.rocksdb");
-    let mut store = Store::open(library_path.clone()).await.unwrap();
-    let recording = store.import(&audio, Some("grafo")).await.unwrap();
-    let recording_id = recording["id"].as_str().unwrap().to_string();
-    catalog::install(
-        &mut store,
-        &json!({"recipes":[compiled],"destinations":[],"ontologies":[ontology.clone()]}),
-    )
-    .await
-    .unwrap();
-    let store = crate::library::Library::new(store).await.unwrap();
-    let graph = Arc::new(Knowledge::open(&knowledge_path).await.unwrap());
-    knowledge_commands::call(
+    {
+        let mut library = state.lock().unwrap();
+        library.recipes.push(json!({"id":"graph-real","name":"Grafo","kind":"code","bundle":"programa sintético","ontologies":[dependency]}));
+        library.ontologies.push(ontology.clone());
+        library.add_recording(
+            "nota",
+            vec![json!({"id":"v1","transcript":{"text":"Audio sintético","segments":[]}})],
+        );
+    }
+    let adapter = port(state.clone());
+    let graph = Knowledge::open(&graph_path).await.unwrap();
+    call(
         &graph,
-        &store,
+        &adapter,
         "knowledge_install",
         json!({"definition":ontology}),
     )
     .await
     .unwrap();
-
-    let capability: scripts::Capability = Arc::new({
-        let store = store.clone();
-        let graph = graph.clone();
-        move |method, params, _task, lease| {
-            let store = store.clone();
-            let graph = graph.clone();
-            Box::pin(async move {
-                lease.ensure_active()?;
-                let response = if method.starts_with("knowledge_") {
-                    knowledge_commands::call(&graph, &store, &method, params).await
-                } else if method == "runtime_context" {
-                    store
-                        .runtime_context(params["recordingId"].as_str().map(str::to_owned))
-                        .await
-                } else if method == "transcribe" {
-                    Ok(json!({"text":"Audio sintético","segments":[]}))
-                } else if matches!(
-                    method.as_str(),
-                    "recording_update"
-                        | "version_save"
-                        | "version_select"
-                        | "version_update"
-                        | "account_effect_begin"
-                        | "account_effect_finish"
-                        | "log"
-                ) {
-                    store.mutate(method.clone(), params.clone()).await
-                } else if method == "trace_save" {
-                    store.trace_save(params.clone()).await.map(|_| Value::Null)
-                } else if method == "memory_recall" {
-                    Ok(Value::Null)
-                } else {
-                    Err(format!("Capacidad inesperada: {method}"))
-                };
-                response.map_err(Into::into)
-            })
-        }
-    });
-    let scripts = scripts::Scripts::new(runtime);
-    tokio::time::timeout(
-        Duration::from_secs(40),
-        scripts.call(
-            "graph-real",
-            "processRecording",
-            json!({"recordingId":recording_id}),
-            capability.clone(),
-            Arc::new(|_| {}),
-        ),
+    assert_eq!(call(&graph, &adapter, "knowledge_open", json!({"recipeId":"graph-real","recordingId":"nota","ontologyId":"ejemplo.grafo","dependency":dependency})).await.unwrap()["version"], 1);
+    let query = |sql: &str| {
+        json!({
+            "recipeId":"graph-real","recordingId":"nota","ontologyId":"ejemplo.grafo",
+            "dependency":dependency,"expectedVersion":1,"sql":sql,"bindings":"oA=="
+        })
+    };
+    call(&graph, &adapter, "knowledge_query", query("CREATE person:ada CONTENT { name: 'Ada' }; CREATE person:grace CONTENT { name: 'Grace' }; RELATE person:ada->knows->person:grace SET since='2026-10-11'")).await.unwrap();
+    let result = call(
+        &graph,
+        &adapter,
+        "knowledge_query",
+        query("SELECT * FROM person:ada; SELECT VALUE ->knows->person.name FROM person:ada"),
     )
     .await
-    .unwrap()
     .unwrap();
-
-    let note = store.recording(recording_id.clone()).await.unwrap();
-    assert_eq!(note["versions"].as_array().unwrap().len(), 1);
-    let linked = graph
-        .records("ejemplo.grafo", "person", 0, Some(&recording_id), None)
-        .await
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(result.as_str().unwrap())
         .unwrap();
-    assert_eq!(linked.records.len(), 1);
-    assert_eq!(linked.records[0].values["name"], "Ada");
+    let decoded = surrealdb_core::rpc::format::cbor::decode(&bytes, 64).unwrap();
+    let DbValue::Array(statements) = &decoded else {
+        panic!("El SDK no devolvió un lote")
+    };
+    let DbValue::Array(records) = &statements[0] else {
+        panic!("La consulta no devolvió registros")
+    };
+    let DbValue::Object(ada) = &records[0] else {
+        panic!("Ada no es un registro")
+    };
+    assert!(matches!(ada.get("id"), Some(DbValue::RecordId(_))));
+    let public = decoded.into_json_value();
+    assert_eq!(public[0][0]["name"], "Ada");
+    assert_eq!(public[1][0][0], "Grace");
+    call(
+        &graph,
+        &adapter,
+        "knowledge_link",
+        json!({
+            "recipeId":"graph-real","recordingId":"nota","ontologyId":"ejemplo.grafo",
+            "dependency":dependency,"expectedVersion":1,"versionId":"v1","recordId":"person:ada"
+        }),
+    )
+    .await
+    .unwrap();
     assert_eq!(
         graph
+            .records("ejemplo.grafo", "person", 0, Some("nota"), None)
+            .await
+            .unwrap()
+            .records
+            .len(),
+        1
+    );
+    graph.close().await.unwrap();
+
+    state.lock().unwrap().recipes.clear();
+    let reopened = Knowledge::open(&graph_path).await.unwrap();
+    assert_eq!(reopened.list().await.unwrap().len(), 1);
+    assert_eq!(
+        reopened
+            .records("ejemplo.grafo", "person", 0, Some("nota"), None)
+            .await
+            .unwrap()
+            .records
+            .len(),
+        1
+    );
+    assert_eq!(
+        reopened
             .records("ejemplo.grafo", "knows", 0, None, None)
             .await
             .unwrap()
@@ -152,39 +118,5 @@ export async function flujo(audio, api) {
             .len(),
         1
     );
-
-    store
-        .install(json!({"recipes":[],"destinations":[]}))
-        .await
-        .unwrap();
-    store.close().await.unwrap();
-    drop(scripts);
-    drop(capability);
-    drop(store);
-    for _ in 0..40 {
-        if Arc::strong_count(&graph) == 1 {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(25)).await;
-    }
-    Arc::try_unwrap(graph).ok().unwrap().close().await.unwrap();
-    let reopened_store = Store::open(library_path).await.unwrap();
-    let reopened_graph = Knowledge::open(&knowledge_path).await.unwrap();
-    assert_eq!(
-        reopened_store.recording(&recording_id).await.unwrap()["versions"]
-            .as_array()
-            .unwrap()
-            .len(),
-        1
-    );
-    assert_eq!(reopened_graph.list().await.unwrap().len(), 1);
-    assert_eq!(
-        reopened_graph
-            .records("ejemplo.grafo", "person", 0, Some(&recording_id), None)
-            .await
-            .unwrap()
-            .records
-            .len(),
-        1
-    );
+    reopened.close().await.unwrap();
 }

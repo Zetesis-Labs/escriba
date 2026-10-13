@@ -1,18 +1,25 @@
 use crate::{
     error::{AppError, ErrorCode},
-    library::Library,
     native::Native,
     voices::{self, SpeakerSpan, SpeakerVoice},
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::{
-    fs::{self, OpenOptions},
-    io,
-    os::unix::fs::{OpenOptionsExt, PermissionsExt},
+    fs,
+    future::Future,
+    os::unix::fs::PermissionsExt,
     path::{Path, PathBuf},
+    pin::Pin,
     sync::{Arc, Mutex},
 };
+
+/// Guarda una huella en la biblioteca; la implementación vive en el controlador.
+pub type VoiceSink = Arc<
+    dyn Fn(String, SpeakerVoice, String) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send>>
+        + Send
+        + Sync,
+>;
 
 #[derive(Clone)]
 struct Sample {
@@ -133,7 +140,7 @@ impl Registration {
             }
             let sample = Sample {
                 person: person.into(),
-                path: self.directory.join(format!("{}.m4a", crate::store::id())),
+                path: self.directory.join(format!("{}.m4a", crate::util::id())),
                 started_at: chrono::Utc::now().to_rfc3339(),
                 cancelled: Arc::new(tokio::sync::Notify::new()),
             };
@@ -181,7 +188,7 @@ impl Registration {
     pub async fn stop(
         &self,
         inference: &Native,
-        store: &Library,
+        store: &VoiceSink,
         changed: impl Fn(Value),
     ) -> Result<Value, String> {
         let sample = {
@@ -207,7 +214,7 @@ impl Registration {
         name: &str,
         source: &Path,
         inference: &Native,
-        store: &Library,
+        store: &VoiceSink,
         changed: impl Fn(Value),
     ) -> Result<Value, String> {
         let sample = {
@@ -219,7 +226,7 @@ impl Registration {
             if person.is_empty() || !matches!(state.phase, Phase::Idle | Phase::Failed) {
                 return Ok(state.view());
             }
-            let mut path = self.directory.join(crate::store::id());
+            let mut path = self.directory.join(crate::util::id());
             if let Some(extension) = source.extension() {
                 path.set_extension(extension);
             }
@@ -239,11 +246,12 @@ impl Registration {
         changed(self.view()?);
         let from = source.to_path_buf();
         let to = sample.path.clone();
-        let result = match tokio::task::spawn_blocking(move || copy_sample(&from, &to)).await {
-            Ok(Ok(())) => self.analyze_audio(&sample, inference, store).await,
-            Ok(Err(error)) => Err(error),
-            Err(_) => Err("No se pudo copiar el audio elegido".into()),
-        };
+        let result =
+            match tokio::task::spawn_blocking(move || crate::inbox::copy_file(&from, &to)).await {
+                Ok(Ok(())) => self.analyze_audio(&sample, inference, store).await,
+                Ok(Err(error)) => Err(error),
+                Err(_) => Err("No se pudo copiar el audio elegido".into()),
+            };
         self.finish(sample, result, changed)
     }
 
@@ -277,7 +285,7 @@ impl Registration {
         &self,
         sample: &Sample,
         inference: &Native,
-        store: &Library,
+        store: &VoiceSink,
     ) -> Result<(), String> {
         self.recorder
             .call("recordingStop", json!({}))
@@ -290,48 +298,17 @@ impl Registration {
         &self,
         sample: &Sample,
         inference: &Native,
-        store: &Library,
+        store: &VoiceSink,
     ) -> Result<(), String> {
         let reply = inference
             .call("diarizedVoices", json!({"audioPath":sample.path}))
             .await
             .map_err(|error| analysis_problem(error.to_string()))?;
         let voice = sample_voice(reply)?;
-        store
-            .add_person_voice(sample.person.clone(), voice, "muestra de voz".into())
+        store(sample.person.clone(), voice, "muestra de voz".into())
             .await
             .map_err(analysis_problem)
     }
-}
-
-fn copy_sample(source: &Path, destination: &Path) -> Result<(), String> {
-    let mut input = OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
-        .open(source)
-        .map_err(|_| "No se pudo leer el audio elegido")?;
-    let metadata = input
-        .metadata()
-        .map_err(|_| "No se pudo leer el audio elegido")?;
-    if !metadata.file_type().is_file() {
-        return Err("El audio elegido no es un archivo normal".into());
-    }
-    if metadata.len() == 0 {
-        return Err("El audio elegido está vacío".into());
-    }
-    let mut output = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o600)
-        .open(destination)
-        .map_err(|_| "No se pudo preparar la muestra de voz")?;
-    if io::copy(&mut input, &mut output).map_err(|_| "No se pudo copiar el audio elegido")? == 0 {
-        return Err("El audio elegido está vacío".into());
-    }
-    output
-        .sync_all()
-        .map_err(|_| "No se pudo guardar la muestra de voz")?;
-    Ok(())
 }
 
 #[derive(Deserialize)]
@@ -380,7 +357,20 @@ fn discard(path: &Path) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::os::unix::fs::PermissionsExt;
+
+    type Saved = Arc<Mutex<Vec<(String, SpeakerVoice, String)>>>;
+    fn sink() -> (VoiceSink, Saved) {
+        let saved: Saved = Arc::new(Mutex::new(Vec::new()));
+        let recorded = saved.clone();
+        let sink: VoiceSink = Arc::new(move |name, voice, source| {
+            let recorded = recorded.clone();
+            Box::pin(async move {
+                recorded.lock().unwrap().push((name, voice, source));
+                Ok(())
+            })
+        });
+        (sink, saved)
+    }
 
     fn host(directory: &Path, seconds: f64, voices: bool) -> PathBuf {
         let executable = directory.join("native-fixture");
@@ -422,13 +412,7 @@ for line in sys.stdin:
         fs::write(&original, b"audio sintetico original").unwrap();
         let samples = directory.path().join("samples");
         let registration = Registration::new(samples.clone(), executable.clone()).unwrap();
-        let store = crate::library::Library::new(
-            crate::store::Store::open(directory.path().join("library"))
-                .await
-                .unwrap(),
-        )
-        .await
-        .unwrap();
+        let (store, people) = sink();
 
         let view = registration
             .import_audio(" Ana ", &original, &Native::new(executable), &store, |_| {})
@@ -443,15 +427,9 @@ for line in sys.stdin:
         assert!(Path::new(&analyzed).starts_with(&samples));
         assert_eq!(Path::new(&analyzed).extension().unwrap(), "wav");
         assert_eq!(fs::read_dir(&samples).unwrap().count(), 0);
-        assert_eq!(store.people().await.unwrap()[0]["name"], "Ana");
-        assert_eq!(
-            store.people().await.unwrap()[0]["voices"][0]["source"],
-            "muestra de voz"
-        );
-        assert!(store.snapshot().await.unwrap()["recordings"]
-            .as_array()
-            .unwrap()
-            .is_empty());
+        assert_eq!(people.lock().unwrap()[0].0, "Ana");
+        assert_eq!(people.lock().unwrap()[0].2, "muestra de voz");
+        assert_eq!(people.lock().unwrap().len(), 1);
     }
 
     #[tokio::test]
@@ -470,13 +448,7 @@ for line in sys.stdin:
             fs::write(&original, b"audio sintetico original").unwrap();
             let samples = directory.path().join("samples");
             let registration = Registration::new(samples.clone(), executable.clone()).unwrap();
-            let store = crate::library::Library::new(
-                crate::store::Store::open(directory.path().join("library"))
-                    .await
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
+            let (store, people) = sink();
 
             let view = registration
                 .import_audio("Ana", &original, &Native::new(executable), &store, |_| {})
@@ -494,7 +466,7 @@ for line in sys.stdin:
             );
             assert_eq!(fs::read(&original).unwrap(), b"audio sintetico original");
             assert_eq!(fs::read_dir(&samples).unwrap().count(), 0);
-            assert!(store.people().await.unwrap().as_array().unwrap().is_empty());
+            assert!(people.lock().unwrap().is_empty());
         }
     }
 
@@ -504,13 +476,7 @@ for line in sys.stdin:
         let executable = host(directory.path(), 45.0, true);
         let samples = directory.path().join("samples");
         let registration = Registration::new(samples.clone(), executable.clone()).unwrap();
-        let store = crate::library::Library::new(
-            crate::store::Store::open(directory.path().join("library"))
-                .await
-                .unwrap(),
-        )
-        .await
-        .unwrap();
+        let (store, _people) = sink();
         let active = registration.start("Ana", |_| {}).await.unwrap();
         let missing = directory.path().join("inexistente.wav");
         assert_eq!(
@@ -537,13 +503,7 @@ for line in sys.stdin:
             }
             let samples = directory.path().join("samples");
             let registration = Registration::new(samples.clone(), executable.clone()).unwrap();
-            let store = crate::library::Library::new(
-                crate::store::Store::open(directory.path().join("library"))
-                    .await
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
+            let (store, people) = sink();
 
             let view = registration
                 .import_audio("Ana", &original, &Native::new(executable), &store, |_| {})
@@ -554,7 +514,7 @@ for line in sys.stdin:
             assert_eq!(original.exists(), exists);
             assert_eq!(fs::read_dir(&samples).unwrap().count(), 0);
             assert!(!directory.path().join("analysis-path").exists());
-            assert!(store.people().await.unwrap().as_array().unwrap().is_empty());
+            assert!(people.lock().unwrap().is_empty());
         }
     }
 
@@ -564,13 +524,7 @@ for line in sys.stdin:
         let executable = host(directory.path(), 45.0, true);
         let samples = directory.path().join("samples");
         let registration = Registration::new(samples.clone(), executable.clone()).unwrap();
-        let store = crate::library::Library::new(
-            crate::store::Store::open(directory.path().join("library"))
-                .await
-                .unwrap(),
-        )
-        .await
-        .unwrap();
+        let (store, people) = sink();
         let fifo = directory.path().join("tuberia");
         let path = std::ffi::CString::new(fifo.as_os_str().as_encoded_bytes()).unwrap();
         assert_eq!(unsafe { libc::mkfifo(path.as_ptr(), 0o600) }, 0);
@@ -604,7 +558,7 @@ for line in sys.stdin:
         assert_eq!(result["state"], "failed");
         assert_eq!(fs::read(&original).unwrap(), b"audio sintetico original");
         assert_eq!(fs::read_dir(&samples).unwrap().count(), 0);
-        assert!(store.people().await.unwrap().as_array().unwrap().is_empty());
+        assert!(people.lock().unwrap().is_empty());
     }
 
     #[tokio::test]
@@ -613,13 +567,7 @@ for line in sys.stdin:
         let executable = host(directory.path(), 45.0, true);
         let samples = directory.path().join("samples");
         let registration = Registration::new(samples.clone(), executable.clone()).unwrap();
-        let store = crate::library::Library::new(
-            crate::store::Store::open(directory.path().join("library"))
-                .await
-                .unwrap(),
-        )
-        .await
-        .unwrap();
+        let (store, people) = sink();
         assert_eq!(
             registration.start(" Ana ", |_| {}).await.unwrap()["state"],
             "recording"
@@ -631,15 +579,9 @@ for line in sys.stdin:
             .unwrap();
         assert_eq!(state["state"], "idle");
         assert_eq!(fs::read_dir(&samples).unwrap().count(), 0);
-        assert_eq!(store.people().await.unwrap()[0]["name"], "Ana");
-        assert_eq!(
-            store.people().await.unwrap()[0]["voices"][0]["source"],
-            "muestra de voz"
-        );
-        assert!(store.snapshot().await.unwrap()["recordings"]
-            .as_array()
-            .unwrap()
-            .is_empty());
+        assert_eq!(people.lock().unwrap()[0].0, "Ana");
+        assert_eq!(people.lock().unwrap()[0].2, "muestra de voz");
+        assert_eq!(people.lock().unwrap().len(), 1);
     }
 
     #[tokio::test]
@@ -693,13 +635,7 @@ for line in sys.stdin:
             let executable = host(directory.path(), seconds, voices);
             let samples = directory.path().join("samples");
             let registration = Registration::new(samples.clone(), executable.clone()).unwrap();
-            let store = crate::library::Library::new(
-                crate::store::Store::open(directory.path().join("library"))
-                    .await
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
+            let (store, people) = sink();
             registration.start("Ana", |_| {}).await.unwrap();
             let result = registration
                 .stop(&Native::new(executable), &store, |_| {})
@@ -708,7 +644,7 @@ for line in sys.stdin:
             assert_eq!(result["state"], "failed");
             assert_eq!(result["message"], message);
             assert_eq!(fs::read_dir(&samples).unwrap().count(), 0);
-            assert!(store.people().await.unwrap().as_array().unwrap().is_empty());
+            assert!(people.lock().unwrap().is_empty());
             assert_eq!(registration.dismiss().unwrap()["state"], "idle");
         }
     }
@@ -755,13 +691,7 @@ for line in sys.stdin:
         fs::write(&executable, source).unwrap();
         let samples = directory.path().join("samples");
         let registration = Registration::new(samples.clone(), executable.clone()).unwrap();
-        let store = crate::library::Library::new(
-            crate::store::Store::open(directory.path().join("library"))
-                .await
-                .unwrap(),
-        )
-        .await
-        .unwrap();
+        let (store, people) = sink();
         registration.start("Ana", |_| {}).await.unwrap();
         let result = registration
             .stop(&Native::new(executable), &store, |_| {})
@@ -773,6 +703,6 @@ for line in sys.stdin:
             "No se pudo sacar la huella de la muestra: Audio sintético ilegible"
         );
         assert_eq!(fs::read_dir(&samples).unwrap().count(), 0);
-        assert!(store.people().await.unwrap().as_array().unwrap().is_empty());
+        assert!(people.lock().unwrap().is_empty());
     }
 }

@@ -1,9 +1,4 @@
-import type { HistoryCursor } from "../generated/HistoryCursor";
-import type { HistoryPage } from "../generated/HistoryPage";
-import type { HistoryQuery } from "../generated/HistoryQuery";
-import type { Job } from "../generated/Job";
-import type { JobOperation } from "../generated/JobOperation";
-import type { RecipeRef } from "../generated/RecipeRef";
+import type { HistoryCursor, HistoryPage, HistoryQuery, Job, JobOperation, RecipeRef } from "../runtime/library/jobs";
 import { recordingWhen } from "./presentation";
 
 export const historyPageSize = 100;

@@ -282,8 +282,9 @@ test("un dist externo aporta formularios, acciones y publicación en Bun aislado
       destination: { id: "external-account", account: "external-account", name: "Ejemplo", provider: "synthetic-notes", enabled: true, configuration: { workspace: "demo", collection: "notes" } },
     });
     await host.command("credential_save", { id: "external-account", value: "token-sintético\n" });
+    await host.recipe(FORM_RECIPE);
     const id = await host.importAudio();
-    await host.drain();
+    await host.process(id);
     await host.command("version_save", { recordingId: id, backend: "local-stt", transcript: { text: "Contenido sintético", segments: [] } });
     const request = { providerId: "synthetic-notes", accountId: "external-account", configuration: { workspace: "demo", collection: "notes" } };
     const view = await host.run<{ view: { sections: unknown[] } }>("connectorEditor", { operation: "describe", request });

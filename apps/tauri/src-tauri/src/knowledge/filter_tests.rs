@@ -6,7 +6,7 @@ async fn sample() -> (tempfile::TempDir, Knowledge) {
     let graph = Knowledge::open(&temp.path().join("knowledge.rocksdb"))
         .await
         .unwrap();
-    graph.sync_base_change(&crate::persistence::CoreChange {
+    graph.sync_base_change(&crate::knowledge::CoreChange {
         key: "recording:audio".into(), revision: "one".into(), kind: "recording".into(), id: "audio".into(),
         value: Some(json!({"id":"audio","title":"Nota actual","currentVersionId":"v2","versions":[
             {"id":"v1","transcript":{"text":"Antiguo","segments":[{"text":"Antiguo","start":0,"end":2,"personId":"ada"}]}},
@@ -45,7 +45,7 @@ async fn corresponde_personas_y_relaciones_con_asignaciones_vigentes() {
     let (_temp, graph) = sample().await;
     for person in ["ada", "bea"] {
         graph
-            .sync_base_change(&crate::persistence::CoreChange {
+            .sync_base_change(&crate::knowledge::CoreChange {
                 key: format!("person:{person}"),
                 revision: "one".into(),
                 kind: "person".into(),
@@ -360,7 +360,7 @@ async fn filtra_la_referencia_a_version_vigente_de_una_grabacion() {
 async fn deduplica_notas_compartidas_sin_recorrer_relaciones_implicitas() {
     let (_temp, graph) = sample().await;
     extension(&graph).await;
-    graph.sync_base_change(&crate::persistence::CoreChange {
+    graph.sync_base_change(&crate::knowledge::CoreChange {
         key:"recording:second".into(),revision:"one".into(),kind:"recording".into(),id:"second".into(),
         value:Some(json!({"id":"second","title":"Segunda nota","createdAt":"2026-10-11T18:30:00Z","currentVersionId":"v1","versions":[{"id":"v1"}]})),
     }).await.unwrap();

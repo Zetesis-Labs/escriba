@@ -56,6 +56,7 @@ export const UI_CONTROLLER_METHODS = [
 ] as const;
 export const SHELL_CONTROLLER_METHODS = [
   "settings_read",
+  "recipe_name",
   "project_context",
   "people_add_voice",
   "import_inbox",

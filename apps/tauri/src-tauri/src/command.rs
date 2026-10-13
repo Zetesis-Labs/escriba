@@ -9,78 +9,27 @@ pub struct Untyped(#[ts(type = "Record<string, unknown>")] pub Value);
 #[derive(Debug, Deserialize, TS)]
 #[serde(tag = "method", content = "params", rename_all = "snake_case")]
 pub enum AppCommand {
-    Snapshot(Untyped),
-    Library(Untyped),
-    RecordingDetail(Untyped),
-    RuntimeContext(Untyped),
-    RuntimeRun(Untyped),
-    RuntimeJobs(Untyped),
-    RuntimeHistory(crate::jobs::HistoryQuery),
-    RuntimeCancel(Untyped),
-    RuntimeRelaunch(crate::jobs::JobParams),
-    RuntimeJobSteps(crate::jobs::JobParams),
-    Log(Untyped),
-    LogList(Untyped),
-    MemoryRecall(Untyped),
-    MemoryKeep(Untyped),
-    TraceSave(Untyped),
-    TraceList(Untyped),
-    AccountEffectBegin(Untyped),
-    AccountEffectFinish(Untyped),
     ImportAudio(Untyped),
-    RecordingUpdate(Untyped),
-    RecordingDiscard(Untyped),
-    RecordingRemoveAudio(Untyped),
     RecordingStatus(Untyped),
     RecordingStart(Untyped),
     RecordingStop(Untyped),
     RecordingDismiss(Untyped),
     RecordingCancel(Untyped),
-    VersionSave(Untyped),
-    VersionSelect(Untyped),
-    VersionUpdate(Untyped),
-    NoteDraftGet(Untyped),
-    NoteDraftBegin(Untyped),
-    NoteDraftSave(Untyped),
-    NoteDraftDiscard(Untyped),
-    NoteDraftCommit(Untyped),
-    ConfigSave(Untyped),
-    ConfigRemove(Untyped),
-    SettingsSave(Untyped),
-    PublicationSave(Untyped),
-    PublicationRemove(Untyped),
-    PeopleList(Untyped),
-    PeopleSetColor(Untyped),
-    PeopleRename(Untyped),
-    PeopleRemove(Untyped),
-    PeopleRemoveVoice(Untyped),
     VoiceRegistrationStatus(Untyped),
     VoiceRegistrationStart(Untyped),
     VoiceRegistrationImport(Untyped),
     VoiceRegistrationStop(Untyped),
     VoiceRegistrationCancel(Untyped),
     VoiceRegistrationDismiss(Untyped),
-    ConnectorSave(Untyped),
-    ConnectorRemove(Untyped),
-    ConnectorFiles(Untyped),
-    ConnectorAudio(Untyped),
     Native(Untyped),
-    NativeCancel(Untyped),
-    Transcribe(Untyped),
-    Summarize(Untyped),
-    Ask(Untyped),
     ProjectInit(Untyped),
-    ProjectBuild(Untyped),
-    ProjectLoad(Untyped),
     ProjectList(Untyped),
     ProjectOpenVscode(Untyped),
     ProjectTool(Untyped),
     ProjectRead(Untyped),
     ProjectWrite(Untyped),
-    ProjectInstall(Untyped),
     ExportFile(Untyped),
     Reveal(Untyped),
-    OkfFile(Untyped),
     OpenUrl(Untyped),
     OpenPrivacySettings(Untyped),
     SystemAppearance(Untyped),
@@ -102,6 +51,55 @@ pub const CONTROLLER_METHODS: &[&str] = &[
     "connector_http",
     "resolver_models",
     "resolver_try",
+    "snapshot",
+    "library",
+    "recording_detail",
+    "runtime_context",
+    "runtime_run",
+    "runtime_jobs",
+    "runtime_history",
+    "runtime_cancel",
+    "runtime_relaunch",
+    "runtime_job_steps",
+    "log",
+    "log_list",
+    "memory_recall",
+    "memory_keep",
+    "trace_save",
+    "trace_list",
+    "account_effect_begin",
+    "account_effect_finish",
+    "recording_update",
+    "recording_discard",
+    "recording_remove_audio",
+    "version_save",
+    "version_select",
+    "version_update",
+    "note_draft_get",
+    "note_draft_begin",
+    "note_draft_save",
+    "note_draft_discard",
+    "note_draft_commit",
+    "config_save",
+    "config_remove",
+    "settings_save",
+    "publication_save",
+    "publication_remove",
+    "people_list",
+    "people_set_color",
+    "people_rename",
+    "people_remove",
+    "people_remove_voice",
+    "connector_save",
+    "connector_remove",
+    "connector_files",
+    "connector_audio",
+    "transcribe",
+    "summarize",
+    "ask",
+    "native_cancel",
+    "project_install",
+    "okf_file",
 ];
 
 pub fn forwarded(method: &str) -> bool {
@@ -113,29 +111,6 @@ pub struct Request {
     pub method: String,
     pub command: Command,
 }
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Policy {
-    pub refreshes: bool,
-    pub recipes: bool,
-}
-
-const UI_READ: Policy = Policy {
-    refreshes: false,
-    recipes: false,
-};
-const UI_WRITE: Policy = Policy {
-    refreshes: true,
-    recipes: false,
-};
-const RECIPE_READ: Policy = Policy {
-    refreshes: false,
-    recipes: true,
-};
-const RECIPE_WRITE: Policy = Policy {
-    refreshes: true,
-    recipes: true,
-};
 
 pub(crate) fn tagged<T: DeserializeOwned>(method: &str, params: Value) -> Result<T, String> {
     let params = if params.is_null() { json!({}) } else { params };
@@ -149,6 +124,16 @@ pub(crate) fn tagged<T: DeserializeOwned>(method: &str, params: Value) -> Result
 }
 
 impl Request {
+    pub fn parse_ui(method: &str, params: Value) -> Result<Self, String> {
+        if matches!(
+            method,
+            "knowledge_open" | "knowledge_query" | "knowledge_link"
+        ) {
+            return Err(format!("Método reservado a recetas: {method}"));
+        }
+        Self::parse(method, params)
+    }
+
     pub fn parse(method: &str, params: Value) -> Result<Self, String> {
         let command = if method.starts_with("knowledge_") {
             Command::Knowledge(knowledge_commands::parse(method, params)?)
@@ -161,137 +146,20 @@ impl Request {
         })
     }
 
-    pub fn policy(&self) -> Policy {
-        match &self.command {
-            Command::Knowledge(command) => knowledge_policy(command),
-            Command::App(command) => app_policy(command),
-        }
-    }
-
-    pub fn event(&self, changes_library: bool) -> Option<&'static str> {
-        match self.command {
-            Command::App(AppCommand::Log(_)) => Some("escriba://log"),
-            _ if changes_library => Some("escriba://changed"),
-            _ => None,
-        }
-    }
-
-    pub fn recipe_reads_only(&self) -> bool {
+    pub fn refreshes(&self) -> bool {
         matches!(
             self.command,
-            Command::App(
-                AppCommand::RuntimeContext(_)
-                    | AppCommand::ConnectorAudio(_)
-                    | AppCommand::MemoryRecall(_)
+            Command::Knowledge(
+                KnowledgeCommand::KnowledgeInstall(_)
+                    | KnowledgeCommand::KnowledgeLink(_)
+                    | KnowledgeCommand::KnowledgeSave(_)
+                    | KnowledgeCommand::KnowledgeDelete(_)
+                    | KnowledgeCommand::KnowledgeUnlink(_)
+                    | KnowledgeCommand::KnowledgeAttach(_)
+                    | KnowledgeCommand::KnowledgeFilterSave(_)
+                    | KnowledgeCommand::KnowledgeFilterRemove(_)
             )
         )
-    }
-}
-
-fn knowledge_policy(command: &KnowledgeCommand) -> Policy {
-    use KnowledgeCommand::*;
-    match command {
-        KnowledgeCandidates(_)
-        | KnowledgeList(_)
-        | KnowledgeRecords(_)
-        | KnowledgeGraphRoots(_)
-        | KnowledgeGraphExpand(_)
-        | KnowledgeGraphDetail(_)
-        | KnowledgeFilterNotes(_)
-        | KnowledgeFiltersList(_) => UI_READ,
-        KnowledgeInstall(_)
-        | KnowledgeSave(_)
-        | KnowledgeDelete(_)
-        | KnowledgeUnlink(_)
-        | KnowledgeAttach(_)
-        | KnowledgeFilterSave(_)
-        | KnowledgeFilterRemove(_) => UI_WRITE,
-        KnowledgeOpen(_) | KnowledgeQuery(_) | KnowledgeLink(_) => RECIPE_READ,
-    }
-}
-
-fn app_policy(command: &AppCommand) -> Policy {
-    use AppCommand::*;
-    match command {
-        RuntimeRun(Untyped(params)) => Policy {
-            refreshes: params["operation"].as_str().is_some_and(|operation| {
-                crate::jobs::durable(operation) || operation == "rebuildProject"
-            }),
-            recipes: false,
-        },
-        Snapshot(_)
-        | Library(_)
-        | RecordingDetail(_)
-        | RuntimeJobs(_)
-        | RuntimeHistory(_)
-        | RuntimeJobSteps(_)
-        | LogList(_)
-        | TraceList(_)
-        | RecordingStatus(_)
-        | RecordingStart(_)
-        | RecordingDismiss(_)
-        | RecordingCancel(_)
-        | NoteDraftGet(_)
-        | NoteDraftBegin(_)
-        | NoteDraftSave(_)
-        | NoteDraftDiscard(_)
-        | PeopleList(_)
-        | VoiceRegistrationStatus(_)
-        | VoiceRegistrationStart(_)
-        | VoiceRegistrationImport(_)
-        | VoiceRegistrationStop(_)
-        | VoiceRegistrationCancel(_)
-        | VoiceRegistrationDismiss(_)
-        | Native(_)
-        | ProjectList(_)
-        | ProjectOpenVscode(_)
-        | ProjectTool(_)
-        | ProjectRead(_)
-        | ExportFile(_)
-        | Reveal(_)
-        | OkfFile(_)
-        | OpenUrl(_)
-        | OpenPrivacySettings(_)
-        | SystemAppearance(_)
-        | WhisperModel(_) => UI_READ,
-        RuntimeCancel(_)
-        | RuntimeRelaunch(_)
-        | ImportAudio(_)
-        | RecordingDiscard(_)
-        | RecordingRemoveAudio(_)
-        | RecordingStop(_)
-        | NoteDraftCommit(_)
-        | ConfigSave(_)
-        | ConfigRemove(_)
-        | SettingsSave(_)
-        | PeopleSetColor(_)
-        | PeopleRename(_)
-        | PeopleRemove(_)
-        | PeopleRemoveVoice(_)
-        | ConnectorSave(_)
-        | ConnectorRemove(_)
-        | ProjectInit(_)
-        | ProjectWrite(_)
-        | WatchScan(_)
-        | WatchFolderAuthorize(_) => UI_WRITE,
-        RuntimeContext(_)
-        | Log(_)
-        | MemoryRecall(_)
-        | MemoryKeep(_)
-        | AccountEffectBegin(_)
-        | AccountEffectFinish(_)
-        | ConnectorFiles(_)
-        | ConnectorAudio(_)
-        | NativeCancel(_)
-        | Transcribe(_)
-        | Summarize(_)
-        | Ask(_)
-        | ProjectBuild(_)
-        | ProjectLoad(_) => RECIPE_READ,
-        TraceSave(_) | RecordingUpdate(_) | VersionSave(_) | VersionSelect(_)
-        | VersionUpdate(_) | PublicationSave(_) | PublicationRemove(_) | ProjectInstall(_) => {
-            RECIPE_WRITE
-        }
     }
 }
 
@@ -352,8 +220,6 @@ mod tests {
             "knowledge_filter_notes" => json!({"filter":filter}),
             "knowledge_filter_save" => json!({"filter":{"name":"F","filter":filter}}),
             "knowledge_filter_remove" => json!({"id":"f"}),
-            "runtime_history" => json!({"limit":100}),
-            "runtime_relaunch" | "runtime_job_steps" => json!({"id":"j"}),
             _ => json!({}),
         }
     }
@@ -370,6 +236,18 @@ mod tests {
                 format!("Método desconocido: {method}")
             );
         }
+    }
+
+    #[test]
+    fn la_interfaz_no_puede_usar_las_capacidades_de_conocimiento_de_recetas() {
+        for method in ["knowledge_open", "knowledge_query", "knowledge_link"] {
+            assert_eq!(
+                Request::parse_ui(method, sample(method)).unwrap_err(),
+                format!("Método reservado a recetas: {method}")
+            );
+            assert!(Request::parse(method, sample(method)).is_ok());
+        }
+        assert!(Request::parse_ui("knowledge_list", Value::Null).is_ok());
     }
 
     #[test]
@@ -390,83 +268,36 @@ mod tests {
         .unwrap_err();
         assert!(typed.contains("knowledge_records"), "{typed}");
         assert!(parse("knowledge_list", Value::Null).is_ok());
-        assert!(parse("snapshot", Value::Null).is_ok());
+        assert!(parse("recording_status", Value::Null).is_ok());
     }
 
     #[test]
-    fn las_recetas_solo_alcanzan_sus_capacidades() {
-        let recipe = |method: &str| parse(method, sample(method)).unwrap().policy().recipes;
-        for allowed in [
-            "runtime_context",
-            "knowledge_open",
-            "knowledge_query",
-            "knowledge_link",
-            "account_effect_begin",
-            "account_effect_finish",
-            "recording_update",
-            "version_save",
-            "version_select",
-            "version_update",
-            "log",
-            "transcribe",
-            "summarize",
-            "ask",
-            "native_cancel",
-            "project_build",
-            "project_load",
-            "project_install",
-            "connector_files",
-            "connector_audio",
-            "publication_save",
-            "publication_remove",
-            "memory_recall",
-            "memory_keep",
-            "trace_save",
-        ] {
-            assert!(recipe(allowed), "{allowed}");
-        }
-        let all: Vec<String> = methods::<AppCommand>()
-            .into_iter()
-            .chain(methods::<KnowledgeCommand>())
-            .collect();
-        assert_eq!(all.iter().filter(|method| recipe(method)).count(), 25);
-        for forbidden in [
-            "people_set_color",
-            "settings_save",
-            "export_file",
-            "open_url",
-            "open_privacy_settings",
-            "watch_folder_authorize",
-            "recording_start",
-            "import_audio",
-            "runtime_run",
-            "note_draft_get",
-            "note_draft_commit",
-            "knowledge_filter_notes",
-            "knowledge_filter_save",
+    fn solo_los_cambios_de_conocimiento_refrescan_la_biblioteca() {
+        for method in [
             "knowledge_install",
+            "knowledge_link",
+            "knowledge_save",
+            "knowledge_delete",
+            "knowledge_unlink",
+            "knowledge_attach",
+            "knowledge_filter_save",
+            "knowledge_filter_remove",
         ] {
-            assert!(!recipe(forbidden), "{forbidden}");
+            assert!(
+                parse(method, sample(method)).unwrap().refreshes(),
+                "{method}"
+            );
         }
-    }
-
-    #[test]
-    fn el_registro_solo_avisa_al_registro_y_un_trabajo_refresca_si_es_duradero() {
-        let log = parse("log", json!({"message":"x"})).unwrap();
-        assert_eq!(log.event(log.policy().refreshes), Some("escriba://log"));
-        let process = parse(
-            "runtime_run",
-            json!({"operation":"processRecording","args":{}}),
-        )
-        .unwrap();
-        assert!(process.policy().refreshes);
-        let schema = parse(
-            "runtime_run",
-            json!({"operation":"getRecipeSchema","args":{}}),
-        )
-        .unwrap();
-        assert!(!schema.policy().refreshes);
-        assert_eq!(schema.event(false), None);
+        for method in [
+            "knowledge_list",
+            "knowledge_graph_detail",
+            "recording_status",
+        ] {
+            assert!(
+                !parse(method, sample(method)).unwrap().refreshes(),
+                "{method}"
+            );
+        }
     }
 
     #[test]
@@ -478,7 +309,9 @@ mod tests {
                 format!("Método desconocido: {method}")
             );
         }
-        assert!(!forwarded("snapshot"));
+        assert!(!forwarded("recording_status"));
+        assert!(!forwarded("inventado"));
+        assert!(parse("recording_status", Value::Null).is_ok());
     }
 
     #[test]
@@ -543,7 +376,6 @@ mod bindings {
         AppCommand::export_all(&config).unwrap();
         KnowledgeCommand::export_all(&config).unwrap();
         KnowledgeReply::export_all(&config).unwrap();
-        crate::jobs::HistoryPage::export_all(&config).unwrap();
     }
 
     #[test]

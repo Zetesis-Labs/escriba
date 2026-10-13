@@ -1,15 +1,11 @@
-use crate::{
-    knowledge::{
-        self, FilterResult, GraphDetail, GraphPage, GraphRecord, Knowledge, LibraryFilter,
-        ListedOntology, Ontology, RecordPage, SaveLibraryFilter, SaveRecord, SavedLibraryFilter,
-        Source,
-    },
-    library::Library,
-    store::IndexView,
+use crate::knowledge::{
+    self, CoreChange, FilterResult, GraphDetail, GraphPage, GraphRecord, Knowledge, LibraryFilter,
+    ListedOntology, Ontology, RecordPage, SaveLibraryFilter, SaveRecord, SavedLibraryFilter,
+    Source,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::path::Path;
+use std::{future::Future, path::Path, pin::Pin, sync::Arc};
 use ts_rs::TS;
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, TS)]
@@ -248,37 +244,71 @@ impl KnowledgeReply {
     }
 }
 
-fn candidates(store: &Library) -> Result<Vec<Ontology>, String> {
-    Ok(store
-        .index()
-        .settings
-        .project_ontologies
-        .as_ref()
-        .cloned()
-        .unwrap_or_default())
+pub type PortCall = Arc<
+    dyn Fn(&'static str, Value) -> Pin<Box<dyn Future<Output = Result<Value, String>> + Send>>
+        + Send
+        + Sync,
+>;
+
+/// Lo que el conocimiento necesita de la biblioteca, que vive en el controlador TypeScript.
+#[derive(Clone)]
+pub struct LibraryPort {
+    call: PortCall,
+}
+
+impl LibraryPort {
+    pub fn new(call: PortCall) -> Self {
+        Self { call }
+    }
+    async fn call(&self, method: &'static str, params: Value) -> Result<Value, String> {
+        (self.call)(method, params).await
+    }
+    async fn ontologies(&self) -> Result<Vec<Ontology>, String> {
+        serde_json::from_value(self.call("knowledge_ontologies", json!({})).await?)
+            .map_err(|error| format!("Ontologías del proyecto inválidas: {error}"))
+    }
+    async fn context(&self, recipe_id: &str, recording_id: &str) -> Result<Value, String> {
+        self.call(
+            "knowledge_context",
+            json!({"recipeId": recipe_id, "recordingId": recording_id}),
+        )
+        .await
+    }
+    async fn recording(&self, id: &str) -> Result<Value, String> {
+        self.call("recording_detail", json!({"id": id})).await
+    }
+    async fn feed_prepare(&self, epoch: &str) -> Result<(), String> {
+        self.call("knowledge_feed_prepare", json!({"epoch": epoch}))
+            .await
+            .map(|_| ())
+    }
+    async fn feed_changes(&self, limit: usize) -> Result<Vec<CoreChange>, String> {
+        serde_json::from_value(
+            self.call("knowledge_feed_changes", json!({"limit": limit}))
+                .await?,
+        )
+        .map_err(|error| format!("Cambios de la biblioteca inválidos: {error}"))
+    }
+    async fn feed_ack(&self, acks: &[(String, String)]) -> Result<(), String> {
+        if acks.is_empty() {
+            return Ok(());
+        }
+        let acks: Vec<Value> = acks
+            .iter()
+            .map(|(key, revision)| json!({"key": key, "revision": revision}))
+            .collect();
+        self.call("knowledge_feed_ack", json!({"acks": acks}))
+            .await
+            .map(|_| ())
+    }
 }
 
 fn requirement(
-    store: &IndexView,
-    recipe_id: &str,
-    recording_id: &str,
+    context: &Value,
     ontology_id: &str,
     expected: &Dependency,
 ) -> Result<Dependency, String> {
-    let mut recipe = store.item("recipes", recipe_id)?;
-    if recipe["kind"] == "form" {
-        let base = crate::store::text(&recipe, "base")?;
-        recipe = store
-            .recipes
-            .as_array()
-            .and_then(|recipes| {
-                recipes
-                    .iter()
-                    .find(|r| r["id"] == base || r["name"] == base)
-            })
-            .cloned()
-            .ok_or("Receta base no disponible")?;
-    }
+    let recipe = &context["recipe"];
     if recipe["bundle"].as_str().is_none_or(str::is_empty) {
         return Err("La receta ya no está disponible".into());
     }
@@ -296,12 +326,11 @@ fn requirement(
     if &declared != expected {
         return Err("Las dependencias de la receta cambiaron; vuelve a procesar".into());
     }
-    let recording = store
-        .recordings
-        .iter()
-        .find(|recording| recording.id == recording_id)
-        .ok_or("Grabación no encontrada")?;
-    if recording.status == crate::store::RecordingStatus::Discarded {
+    let recording = &context["recording"];
+    if recording.is_null() {
+        return Err("Grabación no encontrada".into());
+    }
+    if recording["status"] == "discarded" {
         return Err("La grabación se ha descartado".into());
     }
     Ok(declared)
@@ -309,19 +338,14 @@ fn requirement(
 
 async fn granted(
     knowledge: &Knowledge,
-    store: &Library,
+    library: &LibraryPort,
     recipe_id: &str,
     recording_id: &str,
     ontology_id: &str,
     expected: &Dependency,
 ) -> Result<(String, u32), String> {
-    let required = requirement(
-        &store.index(),
-        recipe_id,
-        recording_id,
-        ontology_id,
-        expected,
-    )?;
+    let context = library.context(recipe_id, recording_id).await?;
+    let required = requirement(&context, ontology_id, expected)?;
     let installed = if required.id == "escriba" {
         knowledge::base_definition()
     } else {
@@ -342,12 +366,12 @@ async fn granted(
 }
 
 async fn source(
-    store: &Library,
+    library: &LibraryPort,
     recording_id: &str,
     version_id: &str,
     recipe_id: Option<String>,
 ) -> Result<Source, String> {
-    let recording = store.recording(recording_id.to_owned()).await?;
+    let recording = library.recording(recording_id).await?;
     if recording["status"] == "discarded"
         || !recording["versions"]
             .as_array()
@@ -371,6 +395,7 @@ fn version(expected: u32) -> Result<u32, String> {
 
 const UI_SYNC_BUDGET: std::time::Duration = std::time::Duration::from_secs(2);
 const BACKGROUND_SYNC_BUDGET: std::time::Duration = std::time::Duration::from_millis(500);
+const FEED_BATCH: usize = 64;
 
 struct Synchronized<'a> {
     _guard: tokio::sync::MutexGuard<'a, ()>,
@@ -379,35 +404,44 @@ struct Synchronized<'a> {
 
 async fn synchronize_base<'a>(
     knowledge: &'a Knowledge,
-    store: &Library,
+    library: &LibraryPort,
     budget: Option<std::time::Duration>,
 ) -> Result<Synchronized<'a>, String> {
     let guard = knowledge.base_sync.lock().await;
     let started = std::time::Instant::now();
     let epoch = knowledge.base_epoch().await?;
-    store.knowledge_prepare(epoch).await?;
+    library.feed_prepare(&epoch).await?;
     loop {
-        let change = store.knowledge_change().await?;
-        let Some(change) = change else {
+        let changes = library.feed_changes(FEED_BATCH).await?;
+        if changes.is_empty() {
             return Ok(Synchronized {
                 _guard: guard,
                 complete: true,
             });
-        };
-        if budget.is_some_and(|budget| started.elapsed() >= budget) {
+        }
+        let mut acks = Vec::with_capacity(changes.len());
+        let mut exhausted = false;
+        for change in &changes {
+            if budget.is_some_and(|budget| started.elapsed() >= budget) {
+                exhausted = true;
+                break;
+            }
+            knowledge.sync_base_change(change).await?;
+            acks.push((change.key.clone(), change.revision.clone()));
+        }
+        library.feed_ack(&acks).await?;
+        if exhausted {
             return Ok(Synchronized {
                 _guard: guard,
                 complete: false,
             });
         }
-        knowledge.sync_base_change(&change).await?;
-        store.knowledge_ack(change.key, change.revision).await?;
     }
 }
 
-pub async fn sync_step(knowledge: &Knowledge, store: &Library) -> Result<bool, String> {
+pub async fn sync_step(knowledge: &Knowledge, library: &LibraryPort) -> Result<bool, String> {
     Ok(
-        synchronize_base(knowledge, store, Some(BACKGROUND_SYNC_BUDGET))
+        synchronize_base(knowledge, library, Some(BACKGROUND_SYNC_BUDGET))
             .await?
             .complete,
     )
@@ -416,7 +450,7 @@ pub async fn sync_step(knowledge: &Knowledge, store: &Library) -> Result<bool, S
 pub async fn run(
     cell: &tokio::sync::OnceCell<Knowledge>,
     path: &Path,
-    store: &Library,
+    library: &LibraryPort,
     command: KnowledgeCommand,
 ) -> Result<KnowledgeReply, String> {
     let listing = matches!(
@@ -424,7 +458,9 @@ pub async fn run(
         KnowledgeCommand::KnowledgeList(_) | KnowledgeCommand::KnowledgeFiltersList(_)
     );
     if let KnowledgeCommand::KnowledgeCandidates(NoParams {}) = command {
-        return Ok(KnowledgeReply::KnowledgeCandidates(candidates(store)?));
+        return Ok(KnowledgeReply::KnowledgeCandidates(
+            library.ontologies().await?,
+        ));
     }
     if listing
         && cell.get().is_none()
@@ -440,18 +476,18 @@ pub async fn run(
         });
     }
     let knowledge = cell.get_or_try_init(|| Knowledge::open(path)).await?;
-    dispatch(knowledge, store, command).await
+    dispatch(knowledge, library, command).await
 }
 
 pub async fn dispatch(
     knowledge: &Knowledge,
-    store: &Library,
+    library: &LibraryPort,
     command: KnowledgeCommand,
 ) -> Result<KnowledgeReply, String> {
     use KnowledgeCommand as C;
     use KnowledgeReply as R;
     Ok(match command {
-        C::KnowledgeCandidates(NoParams {}) => R::KnowledgeCandidates(candidates(store)?),
+        C::KnowledgeCandidates(NoParams {}) => R::KnowledgeCandidates(library.ontologies().await?),
         C::KnowledgeList(NoParams {}) => {
             let mut listed = vec![knowledge::base_listing()];
             listed.extend(
@@ -467,7 +503,7 @@ pub async fn dispatch(
             R::KnowledgeList(listed)
         }
         C::KnowledgeInstall(InstallParams { definition }) => {
-            if !candidates(store)?.contains(&definition) {
+            if !library.ontologies().await?.contains(&definition) {
                 return Err(
                     "La ontología del proyecto cambió; actualiza la lista antes de instalar".into(),
                 );
@@ -477,7 +513,7 @@ pub async fn dispatch(
         C::KnowledgeOpen(p) => {
             let (_, version) = granted(
                 knowledge,
-                store,
+                library,
                 &p.recipe_id,
                 &p.recording_id,
                 &p.ontology_id,
@@ -489,7 +525,7 @@ pub async fn dispatch(
         C::KnowledgeQuery(p) => {
             let (ontology, _) = granted(
                 knowledge,
-                store,
+                library,
                 &p.recipe_id,
                 &p.recording_id,
                 &p.ontology_id,
@@ -497,7 +533,7 @@ pub async fn dispatch(
             )
             .await?;
             let _base_guard = if ontology == "escriba" {
-                Some(synchronize_base(knowledge, store, None).await?)
+                Some(synchronize_base(knowledge, library, None).await?)
             } else {
                 None
             };
@@ -510,7 +546,7 @@ pub async fn dispatch(
         C::KnowledgeLink(p) => {
             let (ontology, _) = granted(
                 knowledge,
-                store,
+                library,
                 &p.recipe_id,
                 &p.recording_id,
                 &p.ontology_id,
@@ -518,7 +554,7 @@ pub async fn dispatch(
             )
             .await?;
             let provenance =
-                source(store, &p.recording_id, &p.version_id, Some(p.recipe_id)).await?;
+                source(library, &p.recording_id, &p.version_id, Some(p.recipe_id)).await?;
             knowledge
                 .link(
                     &ontology,
@@ -530,7 +566,7 @@ pub async fn dispatch(
             R::KnowledgeLink(())
         }
         C::KnowledgeGraphRoots(p) => {
-            let _base_guard = synchronize_base(knowledge, store, Some(UI_SYNC_BUDGET)).await?;
+            let _base_guard = synchronize_base(knowledge, library, Some(UI_SYNC_BUDGET)).await?;
             R::KnowledgeGraphRoots(
                 knowledge
                     .graph_roots(&p.ontology_id, &p.table, p.page.unwrap_or(0))
@@ -538,7 +574,7 @@ pub async fn dispatch(
             )
         }
         C::KnowledgeGraphExpand(p) => {
-            let _base_guard = synchronize_base(knowledge, store, Some(UI_SYNC_BUDGET)).await?;
+            let _base_guard = synchronize_base(knowledge, library, Some(UI_SYNC_BUDGET)).await?;
             R::KnowledgeGraphExpand(
                 knowledge
                     .graph_expand(&p.ontology_id, &p.record_id, p.page.unwrap_or(0))
@@ -546,12 +582,12 @@ pub async fn dispatch(
             )
         }
         C::KnowledgeGraphDetail(p) => {
-            let _base_guard = synchronize_base(knowledge, store, Some(UI_SYNC_BUDGET)).await?;
+            let _base_guard = synchronize_base(knowledge, library, Some(UI_SYNC_BUDGET)).await?;
             R::KnowledgeGraphDetail(knowledge.graph_detail(&p.ontology_id, &p.record_id).await?)
         }
         C::KnowledgeRecords(p) => {
             let _base_guard = if p.id == "escriba" {
-                Some(synchronize_base(knowledge, store, Some(UI_SYNC_BUDGET)).await?)
+                Some(synchronize_base(knowledge, library, Some(UI_SYNC_BUDGET)).await?)
             } else {
                 None
             };
@@ -568,11 +604,11 @@ pub async fn dispatch(
             )
         }
         C::KnowledgeSave(p) => {
-            let _base_guard = synchronize_base(knowledge, store, None).await?;
+            let _base_guard = synchronize_base(knowledge, library, None).await?;
             let provenance = match &p.recording_id {
                 Some(recording_id) => Some(
                     source(
-                        store,
+                        library,
                         recording_id,
                         p.version_id.as_deref().ok_or("Falta versionId")?,
                         None,
@@ -619,7 +655,7 @@ pub async fn dispatch(
             R::KnowledgeUnlink(())
         }
         C::KnowledgeAttach(p) => {
-            let provenance = source(store, &p.recording_id, &p.version_id, None).await?;
+            let provenance = source(library, &p.recording_id, &p.version_id, None).await?;
             knowledge
                 .link(
                     &p.id,
@@ -631,7 +667,7 @@ pub async fn dispatch(
             R::KnowledgeAttach(())
         }
         C::KnowledgeFilterNotes(FilterNotesParams { filter }) => {
-            let synchronized = synchronize_base(knowledge, store, Some(UI_SYNC_BUDGET)).await?;
+            let synchronized = synchronize_base(knowledge, library, Some(UI_SYNC_BUDGET)).await?;
             let mut result = knowledge.filter_notes(filter).await?;
             if !synchronized.complete {
                 result.incomplete = Some(true);
@@ -654,128 +690,197 @@ pub async fn dispatch(
 #[cfg(test)]
 pub async fn call(
     knowledge: &Knowledge,
-    store: &Library,
+    library: &LibraryPort,
     method: &str,
     params: Value,
 ) -> Result<Value, String> {
-    dispatch(knowledge, store, parse(method, params)?)
+    dispatch(knowledge, library, parse(method, params)?)
         .await?
         .into_value(method)
 }
 
+/// Doble del controlador para probar el conocimiento sin la biblioteca TypeScript.
 #[cfg(test)]
-mod tests {
+pub mod testing {
     use super::*;
+    use std::sync::Mutex;
 
-    fn copy_tree(source: &Path, destination: &Path) {
-        std::fs::create_dir_all(destination).unwrap();
-        for entry in std::fs::read_dir(source).unwrap() {
-            let entry = entry.unwrap();
-            let target = destination.join(entry.file_name());
-            if entry.file_type().unwrap().is_dir() {
-                copy_tree(&entry.path(), &target);
-            } else {
-                std::fs::copy(entry.path(), target).unwrap();
+    #[derive(Default)]
+    pub struct FakeLibrary {
+        pub recipes: Vec<Value>,
+        pub recordings: Vec<Value>,
+        pub people: Vec<Value>,
+        pub ontologies: Vec<Value>,
+        dirty: Vec<CoreChange>,
+        epoch: Option<String>,
+        feed_pages: Vec<(usize, usize)>,
+        ack_batches: Vec<usize>,
+    }
+
+    impl FakeLibrary {
+        pub fn new() -> Arc<Mutex<Self>> {
+            Arc::new(Mutex::new(Self::default()))
+        }
+        pub fn add_recording(&mut self, id: &str, versions: Vec<Value>) -> Value {
+            let current = versions
+                .last()
+                .map(|v| v["id"].clone())
+                .unwrap_or(Value::Null);
+            let record = json!({"id": id, "title": "Nota", "status": "pending", "createdAt": "2026-10-13T10:00:00+00:00", "currentVersionId": current, "versions": versions, "publications": []});
+            self.recordings.push(record.clone());
+            self.mark_dirty(id);
+            record
+        }
+        pub fn mark_dirty(&mut self, id: &str) {
+            let snapshot = self
+                .recordings
+                .iter()
+                .find(|r| r["id"] == id && r["status"] != "discarded")
+                .cloned();
+            self.dirty
+                .retain(|change| change.key != format!("recording:{id}"));
+            self.dirty.push(CoreChange {
+                key: format!("recording:{id}"),
+                revision: crate::util::id(),
+                kind: "recording".into(),
+                id: id.into(),
+                value: snapshot,
+            });
+        }
+        pub fn put_person(&mut self, id: &str, name: &str) {
+            self.people.retain(|person| person["id"] != id);
+            self.people.push(json!({"id": id, "name": name}));
+            self.mark_person_dirty(id);
+        }
+        pub fn remove_person(&mut self, id: &str) {
+            self.people.retain(|person| person["id"] != id);
+            self.mark_person_dirty(id);
+        }
+        pub fn pending_changes(&self) -> usize {
+            self.dirty.len()
+        }
+        pub fn feed_stats(&self) -> (&[(usize, usize)], &[usize]) {
+            (&self.feed_pages, &self.ack_batches)
+        }
+        fn mark_person_dirty(&mut self, id: &str) {
+            let snapshot = self
+                .people
+                .iter()
+                .find(|person| person["id"] == id)
+                .cloned();
+            self.dirty
+                .retain(|change| change.key != format!("person:{id}"));
+            self.dirty.push(CoreChange {
+                key: format!("person:{id}"),
+                revision: crate::util::id(),
+                kind: "person".into(),
+                id: id.into(),
+                value: snapshot,
+            });
+        }
+        fn context(&self, recipe_id: &str, recording_id: &str) -> Result<Value, String> {
+            let mut recipe = self
+                .recipes
+                .iter()
+                .find(|r| r["id"] == recipe_id)
+                .cloned()
+                .ok_or_else(|| format!("No existe {recipe_id} en recipes"))?;
+            if recipe["kind"] == "form" {
+                let base = recipe["base"].clone();
+                recipe = self
+                    .recipes
+                    .iter()
+                    .find(|r| r["id"] == base || r["name"] == base)
+                    .cloned()
+                    .ok_or("Receta base no disponible")?;
             }
+            let recording = self
+                .recordings
+                .iter()
+                .find(|r| r["id"] == recording_id)
+                .map(|r| json!({"id": r["id"], "status": r["status"]}))
+                .unwrap_or(Value::Null);
+            Ok(json!({"recipe": recipe, "recording": recording}))
         }
     }
 
-    #[tokio::test]
-    #[ignore = "Requiere copias privadas autorizadas de library.rocksdb y knowledge.rocksdb"]
-    async fn verifica_grafo_de_copia_sin_mostrar_contenido() {
-        use std::os::unix::fs::PermissionsExt;
-        let library = std::env::var_os("ESCRIBA_VERIFY_LIBRARY_COPY")
-            .expect("Falta la copia de la biblioteca");
-        let graph =
-            std::env::var_os("ESCRIBA_VERIFY_KNOWLEDGE_COPY").expect("Falta la copia del grafo");
-        let temporary = tempfile::tempdir().unwrap();
-        std::fs::set_permissions(temporary.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
-        copy_tree(
-            Path::new(&library),
-            &temporary.path().join("library.rocksdb"),
-        );
-        copy_tree(
-            Path::new(&graph),
-            &temporary.path().join("knowledge.rocksdb"),
-        );
-        let key = temporary.path().join("knowledge.key");
-        std::fs::copy(Path::new(&graph).with_extension("key"), &key)
-            .expect("Falta knowledge.key junto a la copia del grafo");
-        std::fs::set_permissions(&key, std::fs::Permissions::from_mode(0o600)).unwrap();
-        let store = crate::store::Store::open_with_audio_cleanup(temporary.path().into(), false)
-            .await
-            .expect("La copia no se puede abrir");
-        let current = store
-            .data
-            .recordings
-            .iter()
-            .filter(|recording| recording.status != crate::store::RecordingStatus::Discarded)
-            .count();
-        let store = crate::library::Library::new(store).await.unwrap();
-        let knowledge = Knowledge::open(&temporary.path().join("knowledge.rocksdb"))
-            .await
-            .expect("La copia del grafo no se puede abrir");
-        let extensions = knowledge.list().await.unwrap().len();
-        let filters = knowledge.saved_filters().await.unwrap().len();
-        let started = std::time::Instant::now();
-        assert!(
-            synchronize_base(&knowledge, &store, None)
-                .await
-                .unwrap()
-                .complete
-        );
-        let first = started.elapsed();
-        let started = std::time::Instant::now();
-        assert!(
-            synchronize_base(&knowledge, &store, None)
-                .await
-                .unwrap()
-                .complete
-        );
-        let second = started.elapsed();
-        let projected = knowledge
-            .filter_notes(LibraryFilter::Surrealql {
-                ontology_id: "escriba".into(),
-                sql: "SELECT VALUE id FROM recording".into(),
+    pub fn port(state: Arc<Mutex<FakeLibrary>>) -> LibraryPort {
+        LibraryPort::new(Arc::new(move |method, params| {
+            let state = state.clone();
+            Box::pin(async move {
+                let mut library = state.lock().map_err(|_| "doble bloqueado".to_owned())?;
+                match method {
+                    "knowledge_ontologies" => Ok(json!(library.ontologies)),
+                    "knowledge_context" => library.context(
+                        params["recipeId"].as_str().unwrap_or(""),
+                        params["recordingId"].as_str().unwrap_or(""),
+                    ),
+                    "recording_detail" => library
+                        .recordings
+                        .iter()
+                        .find(|r| r["id"] == params["id"])
+                        .cloned()
+                        .ok_or_else(|| "Grabación no encontrada".to_owned()),
+                    "knowledge_feed_prepare" => {
+                        let epoch = params["epoch"].as_str().unwrap_or("").to_owned();
+                        if library.epoch.as_deref() != Some(&epoch) {
+                            library.epoch = Some(epoch);
+                            let ids: Vec<String> = library
+                                .recordings
+                                .iter()
+                                .filter_map(|r| r["id"].as_str().map(str::to_owned))
+                                .collect();
+                            for id in ids {
+                                library.mark_dirty(&id);
+                            }
+                            let ids: Vec<String> = library
+                                .people
+                                .iter()
+                                .filter_map(|person| person["id"].as_str().map(str::to_owned))
+                                .collect();
+                            for id in ids {
+                                library.mark_person_dirty(&id);
+                            }
+                        }
+                        Ok(Value::Null)
+                    }
+                    "knowledge_feed_changes" => {
+                        let limit = params["limit"].as_u64().unwrap_or(1) as usize;
+                        let count = library.dirty.len().min(limit);
+                        library.feed_pages.push((limit, count));
+                        Ok(json!(library.dirty.iter().take(limit).collect::<Vec<_>>()))
+                    }
+                    "knowledge_feed_ack" => {
+                        let acks = params["acks"].as_array().cloned().unwrap_or_default();
+                        library.ack_batches.push(acks.len());
+                        for ack in acks {
+                            library.dirty.retain(|change| {
+                                !(change.key == ack["key"] && change.revision == ack["revision"])
+                            });
+                        }
+                        Ok(Value::Null)
+                    }
+                    _ => Err(format!("Método inesperado en el doble: {method}")),
+                }
             })
-            .await
-            .unwrap()
-            .recording_ids
-            .len();
-        println!(
-            "vigentes {current}, proyectadas {projected}, extensiones {extensions}, filtros {filters}, primera sincronización {first:?}, segunda {second:?}"
-        );
-        assert_eq!(projected, current);
-        assert_eq!(knowledge.list().await.unwrap().len(), extensions);
-        assert_eq!(knowledge.saved_filters().await.unwrap().len(), filters);
-        knowledge.close().await.unwrap();
-        let size = |path: &Path| -> u64 {
-            walkdir::WalkDir::new(path)
-                .into_iter()
-                .filter_map(Result::ok)
-                .filter_map(|entry| entry.metadata().ok())
-                .filter(|metadata| metadata.is_file())
-                .map(|metadata| metadata.len())
-                .sum()
-        };
-        println!(
-            "grafo original {} MB, tras sincronizar {} MB",
-            size(Path::new(&graph)) / 1_048_576,
-            size(&temporary.path().join("knowledge.rocksdb")) / 1_048_576
-        );
+        }))
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::testing::{port, FakeLibrary};
+    use super::*;
 
     #[tokio::test]
     async fn filtra_con_la_proyeccion_actual_y_guarda_consultas_desde_la_interfaz() {
         let temp = tempfile::tempdir().unwrap();
-        let audio = temp.path().join("prueba.wav");
-        std::fs::write(&audio, b"audio sintetico").unwrap();
-        let mut store = crate::store::Store::open(temp.path().join("library"))
-            .await
-            .unwrap();
-        let record = store.import(&audio, None).await.unwrap();
-        store.mutate("version_save", &json!({"recordingId":record["id"],"backend":"test","transcript":{"text":"Sintético","segments":[]}})).await.unwrap();
-        let store = crate::library::Library::new(store).await.unwrap();
+        let state = FakeLibrary::new();
+        let record = state.lock().unwrap().add_recording(
+            "nota",
+            vec![json!({"id":"v1","createdAt":"2026-10-13T10:00:00+00:00","backend":"test","transcript":{"text":"Sintético","segments":[]}})],
+        );
+        let store = port(state);
         let knowledge = Knowledge::open(&temp.path().join("knowledge.rocksdb"))
             .await
             .unwrap();
@@ -807,7 +912,7 @@ mod tests {
             &knowledge,
             &store,
             "knowledge_filter_save",
-            json!({"filter":{"name":"Visual","filter":{"kind":"visual","match":"any","conditions":[{"ontologyId":"escriba","table":"recording","field":"title","operator":"contains","value":"Sintético"}]}}}),
+            json!({"filter":{"name":"Visual","filter":{"kind":"visual","match":"any","conditions":[{"ontologyId":"escriba","table":"recording","field":"title","operator":"contains","value":"Nota"}]}}}),
         )
         .await
         .unwrap();
@@ -818,22 +923,16 @@ mod tests {
                 .unwrap(),
             json!([saved, visual])
         );
-        call(
-            &knowledge,
-            &store,
-            "knowledge_filter_remove",
-            json!({"id":saved["id"]}),
-        )
-        .await
-        .unwrap();
-        call(
-            &knowledge,
-            &store,
-            "knowledge_filter_remove",
-            json!({"id":visual["id"]}),
-        )
-        .await
-        .unwrap();
+        for id in [&saved["id"], &visual["id"]] {
+            call(
+                &knowledge,
+                &store,
+                "knowledge_filter_remove",
+                json!({"id":id}),
+            )
+            .await
+            .unwrap();
+        }
         assert_eq!(
             call(&knowledge, &store, "knowledge_filters_list", json!({}))
                 .await
@@ -844,19 +943,71 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn valida_dependencias_persistidas_version_y_origen_antes_de_abrir_el_grafo() {
+    async fn la_sincronizacion_acusa_por_lotes_y_respeta_el_presupuesto() {
         let temp = tempfile::tempdir().unwrap();
-        let audio = temp.path().join("prueba.wav");
-        std::fs::write(&audio, b"audio sintetico").unwrap();
-        let mut store = crate::store::Store::open(temp.path().join("library"))
+        let state = FakeLibrary::new();
+        for index in 0..70 {
+            state
+                .lock()
+                .unwrap()
+                .add_recording(&format!("nota-{index}"), vec![]);
+        }
+        let store = port(state.clone());
+        let knowledge = Knowledge::open(&temp.path().join("knowledge.rocksdb"))
             .await
             .unwrap();
-        let record = store.import(&audio, None).await.unwrap();
-        let version = store.mutate("version_save", &json!({"recordingId":record["id"],"backend":"test","transcript":{"text":"Sintético","segments":[]}})).await.unwrap();
+        let synchronized = synchronize_base(&knowledge, &store, Some(std::time::Duration::ZERO))
+            .await
+            .unwrap();
+        assert!(!synchronized.complete);
+        drop(synchronized);
+        assert_eq!(state.lock().unwrap().pending_changes(), 70);
+        let _ = sync_step(&knowledge, &store).await.unwrap();
+        let complete = synchronize_base(&knowledge, &store, None).await.unwrap();
+        assert!(complete.complete);
+        drop(complete);
+        assert_eq!(state.lock().unwrap().pending_changes(), 0);
+        {
+            let library = state.lock().unwrap();
+            let (pages, acks) = library.feed_stats();
+            assert!(pages
+                .iter()
+                .all(|&(limit, count)| limit == FEED_BATCH && count <= FEED_BATCH));
+            assert!(pages.iter().any(|&(_, count)| count == FEED_BATCH));
+            assert!(acks.iter().all(|&count| count <= FEED_BATCH));
+            assert_eq!(acks.iter().sum::<usize>(), 70);
+        }
+        let result = call(
+            &knowledge,
+            &store,
+            "knowledge_filter_notes",
+            json!({"filter":{"kind":"surrealql","ontologyId":"escriba","sql":"SELECT VALUE id FROM recording"}}),
+        )
+        .await
+        .unwrap();
+        assert_eq!(result["recordingIds"].as_array().unwrap().len(), 70);
+        knowledge.close().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn valida_dependencias_persistidas_version_y_origen_antes_de_abrir_el_grafo() {
+        let temp = tempfile::tempdir().unwrap();
+        let state = FakeLibrary::new();
+        let record = state.lock().unwrap().add_recording(
+            "nota",
+            vec![json!({"id":"v1","createdAt":"2026-10-13T10:00:00+00:00","backend":"test","transcript":{"text":"Sintético","segments":[]}})],
+        );
         let ontology = json!({"id":"example","name":"Ejemplo","version":1,"migrations":[{"version":1,"sql":"DEFINE TABLE topic SCHEMAFULL PERMISSIONS FULL; DEFINE FIELD name ON topic TYPE string;"}],"collections":[{"table":"topic","label":"Temas","titleField":"name","fields":[{"key":"name","label":"Nombre","type":"text","required":true}]}]});
         let dependency = json!({"id":"example","minVersion":1,"maxVersion":1});
-        crate::catalog::install(&mut store, &json!({"recipes":[{"id":"graph","name":"Grafo","kind":"code","values":{},"bundle":"program","ontologies":[dependency]}],"destinations":[],"ontologies":[ontology]})).await.unwrap();
-        let store = crate::library::Library::new(store).await.unwrap();
+        {
+            let mut library = state.lock().unwrap();
+            library.recipes.push(json!({"id":"graph","name":"Grafo","kind":"code","values":{},"bundle":"program","ontologies":[dependency]}));
+            library.recipes.push(
+                json!({"id":"form","name":"Formulario","kind":"form","base":"Grafo","values":{}}),
+            );
+            library.ontologies.push(ontology.clone());
+        }
+        let store = port(state.clone());
         let graph = Knowledge::open(&temp.path().join("knowledge.rocksdb"))
             .await
             .unwrap();
@@ -879,12 +1030,28 @@ mod tests {
                 .unwrap(),
             json!({"version":1})
         );
+        let mut via_form = params.clone();
+        via_form["recipeId"] = json!("form");
+        assert_eq!(
+            call(&graph, &store, "knowledge_open", via_form)
+                .await
+                .unwrap(),
+            json!({"version":1})
+        );
         let mut forged = params.clone();
         forged["dependency"]["maxVersion"] = json!(99);
         assert!(call(&graph, &store, "knowledge_open", forged)
             .await
             .unwrap_err()
             .contains("cambiaron"));
+        let mut missing = params.clone();
+        missing["recordingId"] = json!("otra");
+        assert_eq!(
+            call(&graph, &store, "knowledge_open", missing)
+                .await
+                .unwrap_err(),
+            "Grabación no encontrada"
+        );
         let mut query = params.clone();
         query["expectedVersion"] = json!(2);
         query["sql"] = json!("CREATE topic:a SET name = 'Prueba'");
@@ -896,7 +1063,7 @@ mod tests {
         call(&graph, &store, "knowledge_query", query)
             .await
             .unwrap();
-        let attach = json!({"id":"example","expectedVersion":1,"recordId":"topic:a","recordingId":record["id"],"versionId":version["id"]});
+        let attach = json!({"id":"example","expectedVersion":1,"recordId":"topic:a","recordingId":record["id"],"versionId":"v1"});
         let mut invalid = attach.clone();
         invalid["versionId"] = json!("otra");
         assert!(call(&graph, &store, "knowledge_attach", invalid)
@@ -928,54 +1095,12 @@ mod tests {
                 .len(),
             1
         );
-        store
-            .install(json!({"recipes":[],"destinations":[]}))
-            .await
-            .unwrap();
+        state.lock().unwrap().recipes.clear();
         assert!(call(&graph, &store, "knowledge_open", params)
             .await
             .unwrap_err()
-            .contains("disponible"));
+            .contains("No existe graph"));
         assert_eq!(graph.list().await.unwrap().len(), 1);
         graph.close().await.unwrap();
-    }
-    #[tokio::test]
-    #[ignore = "Requiere una copia privada autorizada de library.rocksdb"]
-    async fn mide_la_proyeccion_de_una_copia_en_un_grafo_vacio() {
-        use std::os::unix::fs::PermissionsExt;
-        let library = std::env::var_os("ESCRIBA_VERIFY_LIBRARY_COPY").unwrap();
-        let temporary = tempfile::tempdir().unwrap();
-        std::fs::set_permissions(temporary.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
-        copy_tree(
-            Path::new(&library),
-            &temporary.path().join("library.rocksdb"),
-        );
-        let store = crate::store::Store::open_with_audio_cleanup(temporary.path().into(), false)
-            .await
-            .unwrap();
-        let store = crate::library::Library::new(store).await.unwrap();
-        let path = temporary.path().join("knowledge.rocksdb");
-        let knowledge = Knowledge::open(&path).await.unwrap();
-        let started = std::time::Instant::now();
-        assert!(
-            synchronize_base(&knowledge, &store, None)
-                .await
-                .unwrap()
-                .complete
-        );
-        let elapsed = started.elapsed();
-        knowledge.close().await.unwrap();
-        let size: u64 = walkdir::WalkDir::new(&path)
-            .into_iter()
-            .filter_map(Result::ok)
-            .filter_map(|e| e.metadata().ok())
-            .filter(|m| m.is_file())
-            .map(|m| m.len())
-            .sum();
-        println!(
-            "MEDIDA grafo nuevo {} MB, proyección {:?}",
-            size / 1_048_576,
-            elapsed
-        );
     }
 }
