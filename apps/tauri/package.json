@@ -18,6 +18,7 @@
     "@escriba/conectores": "file:../../packages/conectores",
     "@noble/hashes": "1.8.0",
     "@notionhq/client": "5.25.2",
+    "@surrealdb/node": "3.1.0",
     "@tauri-apps/api": "^2.10.0",
     "@tauri-apps/plugin-dialog": "^2.6.0",
     "codemirror": "6.0.2",

@@ -101,6 +101,19 @@ está, repetir `note_draft_commit` con el id y la revisión originales recupera 
 recibo idempotente. Si tampoco se puede consultar, el estado sigue siendo
 incierto y se ofrece reintentar, sin inferir el resultado del texto del error.
 
+## Comandos del controlador
+
+Los métodos de `CONTROLLER_METHODS` (`src-tauri/src/command.rs`) no son
+variantes del enum: Rust los reenvía al controlador TypeScript como trama
+`command {id,method,params,origin}` y devuelve su `result` o `error`. El
+controlador arranca con la app, sin perfil de `sandbox-exec`, con `ESCRIBA_DATA`
+y `NAPI_RS_NATIVE_LIBRARY_PATH` en su entorno; las recetas conservan el suyo.
+Los eventos que emite (`changed`, `log`, `imported`, `project`,
+`voice-registration`, `whisper-download`, `jobs`) llegan a la WebView como
+`escriba://<evento>`.
+
+- controller_status -> {protocolVersion, dataPath} (el controlador está vivo y sabe dónde están los datos).
+
 ## Trabajos y estado de la interfaz
 
 - runtime_run {operation,args} -> resultado del trabajo; la espera de la UI no es propietaria del trabajo.

@@ -110,6 +110,11 @@ async fn app_command(
     params: Value,
 ) -> Result<Value, String> {
     let runtime = state.inner().clone();
+    if command::forwarded(&method) {
+        return controller_command(&app, &runtime, &method, params, scripts::Origin::Ui)
+            .await
+            .map_err(|error| error.message);
+    }
     let check_resolvers = notification_events::settings_changed(&method, &params);
     let request = Request::parse(&method, params)?;
     let refresh = request.policy().refreshes;
@@ -950,6 +955,27 @@ async fn authorize_watched_folder(
     Ok(saved)
 }
 
+fn surreal_native(app: &tauri::AppHandle) -> Option<PathBuf> {
+    let arch = if cfg!(target_arch = "aarch64") {
+        "arm64"
+    } else {
+        "x64"
+    };
+    let file = format!("surrealdb-node.darwin-{arch}.node");
+    let resource = app
+        .path()
+        .resource_dir()
+        .ok()
+        .map(|dir| dir.join("surreal").join(&file));
+    let development = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("surreal")
+        .join(&file);
+    resource
+        .into_iter()
+        .chain(std::iter::once(development))
+        .find(|path| path.is_file())
+}
+
 fn voice_memos_root(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     Ok(app
         .path()
@@ -1371,13 +1397,18 @@ fn emit_jobs(app: &tauri::AppHandle, state: &Runtime) {
     let _ = app.emit("escriba://jobs", state.jobs.visible());
     let _ = app.emit("escriba://changed", ());
 }
-async fn script_call(
+const RELAYED_EVENTS: &[&str] = &[
+    "changed",
+    "log",
+    "imported",
+    "project",
+    "voice-registration",
+    "whisper-download",
+];
+fn controller_hooks(
     app: &tauri::AppHandle,
     state: &Arc<Runtime>,
-    id: &str,
-    operation: &str,
-    args: Value,
-) -> Result<Value, error::AppError> {
+) -> (scripts::Capability, scripts::Events) {
     let weak = Arc::downgrade(state);
     let handle = app.clone();
     let capability: scripts::Capability = Arc::new(move |method, params, task, lease| {
@@ -1386,8 +1417,11 @@ async fn script_call(
         Box::pin(async move {
             let state = weak.upgrade().ok_or("La aplicación se cerró")?;
             lease.ensure_active()?;
+            if let Some(shell_method) = method.strip_prefix("shell.") {
+                return shell_capability(&handle, &state, shell_method, params).await;
+            }
             let request = Request::parse(&method, jobs::stamp_trace(&method, params, &task))?;
-            if !request.policy().recipes {
+            if !lease.trusted() && !request.policy().recipes {
                 return Err("Capacidad no autorizada o trabajo terminado".into());
             }
             let event = request.event(!request.recipe_reads_only());
@@ -1425,11 +1459,52 @@ async fn script_call(
             emit_jobs(&handle, &state);
         }
     });
+    let weak = Arc::downgrade(state);
+    let handle = app.clone();
     let events: scripts::Events = Arc::new(move |event| {
-        if event["event"] == "jobs" {
+        let name = event["event"].as_str().unwrap_or("");
+        if name == "jobs" {
             let _ = stages.send(event["value"].clone());
+        } else if RELAYED_EVENTS.contains(&name) {
+            let _ = handle.emit(&format!("escriba://{name}"), event["value"].clone());
+            if name == "changed" {
+                if let Some(state) = weak.upgrade() {
+                    state.knowledge_wake.notify_one();
+                }
+            }
         }
     });
+    (capability, events)
+}
+async fn shell_capability(
+    _app: &tauri::AppHandle,
+    _state: &Arc<Runtime>,
+    method: &str,
+    _params: Value,
+) -> Result<Value, error::AppError> {
+    Err(format!("Capacidad de la cáscara desconocida: {method}").into())
+}
+async fn controller_command(
+    app: &tauri::AppHandle,
+    state: &Arc<Runtime>,
+    method: &str,
+    params: Value,
+    origin: scripts::Origin,
+) -> Result<Value, error::AppError> {
+    let (capability, events) = controller_hooks(app, state);
+    state
+        .scripts
+        .command(method, params, origin, capability, events)
+        .await
+}
+async fn script_call(
+    app: &tauri::AppHandle,
+    state: &Arc<Runtime>,
+    id: &str,
+    operation: &str,
+    args: Value,
+) -> Result<Value, error::AppError> {
+    let (capability, events) = controller_hooks(app, state);
     state
         .scripts
         .call(id, operation, args, capability, events)
@@ -1687,6 +1762,16 @@ pub fn run() {
                     Path::new(env!("CARGO_MANIFEST_DIR")).join("vendor")
                 };
                 let engine = native::binary("EscribaNativeHost").map_err(std::io::Error::other)?;
+                let mut controller_env = vec![(
+                    "ESCRIBA_DATA".to_owned(),
+                    root.to_string_lossy().into_owned(),
+                )];
+                if let Some(native) = surreal_native(app.handle()) {
+                    controller_env.push((
+                        "NAPI_RS_NATIVE_LIBRARY_PATH".to_owned(),
+                        native.to_string_lossy().into_owned(),
+                    ));
+                }
                 let (watch_wake, wake) = tokio::sync::mpsc::channel(1);
                 let state = Arc::new(Runtime {
                     knowledge: tokio::sync::OnceCell::new(),
@@ -1696,7 +1781,8 @@ pub fn run() {
                     jobs,
                     scripts: scripts::Scripts::new(
                         native::binary("escriba-runtime").map_err(std::io::Error::other)?,
-                    ),
+                    )
+                    .with_env(controller_env),
                     materializer: native::Native::new(engine.clone()),
                     materializing: Mutex::new(watcher::Materializations::default()),
                     scanner: Mutex::new(watcher::Scanner::new()),
@@ -1747,6 +1833,11 @@ pub fn run() {
                             Ok(false) => {}
                             Err(error) => log_error(&state, &error),
                         }
+                    }
+                    let (capability, events) = controller_hooks(&handle, &state);
+                    if let Err(error) = state.scripts.start(capability, events).await {
+                        log_error(&state, &error.message);
+                        notify_problem(&state, Problem::RecipesUnavailable(&error.message));
                     }
                     warn_about_unusable(&handle, &state).await;
                     start_jobs(handle.clone(), state.clone());

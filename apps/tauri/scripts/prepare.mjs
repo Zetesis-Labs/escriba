@@ -26,6 +26,12 @@ for (const dependency of ["@types/bun", "bun-types", "@types/node", "undici-type
   await cp(join(app, "runtime-host/toolchain/node_modules", dependency), target, { recursive: true, dereference: true });
 }
 await prepareSurrealdb(app, vendor);
+const surrealNative = `surrealdb-node.darwin-${process.arch}.node`;
+await mkdir(join(app, "src-tauri/surreal"), { recursive: true });
+await cp(
+  join(app, `node_modules/@surrealdb/node-native-darwin-${process.arch}`, surrealNative),
+  join(app, "src-tauri/surreal", surrealNative),
+);
 const triple =
   process.arch === "arm64" ? "aarch64-apple-darwin" : "x86_64-apple-darwin";
 await mkdir(join(app, "src-tauri/binaries"), { recursive: true });

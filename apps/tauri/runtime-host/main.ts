@@ -8,6 +8,7 @@ import {
   type WorkerPort,
 } from "../src/runtime/workerClient";
 import { object, text, message, errorCode, protocolError, jsonObject, json } from "../src/runtime/contracts";
+import { createCommands, isOrigin, registerControllerCommands } from "../src/runtime/commands";
 import type { NativeStatus, ProcessOptions } from "../src/types";
 declare const __WORKER_SOURCE__: string;
 declare const __BUILTIN_PROGRAM__: string;
@@ -185,6 +186,8 @@ async function main() {
   runtime.subscribeJobs(() => {
     void send({ type: "event", event: "jobs", value: runtime.getJobs() });
   });
+  const commands = createCommands();
+  registerControllerCommands(commands, { dataPath: process.env.ESCRIBA_DATA ?? "" });
   async function execute(operation: string, args: Record<string, unknown>) {
     switch (operation) {
       case "notificationProblems":
@@ -283,6 +286,29 @@ async function main() {
             }
             if (task.recordingId) runtime.cancelProcessing(task.recordingId);
           });
+        continue;
+      }
+      if (frame.type === "command") {
+        if (running.has(id)) {
+          await send({ type: "error", id, message: "ID de ejecución repetido" });
+          continue;
+        }
+        running.set(id, { abort: new AbortController() });
+        void context.run(id, async () => {
+          try {
+            if (!isOrigin(frame.origin)) throw Error("Origen del comando no permitido");
+            const result = await commands.dispatch(
+              text(frame.method, "método"),
+              object(frame.params ?? {}),
+              frame.origin,
+            );
+            if (!closing) await send({ type: "result", id, value: result ?? null });
+          } catch (error) {
+            if (!closing) await send({ type: "error", id, message: message(error), code: errorCode(error) });
+          } finally {
+            running.delete(id);
+          }
+        });
         continue;
       }
       if (frame.type !== "run") throw Error("Trama de protocolo no permitida");

@@ -99,6 +99,13 @@ pub enum Command {
     App(AppCommand),
 }
 
+/// Métodos que atiende el controlador TypeScript; Rust los reenvía sin interpretarlos.
+pub const CONTROLLER_METHODS: &[&str] = &["controller_status"];
+
+pub fn forwarded(method: &str) -> bool {
+    CONTROLLER_METHODS.contains(&method)
+}
+
 #[derive(Debug)]
 pub struct Request {
     pub method: String,
@@ -467,6 +474,18 @@ mod tests {
     }
 
     #[test]
+    fn un_metodo_del_controlador_no_es_tambien_un_comando_de_rust() {
+        for method in CONTROLLER_METHODS {
+            assert!(forwarded(method));
+            assert_eq!(
+                parse(method, json!({})).unwrap_err(),
+                format!("Método desconocido: {method}")
+            );
+        }
+        assert!(!forwarded("snapshot"));
+    }
+
+    #[test]
     fn cada_comando_de_conocimiento_tiene_su_respuesta() {
         assert_eq!(methods::<KnowledgeCommand>(), methods::<KnowledgeReply>());
     }
@@ -488,6 +507,7 @@ mod tests {
         let missing: Vec<String> = methods::<AppCommand>()
             .into_iter()
             .chain(methods::<KnowledgeCommand>())
+            .chain(CONTROLLER_METHODS.iter().map(|method| (*method).to_owned()))
             .filter(|method| !mentioned(method))
             .collect();
         assert!(

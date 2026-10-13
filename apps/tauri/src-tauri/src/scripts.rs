@@ -19,19 +19,39 @@ use tokio::{
 };
 
 #[derive(Clone)]
-pub struct Lease(Arc<AtomicBool>);
+pub struct Lease {
+    active: Arc<AtomicBool>,
+    trusted: bool,
+}
 impl Lease {
-    fn new() -> Self {
-        Self(Arc::new(AtomicBool::new(true)))
+    fn new(trusted: bool) -> Self {
+        Self {
+            active: Arc::new(AtomicBool::new(true)),
+            trusted,
+        }
     }
     fn revoke(&self) {
-        self.0.store(false, Ordering::SeqCst);
+        self.active.store(false, Ordering::SeqCst);
     }
     pub fn ensure_active(&self) -> Result<(), String> {
-        if self.0.load(Ordering::SeqCst) {
+        if self.active.load(Ordering::SeqCst) {
             Ok(())
         } else {
             Err("Proceso cancelado".into())
+        }
+    }
+    pub fn trusted(&self) -> bool {
+        self.trusted
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Origin {
+    Ui,
+}
+impl Origin {
+    fn label(self) -> &'static str {
+        match self {
+            Origin::Ui => "ui",
         }
     }
 }
@@ -148,6 +168,7 @@ impl Drop for Session {
 
 pub struct Scripts {
     path: PathBuf,
+    env: Vec<(String, String)>,
     session: Mutex<Option<Arc<Session>>>,
 }
 async fn frame<R: AsyncRead + Unpin>(reader: &mut BufReader<R>) -> Result<Value, AppError> {
@@ -192,25 +213,36 @@ async fn send(input: &Input, value: &Value) -> Result<(), AppError> {
         .await
         .map_err(|e| AppError::new(ErrorCode::RuntimeUnavailable, e.to_string()))
 }
-fn spawn(path: &Path, worker: bool) -> Result<(Child, StderrCapture), String> {
+fn spawn(
+    path: &Path,
+    worker: bool,
+    env: &[(String, String)],
+) -> Result<(Child, StderrCapture), String> {
     let executable = path
         .canonicalize()
         .map_err(|e| format!("No se pudo localizar el motor TypeScript: {e}"))?;
     if !executable.is_file() {
         return Err("El motor TypeScript no es un archivo".into());
     }
-    let mut command = Command::new("/usr/bin/sandbox-exec");
-    command
-        .arg("-p")
-        .arg(SANDBOX)
-        .arg("-D")
-        .arg(format!("EXECUTABLE={}", executable.display()))
-        .arg(executable);
-    if worker {
-        command.arg("--worker");
-    }
+    let mut command = if worker {
+        let mut command = Command::new("/usr/bin/sandbox-exec");
+        command
+            .arg("-p")
+            .arg(SANDBOX)
+            .arg("-D")
+            .arg(format!("EXECUTABLE={}", executable.display()))
+            .arg(executable)
+            .arg("--worker");
+        command
+    } else {
+        Command::new(executable)
+    };
     let mut child = command
         .env_clear()
+        .envs(
+            env.iter()
+                .map(|(key, value)| (key.as_str(), value.as_str())),
+        )
         .current_dir("/")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -332,8 +364,16 @@ impl Scripts {
     pub fn new(path: PathBuf) -> Self {
         Self {
             path,
+            env: Vec::new(),
             session: Mutex::new(None),
         }
+    }
+    pub fn with_env(mut self, env: Vec<(String, String)>) -> Self {
+        self.env = env;
+        self
+    }
+    pub async fn start(&self, capability: Capability, events: Events) -> Result<(), AppError> {
+        self.session(capability, events).await.map(|_| ())
     }
     async fn session(
         &self,
@@ -345,7 +385,7 @@ impl Scripts {
             return Ok(session.clone());
         }
         *slot = None;
-        let (mut child, mut stderr) = spawn(&self.path, false)
+        let (mut child, mut stderr) = spawn(&self.path, false, &self.env)
             .map_err(|error| AppError::new(ErrorCode::RuntimeUnavailable, error))?;
         let input = Arc::new(Mutex::new(
             child.stdin.take().ok_or("TypeScript sin entrada")?,
@@ -463,7 +503,7 @@ impl Scripts {
                             continue;
                         }
                         let result = (|| {
-                            let (mut child, stderr) = spawn(&path, true)?;
+                            let (mut child, stderr) = spawn(&path, true, &[])?;
                             let pid = child.id().ok_or("Receta sin proceso")?;
                             let input = Arc::new(Mutex::new(
                                 child.stdin.take().ok_or("Receta sin entrada")?,
@@ -581,7 +621,7 @@ impl Scripts {
                 id.to_owned(),
                 PendingTask {
                     reply: tx,
-                    lease: Lease::new(),
+                    lease: Lease::new(false),
                 },
             );
         }
@@ -608,6 +648,51 @@ impl Scripts {
                 Err(AppError::new(
                     ErrorCode::Failed,
                     "El trabajo superó dos horas",
+                ))
+            }
+        }
+    }
+    pub async fn command(
+        &self,
+        method: &str,
+        params: Value,
+        origin: Origin,
+        capability: Capability,
+        events: Events,
+    ) -> Result<Value, AppError> {
+        let session = self.session(capability, events).await?;
+        let id = format!("command-{}", uuid::Uuid::new_v4());
+        let (tx, rx) = oneshot::channel();
+        session.pending.lock().await.insert(
+            id.clone(),
+            PendingTask {
+                reply: tx,
+                lease: Lease::new(true),
+            },
+        );
+        if let Err(error) = send(
+            &session.input,
+            &json!({"type":"command","id":id,"method":method,"params":params,"origin":origin.label()}),
+        )
+        .await
+        {
+            if let Some(task) = session.pending.lock().await.remove(&id) {
+                task.lease.revoke();
+            }
+            session.alive.store(false, Ordering::SeqCst);
+            return Err(error);
+        }
+        match tokio::time::timeout(Duration::from_secs(1800), rx).await {
+            Ok(Ok(result)) => result,
+            Ok(Err(_)) => Err(AppError::new(
+                ErrorCode::RuntimeUnavailable,
+                "El proceso TypeScript perdió el comando",
+            )),
+            Err(_) => {
+                self.cancel(&id).await;
+                Err(AppError::new(
+                    ErrorCode::Failed,
+                    "El comando superó treinta minutos",
                 ))
             }
         }
@@ -1161,7 +1246,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn fallo_al_arrancar_muestra_diagnostico_del_sandbox() {
+    async fn fallo_al_arrancar_muestra_diagnostico() {
         let directory = tempfile::tempdir().unwrap();
         let executable = directory.path().join("runtime-no-ejecutable");
         std::fs::write(&executable, b"synthetic").unwrap();
@@ -1176,7 +1261,11 @@ mod tests {
             )
             .await
             .unwrap_err();
-        assert!(error.message.contains("sandbox-exec"), "{error}");
+        assert_eq!(error.code, ErrorCode::RuntimeUnavailable);
+        assert!(
+            error.message.contains("No se pudo iniciar TypeScript"),
+            "{error}"
+        );
     }
 
     #[tokio::test]
@@ -1343,7 +1432,7 @@ mod tests {
 
     async fn protocol_error_reaches_running_job(invalid: &[u8], expected: &str) {
         let path = crate::native::binary("escriba-runtime").unwrap();
-        let (mut child, _stderr) = spawn(&path, false).unwrap();
+        let (mut child, _stderr) = spawn(&path, false, &[]).unwrap();
         let mut input = child.stdin.take().unwrap();
         let mut output = BufReader::new(child.stdout.take().unwrap());
         assert_eq!(frame(&mut output).await.unwrap()["type"], "ready");

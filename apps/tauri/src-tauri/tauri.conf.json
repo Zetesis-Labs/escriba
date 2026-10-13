@@ -51,7 +51,8 @@
       "binaries/escriba-runtime"
     ],
     "resources": {
-      "vendor/": "vendor/"
+      "vendor/": "vendor/",
+      "surreal/": "surreal/"
     },
     "icon": [
       "icons/icon.png",

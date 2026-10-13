@@ -1,7 +1,8 @@
 import type { AppCommand } from "../generated/AppCommand";
 import type { KnowledgeCommand } from "../generated/KnowledgeCommand";
 import type { JSONObject, JSONValue, Snapshot } from "../types";
-export type HostMethod = AppCommand["method"] | KnowledgeCommand["method"];
+export type ShellMethod = `shell.${string}`;
+export type HostMethod = AppCommand["method"] | KnowledgeCommand["method"] | ShellMethod;
 export interface RuntimeHost {
   call(method: HostMethod, params?: Record<string, unknown>): Promise<unknown>;
 }
