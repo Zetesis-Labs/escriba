@@ -254,3 +254,5 @@ referencia a módulos borrados.
 | 2026-10-13 | V0 | hecha | plan, ADR corregido, Bun 1.4.2 local |
 | 2026-10-13 | V1 | tests verdes; pendiente ver en pantalla | `command` con origen, `controller_status`, controlador sin sandbox desde el arranque, `.node` como recurso; 344 vitest y 25 Rust de comandos/controlador |
 | 2026-10-13 | V2 | tests verdes; pendiente ver en pantalla | `credential_save`, `connector_http`, `resolver_models/try` en el controlador; Rust pide `remote_transcribe`/`remote_ask`; `shell.audio_path` y `shell.native`; `remote.rs` borrado y `capabilities.rs` sin HTTP; 361 vitest y 345 Rust |
+| 2026-10-13 | V3 | hecha (sin pantalla: no se conecta hasta V5) | biblioteca en Bun (`src/runtime/library/`): 130 tests portados, copia real abre y coincide; `now()` con microsegundos; conocimiento se queda en Rust |
+| 2026-10-13 | V4 | hecha (sin pantalla) | cola en Bun (`jobs.ts`, `queue.ts`): 37 tests portados |
