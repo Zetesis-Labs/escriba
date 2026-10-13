@@ -5,6 +5,10 @@ mod audio_ingress;
 mod capabilities;
 mod command;
 mod error;
+#[cfg(target_os = "macos")]
+mod folder_access;
+#[cfg(target_os = "linux")]
+#[path = "folder_access_linux.rs"]
 mod folder_access;
 mod inbox;
 mod knowledge;
@@ -571,19 +575,24 @@ async fn authorize_watched_folder(
         ),
         None => None,
     };
-    let (reply, receive) = tokio::sync::oneshot::channel();
-    app.run_on_main_thread(move || {
-        let _ = reply.send(folder_access::select_folder(initial_path.as_deref()));
-    })
-    .map_err(|error| format!("No se pudo abrir el selector de carpetas: {error}"))?;
-    let Some(selected) = receive
-        .await
-        .map_err(|_| "El selector de carpetas se cerró inesperadamente")??
-    else {
+    #[cfg(target_os = "macos")]
+    let selected = {
+        let (reply, receive) = tokio::sync::oneshot::channel();
+        app.run_on_main_thread(move || {
+            let _ = reply.send(folder_access::select_folder(initial_path.as_deref()));
+        })
+        .map_err(|error| format!("No se pudo abrir el selector de carpetas: {error}"))?;
+        receive
+            .await
+            .map_err(|_| "El selector de carpetas se cerró inesperadamente")??
+    };
+    #[cfg(target_os = "linux")]
+    let selected = folder_access::select_folder(app, initial_path.as_deref()).await?;
+    let Some(selected) = selected else {
         return Ok(Value::Null);
     };
     let _scan = state.scan_lock.lock().await;
-    let resolved = folder_access::restore(&selected.bookmark)?;
+    let resolved = restore_folder(&selected.path, &selected.bookmark)?;
     if resolved.path != selected.path {
         return Err("La carpeta cambió mientras se autorizaba. Vuelve a seleccionarla".into());
     }
@@ -642,6 +651,16 @@ fn voice_memos_root(app: &tauri::AppHandle) -> Result<PathBuf, String> {
         .join("Library/Group Containers/group.com.apple.VoiceMemos.shared/Recordings"))
 }
 
+#[cfg(target_os = "macos")]
+fn restore_folder(_: &Path, bookmark: &[u8]) -> Result<folder_access::ResolvedFolder, String> {
+    folder_access::restore(bookmark)
+}
+
+#[cfg(target_os = "linux")]
+fn restore_folder(path: &Path, _: &[u8]) -> Result<folder_access::ResolvedFolder, String> {
+    folder_access::restore(path)
+}
+
 async fn restore_watched_folders(
     state: &Arc<Runtime>,
 ) -> Result<Vec<watcher::FolderError>, String> {
@@ -663,7 +682,7 @@ async fn restore_watched_folders(
         if known.contains(&id) {
             continue;
         }
-        match folder_access::restore(&bookmark) {
+        match restore_folder(&path, &bookmark) {
             Ok(resolved) => {
                 if state
                     .controller(
