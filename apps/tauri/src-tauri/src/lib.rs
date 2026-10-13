@@ -30,6 +30,8 @@ mod recording;
 mod scripts;
 mod storage;
 mod symbols;
+#[cfg(not(target_os = "macos"))]
+mod tray_icons;
 mod util;
 mod voice_registration;
 mod voices;
