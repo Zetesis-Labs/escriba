@@ -60,18 +60,9 @@ Node 22.12 o posterior y el Bun de `apps/tauri/runtime-host/bun-version`. El
 audio sintético de las pruebas se genera con `espeak-ng -w`; nunca se usan
 grabaciones reales de Rubén.
 
-Hasta que L2 adapte `scripts/prepare.mjs` y `runtime-host/build.mjs` a Linux,
-las pruebas necesitan preparar a mano lo que esos scripts dejan en
-`src-tauri/` (todo ignorado por git):
-
-- `src-tauri/vendor/`: ejecutar `prepare.mjs` con `typescript-linux-<arch>` en
-  lugar de `typescript-darwin-<arch>` y sin la parte final que construye el
-  runtime.
-- `src-tauri/binaries/escriba-runtime-<triple>`: `buildRuntime` de
-  `runtime-host/build.mjs`, ignorando que falle el `codesign` final (el
-  binario ya está escrito).
-- `src-tauri/binaries/EscribaNativeHost-<triple>`: un marcador ejecutable
-  (`#!/bin/sh` y `exit 1`) para que el `build.rs` de Tauri compile.
+`scripts/build-linux.sh` construye el host nativo de Rust, el runtime, las
+dependencias incluidas y la app (`--release` deja el `.deb`); también prepara
+lo que necesitan las pruebas de `cargo test` y `npm test`.
 
 ## Mapa del código que importa
 
@@ -315,6 +306,38 @@ Pendiente para L2, no tocado en L1: el almacén rechaza el bookmark vacío
 él, así que en Linux aún no se puede añadir una carpeta vigilada; las
 notificaciones de Linux no envían nada todavía.
 
+**L2 en Ubuntu 25.10** (2026-10-13). `scripts/build-linux.sh --release` deja
+`Escriba_0.1.0_amd64.deb` y la app extraída arranca con su host nativo de Rust y
+el runtime. Pasan `cargo test --lib` (364), las 12 pruebas del host nativo,
+`clippy`, `fmt`, `npm test` (337) y los dos `typecheck`.
+
+Para el «hecho» hay que elegir el STT remoto en la receta por defecto: sin
+elección se usa el Whisper local, que en Linux llega en L4. El paso de resumen
+falla avisando de que la receta no tiene LLM (decisión 1) y la transcripción se
+conserva.
+
+Visible y fuera de la spec, pendiente de que Rubén diga qué cambia: la barra de
+menús de la app aparece dentro de la ventana (GTK); la franja de 52 px del
+título del Mac sigue arriba; el aviso de recetas sin aislar solo está en
+Recetas; descargar Whisper (L4) y grabar (L3) fallan con su aviso. Textos
+redactados aquí, provisionales: «Elegir carpeta», los avisos de permisos, los
+mensajes del host nativo, «La receta no tiene un LLM elegido…», «no puede
+resumir», «se quedan sin LLM», el botón «Carpeta» y el aviso de recetas.
+
+**Para la sesión del Mac (L2):** que nada visible ha cambiado, y revisar:
+
+- `scripts/prepare.mjs` y `runtime-host/build.mjs` eligen paquete y triple con
+  `runtime-host/targets.mjs`; `codesign` solo corre en macOS.
+- `library` lleva `platform`; la interfaz la lee con `PlatformContext`, que por
+  defecto es macOS. `resolvers.ts` tiene parámetros opcionales de plataforma y
+  `useRecorderAlert` recibe si hay enlace a Ajustes del Sistema.
+- `store/settings.rs`: `default_resolvers` por sistema y el bookmark vacío solo
+  se admite fuera de macOS.
+- `symbols::image` se parte por sistema; `notification_delivery` y
+  `voice_memos_root` tienen rama de Linux.
+- Las pruebas del protocolo nativo (`native.rs`, `scripts.rs`) vuelven a correr
+  en todos los sistemas.
+
 **Para la sesión del Mac (L1):** pasar la suite completa del `CLAUDE.md` y
 revisar en particular:
 
@@ -336,7 +359,7 @@ revisar en particular:
 |---|---|---|---|---|
 | L0 | hecha | `5fdc89a` | | Nada: solo diagnóstico |
 | L1 | hecha | `54436b9`…`c758503` | | Ver «L1 en Ubuntu 25.10» |
-| L2 | pendiente | | | |
+| L2 | construida, falta validar | `e6fa7b8`…`6718249` | | Ver «L2 en Ubuntu 25.10» |
 | L3 | pendiente | | | |
 | L4 | pendiente | | | |
 | L5 | pendiente | | | |
