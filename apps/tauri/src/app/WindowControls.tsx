@@ -1,14 +1,20 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { Minus, Square, X } from "lucide-react";
 import { useEffect, useState } from "react";
 
-// Systems without a title bar of their own get macOS-style window buttons.
+// Without a system title bar, the pane toolbar carries the window buttons the GNOME way.
 export function WindowControls() {
-  const current = getCurrentWindow();
   return (
     <div className="window-controls">
-      <button type="button" className="window-control close" aria-label="Cerrar" title="Cerrar" onClick={() => void current.close()} />
-      <button type="button" className="window-control minimize" aria-label="Minimizar" title="Minimizar" onClick={() => void current.minimize()} />
-      <button type="button" className="window-control maximize" aria-label="Maximizar" title="Maximizar" onClick={() => void current.toggleMaximize()} />
+      <button type="button" className="window-control" aria-label="Minimizar" title="Minimizar" onClick={() => void getCurrentWindow().minimize()}>
+        <Minus size={14} strokeWidth={2} />
+      </button>
+      <button type="button" className="window-control" aria-label="Maximizar" title="Maximizar" onClick={() => void getCurrentWindow().toggleMaximize()}>
+        <Square size={11} strokeWidth={2} />
+      </button>
+      <button type="button" className="window-control" aria-label="Cerrar" title="Cerrar" onClick={() => void getCurrentWindow().close()}>
+        <X size={14} strokeWidth={2} />
+      </button>
     </div>
   );
 }

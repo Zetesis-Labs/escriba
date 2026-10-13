@@ -1,5 +1,5 @@
 import { drawsWindowControls, isNewRecordingShortcut, offersSystemSettings, platformOf } from "../core/platform";
-import { WindowControls, useMaximized } from "./WindowControls";
+import { useMaximized } from "./WindowControls";
 import { PlatformContext } from "./platform";
 import { Filter, Users } from "lucide-react";
 import { Fragment, useEffect, useState, type KeyboardEvent } from "react";
@@ -144,7 +144,7 @@ export function MainWindow() {
     <PlatformContext.Provider value={platform}>
     <div className={`window ${active ? "" : "inactive"} ${integrated ? "integrated" : ""} ${maximized ? "maximized" : ""}`}>
       <aside className="sidebar" data-tauri-drag-region>
-        <div className="sidebar-top" data-tauri-drag-region>{integrated && <WindowControls />}</div>
+        <div className="sidebar-top" data-tauri-drag-region />
         <nav className="sidebar-list" role="listbox" aria-label="Secciones" tabIndex={0} onKeyDown={move}>
           {sections.map(({ id, label: title, icon: Icon }) => (
             <Fragment key={id}>
