@@ -1,6 +1,8 @@
 import { describe, expect, test } from "vitest";
 import {
   device,
+  drawsWindowControls,
+  isNewRecordingShortcut,
   foldersFooter,
   macOS,
   offersFolderAuthorization,
@@ -72,5 +74,27 @@ describe("plataforma", () => {
     const warning = unisolatedRecipesWarning(linux);
     expect(warning).toContain("no permite aislar las recetas");
     expect(unisolatedRecipesWarning({ system: "linux", recipesIsolated: true })).toBeNull();
+  });
+});
+
+describe("ventana integrada", () => {
+  const key = (init: Partial<{ key: string; ctrlKey: boolean; metaKey: boolean; altKey: boolean; shiftKey: boolean }>) => ({
+    key: "n", ctrlKey: false, metaKey: false, altKey: false, shiftKey: false, ...init,
+  });
+
+  test("Linux dibuja sus propios botones de ventana; el Mac usa los del sistema", () => {
+    expect(drawsWindowControls(linux)).toBe(true);
+    expect(drawsWindowControls(macOS)).toBe(false);
+  });
+
+  test("en Linux Ctrl+N es nueva grabación; en el Mac lo hace el menú", () => {
+    expect(isNewRecordingShortcut(key({ ctrlKey: true }), linux)).toBe(true);
+    expect(isNewRecordingShortcut(key({ key: "N", ctrlKey: true }), linux)).toBe(true);
+    expect(isNewRecordingShortcut(key({ ctrlKey: true, shiftKey: true }), linux)).toBe(false);
+    expect(isNewRecordingShortcut(key({ ctrlKey: true, altKey: true }), linux)).toBe(false);
+    expect(isNewRecordingShortcut(key({}), linux)).toBe(false);
+    expect(isNewRecordingShortcut(key({ key: "s", ctrlKey: true }), linux)).toBe(false);
+    expect(isNewRecordingShortcut(key({ ctrlKey: true }), macOS)).toBe(false);
+    expect(isNewRecordingShortcut(key({ metaKey: true }), macOS)).toBe(false);
   });
 });

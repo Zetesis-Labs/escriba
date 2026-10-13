@@ -1,4 +1,5 @@
-import { offersSystemSettings, platformOf } from "../core/platform";
+import { drawsWindowControls, isNewRecordingShortcut, offersSystemSettings, platformOf } from "../core/platform";
+import { WindowControls, useMaximized } from "./WindowControls";
 import { PlatformContext } from "./platform";
 import { Filter, Users } from "lucide-react";
 import { Fragment, useEffect, useState, type KeyboardEvent } from "react";
@@ -15,7 +16,7 @@ import { ConnectorsPane } from "../connectors/ConnectorsPane";
 import { PeoplePane } from "../people/PeoplePane";
 import { JobsPane } from "../jobs/JobsPane";
 import { runningCount } from "../core/jobs";
-import { dismissRecorderProblem, openMicrophoneSettings, useRecorderStatus, type RecorderProblem } from "../recording/useRecording";
+import { dismissRecorderProblem, openMicrophoneSettings, startRecording, stopRecording, useRecorderStatus, type RecorderProblem } from "../recording/useRecording";
 import { ContentUnavailable } from "../mac/controls";
 import { alertMessage } from "../mac/native";
 import { Pane } from "./Pane";
@@ -97,6 +98,17 @@ export function MainWindow() {
   useNavigation(setSection);
   const platform = platformOf(data);
   useRecorderAlert(recorder.problem, offersSystemSettings(platform));
+  const integrated = drawsWindowControls(platform);
+  const maximized = useMaximized(integrated);
+  useEffect(() => {
+    const press = (event: globalThis.KeyboardEvent) => {
+      if (!isNewRecordingShortcut(event, platform)) return;
+      event.preventDefault();
+      void (recorder.active ? stopRecording() : startRecording()).catch(() => undefined);
+    };
+    window.addEventListener("keydown", press);
+    return () => window.removeEventListener("keydown", press);
+  }, [platform, recorder.active]);
 
   const move = (event: KeyboardEvent) => {
     if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
@@ -130,9 +142,9 @@ export function MainWindow() {
 
   return (
     <PlatformContext.Provider value={platform}>
-    <div className={`window ${active ? "" : "inactive"}`}>
+    <div className={`window ${active ? "" : "inactive"} ${integrated ? "integrated" : ""} ${maximized ? "maximized" : ""}`}>
       <aside className="sidebar" data-tauri-drag-region>
-        <div className="sidebar-top" data-tauri-drag-region />
+        <div className="sidebar-top" data-tauri-drag-region>{integrated && <WindowControls />}</div>
         <nav className="sidebar-list" role="listbox" aria-label="Secciones" tabIndex={0} onKeyDown={move}>
           {sections.map(({ id, label: title, icon: Icon }) => (
             <Fragment key={id}>

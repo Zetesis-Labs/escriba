@@ -30,3 +30,11 @@ export const unisolatedRecipesWarning = (platform: Platform) =>
   platform.recipesIsolated
     ? null
     : "Este equipo no permite aislar las recetas: su código se ejecuta con tus permisos y podría leer tus archivos o conectarse a internet.";
+
+export const drawsWindowControls = (platform: Platform) => isLinux(platform);
+
+type Keys = { key: string; ctrlKey: boolean; metaKey: boolean; altKey: boolean; shiftKey: boolean };
+
+// macOS gets ⌘N from its menu bar; Linux has no menu bar inside the window.
+export const isNewRecordingShortcut = (event: Keys, platform: Platform) =>
+  isLinux(platform) && event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "n";
