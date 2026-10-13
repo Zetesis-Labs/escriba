@@ -1,27 +1,46 @@
 import { chmodSync, existsSync, mkdirSync } from "node:fs";
-import { Surreal } from "surrealdb";
+import { type ConnectionState, Surreal } from "surrealdb";
 import type { Json } from "./json";
 
 export type Database = Surreal;
 export const ALREADY_OPEN = "Escriba ya está abierta con esta biblioteca";
 const openPaths = new Set<string>();
 
+class FilesystemEndpoint extends URL {
+  constructor(private readonly path: string) {
+    super("rocksdb://");
+  }
+  override toString() {
+    return `rocksdb://${this.path}`;
+  }
+}
+
 export async function closeDatabase(db: Surreal, path: string) {
   openPaths.delete(path);
   await db.close();
 }
 export async function openDatabase(path: string, namespace: string, database: string): Promise<Surreal> {
+  if (path.includes("?")) throw Error("La ruta de la biblioteca contiene '?' y el motor no puede abrirla de forma segura");
   const legacy = `${path.replace(/\.[^./]+$/, "")}.surrealkv`;
   if (existsSync(legacy)) throw Error(`${legacy} está en SurrealKV y esta versión ya no lo convierte`);
   if (openPaths.has(path)) throw Error(ALREADY_OPEN);
   mkdirSync(path, { recursive: true });
   chmodSync(path, 0o700);
+  const { NodeEngine } = await import("@surrealdb/node");
+  class RocksDbEngine extends NodeEngine {
+    override open(state: ConnectionState) {
+      // El motor nativo recibe una ruta física; la serialización URL del SDK la escaparía.
+      super.open({ ...state, url: new FilesystemEndpoint(path) });
+    }
+  }
   for (let attempt = 0; ; attempt++) {
     const db = new Surreal({
-      engines: (await import("@surrealdb/node")).createNodeEngines({
-        defaults: false,
-        capabilities: { scripting: false, guest_access: false, live_query_notifications: false, network_targets: false, experimental: false },
-      }),
+      engines: {
+        rocksdb: (context) => new RocksDbEngine(context, {
+          defaults: false,
+          capabilities: { scripting: false, guest_access: false, live_query_notifications: false, network_targets: false, experimental: false },
+        }),
+      },
     });
     try {
       await db.connect(`rocksdb://${path}`, { namespace, database });

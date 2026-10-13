@@ -8,6 +8,13 @@ acceso a esa base. Copiar únicamente el directorio hace que se genere otra
 clave y falle la autenticación. Las copias se preparan con la app cerrada y
 conservan la base y la clave sin mostrar el contenido de esta última.
 
+El adaptador de RocksDB entrega al motor Node la ruta física sin escaparla como
+URL: `Application Support` y `Application%20Support` son directorios distintos.
+La apertura conserva espacios, Unicode y porcentajes literales. Las rutas con
+`?` se rechazan antes de abrir el motor porque este carácter introduce opciones
+en el endpoint nativo. Las pruebas de reapertura copian una biblioteca cerrada
+a rutas con estos caracteres y comprueban notas, versiones y personas.
+
 ## Esquema
 
 La marca `meta:schema` vale `2`. Las tablas son `recording`, `version`, `publication`, `version_preview`, `publication_preview`, `account`, `resolver`, `recipe`, `destination`, `provider`, `log`, `setting`, `job`, `memory`, `trace`, `person`, `person_voice`, `voice`, `note_draft`, `note_draft_receipt` y la cola privada `audio_deletion`. Cada entidad tiene una fila, con `key`, `parent` cuando corresponde, `position` y `payload` como valor nativo de SurrealDB. `position` ordena versiones, recibos y catálogos; las grabaciones se ordenan por `createdAt` descendente y después por `key`, y su `position` se ignora. No existe un documento JSON global. Grabaciones, versiones y jobs exponen además campos consultables directamente: `title`, `status`, `createdAt`, `backend`, `state` y `recordingId`. Cada tabla tiene un índice único en `key`; versiones, recibos, jobs, memorias, trazas, huellas y borradores tienen índice en `parent`. [Los índices únicos y normales son parte del esquema SurrealQL](https://surrealdb.com/docs/reference/query-language/statements/define/indexes).
