@@ -6,8 +6,9 @@ configura sus resolutores, cuentas y carpetas desde la aplicación.
 ## Producto y alcance
 
 Desde el 2026-10-10 hay una sola aplicación de escritorio: **Escriba.app**.
-La interfaz es React/TypeScript sobre Tauri, el host es Rust con SurrealDB
-embebida y Swift adapta las APIs de Apple. El ADR-0005 registra esta decisión.
+La interfaz es React/TypeScript sobre Tauri, el controlador Bun abre la
+biblioteca SurrealDB embebida, Rust conserva la cáscara y el conocimiento, y
+Swift adapta las APIs de Apple. Los ADR-0005 y ADR-0011 registran estas decisiones.
 El identificador técnico `dev.zetesis.escriba.tauri` permanece estable para
 conservar biblioteca, permisos y configuración. No renombrar identificadores
 persistidos ni directorios de datos como parte de un cambio de presentación.
@@ -31,10 +32,11 @@ consultas SurrealQL, ambos guardables bajo Biblioteca, están aprobados en
 
 ## Límites de módulos
 
-- **TypeScript:** interfaz, formularios Zod, recetas, conectores y reglas de
-  procesamiento; resúmenes por partes y reducción de resultados largos.
-- **Rust:** SurrealDB/RocksDB, cola duradera, recuperación, permisos,
-  credenciales, transporte HTTP, archivos y supervisión de procesos.
+- **TypeScript/Bun:** interfaz, formularios Zod, recetas, conectores, biblioteca
+  SurrealDB/RocksDB, versiones, cola duradera, recuperación, credenciales,
+  transporte HTTP y reglas de procesamiento.
+- **Rust:** conocimiento en su propia base SurrealDB/RocksDB, permisos,
+  archivos, captura y supervisión de procesos.
 - **Swift:** WhisperKit/SpeakerKit, FoundationModels, captura AVFoundation y
   materialización de iCloud. `EscribaNativeHost` es el adaptador nativo, no otra app.
 - **CLI Swift:** conserva sus módulos portables y su almacenamiento. Sus reglas
@@ -64,9 +66,9 @@ no se ha podido leer. Preservar la lectura de datos ya guardados al actualizar.
 - Nunca imprimir texto de notas reales en logs, salidas de comandos ni PRs. Para
   inspeccionar datos, cerrar la app, copiar `library.rocksdb` a un temporal y
   extraer sólo recuentos, estados e ids.
-- Credenciales en archivos privados 0600; Rust las inyecta en el transporte. El
+- Credenciales en archivos privados 0600; el controlador las inyecta en el transporte. El
   usuario aporta su token de Notion, sin OAuth ni backend de credenciales.
-- Las huellas biométricas permanecen en Rust y en el Mac. La interfaz obtiene
+- Las huellas biométricas permanecen en el controlador Bun y en el Mac. La interfaz obtiene
   metadatos, nombres y reconocimientos; ni recetas, conectores ni exportaciones
   reciben vectores.
 - Probar persistencia con RocksDB real, procesos reales, servidores locales
@@ -95,7 +97,7 @@ no se ha podido leer. Preservar la lectura de datos ya guardados al actualizar.
 - El resumen pertenece a la versión. Resumir a mano ancla el resultado a esa
   versión y no republica si mientras tanto cambió la vigente. Corregir o quitar
   un resumen regenera las publicaciones existentes usando su programa y recibo.
-- Los proveedores Notion/OKF viven en `packages/conectores`. Rust aporta
+- Los proveedores Notion/OKF viven en `packages/conectores`. Bun aporta
   capacidades genéricas; no duplicar plantillas ni decisiones de proveedor.
   Los errores de publicación se registran y se propagan; la receta decide si
   continuar. Una creación incierta se reconcilia antes de intentar crear otra.
@@ -164,9 +166,11 @@ las dependencias de inferencia.
 
 - Bandejas, menús y `NSStatusItem`, incluida su destrucción, en el hilo principal.
 - Declarar cada ventana en `capabilities/main.json` para habilitar IPC/eventos.
-- `settings_save` sólo acepta claves de `SETTABLE` en `store/settings.rs`.
-- Un comando nuevo es una variante de `command.rs` con su política (refresca,
-  recetas) y su línea en `CONTRACT.md`. `apps/tauri/src/generated` sale de Rust:
+- `settings_save` sólo acepta claves de `SETTABLE` en `src/runtime/library/store.ts`.
+- Un comando de biblioteca nuevo se registra en el controlador Bun y en
+  `UI_CONTROLLER_METHODS`; su autorización para recetas se decide en TypeScript.
+  Un comando de cáscara o conocimiento se declara en `command.rs`. Documentar
+  cada método en `CONTRACT.md`. `apps/tauri/src/generated` sale de Rust:
   regenerar con `ESCRIBA_WRITE_BINDINGS=1 cargo test --lib los_tipos_generados`,
   nunca editar a mano.
 - La lista de biblioteca omite segmentos y paquetes completos; el detalle usa

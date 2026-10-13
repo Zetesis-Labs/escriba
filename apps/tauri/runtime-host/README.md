@@ -1,8 +1,11 @@
-# Host TypeScript aislado
+# Controlador Bun y workers aislados
 
-El WebView solo importa `src/runtime/index.ts`, cliente IPC. Rust conserva la
-cola duradera y supervisa este proceso. El controlador TypeScript conserva las
-reglas de recetas y conectores; no recibe credenciales ni permisos de E/S.
+La WebView solo importa `src/runtime/index.ts`, cliente IPC. Rust supervisa el
+controlador Bun; este abre `library.rocksdb` antes de anunciar `ready` y mantiene
+la biblioteca, la cola duradera, las credenciales, el transporte HTTP y las
+reglas de recetas y conectores. Los workers de recetas se ejecutan aparte y no
+reciben credenciales, rutas de audio ni huellas de voz. Rust conserva el grafo
+de conocimiento y las capacidades nativas y del sistema.
 
 ## Compilación
 
@@ -44,12 +47,15 @@ TypeScript. Si una respuesta de capacidad supera ese tamaño, Rust envía un
 rechazo legible y conserva la sesión para el siguiente trabajo. Los errores al
 leer el protocolo conservan su causa en el error del trabajo.
 
-- Rust → host: `run {id,operation,args}`, `cancel {id}`.
+- Rust → host: `command {id,method,params,origin}` (`origin` vale `ui` o
+  `shell`), `cancel {id}` y `shutdown {id}`. El cierre deja salir al controlador
+  para soltar el bloqueo de RocksDB antes de reiniciarlo.
 - Host → Rust: `result {id,value}`, `error {id,message,code}`.
 - Host → Rust: `call {id,method,params,taskId}`; respuestas `resolve {id,value}`
   o `reject {id,message,code}`. `taskId` conserva el ID de ejecución incluso al
   responder capacidades de una receta.
-- Host → Rust: `event {event:"jobs",value:JobState[]}`.
+- Host → Rust: `event {event,value}` para `changed`, `jobs`, `status`, `log`,
+  `imported`, `project`, `voice-registration` y `whisper-download`.
 - Host → Rust: `worker_create {id,taskId}`, `worker_send {id,value}`,
   `worker_terminate {id}`.
 - Rust → host: `worker_message {id,value}`, `worker_error {id,message}`.
@@ -82,8 +88,8 @@ recuperar trabajos. Los resultados se validan contra `ConnectorView` antes de
 renderizarlos.
 
 El fetch de `escriba.cuenta(id)` usa `account.http`. Cada petición relee la
-autorización y Rust vuelve a contrastar `expectedGrant`, origen y cabeceras antes
-de inyectar el secreto. Una escritura de SDK confirma antes
+autorización en el controlador, contrasta `expectedGrant`, origen y cabeceras e
+inyecta allí el secreto. Una escritura de SDK confirma antes
 `accountEffectPending` en la grabación; se conserva incluso al terminar para
 cubrir un cierre previo al acuse del job. Una ejecución manual nueva retira la
 marca; un trabajo automático, recuperado o reintentado se bloquea. Los SDK pueden
@@ -131,15 +137,13 @@ un cierre incierto. Un nuevo reprocesado manual puede iniciar otra ejecución.
 El RPC JSONL transporta las cadenas base64 dentro del límite general de 32 MiB;
 Rust limita además SQL y parámetros a 1 MiB y resultados CBOR a 8 MiB.
 
-El controlador consulta `runtime_context({recordingId?})`: catálogos, ajustes de
-procesamiento y únicamente la grabación solicitada con sus versiones y recibos.
-Sin `recordingId` obtiene solo configuración. No recibe registros, otras notas,
-carpetas vigiladas ni rutas de audio. La consulta `snapshot` completa pertenece
-a la interfaz y no es una capacidad del controlador. El tamaño total de la
-biblioteca no determina el tamaño de cada trabajo.
-El origen de la nota y la carpeta de una cuenta se representan con identificadores
-opacos. La huella de la carpeta permite invalidar una operación si cambia su
-destino mientras se ejecuta, sin entregar la ruta al controlador.
+El controlador obtiene `runtime_context({recordingId?})` de su biblioteca:
+catálogos, ajustes de procesamiento y únicamente la grabación solicitada con
+sus versiones y recibos. Los workers reciben este contexto limitado, sin
+registros ajenos, carpetas vigiladas, credenciales, huellas ni rutas de audio.
+El tamaño total de la biblioteca no determina el tamaño de cada trabajo.
+La huella de la carpeta permite invalidar una operación si cambia su destino
+mientras se ejecuta.
 
 `processRecording` admite `options.values` para los parámetros de una sola
 ejecución. Si se omite usa los guardados en la receta; si se envía, sustituye
@@ -150,8 +154,9 @@ no exporta `buildRecipeForm`.
 
 ## Aislamiento
 
-Rust inicia el controlador y cada worker mediante `/usr/bin/sandbox-exec`, con
-el perfil incluido en `sandbox.sb`, entorno vacío y directorio `/`. El perfil
+Rust inicia el controlador sin `sandbox-exec`, con la raíz de datos y el binding
+N-API de SurrealDB en su entorno. Cada worker de receta usa
+`/usr/bin/sandbox-exec` y el perfil `sandbox.sb`. El perfil
 parte de `deny default`; permite leer el propio ejecutable y las bibliotecas de
 macOS y sus datos ICU de `/usr/share/icu`, pero deniega archivos del usuario,
 escritura, red y nuevos procesos.
@@ -159,7 +164,8 @@ Las APIs de Bun/Node siguen existiendo: la restricción la impone macOS.
 
 Cada receta tiene sus propias tuberías. Escribir una trama falsa en stdout no
 permite acceder al canal privilegiado del controlador: este valida los mensajes
-del worker y Rust valida las capacidades y la vigencia del trabajo. Los errores
+del worker y la vigencia del trabajo; Rust atiende solo las capacidades de su
+cáscara y del conocimiento. Los errores
 de arranque conservan hasta 2 KiB de diagnóstico; stderr de las recetas se drena
 sin publicarlo ni guardarlo.
 
@@ -183,8 +189,8 @@ biblioteca sintética mayor de 32 MiB y comprueban que puede procesar una nota.
 Otra prueba compila un proyecto con una dependencia local de `node_modules`
 y ejecuta su receta hasta guardar una versión. La prueba de memoria usa el
 supervisor Rust real; el arnés TypeScript no simula ese supervisor.
-`Store::runtime_context` se valida con RocksDB, conservando versiones y recibos
-de la nota elegida y excluyendo datos ajenos.
+`runtime_context` se valida con RocksDB en las pruebas de la biblioteca Bun,
+conservando versiones y recibos de la nota elegida y excluyendo datos ajenos.
 
 ## Paridad con la biblioteca anterior
 
@@ -207,8 +213,9 @@ externas.
 
 Diferencia deliberada: un resumen antiguo sin identidad de petición no se
 reutiliza como respuesta de otro modelo/prompt. Puede recalcularse una vez para
-crear la memoria compatible. Los permisos, el almacenamiento duradero y las
-notificaciones se resuelven en Rust; Whisper/diarización, Foundation Models y
+crear la memoria compatible. Bun resuelve el almacenamiento duradero y decide
+las notificaciones; Rust las entrega y conserva los permisos del sistema.
+Whisper/diarización, Foundation Models y
 AVFoundation siguen en el proceso nativo.
 
 ## Límites verificados

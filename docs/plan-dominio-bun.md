@@ -65,7 +65,7 @@ Reglas de trabajo de Rubén:
 | Ventana, menús, bandeja, diálogos, eventos a la WebView, notificaciones, inicio de sesión, apariencia | `menubar.rs`, `login.rs`, `symbols.rs`, `appearance.rs`, `notification*.rs` | APIs del sistema |
 | Bookmarks y FSEvents de carpetas vigiladas, descubrimiento de ficheros, materialización de iCloud | `folder_access.rs`, `watcher.rs` (parte de ficheros) | APIs del sistema y TCC |
 | Supervisión del host nativo (framing, cancelación, descarga por inactividad) | `native.rs` | proceso del sistema |
-| Captura del micrófono y muestras de voz (sesión de grabación, niveles, ficheros temporales) | `recorder.rs`, `recording.rs`, `voice_registration.rs` (captura) | AVFoundation vía host |
+| Captura del micrófono y muestras de voz (sesión de grabación, niveles, ficheros temporales), selección de muestra dominante y filtro de huellas en respuestas públicas | `recorder.rs`, `recording.rs`, `voice_registration.rs`, `voices.rs` (mínimo) | AVFoundation vía host; Rust valida la muestra y protege la salida hacia la WebView |
 | Arranque y supervisión de procesos: controlador, recetas, herramientas del proyecto; perfiles de `sandbox-exec`; vigilancia de memoria | `scripts.rs`, `project.rs` (herramientas) | aislamiento |
 | **Conocimiento** (`knowledge.rocksdb`): instalación de ontologías, validación de SurrealQL de solo lectura, sesión `RECORD` de las recetas, grafo, filtros | `knowledge*.rs`, `knowledge/` | necesita el parser (`surrealdb-expr`) para validar el AST y filtrar migraciones, y la autenticación embebida para que `PERMISSIONS` protejan a las recetas; el motor de Node no ofrece ninguna de las dos |
 | Comandos de la cáscara y reenvío al controlador | `command.rs`, `lib.rs` (reducidos) | la costura |
@@ -79,10 +79,10 @@ catálogo de recetas, candidatas del proyecto) lo pide al controlador.
 
 | Bloque | Ficheros Rust | Tests Rust que son la especificación |
 | --- | --- | --- |
-| Biblioteca: modelo, índice ligero, detalle, versiones, borradores, publicaciones, personas y huellas, catálogos, ajustes, importación, proyecciones, conversión de esquemas, log | `store.rs`, `store/*`, `persistence.rs`, `persistence/*`, `library.rs`, `library/*`, `library_view.rs`, `catalog.rs`, `voices.rs` | `store/tests.rs` 81, `persistence/tests.rs` 10, `persistence/changes.rs` 10, `library/tests.rs` 3, `catalog.rs` 9, `library_view.rs` 6, `voices.rs` 5, `store/model.rs` 2, `store/measurement.rs` 3, `store/knowledge.rs` 5 |
+| Biblioteca: modelo, índice ligero, detalle, versiones, borradores, publicaciones, personas y huellas, catálogos, ajustes, importación, proyecciones, conversión de esquemas, log | `store.rs`, `store/*`, `persistence.rs`, `persistence/*`, `library.rs`, `library/*`, `library_view.rs`, `catalog.rs`, parte de `voices.rs` | `store/tests.rs` 81, `persistence/tests.rs` 10, `persistence/changes.rs` 10, `library/tests.rs` 3, `catalog.rs` 9, `library_view.rs` 6, `voices.rs` 5, `store/model.rs` 2, `store/measurement.rs` 3, `store/knowledge.rs` 5 |
 | Cola de trabajos: carriles, reclamación, reintentos, cancelación, historial, relanzar, recuperación, purga, efectos externos inciertos | `jobs.rs` | `jobs.rs` 35, `lifecycle_tests.rs` 1 |
 | Credenciales (ficheros 0600), transporte HTTP con secreto, resolutores remotos, prueba de resolutores | `remote.rs`, `capabilities.rs` (http, grant, audio) | `remote.rs` 3, `capabilities.rs` 6 |
-| Reconocimiento de hablantes (coseno, umbral 0,30, una persona por hablante) | `voices.rs`, parte de `library.rs` | en `store/tests.rs` |
+| Reconocimiento de hablantes (coseno, umbral 0,30, una persona por hablante) | parte de `voices.rs` y `library.rs` | en `store/tests.rs`; Rust conserva la elección de muestra dominante y el filtro de privacidad |
 | Política de capacidades de recetas (tabla de 26 métodos) y «cada comando figura en el contrato» | `command.rs` | `command.rs` 5 |
 
 Los tests Rust se portan uno a uno a vitest con el mismo nombre en castellano;
@@ -92,11 +92,11 @@ un test que no aplica se anota en el Registro con el motivo.
 
 ```
 WebView ──invoke app_command──► Rust (cáscara)
-                                  │ métodos de la cáscara: los resuelve
-                                  │ el resto: trama `command` ──► controlador Bun
+                                  │ métodos de cáscara y conocimiento: los resuelve
+                                  │ biblioteca y dominio: `command` ──► controlador Bun
                                   │                                 │ biblioteca (RocksDB)
                                   │                                 │ cola, credenciales, HTTP
-                                  │ ◄── trama `call` shell.* ───────┤ recetas: worker_* (como hoy)
+                                  │ ◄── `call` shell.* / knowledge_* ┤ recetas: worker_*
                                   │ ◄── trama `event` ──────────────┘
                                   │ conocimiento (RocksDB) ◄── pide unidades al controlador
 ```
@@ -104,22 +104,27 @@ WebView ──invoke app_command──► Rust (cáscara)
 - **Rust → controlador**: trama `{type:"command", id, method, params, origin}`
   con `origin` `ui` o `shell`. Las recetas no pasan por aquí: sus capacidades
   las atiende el controlador directamente (`workerClient`), aplicando la tabla
-  de política en TypeScript.
-- **Controlador → Rust**: tramas `call` con métodos `shell.*`: `emit`,
-  `notify`, `native` (estado, descarga de modelos, transcribir local,
-  resumir local, huellas), `nativeCancel`, `open`, `reveal`, `openUrl`,
-  `privacySettings`, `appearance`, `autostart`, `whisperModel`, `project.*`
-  (herramientas en sandbox), `folder.*` (autorizar, escanear, materializar).
-- **Eventos**: el controlador emite `changed`, `jobs`, `log`, `imported`,
-  `project`, `voice-registration`; Rust los reenvía como `escriba://*`.
+  de política en TypeScript. El cierre usa `shutdown` para que Bun libere
+  RocksDB antes de salir.
+- **Controlador → Rust**: tramas `call` con métodos `shell.*`:
+  `native`, `native_cancel`, `notify`, `autolaunch`, `files`, `okf_file`,
+  `validate_catalog`, `project_build` y `project_load`. Las recetas llegan a
+  `knowledge_open`, `knowledge_query` y `knowledge_link` por capacidades
+  específicas, sin prefijo `shell.`. Rust rechaza esos tres métodos desde la UI.
+- **Eventos**: el controlador emite `changed`, `jobs`, `status`, `log`,
+  `imported`, `project`, `voice-registration` y `whisper-download`. Rust
+  actualiza la bandeja y la vigilancia con `status` y reenvía los demás como
+  `escriba://*`.
 - **Arranque**: Rust lanza el controlador al abrir la app con la raíz de datos
   en `ESCRIBA_DATA` y `NAPI_RS_NATIVE_LIBRARY_PATH`; sin perfil de
   `sandbox-exec` (lee credenciales, abre la base y sale a la red). Las recetas
   y las herramientas del proyecto conservan sus perfiles.
 - **Inversión en la cáscara**: vigilancia, grabadora y registro de voz dejan
   de llamar a `state.library`; Rust descubre ficheros, captura audio y extrae
-  huellas, y envía al controlador `incorporate`, `recorded`, `voiceSample`.
-  El controlador decide: deduplicación, lápidas, identidad estable, persistir.
+  huellas, y pide `watch_incorporate`, `recording_recorded` y
+  `people_add_voice` al controlador. Los audios entran por una copia privada
+  en `inbox/`; el controlador decide deduplicación, lápidas, identidad estable
+  y persistencia.
 
 ## Verticales
 
@@ -216,21 +221,25 @@ borradores, ajustes, conectores).
 
 - El controlador abre `library.rocksdb` al arrancar; Rust deja de abrirla
   (`open_library` desaparece, `close_library` también).
-- `command.rs` queda con los métodos de la cáscara; el resto son tipos
-  TypeScript en `src/runtime/commands.ts` con su política y el test de los 26.
-- `watcher.rs` envía `incorporate`; `recorder.rs`, `recorded`;
-  `voice_registration.rs`, `voiceSample`; `menubar.rs` pide el estado al
-  controlador. `knowledge_commands.rs` pide al controlador lo que leía de
-  `library`.
+- `command.rs` queda con los métodos de cáscara y conocimiento; los métodos
+  de dominio se registran en `src/runtime/commands.ts` con su política de
+  recetas y pruebas. La UI no puede invocar las tres capacidades de grafo
+  reservadas a recetas.
+- `audio_ingress.rs` lleva la incorporación de vigilancia y grabación a
+  `watch_incorporate` y `recording_recorded`; `voice_registration.rs` entrega
+  `people_add_voice`; `menubar.rs` consume el estado del controlador.
+  `knowledge_commands.rs` pide al controlador lo que leía de `library`.
 - Borrar `store/`, `persistence/`, `library.rs`, `library/`,
-  `library_view.rs`, `catalog.rs`, `jobs.rs`, `voices.rs`, `remote.rs`, la
-  parte HTTP de `capabilities.rs` y las dependencias de `Cargo.toml` que
-  queden sin uso. `src/generated` solo con lo que Rust sigue respondiendo.
+  `library_view.rs`, `catalog.rs`, `jobs.rs`, `remote.rs`, la parte HTTP de
+  `capabilities.rs` y las dependencias de `Cargo.toml` que queden sin uso.
+  Reducir `voices.rs` a validación de muestra y protección de respuestas;
+  `src/generated` conserva solo lo que Rust sigue respondiendo.
 - Antes de instalar: abrir la copia de la biblioteca real desde la app con
   `ESCRIBA_TAURI_DATA` apuntando a ella y comprobar lista, detalle, Personas,
   Trabajos, Registro y un procesado.
 - Comprobar TCC: el controlador lee un audio de `~/Documents` o `~/Downloads`
-  sin un segundo permiso; si no, Rust conserva `shell.copyIntoLibrary`.
+  sin un segundo permiso. La incorporación de audio pasa por `inbox/` de Rust;
+  el contrato final no expone `shell.copyIntoLibrary`.
 
 **Hecho cuando** la app instalada abre la biblioteca de Rubén con todo lo de
 antes, procesa una nota, publica contra el servidor falso, registra una voz y
@@ -241,13 +250,22 @@ reconoce, y pasan `npm test`, `cargo test --lib`, clippy, fmt y
 
 `CONTRACT.md`, `runtime-host/README.md`, `docs/tauri-persistence.md`,
 `CLAUDE.md` (límites de módulos, «credenciales en Rust» → controlador,
-huellas en el controlador), ADR-0011 con el resultado, `docs/plan-linux.md`
-(L1 y L2 se simplifican: menos Rust que limpiar).
+huellas en el controlador), ADR-0011 con el resultado y la referencia a
+[ADR-0010](adr/0010-linux-host-nativo-en-rust.md). No existe
+`docs/plan-linux.md` en esta rama; el comportamiento de Linux está en
+`specs/escriba/linux/functional-specs.md`.
 
-**Hecho cuando** los documentos describen el código y no queda ninguna
-referencia a módulos borrados.
+**Hecho cuando** los documentos operativos describen el código y sus enlaces
+apuntan a archivos existentes. Este plan conserva rutas anteriores como
+historial de la migración.
 
 ## Registro
+
+Las filas de V1 y V2 registran el estado de esas fechas; las capacidades
+intermedias `remote_*` y `shell.audio_path` dejaron de ser parte del contrato
+final durante V5. «Hecha» en V3/V4 indica implementación técnica sin pantalla;
+la confirmación de Rubén en la app instalada sigue siendo el criterio de cierre
+de V5.
 
 | Fecha | Vertical | Estado | Notas |
 | --- | --- | --- | --- |
@@ -256,3 +274,5 @@ referencia a módulos borrados.
 | 2026-10-13 | V2 | tests verdes; pendiente ver en pantalla | `credential_save`, `connector_http`, `resolver_models/try` en el controlador; Rust pide `remote_transcribe`/`remote_ask`; `shell.audio_path` y `shell.native`; `remote.rs` borrado y `capabilities.rs` sin HTTP; 361 vitest y 345 Rust |
 | 2026-10-13 | V3 | hecha (sin pantalla: no se conecta hasta V5) | biblioteca en Bun (`src/runtime/library/`): 130 tests portados, copia real abre y coincide; `now()` con microsegundos; conocimiento se queda en Rust |
 | 2026-10-13 | V4 | hecha (sin pantalla) | cola en Bun (`jobs.ts`, `queue.ts`): 37 tests portados |
+| 2026-10-14 | V5 | release instalada; pendiente confirmación de Rubén en pantalla | `af0edc2`: cáscara Rust, biblioteca y cola Bun, conocimiento Rust y privacidad de huellas. Pasan 549 Vitest, 168 Rust, clippy, fmt y tipos; NativeHost release compila. La prueba separada con copia real conserva 248 grabaciones y 240 versiones. El controlador compilado consulta 202 notas visibles, sus detalles, Personas, Trabajos y Registro, y cierra limpiamente. El bundle abre ambas bases de la copia aislada con sus procesos correspondientes. Release firmada e instalada en `/Applications/Escriba.app`, con backup de la anterior. Falta comprobar los flujos en pantalla con audio sintético y servidor local falso. |
+| 2026-10-14 | V6 | documentación técnica actualizada | Contrato, protocolo, persistencia, instrucciones y ADR reflejan el reparto actual. Registrados pruebas, arranque aislado e instalación; las copias de conocimiento deben incluir `knowledge.key`. La aceptación manual de V5 sigue pendiente. |

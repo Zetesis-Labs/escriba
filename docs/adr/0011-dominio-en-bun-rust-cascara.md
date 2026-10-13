@@ -1,9 +1,12 @@
 # El dominio en Bun y Rust como cáscara
 
-Dirección decidida por Rubén el 2026-10-13. No es un encargo de
-implementación: fija hacia dónde se mueve la arquitectura y qué hace falta
-comprobar antes de planificarla. Corrige una premisa del ADR-0003 y no toca el
-ADR-0010 (Linux), que sigue adelante.
+Decisión de Rubén del 2026-10-13, implementada por etapas en la rama
+`feat/dominio-bun`. Corrige una premisa del ADR-0003. El ADR-0010 (Linux)
+conserva su decisión de host nativo en Rust. La descripción de la arquitectura
+anterior en «Contexto» es histórica; «Decisión» describe el reparto vigente
+en el código. La release se construyó, firmó e instaló el 2026-10-14 tras
+comprobar su arranque con una copia aislada. La validación manual de Rubén
+sigue pendiente.
 
 ## Contexto
 
@@ -44,8 +47,8 @@ para macOS y Linux en x64 y arm64.
 
 ## Decisión
 
-1. **El dominio vive en un único proceso Bun de larga vida**, supervisado por
-   Rust: biblioteca y versiones, conocimiento, cola de trabajos y recuperación,
+1. **El dominio de la biblioteca vive en un único proceso Bun de larga vida**, supervisado por
+   Rust: biblioteca y versiones, personas y huellas, cola de trabajos y recuperación,
    configuración, conectores, HTTP remoto y credenciales, orquestación de
    recetas. Es el controlador actual (`escriba-runtime`) con más
    responsabilidades, no otro ejecutable.
@@ -65,12 +68,12 @@ para macOS y Linux en x64 y arm64.
 3. **Las recetas siguen aisladas en procesos aparte** sin credenciales, rutas
    de audio ni huellas. El límite de seguridad del producto es ese proceso, no
    el lenguaje.
-4. **La costura se estrecha**: la WebView habla con el controlador a través de
-   Rust solo para lo que Rust aporta; el resto del contrato pasa a ser
-   TypeScript con TypeScript, sin tipos generados.
+4. **La costura se estrecha**: la WebView usa un solo comando Tauri; Rust reenvía
+   los comandos de biblioteca al controlador y ejecuta los de cáscara y
+   conocimiento. Los tipos generados quedan para los comandos que Rust atiende.
 5. **El ADR-0010 no cambia.** Los hosts nativos en Rust (Linux y, en el Mac,
-   grabación y materialización) son cáscara según esta decisión. El plan de
-   Linux (`docs/plan-linux.md`) vale con las dos arquitecturas y va antes.
+   grabación y materialización) son cáscara según esta decisión. La decisión
+   de Linux está en [ADR-0010](0010-linux-host-nativo-en-rust.md).
 
 ## Alternativas descartadas
 
@@ -84,30 +87,22 @@ para macOS y Linux en x64 y arm64.
 
 ## Consecuencias
 
-- Es una migración de unas 20.000 líneas de Rust a TypeScript, por verticales
-  y con sus pruebas por delante. Se planifica en otro encargo; hasta entonces,
-  lo nuevo que toque datos se escribe donde ya esté su vecino, sin abrir un
-  tercer sitio.
-- El controlador necesita salir de su aislamiento actual para leer los
-  ficheros 0600 de credenciales, abrir la base de datos y salir a la red. El
-  perfil de aislamiento de `runtime-host/sandbox.sb` se queda para las
-  recetas; el controlador recibe un perfil propio o ninguno.
-- Las garantías que hoy da Rust se trasladan: cola duradera que sobrevive al
+- La migración se hizo por verticales con pruebas de biblioteca, cola,
+  credenciales, transporte y protocolo. El controlador abre `library.rocksdb`
+  antes de anunciar `ready`; Rust no abre ese directorio.
+- El controlador arranca sin `sandbox-exec` para leer los ficheros 0600 de
+  credenciales, abrir la base de datos y salir a la red. El perfil de
+  `runtime-host/sandbox.sb` sigue aislando cada receta.
+- Las garantías antes implementadas en Rust permanecen: cola duradera que sobrevive al
   cierre de la ventana (el proceso Bun vive lo que la app), transacciones en
   SurrealDB, recuperación tras caída, y confirmación de recibo antes de
   efectos externos.
-- Las huellas de voz pasan a guardarlas el controlador en la misma base. La
+- Las huellas de voz las guarda el controlador en la misma base. La
   regla del `CLAUDE.md` («ni recetas, conectores ni exportaciones reciben
   vectores») no cambia; «permanecen en Rust» pasa a «permanecen en el
   controlador y en el equipo».
-- La importación de bibliotecas Swift (`store/import.rs`) se mueve también o
-  se retira si ya no hay bibliotecas que importar.
-- Comprobaciones pendientes antes de planificar: Bun 1.4.2 (el fijado en el
-  repo) con `@surrealdb/node`; abrir una `library.rocksdb` existente creada
-  por el crate 3.3.2 de Rust con el motor 3.3.4 y confirmar que Rust puede
-  dejar de abrirla; medir el coste de arranque del binding de 40 MB; y qué
-  pasa con `knowledge.surrealkv` (ADR-0007) en el mismo proceso.
-- `apps/tauri/CONTRACT.md`, `runtime-host/README.md` y `CLAUDE.md` describen el
-  reparto actual y siguen siendo ciertos hasta que la migración los cambie.
-  La frase del `CLAUDE.md` «Tokens, rutas de audio y huellas no cruzan a
-  código de recetas» es la regla correcta y se mantiene.
+- La compatibilidad de la biblioteca existente se comprobó con una copia real
+  y datos sintéticos; el conocimiento conserva su propia base en Rust.
+- La regla del `CLAUDE.md` «Tokens, rutas de audio y huellas no cruzan a
+  código de recetas» se mantiene. La validación en la app instalada sigue
+  pendiente y no se deduce de las pruebas de código.

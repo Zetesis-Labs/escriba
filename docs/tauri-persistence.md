@@ -1,20 +1,26 @@
 # Persistencia de Escriba
 
-Escriba guarda la biblioteca en SurrealDB 3.3 embebida con RocksDB (ADR-0008), bajo `library.rocksdb` dentro de su carpeta de Application Support. Un `library.surrealkv` sin convertir impide abrir la biblioteca: esta versión ya no lo lee y no la sustituye por una vacía. Un bloqueo de instancia impide abrir la misma biblioteca dos veces. La interfaz y el runtime TypeScript acceden mediante comandos Rust; no abren la base directamente. [SurrealDB documenta la conexión embebida y el bloqueo de la carpeta](https://surrealdb.com/docs/reference/rust/embedding).
+Escriba guarda la biblioteca en SurrealDB 3.3 embebida con RocksDB (ADR-0008), bajo `library.rocksdb` dentro de su carpeta de Application Support. El controlador Bun la abre antes de anunciar `ready`; la interfaz accede mediante el comando Tauri que Rust reenvía al controlador. Un `library.surrealkv` sin convertir impide abrir la biblioteca: esta versión ya no lo lee y no la sustituye por una vacía. Un bloqueo de instancia impide abrir la misma biblioteca dos veces. La base de conocimiento `knowledge.rocksdb` permanece separada en Rust. [SurrealDB documenta la conexión embebida y el bloqueo de la carpeta](https://surrealdb.com/docs/reference/rust/embedding).
+
+Una copia de `knowledge.rocksdb` necesita su archivo hermano `knowledge.key`,
+con permisos `0600`: contiene la credencial local con la que Rust autentica el
+acceso a esa base. Copiar únicamente el directorio hace que se genere otra
+clave y falle la autenticación. Las copias se preparan con la app cerrada y
+conservan la base y la clave sin mostrar el contenido de esta última.
 
 ## Esquema
 
-La marca `meta:schema` vale `2`. Las tablas son `recording`, `version`, `publication`, `version_preview`, `publication_preview`, `account`, `resolver`, `recipe`, `destination`, `log`, `setting`, `job`, `memory`, `trace`, `person`, `person_voice`, `voice` y la cola privada `audio_deletion`. Cada entidad tiene una fila, con `key`, `parent` cuando corresponde, `position` y `payload` como valor nativo de SurrealDB. `position` ordena versiones, recibos y catálogos; las grabaciones se ordenan por `createdAt` descendente y después por `key`, y su `position` se ignora. No existe un documento JSON global. Grabaciones, versiones y jobs exponen además campos consultables directamente: `title`, `status`, `createdAt`, `backend`, `state` y `recordingId`. Cada tabla tiene un índice único en `key`; versiones, recibos, jobs, memorias, trazas y huellas tienen índice en `parent`. [Los índices únicos y normales son parte del esquema SurrealQL](https://surrealdb.com/docs/reference/query-language/statements/define/indexes).
+La marca `meta:schema` vale `2`. Las tablas son `recording`, `version`, `publication`, `version_preview`, `publication_preview`, `account`, `resolver`, `recipe`, `destination`, `provider`, `log`, `setting`, `job`, `memory`, `trace`, `person`, `person_voice`, `voice`, `note_draft`, `note_draft_receipt` y la cola privada `audio_deletion`. Cada entidad tiene una fila, con `key`, `parent` cuando corresponde, `position` y `payload` como valor nativo de SurrealDB. `position` ordena versiones, recibos y catálogos; las grabaciones se ordenan por `createdAt` descendente y después por `key`, y su `position` se ignora. No existe un documento JSON global. Grabaciones, versiones y jobs exponen además campos consultables directamente: `title`, `status`, `createdAt`, `backend`, `state` y `recordingId`. Cada tabla tiene un índice único en `key`; versiones, recibos, jobs, memorias, trazas, huellas y borradores tienen índice en `parent`. [Los índices únicos y normales son parte del esquema SurrealQL](https://surrealdb.com/docs/reference/query-language/statements/define/indexes).
 
-La caché en memoria de `Store` conserva solo el índice ligero de la biblioteca. Cada mutación edita una copia tipada y `persistence/changes.rs`, una función pura, calcula las filas que cambiaron comparando por identidad: incorporar una nota escribe esa fila y ninguna otra, y las versiones solo se comparan en la nota que la mutación declara. El escritor ejecuta esas operaciones y sus efectos asociados (proyecciones, borrados en cascada, huellas, borradores y alias de receta). Grabación, versiones y recibos, junto con las memorias, trazas y jobs eliminados al descartar y la petición de borrar su audio, se confirman en una sola transacción. Si falla una sentencia, la transacción se cancela y la caché permanece sin cambios. RocksDB sincroniza el WAL en cada commit por defecto (`SyncMode::Every`); el código no configura un modo más débil. [SurrealDB describe las transacciones del SDK](https://surrealdb.com/docs/reference/rust/concepts/transaction).
+La caché en memoria de `Store` (`src/runtime/library/store.ts`) conserva solo el índice ligero de la biblioteca. Cada mutación edita una copia tipada y `src/runtime/library/changes.ts`, una función pura, calcula las filas que cambiaron comparando por identidad: incorporar una nota escribe esa fila y ninguna otra, y las versiones solo se comparan en la nota que la mutación declara. El escritor ejecuta esas operaciones y sus efectos asociados (proyecciones, borrados en cascada, huellas, borradores y alias de receta). Grabación, versiones y recibos, junto con las memorias, trazas y jobs eliminados al descartar y la petición de borrar su audio, se confirman en una sola transacción. Si falla una sentencia, la transacción se cancela y la caché permanece sin cambios. [SurrealDB describe las transacciones del SDK](https://surrealdb.com/docs/reference/rust/concepts/transaction).
 
 El registro de la app vive en la tabla `log`, fuera del índice y de `library`/`snapshot`: cada línea es una fila con su propia transacción, se lee con `log_list` ordenada por `payload.at` y se recorta a las últimas 3000 al abrir y cada 64 líneas. Las líneas de bibliotecas anteriores se leen sin convertirlas. Registrar una línea no reescribe grabaciones ni emite `escriba://changed`; emite `escriba://log`.
 
-Descartar deja una lápida con solo `id`, `source`, `sourceKey`, `legacyKey` y `status: discarded`; no conserva título, transcripciones, versiones, resúmenes, datos, recibos ni la ruta de la copia. La biblioteca visible omite esas lápidas y la vigilancia las usa para no reincorporar el origen. La cola `audio_deletion`, separada del registro y de las respuestas a JavaScript, conserva la ruta de la copia y su identidad de dispositivo e inodo. Tras confirmar la transacción y al abrir la biblioteca, Rust comprueba que sigue siendo un archivo normal dentro de `audio`, con la misma identidad y sin referencias de otra grabación, antes de borrarlo y retirar la petición. Si el borrado falla, queda pendiente para otro arranque; el archivo de origen, las publicaciones externas y las huellas ya aprendidas por Personas permanecen intactos.
+Descartar deja una lápida con solo `id`, `source`, `sourceKey`, `legacyKey` y `status: discarded`; no conserva título, transcripciones, versiones, resúmenes, datos, recibos ni la ruta de la copia. La biblioteca visible omite esas lápidas y la vigilancia las usa para no reincorporar el origen. La cola `audio_deletion`, separada del registro y de las respuestas a la UI y recetas, conserva la ruta de la copia y su identidad de dispositivo e inodo. Tras confirmar la transacción y al abrir la biblioteca, el controlador comprueba que sigue siendo un archivo normal dentro de `audio`, con la misma identidad y sin referencias de otra grabación, antes de borrarlo y retirar la petición. Si el borrado falla, queda pendiente para otro arranque; el archivo de origen, las publicaciones externas y las huellas ya aprendidas por Personas permanecen intactos.
 
-`Store::open` convierte automáticamente el `library.json` de la primera versión cuando aún no hay datos en SurrealDB. Ese fichero solo se lee y queda intacto. Si encuentra filas SurrealDB del esquema `1`, convierte sus cadenas JSON a objetos nativos en una transacción y actualiza la marca a `2`. Un error de esquema o del índice detiene la apertura con un error visible; no se arranca con una biblioteca vacía. El contenido completo de una versión se valida al construir su proyección inicial y al solicitar el detalle; los arranques siguientes no lo leen para validarlo de nuevo.
+`Store.open` convierte automáticamente el `library.json` de la primera versión cuando aún no hay datos en SurrealDB. Ese fichero solo se lee y queda intacto. Si encuentra filas SurrealDB del esquema `1`, convierte sus cadenas JSON a objetos nativos en una transacción y actualiza la marca a `2`. Un error de esquema o del índice detiene la apertura con un error visible; no se arranca con una biblioteca vacía. El contenido completo de una versión se valida al construir su proyección inicial y al solicitar el detalle; los arranques siguientes no lo leen para validarlo de nuevo.
 
-Al actualizar, `Store::open` retira una sola vez las asignaciones de receta guardadas en grabaciones anteriores, cuya procedencia no constaba. La elección explícita hecha al incorporar una nota nueva se conserva; sin ella, el runtime consulta la receta por defecto vigente al procesarla. Cada versión y traza mantienen la receta que se ejecutó.
+Al actualizar, `Store.open` retira una sola vez las asignaciones de receta guardadas en grabaciones anteriores, cuya procedencia no constaba. La elección explícita hecha al incorporar una nota nueva se conserva; sin ella, el runtime consulta la receta por defecto vigente al procesarla. Cada versión y traza mantienen la receta que se ejecutó.
 
 Los trabajos conservan `automatic`, que distingue lo incorporado por el pipeline
 de las acciones manuales incluso tras reintentos o reinicios. Un proceso
@@ -55,13 +61,13 @@ transcripciones completas. Los cambios de ajustes, catálogo o metadatos no leen
 las transcripciones. Los alias de receta se aplican en la base de datos de forma
 simultánea, incluso en cadenas o intercambios de identificadores.
 
-Los datos completos usan `Recording`, `Version` y `Settings` de serde, con
+Los datos completos usan los esquemas Zod de `src/runtime/library/model.ts`, con
 segmentos, palabras y reconocimientos tipados. Conservan campos opcionales
 ausentes, nulos y extensiones; un campo conocido de tipo incorrecto falla antes
 de confirmar el cambio. El JSON queda en IPC, datos abiertos de recetas y filas
-de SurrealDB. Los módulos de `src-tauri/src/store/` separan grabaciones, versiones,
-ajustes, catálogos, personas, importación, proyecciones y vistas; `persistence/`
-separa la lectura del índice y detalle de las transacciones del actor.
+de SurrealDB. Los módulos de `src/runtime/library/` separan grabaciones, versiones,
+ajustes, catálogos, personas, importación, proyecciones y vistas; `persistence.ts`
+separa la lectura del índice y detalle de las transacciones.
 
 Las carpetas vigiladas también están tipadas. Su bookmark de macOS se conserva
 como valor opaco y se valida al restaurar el acceso: una autorización antigua
@@ -232,7 +238,7 @@ nueva versión. Las versiones originales y las huellas ya aprendidas permanecen.
 
 ## Personas y huellas privadas
 
-`person` conserva los nombres; `person_voice`, las huellas aprendidas con su modelo, origen y fecha; `voice`, las huellas de cada versión de transcripción. Estas tablas se consultan en Rust y no forman parte del documento que recibe la WebView o el runtime. La interfaz obtiene nombres y metadatos de las huellas, `hasVoices` en las versiones y reconocimientos `{speaker, person, distance}`. Las respuestas a JavaScript rechazan cualquier campo de embedding.
+`person` conserva los nombres; `person_voice`, las huellas aprendidas con su modelo, origen y fecha; `voice`, las huellas de cada versión de transcripción. El controlador Bun consulta estas tablas; sus vectores no forman parte del documento que recibe la WebView o una receta. La interfaz obtiene nombres y metadatos de las huellas, `hasVoices` en las versiones y reconocimientos `{speaker, person, distance}`. Las respuestas públicas rechazan cualquier campo de embedding.
 
 `people_list` expone el UUID canónico de cada persona. Una selección manual o un
 reconocimiento nuevo conserva ese `personId` en los segmentos y, en el segundo
@@ -250,7 +256,7 @@ la misma transacción que las huellas. Olvidar la persona o su última huella
 elimina también su color. Las entidades anteriores, sin color, siguen siendo
 legibles, y `people_list` devuelve sólo este metadato y los ya públicos.
 
-Al transcribir, Rust extrae las huellas del resultado nativo, reconoce por la huella más cercana del mismo modelo con umbral de distancia coseno 0,30 y conserva una asignación de persona por hablante, sin repetir persona en la nota. Las huellas quedan pendientes en Rust hasta guardar la versión. La versión y sus huellas se confirman juntas; las correcciones pueden enseñar la voz en esa misma transacción. `sourceVersionId` permite copiar las huellas al reutilizar una transcripción o corregir hablantes sin repetir reconocimiento. Una transcripción diarizada sin huellas se vuelve a diarizar.
+Al transcribir, el controlador separa las huellas del resultado nativo, reconoce por la huella más cercana del mismo modelo con umbral de distancia coseno 0,30 y conserva una asignación de persona por hablante, sin repetir persona en la nota. Las huellas quedan pendientes en Bun hasta guardar la versión. La versión y sus huellas se confirman juntas; las correcciones pueden enseñar la voz en esa misma transacción. `sourceVersionId` permite copiar las huellas al reutilizar una transcripción o corregir hablantes sin repetir reconocimiento. Una transcripción diarizada sin huellas se vuelve a diarizar.
 
 «Registrar voz» usa `voice-samples` dentro de la carpeta privada de la app y no incorpora una nota. Exige al menos 30 segundos de habla del hablante dominante, guarda su huella y elimina la muestra al terminar o cancelar. Al arrancar se retiran las muestras de cierres interrumpidos. Quitar una persona no modifica los nombres de las notas; borrar una versión elimina sus huellas propias y conserva las ya aprendidas por personas.
 
@@ -264,7 +270,7 @@ Para carpetas vigiladas, `sourceKey` incluye la carpeta y la identidad estable d
 
 ## Comprobaciones
 
-`cargo test --lib store::tests` ejercita datos sintéticos: reinicio, versiones, recibos, ajustes, jobs, memorias, trazas, consulta de campos nativos, conversión del esquema anterior, rollback ante una restricción real de SurrealDB, borrado transaccional, identidad estable de una nota de voz renombrada y recuperación tras matar el proceso inmediatamente después de un commit. No usa bibliotecas ni credenciales reales.
+`tests/runtime/library/` ejercita datos sintéticos sobre RocksDB: reinicio, versiones, recibos, ajustes, jobs, memorias, trazas, conversión del esquema anterior, rollback ante una restricción real de SurrealDB, borrado transaccional, identidad estable de una nota de voz renombrada y recuperación tras matar el proceso inmediatamente después de un commit. No usa bibliotecas ni credenciales reales. Las pruebas Rust cubren el puente de conocimiento y las capacidades de cáscara.
 
 ## Proyección incremental de la base
 
