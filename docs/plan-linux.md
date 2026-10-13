@@ -60,6 +60,19 @@ Node 22.12 o posterior y el Bun de `apps/tauri/runtime-host/bun-version`. El
 audio sintético de las pruebas se genera con `espeak-ng -w`; nunca se usan
 grabaciones reales de Rubén.
 
+Hasta que L2 adapte `scripts/prepare.mjs` y `runtime-host/build.mjs` a Linux,
+las pruebas necesitan preparar a mano lo que esos scripts dejan en
+`src-tauri/` (todo ignorado por git):
+
+- `src-tauri/vendor/`: ejecutar `prepare.mjs` con `typescript-linux-<arch>` en
+  lugar de `typescript-darwin-<arch>` y sin la parte final que construye el
+  runtime.
+- `src-tauri/binaries/escriba-runtime-<triple>`: `buildRuntime` de
+  `runtime-host/build.mjs`, ignorando que falle el `codesign` final (el
+  binario ya está escrito).
+- `src-tauri/binaries/EscribaNativeHost-<triple>`: un marcador ejecutable
+  (`#!/bin/sh` y `exit 1`) para que el `build.rs` de Tauri compile.
+
 ## Mapa del código que importa
 
 - **Procesos nativos por papel.** `lib.rs:1689-1713` arranca tres procesos
@@ -279,10 +292,50 @@ trabajo.
 
 ## Registro
 
+**L1 en Ubuntu 25.10** (2026-10-13). Pasan `cargo check --all-targets`,
+`cargo test --lib` (355 pasan, 7 ignoradas), `cargo clippy --all-targets -- -D
+warnings`, `cargo fmt --check`, `npm test --prefix apps/tauri` (326 pasan, los
+15 de `sidecar.test.ts` se saltan), `tsc --noEmit` y `npm run typecheck:runtime`.
+
+Encontrado al hacerlo:
+
+- Las pruebas de Rust dejaban abierta a medias cada base RocksDB: el runtime de
+  cada `#[tokio::test]` muere antes de que acabe el cierre. Con 12 hilos la
+  suite pasaba de 10 GB y el OOM tumbaba el escritorio; en Ubuntu 25.10 `/tmp`
+  es tmpfs y lo agrava. Ahora las bases de prueba se abren en un runtime
+  compartido: la suite completa tarda 45 s con unos 6 GB de pico.
+- En Linux `storage::released` no esperaba: RocksDB bloquea con `fcntl` y
+  `flock` no lo ve. Se comprueba el descriptor del `LOCK`.
+- En Linux el supervisor podía medir el worker entre `fork` y `exec`, ver la
+  memoria del proceso padre y matarlo por pasar de 512 MiB. Afecta también a la
+  app instalada; esa copia ya no se mide.
+
+Pendiente para L2, no tocado en L1: el almacén rechaza el bookmark vacío
+(`store/settings.rs:12`) y `watched_folder_bookmarks` filtra las carpetas sin
+él, así que en Linux aún no se puede añadir una carpeta vigilada; las
+notificaciones de Linux no envían nada todavía.
+
+**Para la sesión del Mac (L1):** pasar la suite completa del `CLAUDE.md` y
+revisar en particular:
+
+- `storage.rs`: en pruebas, `engine` abre la base en un runtime compartido;
+  `released` de macOS no cambia.
+- `lib.rs`: `folder_access` y `restore_folder` por sistema; el selector de macOS
+  se ejecuta igual dentro de un bloque `cfg`.
+- `platform.rs`: abrir, mostrar, VS Code y Ajustes del Sistema salen de ahí con
+  las mismas órdenes; el test `en_macos_abrir_y_mostrar_usan_open` lo comprueba.
+- `native.rs`: el triple sale de `TAURI_ENV_TARGET_TRIPLE` (debería seguir
+  siendo `*-apple-darwin`).
+- `scripts.rs` y `project.rs`: `sandbox-exec` va detrás de
+  `platform::recipes_isolated()`, que en macOS es verdadero; el lanzador debe
+  generarse idéntico.
+- `tests/runtime/project.test.ts` usa `realpath(tmpdir())` en lugar de
+  `/private/tmp`.
+
 | Fase | Estado | Commit | Validada por Rubén | Para la sesión del Mac |
 |---|---|---|---|---|
-| L0 | hecha | (este commit) | | Nada: solo diagnóstico |
-| L1 | pendiente | | | |
+| L0 | hecha | `5fdc89a` | | Nada: solo diagnóstico |
+| L1 | hecha | `54436b9`…`c758503` | | Ver «L1 en Ubuntu 25.10» |
 | L2 | pendiente | | | |
 | L3 | pendiente | | | |
 | L4 | pendiente | | | |
