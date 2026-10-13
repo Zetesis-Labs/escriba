@@ -1,7 +1,10 @@
 # Requisito funcional: Escriba de escritorio en Windows y Linux
 
-Estado: **descartado por ahora** (Rubén, 2026-09-20, tras la investigación de UIs;
-confirmado el 2026-09-22 al revisar Tauri). No es un compromiso de
+Estado: **superado por el ADR-0010** (2026-10-13): Linux primero, host nativo
+en Rust y Swift al mínimo; el comportamiento esperado está en
+`specs/escriba/linux/functional-specs.md`. Lo que sigue es historia de cuando la
+interfaz era Swift. Antes: descartado (Rubén, 2026-09-20, tras la investigación
+de UIs; confirmado el 2026-09-22 al revisar Tauri). No es un compromiso de
 implementación; es la definición de qué significaría «hecho» y de qué piezas
 faltan, para no volver a hacer el análisis.
 

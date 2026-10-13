@@ -80,8 +80,8 @@ cosa grande tiene su documento con el análisis y los criterios de salida.
 
 ## Aparcado o descartado (no reabrir sin pedirlo)
 
-- **Escritorio en Windows y Linux**: `requisito-multiplataforma.md`. Si se
-  retoma, la decisión ya está tomada (SwiftUI en el Mac y SwiftCrossUI fuera).
+- **Escritorio en Windows**: fuera del encargo de Linux (ADR-0010). Linux se
+  retomó el 2026-10-13: `specs/escriba/linux/functional-specs.md`.
 - **Conectores como plugins WebAssembly**: `exploracion-plugins-wasm.md`, con
   el código en el PR en borrador #3.
 - **Hooks del usuario**: sustituidos por las recetas
