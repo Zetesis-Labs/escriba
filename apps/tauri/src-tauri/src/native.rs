@@ -246,20 +246,19 @@ impl Drop for Native {
         self.cancel();
     }
 }
+fn development_triple() -> &'static str {
+    env!("TAURI_ENV_TARGET_TRIPLE")
+}
+
 pub fn binary(name: &str) -> Result<PathBuf, String> {
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
     let sibling = exe.parent().ok_or("Ejecutable sin carpeta")?.join(name);
     if sibling.is_file() {
         return Ok(sibling);
     }
-    let triple = if cfg!(target_arch = "aarch64") {
-        "aarch64-apple-darwin"
-    } else {
-        "x86_64-apple-darwin"
-    };
     let development = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("binaries")
-        .join(format!("{name}-{triple}"));
+        .join(format!("{name}-{}", development_triple()));
     if development.is_file() {
         return Ok(development);
     }
@@ -324,6 +323,20 @@ done
         );
     }
 
+    #[test]
+    fn el_triple_de_desarrollo_es_el_del_objetivo_de_compilacion() {
+        let expected = match (std::env::consts::OS, std::env::consts::ARCH) {
+            ("macos", "aarch64") => "aarch64-apple-darwin",
+            ("macos", "x86_64") => "x86_64-apple-darwin",
+            ("linux", "aarch64") => "aarch64-unknown-linux-gnu",
+            ("linux", "x86_64") => "x86_64-unknown-linux-gnu",
+            other => panic!("plataforma no soportada: {other:?}"),
+        };
+        assert_eq!(development_triple(), expected);
+    }
+
+    // Until Linux has its own native host, only the Swift one speaks the protocol.
+    #[cfg(target_os = "macos")]
     #[tokio::test]
     async fn packaged_native_protocol_recovers_after_invalid_request() {
         let native = Native::new(binary("EscribaNativeHost").unwrap());
