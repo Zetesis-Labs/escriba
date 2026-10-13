@@ -1303,12 +1303,13 @@ pub fn run() {
             }
         }))
         .plugin(tauri_plugin_dialog::init())
-        .plugin(
-            tauri_plugin_autostart::Builder::new()
-                .app_name("Escriba")
-                .macos_launcher(tauri_plugin_autostart::MacosLauncher::LaunchAgent)
-                .build(),
-        )
+        .plugin({
+            let autostart = tauri_plugin_autostart::Builder::new().app_name("Escriba");
+            #[cfg(target_os = "macos")]
+            let autostart =
+                autostart.macos_launcher(tauri_plugin_autostart::MacosLauncher::LaunchAgent);
+            autostart.build()
+        })
         .setup(|app| {
             if let Err(error) = notification_delivery::request_authorization() {
                 eprintln!("{error}");
