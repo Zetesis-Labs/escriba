@@ -335,8 +335,6 @@ done
         assert_eq!(development_triple(), expected);
     }
 
-    // Until Linux has its own native host, only the Swift one speaks the protocol.
-    #[cfg(target_os = "macos")]
     #[tokio::test]
     async fn packaged_native_protocol_recovers_after_invalid_request() {
         let native = Native::new(binary("EscribaNativeHost").unwrap());
