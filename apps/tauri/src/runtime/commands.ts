@@ -4,6 +4,7 @@ import type { CredentialStore } from "./credentials";
 import { authorizedAccess, httpWithGrant, type AudioFile, type HttpTransport } from "./http";
 import * as remote from "./remote";
 import { publicReply } from "./library/voices";
+import { localSttTryProblem } from "./platform";
 
 export type CommandOrigin = "ui" | "shell";
 export type CommandHandler = (params: Record<string, unknown>, origin: CommandOrigin) => Promise<unknown>;
@@ -96,7 +97,7 @@ export function registerControllerCommands(commands: CommandRegistry, deps: Cont
     const llm = text(params.role, "role") === "llm";
     const request = { instructions: params.instructions, prompt: params.prompt };
     if (resolver.local === true) {
-      if (!llm) throw Error("Whisper en este Mac no tiene prueba");
+      if (!llm) throw Error(localSttTryProblem());
       return host.call("shell.native", { method: "summarize", params: request });
     }
     const secret = await storedSecret(credentials, params);

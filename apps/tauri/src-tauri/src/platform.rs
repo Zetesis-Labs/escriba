@@ -130,6 +130,16 @@ pub fn recipes_isolated() -> bool {
     cfg!(target_os = "macos")
 }
 
+#[cfg(target_os = "macos")]
+pub const SYSTEM: &str = "macos";
+#[cfg(target_os = "linux")]
+pub const SYSTEM: &str = "linux";
+
+/// What the interface needs to know to show each system's options.
+pub fn summary() -> serde_json::Value {
+    serde_json::json!({"system": SYSTEM, "recipesIsolated": recipes_isolated()})
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -155,6 +165,16 @@ mod tests {
             file.trim_start_matches("surrealdb-node.")
                 .trim_end_matches(".node")
         );
+    }
+
+    #[test]
+    fn la_interfaz_recibe_el_sistema_y_si_las_recetas_estan_aisladas() {
+        let expected = if cfg!(target_os = "macos") {
+            serde_json::json!({"system": "macos", "recipesIsolated": true})
+        } else {
+            serde_json::json!({"system": "linux", "recipesIsolated": false})
+        };
+        assert_eq!(summary(), expected);
     }
 
     fn line(command: &Command) -> Vec<String> {

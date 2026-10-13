@@ -125,6 +125,7 @@ impl Runtime {
             .lock()
             .map_err(|_| "No se pudo consultar el acceso a las carpetas")?
             .snapshot();
+        snapshot["platform"] = platform::summary();
         Ok(snapshot)
     }
 }
