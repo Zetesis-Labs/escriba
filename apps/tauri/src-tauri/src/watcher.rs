@@ -1,7 +1,9 @@
 use chrono::{Datelike, Local, NaiveDate, TimeZone, Timelike};
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use serde_json::{json, Value};
-use std::os::{macos::fs::MetadataExt, unix::fs::MetadataExt as UnixMetadataExt};
+#[cfg(target_os = "macos")]
+use std::os::macos::fs::MetadataExt;
+use std::os::unix::fs::MetadataExt as UnixMetadataExt;
 use std::{
     collections::{HashMap, HashSet},
     fs, io,
@@ -202,6 +204,17 @@ pub struct WatchHandle {
     pub errors: Vec<FolderError>,
 }
 
+#[cfg(target_os = "macos")]
+fn file_flags(metadata: &fs::Metadata) -> u32 {
+    metadata.st_flags()
+}
+
+// Linux has no SF_DATALESS: sync placeholders are separate files the scanner skips.
+#[cfg(not(target_os = "macos"))]
+fn file_flags(_: &fs::Metadata) -> u32 {
+    0
+}
+
 pub fn file_status(path: &Path) -> Result<Value, io::Error> {
     let metadata = fs::symlink_metadata(path)?;
     if !metadata.is_file() {
@@ -210,7 +223,7 @@ pub fn file_status(path: &Path) -> Result<Value, io::Error> {
             format!("No es un archivo regular: {}", path.display()),
         ));
     }
-    let flags = metadata.st_flags();
+    let flags = file_flags(&metadata);
     let modified = metadata
         .modified()?
         .duration_since(UNIX_EPOCH)
@@ -523,6 +536,21 @@ mod tests {
         let link = tmp.0.join("atajo.wav");
         std::os::unix::fs::symlink(&file, &link).unwrap();
         assert!(file_status(&link).is_err());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn en_linux_un_archivo_sin_bloques_no_es_dataless() {
+        let tmp = Temp::new();
+        let file = tmp.0.join("disperso.ogg");
+        fs::File::create(&file)
+            .unwrap()
+            .set_len(1024 * 1024)
+            .unwrap();
+        let status = file_status(&file).unwrap();
+        assert_eq!(status["blocks"], 0);
+        assert_eq!(status["flags"], 0);
+        assert_eq!(status["dataless"], false);
     }
 
     #[test]
