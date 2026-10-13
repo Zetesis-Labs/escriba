@@ -116,7 +116,8 @@ no se ha podido leer. Preservar la lectura de datos ya guardados al actualizar.
 ## Construir y comprobar
 
 Compilar en macOS con el SDK de Apple; el devcontainer de ZetesisPortal no aplica
-al repositorio. Usar Node >=22.12 y el Bun fijado en
+al repositorio. Trabajo en Linux: este bloque es de macOS; seguir
+`docs/plan-linux.md`. Usar Node >=22.12 y el Bun fijado en
 `apps/tauri/runtime-host/bun-version`, también al ejecutar las pruebas de runtime.
 
 ```bash
