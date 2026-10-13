@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { resolve, dirname } from "node:path";
 import { spawnSync } from "node:child_process";
 import { buildDefaultRecipe } from "./defaultRecipe.mjs";
+import { bunTarget as bunTargetFor } from "./targets.mjs";
 const app = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const root = resolve(app, "../..");
 export async function buildRuntime({
@@ -56,9 +57,7 @@ export async function buildRuntime({
   await mkdir(dirname(output), { recursive: true });
   const entry = resolve(directory, "main.js");
   await writeFile(entry, main.outputFiles[0].contents);
-  const bunTarget = target === "aarch64-apple-darwin" ? "bun-darwin-arm64"
-    : target === "x86_64-apple-darwin" ? "bun-darwin-x64" : undefined;
-  if (target && !bunTarget) throw Error(`Plataforma Bun no soportada: ${target}`);
+  const bunTarget = target ? bunTargetFor(target) : undefined;
   const result = spawnSync(bun, [
     "build", "--compile", "--no-compile-autoload-dotenv", "--no-compile-autoload-bunfig",
     "--compile-exec-argv=--no-install", entry, "--outfile", output,
@@ -66,9 +65,11 @@ export async function buildRuntime({
   ], { stdio: "inherit" });
   if (result.error) throw result.error;
   if (result.status !== 0) throw Error(`Bun build terminó con ${result.status}`);
-  const signed = spawnSync("codesign", ["--force", "--sign", "-", output], { stdio: "inherit" });
-  if (signed.error) throw signed.error;
-  if (signed.status !== 0) throw Error(`La firma del runtime terminó con ${signed.status}`);
+  if (process.platform === "darwin") {
+    const signed = spawnSync("codesign", ["--force", "--sign", "-", output], { stdio: "inherit" });
+    if (signed.error) throw signed.error;
+    if (signed.status !== 0) throw Error(`La firma del runtime terminó con ${signed.status}`);
+  }
   return output;
 }
 if (

@@ -2,6 +2,7 @@ import { cp, mkdir, rm } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import { prepareSurrealdb } from "./prepare-surrealdb.mjs";
+import { hostTriple, surrealNative, typescriptPackage } from "../runtime-host/targets.mjs";
 const app = fileURLToPath(new URL("..", import.meta.url));
 const root = fileURLToPath(new URL("../../..", import.meta.url));
 const vendor = join(app, "src-tauri/vendor/node_modules");
@@ -13,7 +14,7 @@ for (const [source, target] of [
   ],
   [join(app, "node_modules/zod"), join(vendor, "zod")],
   [
-    join(app, `runtime-host/toolchain/node_modules/@typescript/typescript-darwin-${process.arch}`),
+    join(app, "runtime-host/toolchain/node_modules", typescriptPackage(process.platform, process.arch)),
     join(vendor, "typescript"),
   ],
 ]) {
@@ -26,14 +27,10 @@ for (const dependency of ["@types/bun", "bun-types", "@types/node", "undici-type
   await cp(join(app, "runtime-host/toolchain/node_modules", dependency), target, { recursive: true, dereference: true });
 }
 await prepareSurrealdb(app, vendor);
-const surrealNative = `surrealdb-node.darwin-${process.arch}.node`;
+const surreal = surrealNative(process.platform, process.arch);
 await mkdir(join(app, "src-tauri/surreal"), { recursive: true });
-await cp(
-  join(app, `node_modules/@surrealdb/node-native-darwin-${process.arch}`, surrealNative),
-  join(app, "src-tauri/surreal", surrealNative),
-);
-const triple =
-  process.arch === "arm64" ? "aarch64-apple-darwin" : "x86_64-apple-darwin";
+await cp(join(app, "node_modules", surreal.package, surreal.file), join(app, "src-tauri/surreal", surreal.file));
+const triple = hostTriple(process.platform, process.arch);
 await mkdir(join(app, "src-tauri/binaries"), { recursive: true });
 
 const { buildRuntime } = await import("../runtime-host/build.mjs");

@@ -609,12 +609,7 @@ async fn authorize_watched_folder(
 }
 
 fn surreal_native(app: &tauri::AppHandle) -> Option<PathBuf> {
-    let arch = if cfg!(target_arch = "aarch64") {
-        "arm64"
-    } else {
-        "x64"
-    };
-    let file = format!("surrealdb-node.darwin-{arch}.node");
+    let (_, file) = platform::surreal_native();
     let resource = app
         .path()
         .resource_dir()
@@ -1065,11 +1060,7 @@ async fn shell_capability(
                 "reveal" => platform::reveal(&path),
                 _ => return Err("Acción de archivo OKF desconocida".into()),
             };
-            if !command
-                .status()
-                .map_err(|e| e.to_string())?
-                .success()
-            {
+            if !command.status().map_err(|e| e.to_string())?.success() {
                 return Err("No se pudo abrir el documento OKF".into());
             }
             Ok(Value::Null)

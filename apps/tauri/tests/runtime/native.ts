@@ -1,7 +1,8 @@
 import { fileURLToPath } from "node:url";
+import { surrealNative } from "../../runtime-host/targets.mjs";
 
 export function surrealNativeLibrary(): string {
-  const arch = process.arch === "arm64" ? "arm64" : "x64";
-  return fileURLToPath(new URL(`../../node_modules/@surrealdb/node-native-darwin-${arch}/surrealdb-node.darwin-${arch}.node`, import.meta.url));
+  const native = surrealNative(process.platform, process.arch);
+  return fileURLToPath(new URL(`../../node_modules/${native.package}/${native.file}`, import.meta.url));
 }
 export const controllerEnvironment = (data: string) => ({ ESCRIBA_DATA: data, NAPI_RS_NATIVE_LIBRARY_PATH: surrealNativeLibrary() });

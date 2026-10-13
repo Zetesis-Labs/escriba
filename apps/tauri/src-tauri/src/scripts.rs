@@ -705,15 +705,11 @@ impl Scripts {
 
 #[cfg(test)]
 pub(crate) fn controller_env(data: &Path) -> Vec<(String, String)> {
-    let arch = if cfg!(target_arch = "aarch64") {
-        "arm64"
-    } else {
-        "x64"
-    };
+    let (package, file) = crate::platform::surreal_native();
     let native = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../node_modules/@surrealdb/node")
-        .with_file_name(format!("node-native-darwin-{arch}"))
-        .join(format!("surrealdb-node.darwin-{arch}.node"));
+        .join("../node_modules/@surrealdb")
+        .join(package)
+        .join(file);
     vec![
         ("ESCRIBA_DATA".into(), data.to_string_lossy().into_owned()),
         (

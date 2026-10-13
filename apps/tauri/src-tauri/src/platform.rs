@@ -106,6 +106,24 @@ pub fn privacy_settings(pane: Option<&str>) -> Result<Command, String> {
     .into())
 }
 
+/// Package and file of the SurrealDB binding the controller loads.
+pub fn surreal_native() -> (String, String) {
+    let arch = if cfg!(target_arch = "aarch64") {
+        "arm64"
+    } else {
+        "x64"
+    };
+    let name = if cfg!(target_os = "linux") {
+        format!("linux-{arch}-gnu")
+    } else {
+        format!("darwin-{arch}")
+    };
+    (
+        format!("node-native-{name}"),
+        format!("surrealdb-node.{name}.node"),
+    )
+}
+
 /// Whether recipes run under an OS sandbox. Without it they still run and
 /// the interface shows a permanent warning.
 pub fn recipes_isolated() -> bool {
@@ -115,6 +133,29 @@ pub fn recipes_isolated() -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn el_binding_de_surrealdb_es_el_del_sistema() {
+        let (package, file) = surreal_native();
+        let system = if cfg!(target_os = "linux") {
+            "linux"
+        } else {
+            "darwin"
+        };
+        assert!(
+            package.starts_with(&format!("node-native-{system}-")),
+            "{package}"
+        );
+        assert!(
+            file.starts_with(&format!("surrealdb-node.{system}-")),
+            "{file}"
+        );
+        assert_eq!(
+            package.trim_start_matches("node-native-"),
+            file.trim_start_matches("surrealdb-node.")
+                .trim_end_matches(".node")
+        );
+    }
 
     fn line(command: &Command) -> Vec<String> {
         std::iter::once(command.get_program())
