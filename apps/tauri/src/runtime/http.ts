@@ -3,6 +3,7 @@ import { promisify } from "node:util";
 import { builtinProviders, type ProviderAccess } from "@escriba/conectores";
 import { authorityKey } from "../core/providerAccess";
 import { object, text } from "./contracts";
+import { isObject } from "./library/json";
 
 const RESPONSE_LIMIT = 16 * 1024 * 1024;
 const MULTIPART_PART_LIMIT = 1000;
@@ -110,6 +111,22 @@ export function validateAccountGrant(grant: unknown): ProviderAccess {
       throw Error("La definición de credencial contiene datos no permitidos");
   }
   return access;
+}
+export function sameAuthority(left: unknown, right: unknown) {
+  if (!isObject(left) || !isObject(right) || left.capability !== right.capability) return false;
+  const originOf = (value: Record<string, unknown>) => {
+    try {
+      return parseOrigin(String(value.origin ?? "")).origin;
+    } catch {
+      return undefined;
+    }
+  };
+  if (left.capability === "http" && originOf(left) !== originOf(right)) return false;
+  const credential = (value: Record<string, unknown>) =>
+    isObject(value.credential)
+      ? `${String(value.credential.header ?? "").toLowerCase()}\n${String(value.credential.prefix ?? "")}`
+      : undefined;
+  return credential(left) === credential(right);
 }
 export function accessEquivalent(left: unknown, right: unknown) {
   try {
