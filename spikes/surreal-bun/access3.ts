@@ -12,7 +12,7 @@ await db.query(`
   UPSERT thing:a CONTENT { title: 'a' };
 `);
 const token = await db.signin({ namespace: "k", database: "o", access: "recipe" } as never);
-console.log("token tipo", typeof token, String(token).slice(0, 20));
+console.log("token tipo", typeof token);
 const [auth, session] = await db.query<[unknown, unknown]>("RETURN $auth; RETURN { ac: $session.ac, rd: $session.rd, tk: type::is_none($token) };");
 console.log("auth", JSON.stringify(auth), "session", JSON.stringify(session));
 await db.authenticate(String(token)).then(() => console.log("authenticate ok")).catch((e) => console.log("authenticate:", String(e).slice(0, 60)));
