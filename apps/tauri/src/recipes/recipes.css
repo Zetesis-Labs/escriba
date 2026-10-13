@@ -108,3 +108,4 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.recipes-unisolated { display: flex; align-items: center; gap: 6px; padding: 7px 12px; border-bottom: 0.5px solid var(--separator); font-size: 12px; flex-shrink: 0; }

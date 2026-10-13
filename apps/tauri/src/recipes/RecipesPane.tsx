@@ -39,6 +39,7 @@ function useProjectPhase() {
 }
 
 export function RecipesPane({ data, refresh }: { data: Snapshot; refresh: () => Promise<void> }) {
+  const platform = usePlatform();
   const forms = data.recipes.filter((recipe) => recipe.kind === "form");
   const codes = data.recipes.filter((recipe) => recipe.kind === "code");
   const defaultId = data.settings.defaultRecipeId;
@@ -139,8 +140,14 @@ export function RecipesPane({ data, refresh }: { data: Snapshot; refresh: () => 
 
   if (ontologiesOpen) return <Pane title="Ontologías" toolbar={<Button small onClick={() => setOntologiesOpen(false)}>Volver a recetas</Button>}><OntologiesPanel key={data.settings.projectPath} /></Pane>;
 
+  const unisolated = unisolatedRecipesWarning(platform);
   return (
     <Pane title="Recetas">
+      {unisolated && (
+        <div className="recipes-unisolated" role="note">
+          <AlertTriangle size={13} strokeWidth={2} className="warning" /> {unisolated}
+        </div>
+      )}
       {editorOpen && data.settings.projectPath ? (
         <Suspense fallback={<div className="playground-loading"><Spinner /> Abriendo editor…</div>}>
           <Playground key={data.settings.projectPath} path={data.settings.projectPath} onClose={() => setEditorOpen(false)} onBuilt={refresh} />
