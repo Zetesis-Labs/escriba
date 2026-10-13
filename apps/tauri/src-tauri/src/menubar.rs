@@ -2,7 +2,7 @@ use crate::{recorder, Runtime};
 use serde_json::Value;
 use std::sync::{atomic::Ordering, Arc};
 use tauri::{
-    menu::{Menu, MenuItem, PredefinedMenuItem, Submenu},
+    menu::{Menu, MenuItem, PredefinedMenuItem},
     tray::TrayIconBuilder,
     AppHandle, Emitter, Manager, Wry,
 };
@@ -218,8 +218,10 @@ fn tray_menu(
     Ok((menu, stop))
 }
 
-pub fn install(app: &AppHandle, state: &Runtime) -> tauri::Result<()> {
-    let name = app.package_info().name.clone();
+// On Linux the app menu would be a bar inside the window; shortcuts live in the interface.
+#[cfg(target_os = "macos")]
+fn install_app_menu(app: &AppHandle, state: &Runtime, name: &str) -> tauri::Result<()> {
+    use tauri::menu::Submenu;
     let new_recording = MenuItem::with_id(
         app,
         "new-recording",
@@ -229,7 +231,7 @@ pub fn install(app: &AppHandle, state: &Runtime) -> tauri::Result<()> {
     )?;
     let application = Submenu::with_items(
         app,
-        &name,
+        name,
         true,
         &[
             &PredefinedMenuItem::about(app, Some(&format!("Acerca de {name}")), None)?,
@@ -298,6 +300,13 @@ pub fn install(app: &AppHandle, state: &Runtime) -> tauri::Result<()> {
     if let Ok(mut bar) = state.menubar.lock() {
         bar.new_recording = Some(new_recording);
     }
+    Ok(())
+}
+
+pub fn install(app: &AppHandle, state: &Runtime) -> tauri::Result<()> {
+    let name = app.package_info().name.clone();
+    #[cfg(target_os = "macos")]
+    install_app_menu(app, state, &name)?;
     let mut tray = TrayIconBuilder::with_id(STATUS_TRAY)
         .tooltip(&name)
         .show_menu_on_left_click(true)
