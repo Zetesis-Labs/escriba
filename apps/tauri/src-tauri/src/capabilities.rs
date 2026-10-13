@@ -1,31 +1,17 @@
 //! Narrow authority granted to connector programs by the Rust host.
-use reqwest::{multipart, redirect, Client, Url};
+use reqwest::Url;
 use serde_json::{json, Map, Value};
 use std::{
     collections::HashSet,
     ffi::CString,
     fs,
     io::{Read, Write},
-    os::{
-        fd::{AsRawFd, FromRawFd, OwnedFd},
-        unix::fs::OpenOptionsExt,
-    },
+    os::fd::{AsRawFd, FromRawFd, OwnedFd},
     path::{Path, PathBuf},
-    time::Duration,
 };
-use tokio::io::{AsyncReadExt, AsyncSeekExt};
-use tokio_util::io::ReaderStream;
 
-const RESPONSE_LIMIT: usize = 16 * 1024 * 1024;
 const FILE_LIMIT: usize = 64 * 1024 * 1024;
 const FILE_COUNT_LIMIT: usize = 10_000;
-const MULTIPART_PART_LIMIT: usize = 1_000;
-
-/// Audio already authorized for this invocation by the application host.
-pub struct AudioFile {
-    pub path: PathBuf,
-    pub recording_id: String,
-}
 
 pub fn validate_access(access: &Value) -> Result<(), String> {
     match required_str(access, "capability")? {
@@ -238,221 +224,6 @@ pub fn authorized_access(
     Ok(granted)
 }
 
-/// Sends one request to the account's fixed origin. Credentials never enter `request`.
-pub async fn http_with_grant(
-    account: &Value,
-    grant: &Value,
-    credential: Option<String>,
-    request: &Value,
-    audio: Option<AudioFile>,
-) -> Result<Value, String> {
-    ensure_enabled(account)?;
-    let origin = parse_origin(
-        grant
-            .get("origin")
-            .and_then(Value::as_str)
-            .ok_or("Cuenta sin origen HTTP")?,
-    )?;
-    let target = Url::parse(required_str(request, "url")?).map_err(|_| "URL HTTP inválida")?;
-    if !same_origin(&origin, &target) {
-        return Err("URL fuera del origen autorizado".into());
-    }
-    let method = request
-        .get("method")
-        .and_then(Value::as_str)
-        .unwrap_or("GET")
-        .to_ascii_uppercase();
-    if !["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"].contains(&method.as_str()) {
-        return Err("Método HTTP no permitido".into());
-    }
-    let method =
-        reqwest::Method::from_bytes(method.as_bytes()).map_err(|_| "Método HTTP inválido")?;
-    let client = Client::builder()
-        .redirect(redirect::Policy::none())
-        .no_proxy()
-        .timeout(Duration::from_secs(120))
-        .build()
-        .map_err(|_| "No se pudo preparar HTTP")?;
-    let mut outgoing = client.request(method, target);
-    if let Some(headers) = request.get("headers") {
-        let headers = headers.as_object().ok_or("Cabeceras HTTP inválidas")?;
-        for (name, value) in headers {
-            let lower = name.to_ascii_lowercase();
-            if !grant["allowedHeaders"].as_array().is_some_and(|allowed| {
-                allowed.iter().any(|item| {
-                    item.as_str()
-                        .is_some_and(|header| header.eq_ignore_ascii_case(&lower))
-                })
-            }) {
-                return Err("Cabecera HTTP no permitida".into());
-            }
-            safe_header_name(name)?;
-            let value = value.as_str().ok_or("Cabecera HTTP inválida")?;
-            if value.contains(['\r', '\n']) {
-                return Err("Cabecera HTTP inválida".into());
-            }
-            outgoing = outgoing.header(name.as_str(), value);
-        }
-    }
-    if request.get("body").is_some() && request.get("multipart").is_some() {
-        return Err("No se puede combinar body y multipart".into());
-    }
-    if let Some(body) = request.get("body") {
-        let body = body.as_str().ok_or("Cuerpo HTTP inválido")?;
-        if body.len() > RESPONSE_LIMIT {
-            return Err("Cuerpo HTTP supera 16 MiB".into());
-        }
-        outgoing = outgoing.body(body.to_owned());
-    }
-    if let Some(parts) = request.get("multipart") {
-        let parts = parts.as_array().ok_or("Multipart inválido")?;
-        if parts.len() > MULTIPART_PART_LIMIT {
-            return Err("Multipart supera 1000 partes".into());
-        }
-        let mut form = multipart::Form::new();
-        let mut text_bytes = 0usize;
-        for part in parts {
-            let name = safe_disposition(required_str(part, "name")?)?;
-            let item: multipart::Part;
-            if let Some(reference) = part.get("audio") {
-                let granted = audio.as_ref().ok_or("Audio no autorizado")?;
-                if reference.get("recordingId").and_then(Value::as_str)
-                    != Some(granted.recording_id.as_str())
-                {
-                    return Err("Audio no autorizado para esta grabación".into());
-                }
-                item = audio_part(granted, reference, part).await?;
-            } else {
-                let value = required_str(part, "value")?;
-                text_bytes = text_bytes
-                    .checked_add(value.len())
-                    .ok_or("Multipart supera 16 MiB de texto")?;
-                if text_bytes > RESPONSE_LIMIT {
-                    return Err("Multipart supera 16 MiB de texto".into());
-                }
-                item = multipart::Part::text(value.to_owned());
-            }
-            form = form.part(name.to_owned(), item);
-        }
-        outgoing = outgoing.multipart(form);
-    }
-    if let Some(secret) = credential.as_deref() {
-        if secret.is_empty() || secret.contains(['\r', '\n']) {
-            return Err("Credencial inválida".into());
-        }
-        let credential = grant["credential"]
-            .as_object()
-            .ok_or("Credencial no autorizada")?;
-        let header = credential
-            .get("header")
-            .and_then(Value::as_str)
-            .ok_or("Cabecera de credencial inválida")?;
-        let prefix = credential
-            .get("prefix")
-            .and_then(Value::as_str)
-            .unwrap_or("");
-        if !header.eq_ignore_ascii_case("authorization") {
-            safe_header_name(header)?;
-        }
-        outgoing = outgoing.header(header, format!("{prefix}{secret}"));
-    } else if grant["credential"].is_object() {
-        return Err("La cuenta necesita una credencial".into());
-    }
-    let mut response = outgoing
-        .send()
-        .await
-        .map_err(|_| "No se pudo completar la petición HTTP")?;
-    let status = response.status().as_u16();
-    let mut headers = Map::new();
-    for name in ["content-type", "retry-after", "request-id"] {
-        if let Some(value) = response.headers().get(name).and_then(|v| v.to_str().ok()) {
-            headers.insert(
-                name.into(),
-                Value::String(redact(value, credential.as_deref())),
-            );
-        }
-    }
-    let mut bytes = Vec::new();
-    if response
-        .content_length()
-        .is_some_and(|n| n > RESPONSE_LIMIT as u64)
-    {
-        return Err("Respuesta HTTP supera 16 MiB".into());
-    }
-    while let Some(chunk) = response
-        .chunk()
-        .await
-        .map_err(|_| "No se pudo leer la respuesta HTTP")?
-    {
-        if bytes.len().saturating_add(chunk.len()) > RESPONSE_LIMIT {
-            return Err("Respuesta HTTP supera 16 MiB".into());
-        }
-        bytes.extend_from_slice(&chunk);
-    }
-    Ok(json!({
-        "status": status,
-        "headers": headers,
-        "body": redact(&String::from_utf8_lossy(&bytes), credential.as_deref()),
-    }))
-}
-
-async fn audio_part(
-    granted: &AudioFile,
-    reference: &Value,
-    part: &Value,
-) -> Result<multipart::Part, String> {
-    let metadata = fs::symlink_metadata(&granted.path).map_err(|_| "Audio no disponible")?;
-    if !metadata.is_file() || metadata.file_type().is_symlink() {
-        return Err("Audio no disponible".into());
-    }
-    let size = metadata.len();
-    let start = optional_offset(reference, "start")?.unwrap_or(0);
-    let end = optional_offset(reference, "end")?.unwrap_or(size);
-    if start > end || end > size {
-        return Err("Rango de audio inválido".into());
-    }
-    let length = end - start;
-    let opened = fs::OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
-        .open(&granted.path)
-        .map_err(|_| "Audio no disponible")?;
-    if !opened
-        .metadata()
-        .map_err(|_| "Audio no disponible")?
-        .is_file()
-    {
-        return Err("Audio no disponible".into());
-    }
-    let mut file = tokio::fs::File::from_std(opened);
-    file.seek(std::io::SeekFrom::Start(start))
-        .await
-        .map_err(|_| "Audio no disponible")?;
-    let stream = ReaderStream::new(file.take(length));
-    let mut item = multipart::Part::stream_with_length(reqwest::Body::wrap_stream(stream), length);
-    let filename = part
-        .get("filename")
-        .and_then(Value::as_str)
-        .unwrap_or("audio.m4a");
-    item = item.file_name(safe_disposition(filename)?.to_owned());
-    let kind = part
-        .get("type")
-        .and_then(Value::as_str)
-        .unwrap_or("audio/mp4");
-    item.mime_str(kind)
-        .map_err(|_| "Tipo de audio inválido".into())
-}
-
-fn optional_offset(value: &Value, name: &str) -> Result<Option<u64>, String> {
-    match value.get(name) {
-        None => Ok(None),
-        Some(v) => v
-            .as_u64()
-            .map(Some)
-            .ok_or_else(|| "Rango de audio inválido".into()),
-    }
-}
-
 fn parse_origin(raw: &str) -> Result<Url, String> {
     let url = Url::parse(raw).map_err(|_| "Origen HTTP inválido")?;
     if has_userinfo(&url)
@@ -467,16 +238,6 @@ fn parse_origin(raw: &str) -> Result<Url, String> {
     Ok(url)
 }
 
-fn same_origin(origin: &Url, target: &Url) -> bool {
-    !has_userinfo(target)
-        && target.password().is_none()
-        && target.fragment().is_none()
-        && safe_scheme(target)
-        && target.scheme() == origin.scheme()
-        && target.host_str() == origin.host_str()
-        && target.port_or_known_default() == origin.port_or_known_default()
-}
-
 fn safe_scheme(url: &Url) -> bool {
     url.scheme() == "https"
         || (url.scheme() == "http" && matches!(url.host_str(), Some("127.0.0.1" | "::1" | "[::1]")))
@@ -488,21 +249,6 @@ fn has_userinfo(url: &Url) -> bool {
             .next()
             .is_some_and(|authority| authority.contains('@'))
     })
-}
-
-fn safe_disposition(text: &str) -> Result<&str, String> {
-    if text.is_empty() || text.contains(['\r', '\n', '"', '\\', '/', '\0']) {
-        Err("Nombre multipart inválido".into())
-    } else {
-        Ok(text)
-    }
-}
-
-fn redact(value: &str, secret: Option<&str>) -> String {
-    match secret.filter(|s| !s.is_empty()) {
-        Some(secret) => value.replace(secret, "[redacted]"),
-        None => value.to_owned(),
-    }
 }
 
 fn required_str<'a>(object: &'a Value, name: &str) -> Result<&'a str, String> {
@@ -848,16 +594,6 @@ fn write_change(root_fd: &OwnedFd, change: &FileChange) -> Result<(), String> {
 mod tests {
     use super::*;
 
-    async fn http(
-        account: &Value,
-        credential: Option<String>,
-        request: &Value,
-        audio: Option<AudioFile>,
-    ) -> Result<Value, String> {
-        let grant = json!({"capability":"http","origin":account["origin"],"allowedHeaders":["accept","content-type","notion-version"],"credential":credential.as_ref().map(|_| json!({"label":"Token","header":"authorization","prefix":"Bearer "}))});
-        http_with_grant(account, &grant, credential, request, audio).await
-    }
-
     #[test]
     fn archivo_okf_autorizado_acepta_md_real_y_rechaza_escape_por_enlace() {
         let temp = tempfile::tempdir().unwrap();
@@ -877,95 +613,19 @@ mod tests {
         assert!(authorized_okf_file(&account, &outside).is_err());
     }
     use std::os::unix::fs::symlink;
-    use tokio::{io::AsyncWriteExt, net::TcpListener};
 
-    #[tokio::test]
-    async fn http_injects_secret_only_for_granted_origin_and_does_not_follow_redirect() {
-        let source = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let other = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let source_port = source.local_addr().unwrap().port();
-        let other_port = other.local_addr().unwrap().port();
-        let observed = tokio::spawn(async move {
-            let (mut socket, _) = source.accept().await.unwrap();
-            let mut data = Vec::new();
-            while !data.ends_with(b"\r\n\r\n") && data.len() < 4096 {
-                let mut chunk = [0u8; 512];
-                let count = socket.read(&mut chunk).await.unwrap();
-                if count == 0 {
-                    break;
-                }
-                data.extend_from_slice(&chunk[..count]);
-            }
-            let request = String::from_utf8_lossy(&data).to_string();
-            socket.write_all(format!("HTTP/1.1 302 Found\r\nLocation: http://127.0.0.1:{other_port}/stolen\r\nContent-Length: 0\r\n\r\n").as_bytes()).await.unwrap();
-            request
-        });
-        let account = json!({"enabled":true,"origin":format!("http://127.0.0.1:{source_port}")});
-        let result = http(&account, Some("test-secret".into()),
-            &json!({"url":format!("http://127.0.0.1:{source_port}/notes"),"headers":{"accept":"application/json"}}), None).await.unwrap();
-        assert_eq!(result["status"], 302);
-        let request = observed.await.unwrap().to_ascii_lowercase();
-        assert!(request.contains("authorization: bearer test-secret"));
-        assert!(
-            tokio::time::timeout(Duration::from_millis(100), other.accept())
-                .await
-                .is_err()
-        );
-        assert!(http(
-            &account,
-            Some("test-secret".into()),
-            &json!({"url":format!("http://127.0.0.1:{other_port}/stolen")}),
-            None
-        )
-        .await
-        .is_err());
-        assert!(http(&account, Some("test-secret".into()),
-            &json!({"url":format!("http://127.0.0.1:{source_port}/notes"),"headers":{"Authorization":"attacker"}}), None).await.is_err());
-        assert!(http(
-            &account,
-            Some("test-secret".into()),
-            &json!({"url":format!("http://@127.0.0.1:{source_port}/notes")}),
-            None
-        )
-        .await
-        .is_err());
-        assert!(parse_origin("http://localhost:1234").is_err());
-    }
-
-    #[tokio::test]
-    async fn custom_grant_injects_selected_header_and_rejects_stale_grant() {
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let origin = format!("http://127.0.0.1:{}", listener.local_addr().unwrap().port());
+    #[test]
+    fn una_autorizacion_propia_rechaza_proveedor_cambiado_o_cuenta_revocada() {
+        let origin = "https://api.example";
         let grant = json!({"capability":"http","origin":origin,"allowedHeaders":["x-version"],"credential":{"label":"Token","header":"x-api-key","prefix":"Key "}});
         let provider = json!({"id":"example","capability":"http","origin":origin,"allowedHeaders":["x-version"],"credential":{"label":"Token","header":"x-api-key","prefix":"Key "}});
         let account = json!({"id":"a","provider":"example","enabled":true,"grant":grant});
         let request = json!({"url":format!("{origin}/items"),"headers":{"x-version":"2026"},"expectedGrant":grant});
-        let accepted = authorized_access(&account, Some(&provider), &request, "http").unwrap();
-        let observed = tokio::spawn(async move {
-            let (mut socket, _) = listener.accept().await.unwrap();
-            let mut bytes = [0u8; 4096];
-            let size = socket.read(&mut bytes).await.unwrap();
-            socket
-                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok")
-                .await
-                .unwrap();
-            String::from_utf8_lossy(&bytes[..size]).to_ascii_lowercase()
-        });
         assert_eq!(
-            http_with_grant(
-                &account,
-                &accepted,
-                Some("synthetic".into()),
-                &request,
-                None
-            )
-            .await
-            .unwrap()["status"],
-            200
+            authorized_access(&account, Some(&provider), &request, "http").unwrap(),
+            grant
         );
-        let sent = observed.await.unwrap();
-        assert!(sent.contains("x-api-key: key synthetic"));
-        assert!(sent.contains("x-version: 2026"));
+        assert!(parse_origin("http://localhost:1234").is_err());
         let changed = json!({"id":"example","capability":"http","origin":"https://changed.example","allowedHeaders":["x-version"],"credential":{"label":"Token","header":"x-api-key","prefix":"Key "}});
         assert!(authorized_access(&account, Some(&changed), &request, "http").is_err());
         let revoked = json!({"id":"a","provider":"example","enabled":false,"grant":grant});
@@ -982,67 +642,6 @@ mod tests {
         assert!(authorized_access(&account, None, &changed, "http").is_err());
         let disclosed = json!({"capability":"http","origin":"https://api.notion.com","allowedHeaders":[],"credential":{"label":"Token","header":"authorization","value":"synthetic-secret"}});
         assert!(validate_account_grant(&disclosed).is_err());
-    }
-
-    #[tokio::test]
-    async fn multipart_streams_only_the_authorized_audio_range() {
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let port = listener.local_addr().unwrap().port();
-        let folder = tempfile::tempdir().unwrap();
-        let path = folder.path().join("sample.wav");
-        fs::write(&path, b"0123456789").unwrap();
-        let observed = tokio::spawn(async move {
-            let (mut socket, _) = listener.accept().await.unwrap();
-            let mut data = Vec::new();
-            loop {
-                let mut chunk = [0u8; 4096];
-                let count = tokio::time::timeout(Duration::from_secs(2), socket.read(&mut chunk))
-                    .await
-                    .unwrap()
-                    .unwrap();
-                if count == 0 {
-                    break;
-                }
-                data.extend_from_slice(&chunk[..count]);
-                if let Some(head_end) = data.windows(4).position(|v| v == b"\r\n\r\n") {
-                    let headers = String::from_utf8_lossy(&data[..head_end]).to_ascii_lowercase();
-                    if let Some(length) = headers
-                        .lines()
-                        .find_map(|line| line.strip_prefix("content-length: "))
-                    {
-                        if data.len() >= head_end + 4 + length.parse::<usize>().unwrap() {
-                            break;
-                        }
-                    } else if data.ends_with(b"\r\n0\r\n\r\n") {
-                        break;
-                    }
-                }
-            }
-            socket
-                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok")
-                .await
-                .unwrap();
-            data
-        });
-        let account = json!({"enabled":true,"origin":format!("http://127.0.0.1:{port}")});
-        let request = json!({"url":format!("http://127.0.0.1:{port}/upload"),"method":"POST","multipart":[
-            {"name":"file","audio":{"recordingId":"r1","start":2,"end":6},"filename":"sample.wav","type":"audio/wav"}
-        ]});
-        let result = http(
-            &account,
-            None,
-            &request,
-            Some(AudioFile {
-                path,
-                recording_id: "r1".into(),
-            }),
-        )
-        .await
-        .unwrap();
-        assert_eq!(result["status"], 200);
-        let sent = observed.await.unwrap();
-        assert!(sent.windows(4).any(|window| window == b"2345"));
-        assert!(!sent.windows(10).any(|window| window == b"0123456789"));
     }
 
     #[test]

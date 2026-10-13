@@ -5,13 +5,14 @@ import {
   spawnSync,
   type ChildProcessWithoutNullStreams,
 } from "node:child_process";
-import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { readFileSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createInterface } from "node:readline";
 import { connect, createServer } from "node:net";
+import { createServer as createHttpServer, type IncomingHttpHeaders, type IncomingMessage } from "node:http";
 import { build } from "esbuild";
 import { CborCodec, RecordId } from "surrealdb";
 import { snapshot, runtimeContext } from "./fixture";
@@ -34,10 +35,31 @@ afterAll(async () => {
 });
 function launch(worker = false) {
   const path = realpathSync(executable);
+  if (!worker) return spawn(path, [], { env: { ESCRIBA_DATA: directory }, cwd: "/" });
   const profile = readFileSync(new URL("../../runtime-host/sandbox.sb", import.meta.url), "utf8");
   return spawn("/usr/bin/sandbox-exec", [
-    "-p", profile, "-D", `EXECUTABLE=${path}`, path, ...(worker ? ["--worker"] : []),
+    "-p", profile, "-D", `EXECUTABLE=${path}`, path, "--worker",
   ], { env: {}, cwd: "/" });
+}
+function localHttp(handle: (request: IncomingMessage, body: string) => { status: number; body: string }) {
+  const seen: { method: string; url: string; headers: IncomingHttpHeaders; body: string }[] = [];
+  const server = createHttpServer((request, response) => {
+    let body = "";
+    request.on("data", (chunk) => { body += chunk; });
+    request.on("end", () => {
+      seen.push({ method: request.method ?? "", url: request.url ?? "", headers: request.headers, body });
+      const reply = handle(request, body);
+      response.writeHead(reply.status, { "content-type": "application/json" });
+      response.end(reply.body);
+    });
+  });
+  return new Promise<{ origin: string; seen: typeof seen; close(): void }>((resolve) => {
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address();
+      const port = typeof address === "object" && address ? address.port : 0;
+      resolve({ origin: `http://127.0.0.1:${port}`, seen, close: () => server.close() });
+    });
+  });
 }
 function supervisor(state: Snapshot, hangFirstTranscribe = false, onCall?: (method: string, params: Record<string, unknown>) => void, capability?: (method: string, params: Record<string, unknown>) => Promise<unknown>) {
   let hung = false;
@@ -221,6 +243,15 @@ test("un dist externo aporta formularios, acciones y publicación en Bun aislado
   const project = join(directory, "external");
   await mkdir(project);
   await cp(new URL("../../../../examples/conectores/src", import.meta.url), join(project, "src"), { recursive: true });
+  const service = await localHttp((request) => request.url?.includes("by-key")
+    ? { status: 404, body: "{}" }
+    : request.url?.endsWith("/collections") ? { status: 200, body: '[{"id":"notes","name":"Notas"}]' } : { status: 200, body: '{"id":"created-1"}' });
+  for (const entry of (await readdir(join(project, "src"), { withFileTypes: true })).filter((entry) => entry.isFile())) {
+    const source = join(project, "src", entry.name);
+    await writeFile(source, (await readFile(source, "utf8")).replace("'https://api.example.test'", JSON.stringify(service.origin)));
+  }
+  await mkdir(join(directory, "secrets"), { recursive: true });
+  await writeFile(join(directory, "secrets/external-account.token"), "token-sintético\n");
   await writeFile(join(project, "package.json"), '{"type":"module"}');
   const vendor = fileURLToPath(new URL("../../node_modules", import.meta.url));
   const built = spawnSync(executable, ["--project-build", project, vendor], { encoding: "utf8" });
@@ -228,68 +259,69 @@ test("un dist externo aporta formularios, acciones y publicación en Bun aislado
   const program = await readFile(join(project, "dist/conectores.js"), "utf8");
   await rm(join(project, "src"), { recursive: true });
   const state = structuredClone(snapshot);
-  const grant = { capability: "http" as const, origin: "https://api.example.test", allowedHeaders: ["content-type", "accept"], credential: { label: "Clave del servicio", header: "X-API-Key" } };
+  const grant = { capability: "http" as const, origin: service.origin, allowedHeaders: ["content-type", "accept"], credential: { label: "Clave del servicio", header: "X-API-Key" } };
   state.providers = [{ id: "synthetic-notes", name: "Notas de ejemplo", ...grant, defaultConfiguration: {}, program }];
   state.accounts = [{ id: "external-account", name: "Ejemplo", provider: "synthetic-notes", enabled: true, grant }];
   state.destinations = [{ id: "external-account", account: "external-account", name: "Ejemplo", provider: "synthetic-notes", enabled: true, managed: true, configuration: { workspace: "demo", collection: "notes" }, program }];
   state.recordings[0].versions = [{ id: "v", createdAt: "now", backend: "local-stt", transcript: { text: "Contenido sintético", segments: [] } }];
   const receipts: Record<string, unknown>[] = [];
-  const http: Record<string, unknown>[] = [];
   const host = supervisor(state, false, undefined, async (method, params) => {
     if (method === "publication_save") { receipts.push(params); return null; }
-    if (method !== "connector_http") throw Error(`Capacidad inesperada: ${method}`);
-    http.push(params);
-    assert.equal(params.accountId, "external-account");
-    assert.deepEqual(params.expectedGrant, grant);
-    assert.ok(!JSON.stringify(params).includes("token-sintético"));
-    const url = String(params.url);
-    return { status: url.includes("by-key") ? 404 : 200, headers: { "content-type": "application/json" }, body: url.endsWith("/collections") ? '[{"id":"notes","name":"Notas"}]' : '{"id":"created-1"}' };
+    throw Error(`Capacidad inesperada: ${method}`);
   });
   try {
     await host.ready;
     const request = { providerId: "synthetic-notes", accountId: "external-account", configuration: { workspace: "demo", collection: "notes" } };
     const view = await host.run("connectorEditor", { operation: "describe", request }).result as { view: { sections: unknown[] } };
     assert.equal(view.view.sections.length, 1);
-    assert.equal(http.length, 0);
+    assert.equal(service.seen.length, 0);
     const action = await host.run("connectorEditor", { operation: "action", request: { ...request, action: "refresh-collections" } }).result as { state: { collections: unknown[] } };
     assert.deepEqual(action.state.collections, [{ id: "notes", name: "Notas" }]);
     await host.run("publishRecording", { recordingId: "r", destinationId: "external-account" }).result;
     assert.equal((receipts.at(-1)?.receipt as { locator: string }).locator, "created-1");
     assert.equal(receipts.at(-1)?.managed, true);
     assert.equal(receipts.at(-1)?.program, program);
-    assert.equal(http.filter((request) => request.method === "POST").length, 1);
-  } finally { host.close(); }
+    assert.equal(service.seen.filter((request) => request.method === "POST").length, 1);
+    assert.ok(service.seen.every((request) => request.headers["x-api-key"] === "token-sintético"));
+    assert.ok(!host.methods.includes("connector_http"));
+  } finally { host.close(); service.close(); }
 }, 30000);
 test("el SDK oficial de Notion consulta y escribe desde una receta en Bun aislado", async () => {
+  const pendingAtPost: boolean[] = [];
+  const service = await localHttp((request) => {
+    if (request.method === "POST") pendingAtPost.push(state.recordings[0].accountEffectPending === true);
+    return { status: 200, body: '{"object":"list","results":[],"has_more":false,"next_cursor":null}' };
+  });
   const bundled = await build({
     stdin: { resolveDir: fileURLToPath(new URL("../..", import.meta.url)), contents: `import {Client} from '@notionhq/client';
       export async function flujo(audio, escriba) {
-        const client = new Client({fetch:escriba.cuenta('Trabajo').fetch, maxRetries:0});
+        const client = new Client({fetch:escriba.cuenta('Trabajo').fetch, maxRetries:0, baseUrl:${JSON.stringify(service.origin)}});
         await client.users.list({page_size:1});
         await client.pages.create({parent:{page_id:'parent'},properties:{title:{title:[]}}});
         const note = await escriba.transcribir(audio); await note.guardar();
       }` },
     bundle: true, write: false, platform: "browser", format: "iife", globalName: "__recipe",
   });
-  const state = structuredClone(snapshot);
+  const grant = { capability: "http" as const, origin: service.origin, allowedHeaders: ["content-type", "accept", "notion-version"], credential: { label: "Token", header: "Authorization", prefix: "Bearer " } };
+  const state: Snapshot = structuredClone(snapshot);
   state.recipes[0] = { id: "default", name: "SDK", kind: "code", values: {}, bundle: bundled.outputFiles[0].text };
-  state.accounts = [{ id: "notion-sdk", name: "Trabajo", provider: "notion", enabled: true, origin: "https://api.notion.com" }];
-  const sent: Record<string, unknown>[] = [];
-  const host = supervisor(state, false, undefined, async (method, params) => {
+  state.providers = [{ id: "notion-local", name: "Notion local", ...grant, defaultConfiguration: {} }];
+  state.accounts = [{ id: "notion-sdk", name: "Trabajo", provider: "notion-local", enabled: true, grant }];
+  await mkdir(join(directory, "secrets"), { recursive: true });
+  await writeFile(join(directory, "secrets/notion-sdk.token"), "token-notion-sintético");
+  const host = supervisor(state, false, undefined, async (method) => {
     if (method === "account_effect_begin") { state.recordings[0].accountEffectPending = true; return null; }
-    if (method !== "connector_http") throw Error(`Capacidad inesperada: ${method}`);
-    sent.push(params);
-    if (params.method === "POST") assert.equal(state.recordings[0].accountEffectPending, true);
-    return { status: 200, headers: { "content-type": "application/json" }, body: '{"object":"list","results":[],"has_more":false,"next_cursor":null}' };
+    throw Error(`Capacidad inesperada: ${method}`);
   });
   try {
     await host.ready;
     await host.run("processRecording", { recordingId: "r" }).result;
-    assert.deepEqual(sent.map((request) => request.method), ["GET", "POST"]);
-    assert.ok(sent.every((request) => request.accountId === "notion-sdk"));
+    assert.deepEqual(service.seen.map((request) => request.method), ["GET", "POST"]);
+    assert.ok(service.seen.every((request) => request.headers.authorization === "Bearer token-notion-sintético"));
+    assert.deepEqual(pendingAtPost, [true]);
     assert.equal(state.recordings[0].accountEffectPending, true);
     assert.equal(state.recordings[0].status, "done");
-  } finally { host.close(); }
+  } finally { host.close(); service.close(); }
 });
 test("notificaciones consultan solo el contexto de configuración y devuelven los problemas", async () => {
   const state = structuredClone(snapshot);

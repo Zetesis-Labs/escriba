@@ -47,7 +47,6 @@ pub enum AppCommand {
     ConfigSave(Untyped),
     ConfigRemove(Untyped),
     SettingsSave(Untyped),
-    CredentialSave(Untyped),
     PublicationSave(Untyped),
     PublicationRemove(Untyped),
     PeopleList(Untyped),
@@ -63,7 +62,6 @@ pub enum AppCommand {
     VoiceRegistrationDismiss(Untyped),
     ConnectorSave(Untyped),
     ConnectorRemove(Untyped),
-    ConnectorHttp(Untyped),
     ConnectorFiles(Untyped),
     ConnectorAudio(Untyped),
     Native(Untyped),
@@ -86,8 +84,6 @@ pub enum AppCommand {
     OpenUrl(Untyped),
     OpenPrivacySettings(Untyped),
     SystemAppearance(Untyped),
-    ResolverModels(Untyped),
-    ResolverTry(Untyped),
     WhisperModel(Untyped),
     WatchScan(Untyped),
     WatchFolderAuthorize(Untyped),
@@ -100,7 +96,13 @@ pub enum Command {
 }
 
 /// Métodos que atiende el controlador TypeScript; Rust los reenvía sin interpretarlos.
-pub const CONTROLLER_METHODS: &[&str] = &["controller_status"];
+pub const CONTROLLER_METHODS: &[&str] = &[
+    "controller_status",
+    "credential_save",
+    "connector_http",
+    "resolver_models",
+    "resolver_try",
+];
 
 pub fn forwarded(method: &str) -> bool {
     CONTROLLER_METHODS.contains(&method)
@@ -251,8 +253,6 @@ fn app_policy(command: &AppCommand) -> Policy {
         | OpenUrl(_)
         | OpenPrivacySettings(_)
         | SystemAppearance(_)
-        | ResolverModels(_)
-        | ResolverTry(_)
         | WhisperModel(_) => UI_READ,
         RuntimeCancel(_)
         | RuntimeRelaunch(_)
@@ -264,7 +264,6 @@ fn app_policy(command: &AppCommand) -> Policy {
         | ConfigSave(_)
         | ConfigRemove(_)
         | SettingsSave(_)
-        | CredentialSave(_)
         | PeopleSetColor(_)
         | PeopleRename(_)
         | PeopleRemove(_)
@@ -281,7 +280,6 @@ fn app_policy(command: &AppCommand) -> Policy {
         | MemoryKeep(_)
         | AccountEffectBegin(_)
         | AccountEffectFinish(_)
-        | ConnectorHttp(_)
         | ConnectorFiles(_)
         | ConnectorAudio(_)
         | NativeCancel(_)
@@ -417,7 +415,6 @@ mod tests {
             "project_build",
             "project_load",
             "project_install",
-            "connector_http",
             "connector_files",
             "connector_audio",
             "publication_save",
@@ -432,9 +429,8 @@ mod tests {
             .into_iter()
             .chain(methods::<KnowledgeCommand>())
             .collect();
-        assert_eq!(all.iter().filter(|method| recipe(method)).count(), 26);
+        assert_eq!(all.iter().filter(|method| recipe(method)).count(), 25);
         for forbidden in [
-            "credential_save",
             "people_set_color",
             "settings_save",
             "export_file",

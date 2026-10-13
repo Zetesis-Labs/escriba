@@ -3,8 +3,9 @@ import type { AppCommand } from "./generated/AppCommand";
 import type { KnowledgeCommand } from "./generated/KnowledgeCommand";
 import type { KnowledgeReply } from "./generated/KnowledgeReply";
 import type { JSONValue, Recording, Snapshot } from "./types";
+import type { ControllerMethod } from "./runtime/controllerMethods";
 
-export type AppMethod = AppCommand["method"];
+export type AppMethod = AppCommand["method"] | ControllerMethod;
 export type KnowledgeMethod = KnowledgeCommand["method"];
 export type KnowledgeParams<M extends KnowledgeMethod> = Extract<KnowledgeCommand, { method: M }>["params"];
 export type KnowledgeResult<M extends KnowledgeMethod> = Extract<KnowledgeReply, { method: M }>["value"];

@@ -148,9 +148,6 @@ impl IndexView {
     pub fn audio(&self, record_id: &str) -> Result<PathBuf, String> {
         super::recordings::audio(&self.index, &self.root, record_id)
     }
-    pub fn credential(&self, key: &str) -> Result<Option<String>, String> {
-        super::configuration::credential(&self.root, key)
-    }
     pub fn library(&self) -> Value {
         library(&self.index, &self.root)
     }

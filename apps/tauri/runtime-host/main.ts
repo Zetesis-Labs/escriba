@@ -9,6 +9,7 @@ import {
 } from "../src/runtime/workerClient";
 import { object, text, message, errorCode, protocolError, jsonObject, json } from "../src/runtime/contracts";
 import { createCommands, isOrigin, registerControllerCommands } from "../src/runtime/commands";
+import { fileCredentials } from "../src/runtime/credentials";
 import type { NativeStatus, ProcessOptions } from "../src/types";
 declare const __WORKER_SOURCE__: string;
 declare const __BUILTIN_PROGRAM__: string;
@@ -113,6 +114,7 @@ async function main() {
   >();
   let closing: Error | undefined;
   let sequence = 0;
+  const commands = createCommands();
   const host = {
     call(method: string, params: Record<string, unknown> = {}) {
       if (closing) return Promise.reject(closing);
@@ -121,6 +123,7 @@ async function main() {
         return Promise.reject(
           new DOMException("Proceso cancelado", "AbortError"),
         );
+      if (commands.owns(method)) return commands.dispatch(method, params, "shell");
       const id = `call-${++sequence}`;
       return new Promise<unknown>((resolve, reject) => {
         pending.set(id, { resolve, reject, taskId });
@@ -186,8 +189,15 @@ async function main() {
   runtime.subscribeJobs(() => {
     void send({ type: "event", event: "jobs", value: runtime.getJobs() });
   });
-  const commands = createCommands();
-  registerControllerCommands(commands, { dataPath: process.env.ESCRIBA_DATA ?? "" });
+  const dataPath = process.env.ESCRIBA_DATA ?? "";
+  registerControllerCommands(commands, {
+    host,
+    dataPath,
+    credentials: fileCredentials(dataPath),
+    emit: (event, value) => {
+      void send({ type: "event", event, value: value ?? null });
+    },
+  });
   async function execute(operation: string, args: Record<string, unknown>) {
     switch (operation) {
       case "notificationProblems":

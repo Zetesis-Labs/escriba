@@ -26,7 +26,6 @@ mod project;
 mod project_watch;
 mod recorder;
 mod recording;
-mod remote;
 mod scripts;
 mod storage;
 mod store;
@@ -137,24 +136,6 @@ async fn app_command(
     result
 }
 
-fn resolver_draft(state: &Runtime, p: &Value) -> Result<(Value, Option<String>), String> {
-    let typed = p["key"]
-        .as_str()
-        .map(str::trim)
-        .filter(|key| !key.is_empty())
-        .map(str::to_owned);
-    let secret = match (typed, p["resolverId"].as_str()) {
-        (Some(key), _) => Some(key),
-        (None, Some(id)) => state
-            .library
-            .index()
-            .credential(id)?
-            .map(|key| key.trim().to_owned()),
-        (None, None) => None,
-    };
-    Ok((p["resolver"].clone(), secret))
-}
-
 fn directory_size(path: &std::path::Path) -> u64 {
     walkdir::WalkDir::new(path)
         .into_iter()
@@ -208,19 +189,20 @@ async fn whisper_model(state: &Arc<Runtime>, p: &Value) -> Result<Value, String>
 }
 
 async fn dispatch_inference(
+    app: &tauri::AppHandle,
     state: &Arc<Runtime>,
     method: &str,
     p: Value,
 ) -> Result<Value, error::AppError> {
     match method {
         "transcribe" => {
-            let (audio, resolver, secret, model) = {
+            let (audio, resolver, key, model) = {
                 let store = state.library.index();
                 let key = p["resolverId"].as_str().unwrap_or("local-stt");
                 (
                     store.audio(text(&p, "recordingId")?)?,
                     store.item("resolvers", key)?,
-                    store.credential(key)?,
+                    key.to_owned(),
                     json!(store.settings.whisper_model.as_ref()),
                 )
             };
@@ -231,7 +213,21 @@ async fn dispatch_inference(
             let transcript = if resolver["local"] == true {
                 state.inference.transcribe(&audio, model, p).await
             } else {
-                remote::transcribe(&resolver, secret, &audio, &p).await
+                let request = json!({
+                    "resolver": resolver,
+                    "resolverId": key,
+                    "path": audio,
+                    "language": p["language"],
+                    "diarize": p["diarize"],
+                });
+                controller_command(
+                    app,
+                    state,
+                    "remote_transcribe",
+                    request,
+                    scripts::Origin::Shell,
+                )
+                .await
             }?;
             state
                 .library
@@ -240,10 +236,10 @@ async fn dispatch_inference(
                 .map_err(Into::into)
         }
         "summarize" | "ask" => {
-            let (resolver, secret) = {
+            let (resolver, key) = {
                 let store = state.library.index();
                 let key = p["resolverId"].as_str().unwrap_or("local-llm");
-                (store.item("resolvers", key)?, store.credential(key)?)
+                (store.item("resolvers", key)?, key.to_owned())
             };
             if resolver["enabled"] == false {
                 return Err("El resolutor está apagado".into());
@@ -251,15 +247,25 @@ async fn dispatch_inference(
             if resolver["local"] == true {
                 state.inference.call(method, p).await
             } else {
-                let mut params = p;
+                let mut request = json!({
+                    "resolver": resolver,
+                    "resolverId": key,
+                    "instructions": p["instructions"],
+                    "prompt": p["prompt"],
+                });
                 if method == "summarize" {
-                    params["schema"] = remote::digest_schema();
+                    request["schema"] = digest_schema();
+                } else if let Some(schema) = p.get("schema") {
+                    request["schema"] = schema.clone();
                 }
-                remote::ask(&resolver, secret, &params).await
+                controller_command(app, state, "remote_ask", request, scripts::Origin::Shell).await
             }
         }
         _ => Err("Capacidad de inferencia desconocida".into()),
     }
+}
+fn digest_schema() -> Value {
+    json!({"type":"object","properties":{"title":{"type":"string"},"summary":{"type":"string"},"tags":{"type":"array","items":{"type":"string"}}},"required":["title","summary","tags"],"additionalProperties":false})
 }
 
 fn dispatch<'a>(
@@ -502,16 +508,6 @@ async fn dispatch_app(
                 }
                 Ok(json!(imported))
             }
-            AppCommand::CredentialSave(Untyped(p)) => {
-                state
-                    .library
-                    .save_credential(
-                        text(&p, "id")?.to_owned(),
-                        p["value"].as_str().ok_or("Falta la credencial")?.to_owned(),
-                    )
-                    .await?;
-                Ok(Value::Null)
-            }
             AppCommand::ConnectorRemove(Untyped(p)) => {
                 state
                     .library
@@ -562,41 +558,13 @@ async fn dispatch_app(
             }
             AppCommand::Transcribe(Untyped(p))
             | AppCommand::Summarize(Untyped(p))
-            | AppCommand::Ask(Untyped(p)) => dispatch_inference(state, method, p)
+            | AppCommand::Ask(Untyped(p)) => dispatch_inference(app, state, method, p)
                 .await
                 .map_err(|e| e.message),
             AppCommand::RecordingStart(Untyped(p)) => {
                 recorder::start(app, state, p["recipeId"].as_str().map(str::to_owned)).await
             }
             AppCommand::RecordingStop(Untyped(_)) => recorder::stop(app, state).await,
-            AppCommand::ConnectorHttp(Untyped(p)) => {
-                let (account, grant, secret, audio) = {
-                    let store = state.library.index();
-                    let key = text(&p, "accountId")?;
-                    let record_id = p["multipart"].as_array().and_then(|a| {
-                        a.iter()
-                            .find_map(|part| part["audio"]["recordingId"].as_str())
-                    });
-                    let audio = record_id
-                        .map(|id| {
-                            store.audio(id).map(|path| capabilities::AudioFile {
-                                path,
-                                recording_id: id.to_owned(),
-                            })
-                        })
-                        .transpose()?;
-                    let account = store.item("accounts", key)?;
-                    let provider = match account["provider"].as_str() {
-                        Some("notion" | "okf") => None,
-                        Some(id) => Some(store.item("providers", id)?),
-                        None => return Err("Cuenta sin proveedor".into()),
-                    };
-                    let grant =
-                        capabilities::authorized_access(&account, provider.as_ref(), &p, "http")?;
-                    (account, grant, store.credential(key)?, audio)
-                };
-                capabilities::http_with_grant(&account, &grant, secret, &p, audio).await
-            }
             AppCommand::ConnectorFiles(Untyped(p)) => {
                 let account = {
                     let store = state.library.index();
@@ -778,33 +746,6 @@ async fn dispatch_app(
                 Ok(Value::Null)
             }
             AppCommand::SystemAppearance(Untyped(_)) => Ok(json!({"accent": appearance::accent()})),
-            AppCommand::ResolverModels(Untyped(p)) => {
-                let (draft, secret) = resolver_draft(state, &p)?;
-                Ok(json!(remote::models(&draft, secret).await?))
-            }
-            AppCommand::ResolverTry(Untyped(p)) => {
-                let (draft, secret) = resolver_draft(state, &p)?;
-                let llm = text(&p, "role")? == "llm";
-                let request = json!({"instructions": p["instructions"], "prompt": p["prompt"]});
-                match (draft["local"] == true, llm) {
-                    (true, true) => state
-                        .inference
-                        .call("summarize", request)
-                        .await
-                        .map_err(Into::into),
-                    (true, false) => Err("Whisper en este Mac no tiene prueba".into()),
-                    (false, true) => {
-                        let mut request = request;
-                        request["schema"] = remote::digest_schema();
-                        remote::ask(&draft, secret, &request)
-                            .await
-                            .map_err(Into::into)
-                    }
-                    (false, false) => {
-                        Ok(json!({"text": remote::probe_transcription(&draft, secret).await?}))
-                    }
-                }
-            }
             AppCommand::WhisperModel(Untyped(p)) => whisper_model(state, &p).await,
             AppCommand::OpenPrivacySettings(Untyped(p)) => {
                 let pane = match p["pane"].as_str() {
@@ -1430,7 +1371,7 @@ fn controller_hooks(
                     AppCommand::Transcribe(Untyped(params))
                     | AppCommand::Summarize(Untyped(params))
                     | AppCommand::Ask(Untyped(params)),
-                ) => dispatch_inference(&state, &method, params).await,
+                ) => dispatch_inference(&handle, &state, &method, params).await,
                 _ => dispatch(&handle, &state, request)
                     .await
                     .map_err(error::AppError::from),
@@ -1476,13 +1417,28 @@ fn controller_hooks(
     });
     (capability, events)
 }
+const SHELL_NATIVE_METHODS: &[&str] = &["status", "summarize", "ask"];
 async fn shell_capability(
     _app: &tauri::AppHandle,
-    _state: &Arc<Runtime>,
+    state: &Arc<Runtime>,
     method: &str,
-    _params: Value,
+    params: Value,
 ) -> Result<Value, error::AppError> {
-    Err(format!("Capacidad de la cáscara desconocida: {method}").into())
+    match method {
+        "audio_path" => {
+            let path = state.library.index().audio(text(&params, "recordingId")?)?;
+            Ok(json!({"path": path}))
+        }
+        "native" => {
+            let native = text(&params, "method")?;
+            if !SHELL_NATIVE_METHODS.contains(&native) {
+                return Err(format!("Capacidad nativa no permitida: {native}").into());
+            }
+            let arguments = params.get("params").cloned().unwrap_or(json!({}));
+            state.inference.call(native, arguments).await
+        }
+        _ => Err(format!("Capacidad de la cáscara desconocida: {method}").into()),
+    }
 }
 async fn controller_command(
     app: &tauri::AppHandle,

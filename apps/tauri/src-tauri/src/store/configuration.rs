@@ -7,6 +7,7 @@ impl Store {
     pub fn credential(&self, key: &str) -> Result<Option<String>, String> {
         credential(&self.root, key)
     }
+    #[cfg(test)]
     pub fn save_credential(&self, key: &str, value: &str) -> Result<(), String> {
         if self.item("accounts", key).is_err() && self.item("resolvers", key).is_err() {
             return Err("La cuenta no existe".into());

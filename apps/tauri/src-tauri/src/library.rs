@@ -61,11 +61,6 @@ enum Order {
         source_key: String,
         reply: Reply<Value>,
     },
-    SaveCredential {
-        key: String,
-        value: String,
-        reply: Reply<()>,
-    },
     RemoveConnector {
         id: String,
         reply: Reply<()>,
@@ -328,10 +323,6 @@ impl Actor {
                 let result = store
                     .import_staged_with_metadata(staged, &source, &title, started_at, &source_key)
                     .await;
-                self.answer(reply, result).await
-            }
-            Order::SaveCredential { key, value, reply } => {
-                let result = store.save_credential(&key, &value);
                 self.answer(reply, result).await
             }
             Order::RemoveConnector { id, reply } => {
@@ -705,11 +696,6 @@ impl Library {
             reply,
         })
         .await
-    }
-
-    pub async fn save_credential(&self, key: String, value: String) -> Result<(), String> {
-        self.request(|reply| Order::SaveCredential { key, value, reply })
-            .await
     }
 
     pub async fn remove_connector(&self, id: String) -> Result<(), String> {

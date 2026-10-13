@@ -51,11 +51,10 @@ Errores rechazan la promesa con texto legible; nunca éxitos vacíos.
 - config_save {collection:'resolvers'|'recipes'|'accounts'|'destinations', item} -> item (upsert por id).
 - config_remove {collection,id} -> void (locales/base no se borran).
 - settings_save {settings: Partial<Settings>} -> Settings.
-- credential_save {id, value} -> void (vacío elimina; nunca lectura a JS).
 - log {message,level?,recordingId?,recipeId?} -> void (`level` info, warn o error; emite `escriba://log`, no `escriba://changed`).
 - log_list {recordingId?,before?,limit?} -> LogEntry[] (más recientes primero, hasta 3000; `before` pagina por `at`). `library` y `snapshot` no incluyen el registro.
 - native {method,params} -> resultado sidecar; native_cancel -> void (interrumpe proceso y se reinicia a demanda).
-- transcribe {recordingId,resolverId,language?,diarize?,speakers?} -> Transcript (local Swift/remoto Rust).
+- transcribe {recordingId,resolverId,language?,diarize?,speakers?} -> Transcript (local por el host nativo; remoto lo pide Rust al controlador con `remote_transcribe`); Rust reconoce hablantes en ambos casos.
 - summarize {resolverId,instructions,prompt} -> Digest (una petición; troceo TS).
 - ask {resolverId,instructions,prompt,schema?} -> JSON.
 - recording_start {recipeId?} -> estado del panel; recording_stop -> Recording | null.
@@ -65,7 +64,6 @@ Errores rechazan la promesa con texto legible; nunca éxitos vacíos.
 - open_privacy_settings -> void (abre Ajustes del Sistema, destino fijo; no disponible para recetas).
 - okf_file {accountId,path,action:'open'|'reveal'} -> void (solo documentos dentro de la carpeta autorizada de la cuenta OKF).
 - system_appearance -> {accent:string|null} (color de acento del sistema).
-- resolver_models {resolver,key?,resolverId?} -> string[] (modelos del servicio compatible con OpenAI); resolver_try {resolver,key?,resolverId?,role,instructions?,prompt?} -> Digest | {text} (prueba sin guardar; la clave escrita prevalece sobre la guardada).
 - whisper_model {action:'info'|'delete'} -> {model,available,bytes} | void (solo la carpeta de modelos de Escriba).
 - project_init {path} -> {hasDist:boolean} (crea ausentes; si ya existe el artefacto no añade fuentes).
 - project_build -> {recipes:Recipe[],connectorProgram?:string,ontologyProgram?:string} (Bun aislado construye `dist/` y el cargador lo lee; conserva el artefacto anterior si falla la construcción).
@@ -76,7 +74,6 @@ Errores rechazan la promesa con texto legible; nunca éxitos vacíos.
 - project_tool {tool:'install'|'check'|'test'} -> {success:boolean,output:string} (Bun y TypeScript 7 incluidos, sandbox de desarrollo, salida y duración acotadas; solo install permite red, sin scripts de instalación).
 - connector_save {account,destination} -> void (cuenta y destino gestionado con el mismo id; autorización explícita en account.grant, credencial por separado).
 - connector_remove {id} -> void (retira configuración y credencial local; conserva las publicaciones).
-- connector_http {accountId,expectedGrant,url,method?,headers?,body?,multipart?} -> {status,headers,body} (cuenta fija origen y cabeceras; secreto en Rust, no redirects; multipart [{name,value? ,audio?:{recordingId,start?,end?},filename?,type?}]).
 - connector_files {accountId,expectedGrant,operation:'snapshot'|'apply',changes?} -> mapa de textos / void (solo carpeta autorizada, sin symlinks ni escapes, CAS expectedContents).
 - connector_audio {recordingId} -> {size,type,filename} | null (audio opaco, bytes nunca a receta).
 - publication_save {recordingId,destinationId,accountId,name,provider,receipt,configuration,program?,managed?} -> void.
@@ -113,6 +110,18 @@ Los eventos que emite (`changed`, `log`, `imported`, `project`,
 `escriba://<evento>`.
 
 - controller_status -> {protocolVersion, dataPath} (el controlador está vivo y sabe dónde están los datos).
+- credential_save {id, value} -> void (ficheros 0600 en `secrets/`, escritos por el controlador; vacío elimina; nunca lectura a JS; emite `changed`). Rust solo comprueba que el fichero existe (`hasCredential`) y lo borra al retirar la cuenta o el resolutor.
+- connector_http {accountId,expectedGrant,url,method?,headers?,body?,multipart?} -> {status,headers,body} (cuenta fija origen y cabeceras; el controlador inyecta el secreto, no sigue redirecciones y redacta el secreto de la respuesta; multipart [{name,value? ,audio?:{recordingId,start?,end?},filename?,type?}]; la ruta del audio la pide a la cáscara con `shell.audio_path`). Lo usa también el propio controlador para las recetas y conectores, sin pasar por Rust.
+- resolver_models {resolver,key?,resolverId?} -> string[] (modelos del servicio compatible con OpenAI); resolver_try {resolver,key?,resolverId?,role,instructions?,prompt?} -> Digest | {text} (prueba sin guardar; la clave escrita prevalece sobre la guardada; el LLM local se prueba por `shell.native`).
+
+Solo la cáscara (`origin: shell`) puede pedir `remote_transcribe
+{resolver,resolverId,path,language?,diarize?}` y `remote_ask
+{resolver,resolverId,instructions,prompt,schema?}`: son las ramas remotas de
+`transcribe`, `summarize` y `ask`, que siguen entrando por Rust.
+
+El controlador pide a Rust capacidades `shell.*` por el mismo canal `call`:
+`shell.audio_path {recordingId}` -> {path} y `shell.native {method,params}`
+(solo `status`, `summarize` y `ask` del host nativo). Nunca llegan a una receta.
 
 ## Trabajos y estado de la interfaz
 

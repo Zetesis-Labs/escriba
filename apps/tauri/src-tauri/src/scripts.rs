@@ -47,11 +47,13 @@ impl Lease {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Origin {
     Ui,
+    Shell,
 }
 impl Origin {
     fn label(self) -> &'static str {
         match self {
             Origin::Ui => "ui",
+            Origin::Shell => "shell",
         }
     }
 }
