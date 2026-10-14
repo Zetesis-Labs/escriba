@@ -1,0 +1,21 @@
+[package]
+name = "escriba-sandbox"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[[bin]]
+name = "escriba-sandbox"
+path = "src/main.rs"
+
+[dependencies]
+landlock = "0.4.7"
+seccompiler = "0.5.0"
+libc = "0.2"
+
+[profile.release]
+strip = "symbols"
+lto = "thin"
+
+[dev-dependencies]
+tempfile = "3"
