@@ -348,6 +348,19 @@ la nota grabada se reproduce y se procesa en la app instalada, y si hay botón d
 pausa (solo Linux, ambos o ninguno). `worker.test.ts` («tiempo de inferencia en
 host…») falló una vez con el equipo cargado y pasó al repetir.
 
+**L4 en Ubuntu 25.10** (2026-10-14). whisper.cpp (`whisper-rs`, en
+procesador) en el host de Rust: modelos `ggml-<modelo>.bin`, large-v3-turbo de
+serie, descarga explícita con progreso desde STT y transcripción solo con
+modelos instalados. Las grabaciones Ogg Opus se decodifican con libopus. La
+prueba real (`--ignored`, modelo tiny y voz de `espeak-ng`) transcribe en
+español, detecta el idioma y lee una grabación Opus. Al pasar la batería, una
+prueba antigua descargó de verdad large-v3-turbo (1,6 GB) en
+`~/.local/share/escriba/models`; se conserva porque es el modelo de serie, y el
+arnés usa ya siempre una carpeta de datos temporal. Detectar hablantes falla
+avisando hasta L5. Sin gráfica: aceleración por GPU pendiente de demostrar que
+es estable (plan L4). Fuera de la spec y por decidir: elegir otros modelos desde
+STT (el Mac no tiene selector).
+
 **Para la sesión del Mac (L3):** `recorder.rs` construye la ventana flotante
 solo en macOS (`open_panel` ya no compila en Linux: comprobar que compila en el
 Mac); la URL del panel lleva `&platform=macos`; `RecordingPanel` acepta
@@ -394,7 +407,7 @@ revisar en particular:
 | L1 | hecha | `54436b9`…`c758503` | | Ver «L1 en Ubuntu 25.10» |
 | L2 | construida, falta validar | `e6fa7b8`…`6718249` | | Ver «L2 en Ubuntu 25.10» |
 | L3 | construida, panel aprobado | `9398936`…`51f61c0` | panel: sí (2026-10-14) | Ver «L3 en Ubuntu 25.10» |
-| L4 | pendiente | | | |
+| L4 | construida, falta validar | `7b27d68`…`7c2205b` | | Ver «L4 en Ubuntu 25.10» |
 | L5 | pendiente | | | |
 | L6 | pendiente | | | |
 | L7 | pendiente | | | |
