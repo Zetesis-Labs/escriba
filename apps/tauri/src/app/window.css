@@ -152,7 +152,8 @@
 .recording-dock {
   position: absolute;
   top: 60px;
-  left: 212px;
+  left: calc(200px + (100% - 200px) / 2);
+  transform: translateX(-50%);
   z-index: 20;
   width: 452px;
   border-radius: 27px;
