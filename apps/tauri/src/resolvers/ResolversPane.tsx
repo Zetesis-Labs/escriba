@@ -17,10 +17,11 @@ import {
   bytesLabel,
   hasLocal,
   localId,
-  localName,
   removedResolverNote,
   resolversFooter,
   localProblem,
+  defaultLocalStt,
+  movedRecipesNote,
   nextResolverName,
   presetFor,
   remotePresets,
@@ -112,16 +113,17 @@ export function ResolversPane({ data, role, refresh }: { data: Snapshot; role: R
     );
   };
   const remove = async () => {
-    if (!current || !removable(current)) return;
-    const note = isAddedModel(current)
-      ? `Las recetas que lo usaban pasan a ${localName(role, platform)}. El modelo descargado no se borra del disco.`
-      : removedResolverNote(role, platform);
+    if (!current || !removable(current, catalog)) return;
+    const remaining = resolvers.filter((resolver) => resolver.id !== current.id);
+    const note = current.local
+      ? `${movedRecipesNote(role, platform, remaining)} El modelo descargado no se borra del disco.`
+      : removedResolverNote(role, platform, remaining);
     const confirmed = await confirmDestructive(`¿Quitar «${current.name}»?`, note, "Quitar");
     if (!confirmed) return;
     try {
       await call("config_remove", { collection: "resolvers", id: current.id });
       await call("credential_save", { id: current.id, value: "" }).catch(() => undefined);
-      setSelected(hasLocal(role, platform) ? localId(role) : "");
+      setSelected(defaultLocalStt(remaining)?.id ?? (hasLocal(role, platform) ? localId(role) : ""));
     } catch (failure) {
       await alertMessage("No se pudo", errorText(failure));
     } finally {
@@ -155,13 +157,13 @@ export function ResolversPane({ data, role, refresh }: { data: Snapshot; role: R
           </div>
           <ListBar>
             <ListBarButton icon={Plus} label="Añadir un servicio compatible con OpenAI" onClick={(event) => void add(event)} />
-            <ListBarButton icon={Minus} label="Quitar" onClick={() => void remove()} disabled={!current || !removable(current)} />
+            <ListBarButton icon={Minus} label="Quitar" onClick={() => void remove()} disabled={!current || !removable(current, catalog)} />
           </ListBar>
         </div>
         <div className="list-detail-divider" />
         <div className="detail-column">
           {current ? (
-            <ResolverEditor key={current.id} resolver={current} role={role} localProblem={isAddedModel(current) ? addedModelProblem(current, catalog) : local} whisperModel={isAddedModel(current) ? current.model ?? "" : data.settings.whisperModel} catalog={catalog} refresh={refresh} reloadStatus={reload} />
+            <ResolverEditor key={current.id} resolver={current} role={role} localProblem={isAddedModel(current) ? addedModelProblem(current, catalog) : local} whisperModel={isAddedModel(current) ? current.model ?? "" : data.settings.whisperModel} catalog={catalog} resolvers={resolvers} refresh={refresh} reloadStatus={reload} />
           ) : (
             <ContentUnavailable title="Sin resolutor elegido" icon={role === "llm" ? Sparkles : AudioWaveform} description="Elige uno de la lista o añade un servicio con +." />
           )}
@@ -179,6 +181,7 @@ function ResolverEditor({
   localProblem: local,
   whisperModel,
   catalog,
+  resolvers,
   refresh,
   reloadStatus,
 }: {
@@ -187,6 +190,7 @@ function ResolverEditor({
   localProblem: string | null;
   whisperModel: string;
   catalog: WhisperCatalog | null;
+  resolvers: Resolver[];
   refresh: () => Promise<void>;
   reloadStatus: () => void;
 }) {
@@ -266,7 +270,7 @@ function ResolverEditor({
       <div className="form-pane">
         <FormSection
           footer={
-            resolversFooter(role, platform)
+            resolversFooter(role, platform, resolvers)
           }
         >
           <LabeledRow label="Nombre">{resolver.local ? resolverName(resolver, role, platform) : <InlineField value={name} onChange={setName} />}</LabeledRow>

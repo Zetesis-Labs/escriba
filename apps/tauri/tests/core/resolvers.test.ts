@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { addableModels, addedModelProblem, downloadLabel, nextResolverName, presetFor, removable, remoteURLProblem, resolverName, resolverProblem, resolverSubtitle } from "../../src/core/resolvers";
+import { addableModels, addedModelProblem, defaultLocalStt, downloadLabel, nextResolverName, presetFor, removable, remoteURLProblem, resolverName, resolverProblem, resolversFooter, resolverSubtitle } from "../../src/core/resolvers";
 import { macOS } from "../../src/core/platform";
 import { linux } from "./platforms";
 
@@ -57,10 +57,25 @@ describe("modelos de Whisper local", () => {
     expect(resolverSubtitle(serie, null, linux)).toBe("En este equipo");
   });
 
-  test("solo los modelos añadidos se pueden quitar", () => {
-    expect(removable(base)).toBe(true);
-    expect(removable(serie)).toBe(false);
-    expect(removable({ ...serie, id: "remote", local: false })).toBe(true);
+  test("el de serie se quita donde el catálogo permite volver a añadirlo; Apple Intelligence nunca", () => {
+    expect(removable(base, catalog)).toBe(true);
+    expect(removable(serie, catalog)).toBe(true);
+    expect(removable(serie, null)).toBe(false);
+    expect(removable({ ...serie, id: "remote", local: false }, null)).toBe(true);
+    expect(removable({ id: "local-llm", local: true }, catalog)).toBe(false);
+  });
+
+  test("sin el de serie, el «+» vuelve a ofrecer su modelo", () => {
+    expect(addableModels(catalog, [base]).map((entry) => entry.model)).toEqual(["large-v3-turbo", "tiny"]);
+  });
+
+  test("la receta que no elige usa el primer Whisper local que queda", () => {
+    const remote = { id: "remote", name: "Groq", role: "stt" as const, local: false, enabled: true };
+    expect(defaultLocalStt([remote, serie, base])?.id).toBe("local-stt");
+    expect(defaultLocalStt([remote, base])?.id).toBe("local-stt-base");
+    expect(defaultLocalStt([remote])).toBeUndefined();
+    expect(resolversFooter("stt", linux, [remote, base])).toBe("Cada receta elige con qué transcribir, en Recetas. La que no elige usa Whisper · base.");
+    expect(resolversFooter("stt", linux, [remote])).toBe("Cada receta elige con qué transcribir, en Recetas. La que no elige espera hasta que añadas un Whisper local.");
   });
 
   test("descargar dice el tamaño de ese modelo; sin catálogo, el del modelo de serie del sistema", () => {

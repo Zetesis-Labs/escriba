@@ -111,8 +111,9 @@ no se ha podido leer. Preservar la lectura de datos ya guardados al actualizar.
   vuelve a diarizar.
 - WhisperKit es el motor local; modelos en
   `~/Library/Application Support/escriba/models`, descargados explícitamente.
-  Cada modelo añadido en STT es un resolutor local con su modelo; el Whisper de
-  serie no se quita (`specs/escriba/modelos-whisper/functional-specs.md`).
+  Cada modelo añadido en STT es un resolutor local con su modelo; el de serie se
+  quita donde hay catálogo y la receta sin STT usa el primer Whisper local
+  (`specs/escriba/modelos-whisper/functional-specs.md`).
   Descarga completa sólo con los tres `.mlmodelc` y sus `coremldata.bin`.
   El motor se descarga de memoria tras cinco minutos sin trabajo.
 

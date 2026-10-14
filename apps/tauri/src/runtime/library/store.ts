@@ -652,7 +652,7 @@ export class Store {
       case "config_remove": {
         const collection = collectionName(p);
         const key = text(p, "id");
-        if (["local-stt", "local-llm", "default"].includes(key)) throw Error("Esta opción viene de serie y no se puede quitar");
+        if (["local-llm", "default"].includes(key)) throw Error("Esta opción viene de serie y no se puede quitar");
         if (collection === "accounts" && next.recordings.some((record) => (record.publications ?? []).some((publication) => isObject(publication) && publication.accountId === key)))
           throw Error("Retira las publicaciones de esta cuenta antes de eliminarla");
         setCatalog(next, collection, catalog(next, collection).filter((item) => !isObject(item) || item.id !== key));

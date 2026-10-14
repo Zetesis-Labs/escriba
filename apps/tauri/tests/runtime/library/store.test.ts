@@ -1186,7 +1186,7 @@ test("preparar el audio no toca la biblioteca y limpia su copia", async () => {
   assert.equal(temporaries(), 0);
 });
 
-test("un modelo de Whisper añadido es un resolutor local que se puede quitar; el de serie no", async () => {
+test("un modelo de Whisper añadido es un resolutor local que se puede quitar", async () => {
   const store = await space.open();
   const added = obj(await store.mutate("config_save", { collection: "resolvers", item: { id: "local-stt-base", name: "Whisper · base", role: "stt", model: "base", local: false, enabled: false } }));
   assert.equal(added.local, true);
@@ -1199,5 +1199,14 @@ test("un modelo de Whisper añadido es un resolutor local que se puede quitar; e
   await assert.rejects(store.mutate("config_save", { collection: "resolvers", item: { id: "local-stt-base", name: "x", role: "llm", model: "base" } }), /modelo/);
   await store.mutate("config_remove", { collection: "resolvers", id: "local-stt-base" });
   assert.throws(() => store.item("resolvers", "local-stt-base"));
-  await assert.rejects(store.mutate("config_remove", { collection: "resolvers", id: "local-stt" }), /de serie/);
+});
+
+test("el Whisper de serie se puede quitar; Apple Intelligence y la receta por defecto no", async () => {
+  const store = await space.open();
+  await store.mutate("config_remove", { collection: "resolvers", id: "local-stt" });
+  assert.throws(() => store.item("resolvers", "local-stt"));
+  const reopened = await reopen(space, store);
+  assert.throws(() => reopened.item("resolvers", "local-stt"));
+  await assert.rejects(reopened.mutate("config_remove", { collection: "resolvers", id: "local-llm" }), /de serie/);
+  await assert.rejects(reopened.mutate("config_remove", { collection: "recipes", id: "default" }), /de serie/);
 });

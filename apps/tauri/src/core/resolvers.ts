@@ -8,13 +8,38 @@ export const localName = (role: Role, platform: Platform = macOS) =>
   role === "llm" ? "Apple Intelligence" : whisperName(platform.system);
 export const hasLocal = (role: Role, platform: Platform = macOS) => role === "stt" || platform.bundledLlm;
 
-export const resolversFooter = (role: Role, platform: Platform = macOS) =>
-  `Cada receta elige con qué ${role === "stt" ? "transcribir" : "resumir"}, en Recetas. ${
-    hasLocal(role, platform) ? `La que no elige usa ${localName(role, platform)}.` : "La que no elige no puede resumir."
-  }`;
+type Listed = Pick<Resolver, "id" | "name" | "role" | "local" | "enabled">;
 
-export const removedResolverNote = (role: Role, platform: Platform = macOS) =>
-  `Se borra su clave. ${hasLocal(role, platform) ? `Las recetas que lo usaban pasan a ${localName(role, platform)}.` : "Las recetas que lo usaban se quedan sin LLM."}`;
+// A recipe that picks no STT uses the first local Whisper left in the list.
+export const defaultLocalStt = <T extends { role?: unknown; local?: unknown; enabled?: unknown }>(resolvers: T[]): T | undefined =>
+  resolvers.find((resolver) => resolver.role === "stt" && resolver.local === true && resolver.enabled !== false);
+
+// What a recipe that picks nothing uses; null when nothing is left.
+function fallbackName(role: Role, platform: Platform, resolvers?: Listed[]) {
+  if (!hasLocal(role, platform)) return null;
+  if (role === "llm" || !resolvers) return localName(role, platform);
+  const local = defaultLocalStt(resolvers);
+  return local ? resolverName(local as Resolver, role, platform) : null;
+}
+
+export const resolversFooter = (role: Role, platform: Platform = macOS, resolvers?: Listed[]) => {
+  const fallback = fallbackName(role, platform, resolvers);
+  const rest = fallback
+    ? `La que no elige usa ${fallback}.`
+    : role === "stt"
+      ? "La que no elige espera hasta que añadas un Whisper local."
+      : "La que no elige no puede resumir.";
+  return `Cada receta elige con qué ${role === "stt" ? "transcribir" : "resumir"}, en Recetas. ${rest}`;
+};
+
+export const movedRecipesNote = (role: Role, platform: Platform = macOS, resolvers?: Listed[]) => {
+  const fallback = fallbackName(role, platform, resolvers);
+  if (fallback) return `Las recetas que lo usaban pasan a ${fallback}.`;
+  return role === "stt" ? "Las recetas que lo usaban esperan hasta que añadas un Whisper local." : "Las recetas que lo usaban se quedan sin LLM.";
+};
+
+export const removedResolverNote = (role: Role, platform: Platform = macOS, resolvers?: Listed[]) =>
+  `Se borra su clave. ${movedRecipesNote(role, platform, resolvers)}`;
 export const localId = (role: Role) => (role === "stt" ? "local-stt" : "local-llm");
 
 export interface RemotePreset {
@@ -127,15 +152,18 @@ export interface WhisperCatalog {
 
 // Each Whisper model added in STT is a local resolver of its own.
 export const isAddedModel = (resolver: Pick<Resolver, "id" | "local">) => resolver.local && resolver.id.startsWith("local-stt-");
-export const removable = (resolver: Pick<Resolver, "id" | "local">) => !resolver.local || isAddedModel(resolver);
+// The default Whisper goes only where the catalog lets it come back through «+».
+export const removable = (resolver: Pick<Resolver, "id" | "local">, catalog: WhisperCatalog | null) =>
+  !resolver.local || isAddedModel(resolver) || (resolver.id === "local-stt" && catalog !== null);
 export const resolverName = (resolver: Resolver, role: Role, platform: Platform = macOS) =>
   resolver.local && !isAddedModel(resolver) ? localName(role, platform) : resolver.name;
 
 export function addableModels(catalog: WhisperCatalog | null, resolvers: Pick<Resolver, "id" | "local" | "model">[]) {
   if (!catalog) return [];
   const present = new Set(resolvers.filter(isAddedModel).map((resolver) => resolver.model));
+  const hasDefault = resolvers.some((resolver) => resolver.local && resolver.id === "local-stt");
   return catalog.models
-    .filter((entry) => entry.model !== catalog.default && !present.has(entry.model))
+    .filter((entry) => !(hasDefault && entry.model === catalog.default) && !present.has(entry.model))
     .map((entry) => ({ model: entry.model, title: `Whisper · ${entry.label} (unos ${bytesLabel(entry.bytes)})` }));
 }
 

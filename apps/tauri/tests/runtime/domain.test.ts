@@ -239,6 +239,17 @@ test("cada Whisper local transcribe con su modelo y el de serie con el de los aj
   assert.deepEqual(models, ["base", obj(await f.shell("settings_read")).whisperModel]);
 });
 
+test("sin STT elegido transcribe el primer Whisper local que queda, y sin ninguno espera", async () => {
+  const id = await f.imported();
+  await f.ui("config_save", { collection: "resolvers", item: { id: "local-stt-base", name: "Whisper · base", role: "stt", model: "base" } });
+  await f.ui("config_remove", { collection: "resolvers", id: "local-stt" });
+  await f.ui("transcribe", { recordingId: id, language: "es" });
+  const native = f.calls.filter((call) => call.method === "shell.native" && object(call.params).method === "transcribe").at(-1);
+  assert.equal(object(object(native?.params).params).model, "base");
+  await f.ui("config_remove", { collection: "resolvers", id: "local-stt-base" });
+  await assert.rejects(f.ui("transcribe", { recordingId: id }), (error: Error & { code?: string }) => /ningún Whisper local/.test(error.message));
+});
+
 test("la inferencia remota lleva la clave guardada y nunca la devuelve", async () => {
   const id = await f.imported();
   await f.ui("config_save", { collection: "resolvers", item: { id: "remote-llm", name: "LLM", role: "llm", local: false, enabled: true, url: "https://llm.example/v1", model: "m" } });

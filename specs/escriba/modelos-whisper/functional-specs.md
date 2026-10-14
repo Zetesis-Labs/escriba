@@ -28,13 +28,19 @@ espera como «no disponible», igual que hoy con el de serie.
 **R3. Borrar o quitar.** «Borrar del disco» borra solo ese modelo; el
 resolutor sigue en la lista para volver a descargarlo. «Quitar» (−) saca de la
 lista un modelo añadido, pero no lo borra del disco: borrar es siempre la
-acción explícita. Las recetas que lo usaban pasan al Whisper de serie.
+acción explícita. Las recetas que lo usaban pasan al primer Whisper local que
+quede. El Whisper de serie también se puede quitar (Rubén, 2026-10-14) y vuelve
+con «+» como un modelo más.
 
 ## 3. Reglas
 
-- El Whisper de serie («Whisper · en este Mac» o «en este equipo») siempre está,
-  va el primero y no se puede quitar. Su modelo es el de serie de cada sistema.
-  La receta que no elige STT usa el Whisper de serie.
+- El Whisper de serie («Whisper · en este Mac» o «en este equipo») viene en la
+  lista, va el primero y su modelo es el de serie de cada sistema. Se puede
+  quitar donde el «+» permite volver a añadir su modelo; en el Mac, cuando Swift
+  dé el catálogo (Rubén, 2026-10-14).
+- La receta que no elige STT usa el primer Whisper local que quede en la lista.
+  Si no queda ninguno, sus notas esperan como «no disponible» hasta que se
+  añada uno.
 - Cada resolutor local tiene su modelo, y es el que se usa al transcribir y en
   la huella de reutilización: dos modelos distintos no comparten transcripción.
 - Un modelo es un nombre del catálogo de su sistema, sin rutas.

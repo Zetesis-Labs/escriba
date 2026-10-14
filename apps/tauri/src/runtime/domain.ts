@@ -2,7 +2,7 @@ import { readdirSync, rmSync, statSync } from "node:fs";
 import { basename, extname, join } from "node:path";
 import { builtinProviders } from "@escriba/conectores";
 import type { CommandHandler, CommandOrigin, CommandRegistry } from "./commands";
-import { json, message, object, text, type RuntimeHost } from "./contracts";
+import { json, message, object, RuntimeError, text, type RuntimeHost } from "./contracts";
 import { SHELL_CONTROLLER_METHODS, UI_CONTROLLER_METHODS } from "./controllerMethods";
 import type { CredentialStore } from "./credentials";
 import { authorizedAccess, type HttpTransport } from "./http";
@@ -17,6 +17,7 @@ import * as remote from "./remote";
 import type { NativeStatus } from "../types";
 import { missingLlm } from "./platform";
 import { localModel } from "./localModels";
+import { defaultLocalStt } from "../core/resolvers";
 
 export interface Tasks {
   run<T>(id: string, recordingId: string | undefined, body: () => Promise<T>): Promise<T>;
@@ -98,10 +99,16 @@ function fromInbox(library: Library, inbox: string, source: string, recovered = 
   const staged = stageAudio(library.root, inbox, recovered);
   return { ...staged, source };
 }
+function fallbackStt(library: Library) {
+  const resolvers = library.index().resolvers;
+  const local = defaultLocalStt(Array.isArray(resolvers) ? resolvers.filter(isObject) : []);
+  if (!local) throw new RuntimeError("No queda ningún Whisper local: añade uno en STT", "backend_unavailable");
+  return text(local.id, "id");
+}
 async function inference(deps: DomainDependencies, method: "transcribe" | "summarize" | "ask", p: Record<string, unknown>) {
   const { library, host, credentials } = deps;
   const transport = deps.transport ?? fetch;
-  const key = optionalText(p.resolverId) ?? (method === "transcribe" ? "local-stt" : "local-llm");
+  const key = optionalText(p.resolverId) ?? (method === "transcribe" ? fallbackStt(library) : "local-llm");
   const missing = missingLlm(key);
   if (missing) throw Error(missing);
   const resolver = library.item("resolvers", key);
