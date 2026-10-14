@@ -4,13 +4,16 @@ use serde_json::{json, Value};
 use std::{fs, path::PathBuf, sync::Arc, time::Duration};
 use tauri::{
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    AppHandle, Emitter, Manager, PhysicalPosition, WebviewUrl, WebviewWindowBuilder,
+    AppHandle, Emitter, Manager,
 };
 
 const PANEL: &str = "recording";
 const CLOCK_TRAY: &str = "recording-clock";
+#[cfg(target_os = "macos")]
 const PANEL_WIDTH: f64 = 452.0;
+#[cfg(target_os = "macos")]
 const PANEL_HEIGHT: f64 = 54.0;
+#[cfg(target_os = "macos")]
 const PANEL_TOP: f64 = 12.0;
 
 pub fn view(state: &Runtime) -> Value {
@@ -195,7 +198,7 @@ fn opened(app: &AppHandle, state: &Runtime) {
     changed(app, state);
     let handle = app.clone();
     let _ = app.run_on_main_thread(move || {
-        open_panel(&handle);
+        show_panel(&handle);
         open_clock(&handle);
     });
 }
@@ -211,7 +214,24 @@ fn closed(app: &AppHandle, state: &Runtime) {
     });
 }
 
+#[cfg(target_os = "macos")]
+fn show_panel(app: &AppHandle) {
+    open_panel(app);
+}
+
+// Wayland lets no app place or raise a window: the panel lives inside the main window.
+#[cfg(not(target_os = "macos"))]
+fn show_panel(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
+}
+
+#[cfg(target_os = "macos")]
 fn open_panel(app: &AppHandle) {
+    use tauri::{PhysicalPosition, WebviewUrl, WebviewWindowBuilder};
     if app.get_webview_window(PANEL).is_some() {
         return;
     }
@@ -239,13 +259,6 @@ fn open_panel(app: &AppHandle) {
     .focusable(false)
     .accept_first_mouse(true)
     .visible(false);
-    // GTK may grow a tiny undecorated window past its requested size.
-    #[cfg(not(target_os = "macos"))]
-    let builder = builder
-        .min_inner_size(PANEL_WIDTH, PANEL_HEIGHT)
-        .max_inner_size(PANEL_WIDTH, PANEL_HEIGHT);
-    // Liquid Glass only exists on macOS; Linux paints the panel background itself.
-    #[cfg(target_os = "macos")]
     let builder = builder.effects(tauri::utils::config::WindowEffectsConfig {
         effects: vec![tauri::window::Effect::LiquidGlassRegular],
         state: None,

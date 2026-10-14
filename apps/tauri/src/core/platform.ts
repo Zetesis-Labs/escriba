@@ -45,3 +45,6 @@ export const platformFromQuery = (search: string): Platform =>
 
 // macOS draws the panel with Liquid Glass; elsewhere the window is plainly transparent.
 export const paintsPanelBackground = (platform: Platform) => isLinux(platform);
+
+// Wayland lets no app place or raise its own windows, so Linux docks the panel inside the window.
+export const floatingRecordingPanel = (platform: Platform) => !isLinux(platform);

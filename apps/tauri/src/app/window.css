@@ -1,4 +1,5 @@
 .window {
+  position: relative;
   display: grid;
   grid-template-columns: 200px minmax(0, 1fr);
   height: 100%;
@@ -147,4 +148,13 @@
 }
 .window.inactive .window-control {
   color: var(--secondary);
+}
+.recording-dock {
+  position: absolute;
+  top: 60px;
+  left: 212px;
+  z-index: 20;
+  width: 452px;
+  border-radius: 27px;
+  box-shadow: 0 6px 24px rgb(0 0 0 / 0.18);
 }

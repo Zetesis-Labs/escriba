@@ -11,3 +11,11 @@ test("en Linux el panel de grabación lleva su propio fondo; en el Mac, el crist
   expect(render({ system: "linux", recipesIsolated: false })).toContain('class="recording-hud painted"');
   expect(render()).toContain('class="recording-hud"');
 });
+
+test("dentro de la ventana el panel no arrastra la ventana entera", () => {
+  const html = renderToStaticMarkup(
+    createElement(PlatformContext.Provider, { value: { system: "linux", recipesIsolated: false } }, createElement(RecordingPanel, { docked: true })),
+  );
+  expect(html).toContain("recording-hud painted");
+  expect(html).not.toContain("data-tauri-drag-region");
+});

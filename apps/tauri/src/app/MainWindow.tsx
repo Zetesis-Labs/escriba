@@ -1,4 +1,5 @@
-import { drawsWindowControls, isNewRecordingShortcut, offersSystemSettings, platformOf } from "../core/platform";
+import { drawsWindowControls, floatingRecordingPanel, isNewRecordingShortcut, offersSystemSettings, platformOf } from "../core/platform";
+import { RecordingPanel } from "../recording/RecordingPanel";
 import { useMaximized } from "./WindowControls";
 import { PlatformContext } from "./platform";
 import { Filter, Users } from "lucide-react";
@@ -196,6 +197,11 @@ export function MainWindow() {
         )}
         {detail}
       </section>
+      {recorder.active && !floatingRecordingPanel(platform) && (
+        <div className="recording-dock">
+          <RecordingPanel docked />
+        </div>
+      )}
     </div>
     </PlatformContext.Provider>
   );

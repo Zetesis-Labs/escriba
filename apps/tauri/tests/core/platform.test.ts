@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import {
   device,
+  floatingRecordingPanel,
   paintsPanelBackground,
   platformFromQuery,
   drawsWindowControls,
@@ -106,6 +107,11 @@ describe("panel de grabación", () => {
     expect(platformFromQuery("?panel=recording&platform=linux").system).toBe("linux");
     expect(platformFromQuery("?panel=recording")).toEqual(macOS);
     expect(platformFromQuery("?panel=recording&platform=macos")).toEqual(macOS);
+  });
+
+  test("en Linux el panel va dentro de la ventana; en el Mac flota sobre todo", () => {
+    expect(floatingRecordingPanel(macOS)).toBe(true);
+    expect(floatingRecordingPanel(linux)).toBe(false);
   });
 
   test("sin el efecto de cristal del Mac, el panel pinta su propio fondo", () => {
