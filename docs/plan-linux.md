@@ -361,6 +361,18 @@ avisando hasta L5. Sin gráfica: aceleración por GPU pendiente de demostrar que
 es estable (plan L4). Fuera de la spec y por decidir: elegir otros modelos desde
 STT (el Mac no tiene selector).
 
+**Varios modelos de Whisper** (encargo de Rubén del 2026-10-14, opción A, spec
+en `specs/escriba/modelos-whisper/functional-specs.md`). Cada modelo añadido en
+STT es un resolutor local `local-stt-<modelo>` con su modelo; el de serie sigue
+tomando el de los ajustes. El protocolo gana `models` y `deleteModel`, ya en el
+host de Linux; `whisper_model` acepta `model` y vuelve al comportamiento
+anterior si el host no los tiene.
+
+**Para la sesión del Mac (modelos):** implementar en Swift `models` (catálogo de
+WhisperKit con tamaño e instalados, y `default`) y `deleteModel` (borrar solo
+ese modelo); hasta entonces el «+» de STT no ofrece modelos locales y todo
+sigue como antes. Comprobar que borrar el de serie sigue funcionando.
+
 **Para la sesión del Mac (L3):** `recorder.rs` construye la ventana flotante
 solo en macOS (`open_panel` ya no compila en Linux: comprobar que compila en el
 Mac); la URL del panel lleva `&platform=macos`; `RecordingPanel` acepta
