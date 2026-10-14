@@ -236,9 +236,22 @@ pub const RECORDING_EXTENSION: &str = "m4a";
 #[cfg(target_os = "linux")]
 pub const RECORDING_EXTENSION: &str = "ogg";
 
+/// Whether folders need an authorization: always on macOS; on Linux only
+/// inside a Flatpak, where the file chooser portal grants them.
+#[cfg(target_os = "macos")]
+pub fn folder_authorization() -> bool {
+    PLATFORM.folder_authorization
+}
+
+#[cfg(target_os = "linux")]
+pub fn folder_authorization() -> bool {
+    inside_flatpak()
+}
+
 pub fn summary() -> serde_json::Value {
     serde_json::to_value(Platform {
         recipes_isolated: recipes_isolated(),
+        folder_authorization: folder_authorization(),
         ..PLATFORM
     })
     .unwrap_or_default()
@@ -294,6 +307,7 @@ mod tests {
         };
         let detected = Platform {
             recipes_isolated: recipes_isolated(),
+            folder_authorization: folder_authorization(),
             ..expected
         };
         assert_eq!(summary(), serde_json::to_value(detected).unwrap());
