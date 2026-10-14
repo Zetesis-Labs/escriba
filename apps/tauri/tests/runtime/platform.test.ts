@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { defaultResolvers, defaultWhisperModel, localSttTryProblem, missingLlm } from "../../src/runtime/platform";
+import { defaultResolvers, defaultWhisperModel, folderBookmarkRequired, localSttTryProblem, missingLlm } from "../../src/runtime/platform";
 
 test("en el Mac los valores de serie traen Whisper y Apple Intelligence", () => {
   expect(defaultResolvers("darwin")).toEqual([
@@ -25,4 +25,9 @@ test("sin LLM incluido, resumir sin elegir uno dice qué falta", () => {
 test("el Whisper de serie es el de cada sistema", () => {
   expect(defaultWhisperModel("darwin")).toBe("openai_whisper-large-v3-v20240930");
   expect(defaultWhisperModel("linux")).toBe("large-v3-turbo");
+});
+
+test("solo el Mac exige autorización guardada para vigilar una carpeta", () => {
+  expect(folderBookmarkRequired("darwin")).toBe(true);
+  expect(folderBookmarkRequired("linux")).toBe(false);
 });

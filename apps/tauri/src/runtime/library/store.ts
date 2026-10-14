@@ -7,7 +7,7 @@ import { audioCopyRoot, audioCopyToDelete, fileHash, fileStem, importCreatedAt, 
 import { changes, type RowOp } from "./changes";
 import { conservativeVoices, currentVersion, draftContent, draftFingerprint, draftRequest, newDraft, parseDraftContent, readDraft, validateContent, type NoteDraft } from "./drafts";
 import { array, canonical, clone, equal, isObject, newId, now, object, safeId, text, type Json } from "./json";
-import { defaultResolvers, defaultWhisperModel } from "../platform";
+import { defaultResolvers, defaultWhisperModel, folderBookmarkRequired } from "../platform";
 import { isLocalSttId, localSttId } from "../localModels";
 import { catalog, readLibraryData, readRecording, readSettings, readVersion, setCatalog, type LibraryData, type Recording, type Settings, type Transcript, type Version, type WatchedFolder } from "./model";
 import { Persistence, parseLogQuery, scope, scopedWrite, type AudioDeletion, type LibraryWrite, type Teaching, type WriteScope } from "./persistence";
@@ -763,7 +763,7 @@ export class Store {
     }
   }
   async authorizeWatchedFolder(folderId: string | undefined, path: string, name: string | undefined, style: string, bookmark: number[]): Promise<Json> {
-    if (!bookmark.length && process.platform === "darwin") throw Error("La autorización de carpeta está vacía");
+    if (!bookmark.length && folderBookmarkRequired()) throw Error("La autorización de carpeta está vacía");
     // Linux has no bookmarks: the folder is read through its path.
     const access: Json = bookmark.length ? bookmark : null;
     if (!STYLES.includes(style)) throw Error("Estilo de carpeta desconocido");
