@@ -1,5 +1,9 @@
 import type { Json } from "./library/json";
 
+// Each system has its own engine: WhisperKit on macOS, whisper.cpp on Linux.
+export const defaultWhisperModel = (platform: NodeJS.Platform = process.platform) =>
+  platform === "linux" ? "large-v3-turbo" : "openai_whisper-large-v3-v20240930";
+
 // Linux has no bundled LLM: summarizing and asking need a resolver.
 export const defaultResolvers = (platform: NodeJS.Platform = process.platform): Json[] => [
   {
@@ -8,7 +12,7 @@ export const defaultResolvers = (platform: NodeJS.Platform = process.platform): 
     role: "stt",
     local: true,
     enabled: true,
-    model: "openai_whisper-large-v3-v20240930",
+    model: defaultWhisperModel(platform),
   },
   ...(platform === "linux" ? [] : [{ id: "local-llm", name: "Apple Intelligence", role: "llm", local: true, enabled: true }]),
 ];

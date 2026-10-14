@@ -7,7 +7,7 @@ import { audioCopyRoot, audioCopyToDelete, fileHash, fileStem, importCreatedAt, 
 import { changes, type RowOp } from "./changes";
 import { conservativeVoices, currentVersion, draftContent, draftFingerprint, draftRequest, newDraft, parseDraftContent, readDraft, validateContent, type NoteDraft } from "./drafts";
 import { array, canonical, clone, equal, isObject, newId, now, object, safeId, text, type Json } from "./json";
-import { defaultResolvers } from "../platform";
+import { defaultResolvers, defaultWhisperModel } from "../platform";
 import { catalog, readLibraryData, readRecording, readSettings, readVersion, setCatalog, type LibraryData, type Recording, type Settings, type Transcript, type Version, type WatchedFolder } from "./model";
 import { Persistence, parseLogQuery, scope, scopedWrite, type AudioDeletion, type LibraryWrite, type Teaching, type WriteScope } from "./persistence";
 import { lightPublication, previewVersion, typedLibrary } from "./projection";
@@ -23,7 +23,7 @@ export const defaults = (): Json => ({
   destinations: [],
   resolvers: defaultResolvers(),
   recipes: [{ id: "default", name: "Por defecto", kind: "form", values: {} }],
-  settings: { defaultRecipeId: "default", projectPath: null, watchedFolders: [], language: "es", whisperModel: "openai_whisper-large-v3-v20240930", launchAtLogin: false },
+  settings: { defaultRecipeId: "default", projectPath: null, watchedFolders: [], language: "es", whisperModel: defaultWhisperModel(), launchAtLogin: false },
 });
 export function discardedRecord(record: Json): Record<string, Json> {
   return { id: text(record, "id"), source: field(record, "source"), sourceKey: field(record, "sourceKey"), legacyKey: field(record, "legacyKey"), status: "discarded" };

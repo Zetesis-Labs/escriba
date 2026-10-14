@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { defaultResolvers, localSttTryProblem, missingLlm } from "../../src/runtime/platform";
+import { defaultResolvers, defaultWhisperModel, localSttTryProblem, missingLlm } from "../../src/runtime/platform";
 
 test("en el Mac los valores de serie traen Whisper y Apple Intelligence", () => {
   expect(defaultResolvers("darwin")).toEqual([
@@ -11,7 +11,7 @@ test("en el Mac los valores de serie traen Whisper y Apple Intelligence", () => 
 
 test("en Linux los valores de serie no traen LLM ni nombres del Mac", () => {
   expect(defaultResolvers("linux")).toEqual([
-    { id: "local-stt", name: "Whisper · en este equipo", role: "stt", local: true, enabled: true, model: "openai_whisper-large-v3-v20240930" },
+    { id: "local-stt", name: "Whisper · en este equipo", role: "stt", local: true, enabled: true, model: "large-v3-turbo" },
   ]);
   expect(localSttTryProblem("linux")).toBe("Whisper · en este equipo no tiene prueba");
 });
@@ -20,4 +20,9 @@ test("sin LLM incluido, resumir sin elegir uno dice qué falta", () => {
   expect(missingLlm("local-llm", "linux")).toBe("La receta no tiene un LLM elegido: elígelo en Recetas");
   expect(missingLlm("remoto", "linux")).toBeNull();
   expect(missingLlm("local-llm", "darwin")).toBeNull();
+});
+
+test("el Whisper de serie es el de cada sistema", () => {
+  expect(defaultWhisperModel("darwin")).toBe("openai_whisper-large-v3-v20240930");
+  expect(defaultWhisperModel("linux")).toBe("large-v3-turbo");
 });

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import {
   device,
+  whisperDownloadLabel,
   floatingRecordingPanel,
   paintsPanelBackground,
   platformFromQuery,
@@ -53,6 +54,11 @@ describe("plataforma", () => {
     expect(offersFolderAuthorization(linux)).toBe(false);
     expect(offersSystemSettings(linux)).toBe(false);
     expect(foldersFooter(linux)).not.toMatch(/macOS|autoriz|disco/i);
+  });
+
+  test("la descarga de Whisper dice el tamaño del modelo de cada sistema", () => {
+    expect(whisperDownloadLabel(macOS)).toBe("Descargar (unos 3 GB)");
+    expect(whisperDownloadLabel(linux)).toBe("Descargar (unos 1,6 GB)");
   });
 
   test("en Linux se muestra en la carpeta y los atajos usan Ctrl", () => {

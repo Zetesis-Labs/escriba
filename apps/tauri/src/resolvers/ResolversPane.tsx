@@ -1,4 +1,4 @@
-import { device } from "../core/platform";
+import { device, whisperDownloadLabel } from "../core/platform";
 import { usePlatform } from "../app/platform";
 import { AlertTriangle, CheckCircle2, Globe, Laptop, Minus, Plus, Sparkles, AudioWaveform } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -424,7 +424,7 @@ function WhisperModelSection({ model, onChange }: { model: string; onChange: () 
         <>
           <LabeledRow label="Estado">no descargado</LabeledRow>
           <FormRow>
-            <Button onClick={() => void download()}>Descargar (unos 3 GB)</Button>
+            <Button onClick={() => void download()}>{whisperDownloadLabel(platform)}</Button>
           </FormRow>
         </>
       )}

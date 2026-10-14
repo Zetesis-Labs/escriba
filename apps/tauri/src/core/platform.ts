@@ -48,3 +48,6 @@ export const paintsPanelBackground = (platform: Platform) => isLinux(platform);
 
 // Wayland lets no app place or raise its own windows, so Linux docks the panel inside the window.
 export const floatingRecordingPanel = (platform: Platform) => !isLinux(platform);
+
+// WhisperKit large-v3 on macOS, whisper.cpp large-v3-turbo on Linux.
+export const whisperDownloadLabel = (platform: Platform) => (isLinux(platform) ? "Descargar (unos 1,6 GB)" : "Descargar (unos 3 GB)");
