@@ -40,9 +40,11 @@ TAURI_ARGS=(build --debug --no-bundle)
 if [[ "${1:-}" == "--release" ]]; then CONFIGURATION=release; CARGO_ARGS=(--release); TAURI_ARGS=(build --bundles deb); fi
 if [[ "${1:-}" == "--dev" ]]; then TAURI_ARGS=(dev); fi
 cargo build --manifest-path "$TAURI/native-host/Cargo.toml" "${CARGO_ARGS[@]}"
+cargo build --manifest-path "$TAURI/sandbox/Cargo.toml" "${CARGO_ARGS[@]}"
 TRIPLE="$(rustc -vV | sed -n 's/^host: //p')"
 mkdir -p "$TAURI/src-tauri/binaries"
 cp "$TAURI/native-host/target/$CONFIGURATION/EscribaNativeHost" "$TAURI/src-tauri/binaries/EscribaNativeHost-$TRIPLE"
+cp "$TAURI/sandbox/target/$CONFIGURATION/escriba-sandbox" "$TAURI/src-tauri/binaries/escriba-sandbox-$TRIPLE"
 # The host finds sherpa-onnx next to itself while developing and in /usr/lib/Escriba/native once installed.
 rm -rf "$TAURI/src-tauri/native"
 mkdir -p "$TAURI/src-tauri/native" "$TAURI/src-tauri/target/$CONFIGURATION"

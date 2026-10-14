@@ -18,6 +18,11 @@
     "targets": [
       "deb"
     ],
+    "externalBin": [
+      "binaries/EscribaNativeHost",
+      "binaries/escriba-runtime",
+      "binaries/escriba-sandbox"
+    ],
     "resources": {
       "vendor/": "vendor/",
       "surreal/": "surreal/",
