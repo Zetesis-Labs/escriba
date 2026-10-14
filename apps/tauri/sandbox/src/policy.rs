@@ -203,6 +203,7 @@ fn condition(index: u8, operator: SeccompCmpOp, value: u64) -> Result<SeccompCon
 /// process's memory needs ptrace access, which Landlock already refuses
 /// outside the sandbox, so Bun may still read its own.
 fn denied() -> Vec<i64> {
+    #[cfg_attr(not(target_arch = "x86_64"), allow(unused_mut))]
     let mut syscalls = vec![
         libc::SYS_ptrace,
         libc::SYS_bpf,
