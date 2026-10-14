@@ -33,10 +33,10 @@ Reglas de Rubén, el dueño:
   con autor `Rubén García <ruben@nexolabs.xyz>` (no hay `git config` en la
   máquina: usa `git -c user.name=… -c user.email=… commit`). Sin push, merge ni
   PR salvo que lo pida. Actualizar la rama: rebase sobre `main`, nunca merge.
-- No cambiar el comportamiento de macOS: lo de Linux va tras
-  `cfg(target_os = "linux")`, `process.platform` o el `PlatformContext` de la
-  interfaz (por defecto macOS). Lo que pueda afectar al Mac se apunta en el
-  Registro para la sesión del Mac.
+- No cambiar el comportamiento de macOS. Lo que difiere por sistema va tras su
+  puerto: `native-host/src/platform/<sistema>/`, `platform::PLATFORM` en Rust
+  (llega a la interfaz y al controlador) o un módulo por sistema. Lo que pueda
+  afectar al Mac se apunta en `docs/pendiente-mac.md`.
 
 ## Entorno de esta máquina (Ubuntu 25.10 x86_64, Wayland)
 
@@ -165,7 +165,6 @@ una instalación limpia y rellenar la matriz del Registro.
 
 ### Sesión del Mac (al terminar Linux)
 
-Lista completa en el Registro del plan. Lo gordo: `models` y `deleteModel` en
-Swift con el catálogo de WhisperKit; comprobar que `open_panel` (panel flotante,
-ahora solo en macOS) compila; pasar la suite completa y verificar que nada
-visible cambió.
+Todo en `docs/pendiente-mac.md`, por orden: varios modelos de Whisper en Swift,
+lo que Swift no cumple del protocolo, grabar y archivos con el host de Rust,
+compilar lo movido y comprobar en pantalla.

@@ -42,8 +42,8 @@ otra cosa, se le pregunta antes de tocarla.
 - Commits convencionales en castellano, uno por cosa, sin trailers de IA. Sin
   push, merge ni PR salvo que Rubén lo pida. Actualizar la rama con rebase de
   `main`, nunca con merge.
-- Al acabar cada fase, apunta en el «Registro» del final el commit y lo que la
-  sesión del Mac tiene que comprobar.
+- Al acabar cada fase, apunta en el «Registro» del final el commit, y en
+  `docs/pendiente-mac.md` lo que la sesión del Mac tiene que hacer o comprobar.
 
 ## Entorno Ubuntu
 
@@ -234,6 +234,8 @@ sin aislar desaparece en un equipo que sí aísla.
 
 ## Fuera de este plan: la sesión del Mac
 
+La lista completa y ordenada está en `docs/pendiente-mac.md`.
+
 El ADR-0010 también pasa al host de Rust, en el Mac, la grabación (AAC con
 AudioToolbox), `audioInfo`, `fileStatus` y `materialize`. Se hace en macOS y no
 aquí. Como los procesos van por papel, en el Mac bastará con que `recorder` y
@@ -395,71 +397,18 @@ anterior si el host no los tiene.
   «Whisper · en este Mac» al resolutor guardado y «Whisper en este Mac» en la
   interfaz, como en `main`.
 
-**Para la sesión del Mac (puertos):** compilar lo movido tal cual sin poder
-probarlo aquí: `process_probe.rs`, `folder_access::choose` (el selector sigue
-abriéndose en el hilo principal), `symbols/macos.rs`, `platform::file_flags`,
-`install_app_menu` y `open_panel` llamados según `PLATFORM`; el panel flotante se
-abre sin `&platform=` y toma el macOS por defecto; pasar la batería común contra
-el host de Swift con
-`ESCRIBA_NATIVE_HOST=<EscribaNativeHost> cargo test --test contract` desde
-`apps/tauri/native-host`: fallará en `models`/`deleteModel` hasta que Swift los
-tenga. `recordingStatus` de Swift no devuelve `paused`, que el protocolo pide.
-
-**Para la sesión del Mac (modelos):** implementar en Swift `models` (catálogo de
-WhisperKit con tamaño e instalados, y `default`) y `deleteModel` (borrar solo
-ese modelo); hasta entonces el «+» de STT no ofrece modelos locales y todo
-sigue como antes. Comprobar que borrar el de serie sigue funcionando.
-
 **L2, L3, L4 y varios modelos validados por Rubén** en su Ubuntu el
 2026-10-14.
 
-**Para la sesión del Mac (L3):** `recorder.rs` construye la ventana flotante
-solo en macOS (`open_panel` ya no compila en Linux: comprobar que compila en el
-Mac); la URL del panel lleva `&platform=macos`; `RecordingPanel` acepta
-`docked` y pone `data-tauri-drag-region="true"`.
-
-**Para la sesión del Mac (L2):** que nada visible ha cambiado, y revisar:
-
-- `scripts/prepare.mjs` y `runtime-host/build.mjs` eligen paquete y triple con
-  `runtime-host/targets.mjs`; `codesign` solo corre en macOS.
-- `library` lleva `platform`; la interfaz la lee con `PlatformContext`, que por
-  defecto es macOS. `resolvers.ts` tiene parámetros opcionales de plataforma y
-  `useRecorderAlert` recibe si hay enlace a Ajustes del Sistema.
-- `src/runtime/platform.ts` y `store.ts`: valores de serie por sistema y el
-  bookmark vacío solo se admite fuera de macOS. `recetas/por-defecto/receta.ts`
-  solo cambia sin LLMs. `sidecar.test.ts` debe seguir pasando entero en el Mac.
-- `prepare.mjs`, `lib.rs` y `scripts.rs` toman el binding de SurrealDB de
-  `targets.mjs`/`platform::surreal_native`; en el Mac debe seguir siendo el de
-  `darwin-<arch>`.
-- `symbols::image` se parte por sistema; `notification_delivery` y
-  `voice_memos_root` tienen rama de Linux.
-- Las pruebas del protocolo nativo (`native.rs`, `scripts.rs`) vuelven a correr
-  en todos los sistemas.
-
-**Para la sesión del Mac (L1):** pasar la suite completa del `CLAUDE.md` y
-revisar en particular:
-
-- `storage.rs`: en pruebas, `engine` abre la base en un runtime compartido;
-  `released` de macOS no cambia.
-- `lib.rs`: `folder_access` y `restore_folder` por sistema; el selector de macOS
-  se ejecuta igual dentro de un bloque `cfg`.
-- `platform.rs`: abrir, mostrar, VS Code y Ajustes del Sistema salen de ahí con
-  las mismas órdenes; el test `en_macos_abrir_y_mostrar_usan_open` lo comprueba.
-- `native.rs`: el triple sale de `TAURI_ENV_TARGET_TRIPLE` (debería seguir
-  siendo `*-apple-darwin`).
-- `scripts.rs` y `project.rs`: `sandbox-exec` va detrás de
-  `platform::recipes_isolated()`, que en macOS es verdadero; el lanzador debe
-  generarse idéntico.
-- `tests/runtime/project.test.ts` usa `realpath(tmpdir())` en lugar de
-  `/private/tmp`.
+Lo que queda para el Mac está en `docs/pendiente-mac.md`.
 
 | Fase | Estado | Commit | Validada por Rubén | Para la sesión del Mac |
 |---|---|---|---|---|
 | L0 | hecha | `5fdc89a` | | Nada: solo diagnóstico |
-| L1 | hecha | `54436b9`…`c758503` | | Ver «L1 en Ubuntu 25.10» |
-| L2 | hecha | `e6fa7b8`…`6718249` | sí (2026-10-14) | Ver «L2 en Ubuntu 25.10» |
-| L3 | hecha | `9398936`…`51f61c0` | sí (2026-10-14) | Ver «L3 en Ubuntu 25.10» |
-| L4 | hecha | `7b27d68`…`7c2205b` | sí (2026-10-14) | Ver «L4 en Ubuntu 25.10» |
+| L1 | hecha | `54436b9`…`c758503` | | `docs/pendiente-mac.md` |
+| L2 | hecha | `e6fa7b8`…`6718249` | sí (2026-10-14) | `docs/pendiente-mac.md` |
+| L3 | hecha | `9398936`…`51f61c0` | sí (2026-10-14) | `docs/pendiente-mac.md` |
+| L4 | hecha | `7b27d68`…`7c2205b` | sí (2026-10-14) | `docs/pendiente-mac.md` |
 | L5 | pendiente | | | |
 | L6 | pendiente | | | |
 | L7 | pendiente | | | |
