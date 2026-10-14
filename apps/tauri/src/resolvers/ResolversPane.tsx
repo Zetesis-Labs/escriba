@@ -1,4 +1,4 @@
-import { device, whisperDownloadLabel } from "../core/platform";
+import { device } from "../core/platform";
 import { usePlatform } from "../app/platform";
 import { AlertTriangle, CheckCircle2, Globe, Laptop, Minus, Plus, Sparkles, AudioWaveform } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -9,6 +9,7 @@ import { progressForModel } from "../core/downloadProgress";
 import {
   addableModels,
   addedModelProblem,
+  downloadLabel,
   isAddedModel,
   removable,
   resolverName,
@@ -160,7 +161,7 @@ export function ResolversPane({ data, role, refresh }: { data: Snapshot; role: R
         <div className="list-detail-divider" />
         <div className="detail-column">
           {current ? (
-            <ResolverEditor key={current.id} resolver={current} role={role} localProblem={isAddedModel(current) ? addedModelProblem(current, catalog) : local} whisperModel={isAddedModel(current) ? current.model ?? "" : data.settings.whisperModel} refresh={refresh} reloadStatus={reload} />
+            <ResolverEditor key={current.id} resolver={current} role={role} localProblem={isAddedModel(current) ? addedModelProblem(current, catalog) : local} whisperModel={isAddedModel(current) ? current.model ?? "" : data.settings.whisperModel} catalog={catalog} refresh={refresh} reloadStatus={reload} />
           ) : (
             <ContentUnavailable title="Sin resolutor elegido" icon={role === "llm" ? Sparkles : AudioWaveform} description="Elige uno de la lista o añade un servicio con +." />
           )}
@@ -177,6 +178,7 @@ function ResolverEditor({
   role,
   localProblem: local,
   whisperModel,
+  catalog,
   refresh,
   reloadStatus,
 }: {
@@ -184,6 +186,7 @@ function ResolverEditor({
   role: Role;
   localProblem: string | null;
   whisperModel: string;
+  catalog: WhisperCatalog | null;
   refresh: () => Promise<void>;
   reloadStatus: () => void;
 }) {
@@ -276,7 +279,7 @@ function ResolverEditor({
           )}
         </FormSection>
 
-        {resolver.local && role === "stt" && <WhisperModelSection model={whisperModel} explicit={isAddedModel(resolver)} onChange={reloadStatus} />}
+        {resolver.local && role === "stt" && <WhisperModelSection model={whisperModel} explicit={isAddedModel(resolver)} catalog={catalog} onChange={reloadStatus} />}
         {resolver.local && (
           <FormSection>
             <FormRow>
@@ -377,7 +380,7 @@ function ResolverEditor({
   );
 }
 
-function WhisperModelSection({ model, explicit, onChange }: { model: string; explicit: boolean; onChange: () => void }) {
+function WhisperModelSection({ model, explicit, catalog, onChange }: { model: string; explicit: boolean; catalog: WhisperCatalog | null; onChange: () => void }) {
   const platform = usePlatform();
   const [info, setInfo] = useState<{ model: string; available: boolean; bytes: number } | null>(null);
   const [downloadProgress, setDownloadProgress] = useState<number | null>(null);
@@ -461,7 +464,7 @@ function WhisperModelSection({ model, explicit, onChange }: { model: string; exp
         <>
           <LabeledRow label="Estado">no descargado</LabeledRow>
           <FormRow>
-            <Button onClick={() => void download()}>{whisperDownloadLabel(platform)}</Button>
+            <Button onClick={() => void download()}>{downloadLabel(info?.model ?? model, catalog, platform)}</Button>
           </FormRow>
         </>
       )}
