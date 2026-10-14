@@ -20,8 +20,14 @@ finish-args:
   # tauri-plugin-single-instance owns the app's technical identifier on D-Bus.
   - --own-name=dev.zetesis.escriba.tauri.SingleInstance
 modules:
+  # The tray library Tauri loads; the GNOME runtime does not include it.
+  - shared-modules/libayatana-appindicator/libayatana-appindicator-gtk3.json
   - name: escriba
     buildsystem: simple
+    # escriba-runtime is Bun with the controller appended to the binary; strip removes it.
+    build-options:
+      strip: false
+      no-debuginfo: true
     sources:
       - type: file
         path: Escriba.deb
