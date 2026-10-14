@@ -1335,10 +1335,16 @@ pub fn run() {
                     Path::new(env!("CARGO_MANIFEST_DIR")).join("vendor")
                 };
                 let engine = native::binary("EscribaNativeHost").map_err(std::io::Error::other)?;
-                let mut controller_env = vec![(
-                    "ESCRIBA_DATA".to_owned(),
-                    root.to_string_lossy().into_owned(),
-                )];
+                let mut controller_env = vec![
+                    (
+                        "ESCRIBA_DATA".to_owned(),
+                        root.to_string_lossy().into_owned(),
+                    ),
+                    (
+                        "ESCRIBA_PLATFORM".to_owned(),
+                        platform::summary().to_string(),
+                    ),
+                ];
                 if let Some(native) = surreal_native(app.handle()) {
                     controller_env.push((
                         "NAPI_RS_NATIVE_LIBRARY_PATH".to_owned(),

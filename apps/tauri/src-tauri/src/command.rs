@@ -377,6 +377,15 @@ mod bindings {
         KnowledgeCommand::export_all(&config).unwrap();
         KnowledgeReply::export_all(&config).unwrap();
         crate::platform::Platform::export_all(&config).unwrap();
+        let platforms = serde_json::json!({
+            "macos": crate::platform::MACOS,
+            "linux": crate::platform::LINUX,
+        });
+        fs::write(
+            out.join("platforms.json"),
+            serde_json::to_string_pretty(&platforms).unwrap() + "\n",
+        )
+        .unwrap();
     }
 
     #[test]

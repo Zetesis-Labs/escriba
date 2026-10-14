@@ -637,6 +637,10 @@ pub(crate) fn controller_env(data: &Path) -> Vec<(String, String)> {
     vec![
         ("ESCRIBA_DATA".into(), data.to_string_lossy().into_owned()),
         (
+            "ESCRIBA_PLATFORM".into(),
+            crate::platform::summary().to_string(),
+        ),
+        (
             "NAPI_RS_NATIVE_LIBRARY_PATH".into(),
             native.to_string_lossy().into_owned(),
         ),

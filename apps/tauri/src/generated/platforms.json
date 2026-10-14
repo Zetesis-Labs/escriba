@@ -1,0 +1,26 @@
+{
+  "linux": {
+    "bundledLlm": false,
+    "defaultWhisperModel": "large-v3-turbo",
+    "drawsWindowControls": true,
+    "floatingPanel": false,
+    "folderAuthorization": false,
+    "menuBar": false,
+    "recipesIsolated": false,
+    "system": "linux",
+    "systemSettings": false,
+    "voiceMemos": false
+  },
+  "macos": {
+    "bundledLlm": true,
+    "defaultWhisperModel": "openai_whisper-large-v3-v20240930",
+    "drawsWindowControls": false,
+    "floatingPanel": true,
+    "folderAuthorization": true,
+    "menuBar": true,
+    "recipesIsolated": true,
+    "system": "macos",
+    "systemSettings": true,
+    "voiceMemos": true
+  }
+}

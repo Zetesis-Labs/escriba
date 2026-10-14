@@ -1,31 +1,34 @@
-import { whisperName, type System } from "../core/platform";
+import { macOS, whisperName, type Platform } from "../core/platform";
+import platforms from "../generated/platforms.json";
 import type { Json } from "./library/json";
 
-const systemOf = (platform: NodeJS.Platform): System => (platform === "linux" ? "linux" : "macos");
+// Rust passes what this system offers when it starts the controller; tests and
+// tools without it take Rust's table for the system they run on.
+export function currentPlatform(env: NodeJS.ProcessEnv = process.env, system: NodeJS.Platform = process.platform): Platform {
+  if (env.ESCRIBA_PLATFORM) return JSON.parse(env.ESCRIBA_PLATFORM) as Platform;
+  return system === "linux" ? (platforms.linux as Platform) : macOS;
+}
 
-// Each system has its own engine: WhisperKit on macOS, whisper.cpp on Linux.
-export const defaultWhisperModel = (platform: NodeJS.Platform = process.platform) =>
-  platform === "linux" ? "large-v3-turbo" : "openai_whisper-large-v3-v20240930";
+export const defaultWhisperModel = (platform: Platform = currentPlatform()) => platform.defaultWhisperModel;
 
-// Linux has no bundled LLM: summarizing and asking need a resolver.
-export const defaultResolvers = (platform: NodeJS.Platform = process.platform): Json[] => [
+export const defaultResolvers = (platform: Platform = currentPlatform()): Json[] => [
   {
     id: "local-stt",
-    name: platform === "linux" ? whisperName("linux") : "Whisper · en este Mac",
+    // Libraries created on the Mac keep the name they were stored with.
+    name: platform.system === "macos" ? "Whisper · en este Mac" : whisperName(platform.system),
     role: "stt",
     local: true,
     enabled: true,
-    model: defaultWhisperModel(platform),
+    model: platform.defaultWhisperModel,
   },
-  ...(platform === "linux" ? [] : [{ id: "local-llm", name: "Apple Intelligence", role: "llm", local: true, enabled: true }]),
+  ...(platform.bundledLlm ? [{ id: "local-llm", name: "Apple Intelligence", role: "llm", local: true, enabled: true }] : []),
 ];
 
-export const localSttTryProblem = (platform: NodeJS.Platform = process.platform) =>
-  `${whisperName(systemOf(platform))} no tiene prueba`;
+export const localSttTryProblem = (platform: Platform = currentPlatform()) => `${whisperName(platform.system)} no tiene prueba`;
 
 // Without a bundled LLM, a recipe that picks none cannot summarize.
-export const missingLlm = (resolverId: string, platform: NodeJS.Platform = process.platform) =>
-  platform === "linux" && resolverId === "local-llm" ? "La receta no tiene un LLM elegido: elígelo en Recetas" : null;
+export const missingLlm = (resolverId: string, platform: Platform = currentPlatform()) =>
+  !platform.bundledLlm && resolverId === "local-llm" ? "La receta no tiene un LLM elegido: elígelo en Recetas" : null;
 
-// Only macOS authorizes folders with a bookmark; elsewhere the path is enough.
-export const folderBookmarkRequired = (platform: NodeJS.Platform = process.platform) => platform === "darwin";
+// Where folders are authorized, watching one needs its saved authorization.
+export const folderBookmarkRequired = (platform: Platform = currentPlatform()) => platform.folderAuthorization;

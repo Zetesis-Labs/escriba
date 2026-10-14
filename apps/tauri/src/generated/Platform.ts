@@ -14,4 +14,8 @@ recipesIsolated: boolean, voiceMemos: boolean, folderAuthorization: boolean, sys
 /**
  * Wayland lets no app place or raise its own windows.
  */
-floatingPanel: boolean, menuBar: boolean, drawsWindowControls: boolean, };
+floatingPanel: boolean, menuBar: boolean, drawsWindowControls: boolean, 
+/**
+ * The local Whisper a new library starts with; each system has its own engine.
+ */
+defaultWhisperModel: string, };

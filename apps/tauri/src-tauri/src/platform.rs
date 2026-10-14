@@ -128,7 +128,7 @@ pub fn surreal_native() -> (String, String) {
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, TS)]
 #[serde(rename_all = "lowercase")]
-#[allow(dead_code)] // Each system builds only its own variant.
+#[allow(dead_code)] // Each system builds only its own; both tables feed the generated types.
 pub enum System {
     Macos,
     Linux,
@@ -151,10 +151,12 @@ pub struct Platform {
     pub floating_panel: bool,
     pub menu_bar: bool,
     pub draws_window_controls: bool,
+    /// The local Whisper a new library starts with; each system has its own engine.
+    pub default_whisper_model: &'static str,
 }
 
-#[cfg(target_os = "macos")]
-pub const PLATFORM: Platform = Platform {
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub const MACOS: Platform = Platform {
     system: System::Macos,
     recipes_isolated: true,
     voice_memos: true,
@@ -164,10 +166,11 @@ pub const PLATFORM: Platform = Platform {
     floating_panel: true,
     menu_bar: true,
     draws_window_controls: false,
+    default_whisper_model: "openai_whisper-large-v3-v20240930",
 };
 
-#[cfg(target_os = "linux")]
-pub const PLATFORM: Platform = Platform {
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+pub const LINUX: Platform = Platform {
     system: System::Linux,
     recipes_isolated: false,
     voice_memos: false,
@@ -177,7 +180,13 @@ pub const PLATFORM: Platform = Platform {
     floating_panel: false,
     menu_bar: false,
     draws_window_controls: true,
+    default_whisper_model: "large-v3-turbo",
 };
+
+#[cfg(target_os = "macos")]
+pub const PLATFORM: Platform = MACOS;
+#[cfg(target_os = "linux")]
+pub const PLATFORM: Platform = LINUX;
 
 pub fn recipes_isolated() -> bool {
     PLATFORM.recipes_isolated
@@ -222,16 +231,26 @@ mod tests {
 
     #[test]
     fn la_interfaz_recibe_lo_que_puede_ofrecer_el_sistema() {
-        let expected = if cfg!(target_os = "macos") {
+        assert_eq!(
+            serde_json::to_value(MACOS).unwrap(),
             serde_json::json!({"system": "macos", "recipesIsolated": true, "voiceMemos": true,
                 "folderAuthorization": true, "systemSettings": true, "bundledLlm": true,
-                "floatingPanel": true, "menuBar": true, "drawsWindowControls": false})
-        } else {
+                "floatingPanel": true, "menuBar": true, "drawsWindowControls": false,
+                "defaultWhisperModel": "openai_whisper-large-v3-v20240930"})
+        );
+        assert_eq!(
+            serde_json::to_value(LINUX).unwrap(),
             serde_json::json!({"system": "linux", "recipesIsolated": false, "voiceMemos": false,
                 "folderAuthorization": false, "systemSettings": false, "bundledLlm": false,
-                "floatingPanel": false, "menuBar": false, "drawsWindowControls": true})
+                "floatingPanel": false, "menuBar": false, "drawsWindowControls": true,
+                "defaultWhisperModel": "large-v3-turbo"})
+        );
+        let expected = if cfg!(target_os = "macos") {
+            MACOS
+        } else {
+            LINUX
         };
-        assert_eq!(summary(), expected);
+        assert_eq!(summary(), serde_json::to_value(expected).unwrap());
     }
 
     #[test]

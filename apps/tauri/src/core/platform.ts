@@ -1,20 +1,11 @@
 import type { Platform } from "../generated/Platform";
 import type { System } from "../generated/System";
+import platforms from "../generated/platforms.json";
 
 export type { Platform, System };
 
 // What Rust reports on macOS; the interface assumes it until the library arrives.
-export const macOS: Platform = {
-  system: "macos",
-  recipesIsolated: true,
-  voiceMemos: true,
-  folderAuthorization: true,
-  systemSettings: true,
-  bundledLlm: true,
-  floatingPanel: true,
-  menuBar: true,
-  drawsWindowControls: false,
-};
+export const macOS = platforms.macos as Platform;
 
 export const platformOf = (data: { platform?: Platform } | null | undefined): Platform => data?.platform ?? macOS;
 
