@@ -75,11 +75,22 @@ pub fn open_vscode(path: &Path) -> Command {
     command
 }
 
+// VS Code's URL works for its deb, snap and Flatpak installs, also from inside a Flatpak.
 #[cfg(target_os = "linux")]
 pub fn open_vscode(path: &Path) -> Command {
-    let mut command = Command::new("code");
-    command.arg(path);
-    command
+    use std::os::unix::ffi::OsStrExt;
+    let encoded: String = path
+        .as_os_str()
+        .as_bytes()
+        .iter()
+        .map(|&byte| match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'/' | b'-' | b'.' | b'_' | b'~' => {
+                (byte as char).to_string()
+            }
+            _ => format!("%{byte:02X}"),
+        })
+        .collect();
+    open(OsStr::new(&format!("vscode://file{encoded}")))
 }
 
 #[cfg(target_os = "macos")]
@@ -368,8 +379,12 @@ mod tests {
             ["xdg-open", "/home/ana/audio"]
         );
         assert_eq!(
-            line(&open_vscode(Path::new("/home/ana/recetas"))),
-            ["code", "/home/ana/recetas"]
+            line(&open_vscode(Path::new("/home/ana/mis recetas"))),
+            ["xdg-open", "vscode://file/home/ana/mis%20recetas"]
+        );
+        assert_eq!(
+            line(&open_vscode(Path::new("/home/ana/Grabación#1"))),
+            ["xdg-open", "vscode://file/home/ana/Grabaci%C3%B3n%231"]
         );
     }
 
