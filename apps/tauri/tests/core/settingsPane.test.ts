@@ -41,7 +41,7 @@ test("el fallo de otra carpeta no pide autorizar una carpeta legible", () => {
   expect(renderFolder(true, issues)).not.toContain("Volver a autorizar…");
 });
 
-function renderOnLinux(watchIssues: Snapshot["watchIssues"] = []) {
+function renderOnLinux(watchIssues: Snapshot["watchIssues"] = [], platform = linux) {
   const pane = createElement(SettingsPane, {
     data: {
       ...demoSnapshot,
@@ -53,7 +53,7 @@ function renderOnLinux(watchIssues: Snapshot["watchIssues"] = []) {
     },
     refresh: async () => {},
   });
-  return renderToStaticMarkup(createElement(PlatformContext.Provider, { value: linux }, pane));
+  return renderToStaticMarkup(createElement(PlatformContext.Provider, { value: platform }, pane));
 }
 
 test("en Linux Ajustes no ofrece Notas de Voz, autorizar ni acceso total al disco", () => {
@@ -68,4 +68,13 @@ test("en Linux una carpeta ilegible muestra el motivo y no pide autorizar", () =
   const html = renderOnLinux([{ folderId: "grabaciones", path: "/carpeta-sintetica", message: "Permission denied (os error 13)", permissionDenied: true }]);
   expect(html).toContain("No se puede leer esta carpeta: Permission denied (os error 13)");
   expect(html).not.toContain("utorizar");
+});
+
+const flatpak = { ...linux, folderAuthorization: true };
+
+test("en Flatpak una carpeta que perdió su permiso se vuelve a autorizar, sin acceso total al disco", () => {
+  const html = renderOnLinux([{ folderId: "grabaciones", path: "/carpeta-sintetica", message: "No se puede leer", permissionDenied: false }], flatpak);
+  expect(html).toContain("Autorizar…");
+  expect(html).not.toContain("Acceso total al disco");
+  expect(html).not.toContain("macOS");
 });

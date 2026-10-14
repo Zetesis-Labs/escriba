@@ -22,10 +22,15 @@ export const openInFolder = (platform: Platform) => (isMac(platform) ? "Abrir en
 export const revealShort = (platform: Platform) => (isMac(platform) ? "Finder" : "Carpeta");
 export const shortcut = (platform: Platform, key: string) => (isMac(platform) ? `⌘${key}` : `Ctrl+${key}`);
 
+const processedByDefault = "Cualquier audio que caiga en ellas lo procesa la receta por defecto, que se configura en Recetas.";
+
+// macOS authorizes with bookmarks and offers full disk access; a Flatpak only re-grants the folder.
 export const foldersFooter = (platform: Platform) =>
-  platform.folderAuthorization
-    ? "Cualquier audio que caiga en ellas lo procesa la receta por defecto, que se configura en Recetas. Si macOS impide leer una carpeta, puedes autorizarla; si aun así no deja leerla, la alternativa es el acceso total al disco."
-    : "Cualquier audio que caiga en ellas lo procesa la receta por defecto, que se configura en Recetas.";
+  !platform.folderAuthorization
+    ? processedByDefault
+    : platform.systemSettings
+      ? `${processedByDefault} Si macOS impide leer una carpeta, puedes autorizarla; si aun así no deja leerla, la alternativa es el acceso total al disco.`
+      : `${processedByDefault} Si Escriba pierde el permiso de una carpeta, vuelve a autorizarla.`;
 
 export const unisolatedRecipesWarning = (platform: Platform) =>
   platform.recipesIsolated

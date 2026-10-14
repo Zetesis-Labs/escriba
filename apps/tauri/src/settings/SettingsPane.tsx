@@ -1,4 +1,4 @@
-import { foldersFooter, offersFolderAuthorization, offersVoiceMemos } from "../core/platform";
+import { foldersFooter, offersFolderAuthorization, offersSystemSettings, offersVoiceMemos } from "../core/platform";
 import { usePlatform } from "../app/platform";
 import { homeDir } from "@tauri-apps/api/path";
 import { FolderPlus, Settings, Trash2, type LucideIcon } from "lucide-react";
@@ -133,7 +133,7 @@ export function SettingsPane({ data, refresh }: { data: Snapshot; refresh: () =>
                 </Button>
               </FormRow>
             )}
-            {offersFolderAuthorization(platform) && (
+            {offersFolderAuthorization(platform) && offersSystemSettings(platform) && (
               <FormRow>
                 <Button disabled={busy} onClick={() => void perform(() => call("open_privacy_settings", { pane: "disk" }))}>
                   Acceso total al disco…

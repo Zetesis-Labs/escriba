@@ -53,6 +53,9 @@ describe("plataforma", () => {
     expect(offersFolderAuthorization(linux)).toBe(false);
     expect(offersSystemSettings(linux)).toBe(false);
     expect(foldersFooter(linux)).not.toMatch(/macOS|autoriz|disco/i);
+    const flatpak = { ...linux, folderAuthorization: true };
+    expect(foldersFooter(flatpak)).toContain("vuelve a autorizarla");
+    expect(foldersFooter(flatpak)).not.toMatch(/macOS|disco/i);
   });
 
   test("sin catálogo de modelos, solo el Mac sabe el tamaño de su Whisper", () => {
