@@ -23,6 +23,7 @@ mod native;
 mod notification_delivery;
 mod notifications;
 mod platform;
+mod process_probe;
 mod project;
 mod project_watch;
 mod recorder;
