@@ -84,8 +84,8 @@ con el equipo cargado y pasa al repetir.
 | Varios modelos de Whisper | validado en Linux; falta Swift |
 | Puertos por sistema | hecho (sin cambios visibles) |
 | L5 hablantes y Personas | hecha, validada por Rubén |
-| L6 aislar recetas | construida en 25.10; falta probar en 24.04 y Fedora |
-| L7 paquetes y CI | pendiente |
+| L6 aislar recetas | validada en 25.10; falta 24.04 y Fedora (con L7) |
+| L7 paquetes y CI | **siguiente** |
 | AI SDK (ADR-0012) | decidido; después de L7 |
 
 Piezas clave ya hechas:

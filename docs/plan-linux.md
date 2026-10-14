@@ -458,8 +458,10 @@ Rust lo usa desde `confinement.rs` (adaptador por sistema) para los workers de
   junto con `herramienta_test_no_puede_leer_fuera_del_proyecto` y el
   lanzador de `project.rs`; los perfiles se prueban contra el kernel en
   `sandbox/tests/profiles.rs`.
+- **Visto por Rubén** el 2026-10-14 en la app instalada: el aviso desaparece
+  y las recetas funcionan aisladas.
 - **Pendiente para dar L6 por hecha:** pasar las pruebas en Ubuntu 24.04 y en
-  Fedora (necesita máquinas virtuales) y que Rubén vea desaparecer el aviso.
+  Fedora (necesita máquinas virtuales); se hace con la matriz de L7.
 
 Lo que queda para el Mac está en `docs/pendiente-mac.md`.
 
@@ -471,7 +473,7 @@ Lo que queda para el Mac está en `docs/pendiente-mac.md`.
 | L3 | hecha | `9398936`…`51f61c0` | sí (2026-10-14) | `docs/pendiente-mac.md` |
 | L4 | hecha | `7b27d68`…`7c2205b` | sí (2026-10-14) | `docs/pendiente-mac.md` |
 | L5 | hecha | ver «L5 en Ubuntu 25.10» | sí (2026-10-14) | `docs/pendiente-mac.md` |
-| L6 | construida; falta 24.04 y Fedora | ver «L6 en Ubuntu 25.10» | | `docs/pendiente-mac.md` |
+| L6 | construida; falta 24.04 y Fedora | ver «L6 en Ubuntu 25.10» | 25.10: sí (2026-10-14) | `docs/pendiente-mac.md` |
 | L7 | pendiente | | | |
 
 Matriz de L7 (✓ instala y arranca, reproduce m4a, graba y transcribe):
