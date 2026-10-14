@@ -373,6 +373,9 @@ WhisperKit con tamaño e instalados, y `default`) y `deleteModel` (borrar solo
 ese modelo); hasta entonces el «+» de STT no ofrece modelos locales y todo
 sigue como antes. Comprobar que borrar el de serie sigue funcionando.
 
+**L2, L3, L4 y varios modelos validados por Rubén** en su Ubuntu el
+2026-10-14.
+
 **Para la sesión del Mac (L3):** `recorder.rs` construye la ventana flotante
 solo en macOS (`open_panel` ya no compila en Linux: comprobar que compila en el
 Mac); la URL del panel lleva `&platform=macos`; `RecordingPanel` acepta
@@ -417,9 +420,9 @@ revisar en particular:
 |---|---|---|---|---|
 | L0 | hecha | `5fdc89a` | | Nada: solo diagnóstico |
 | L1 | hecha | `54436b9`…`c758503` | | Ver «L1 en Ubuntu 25.10» |
-| L2 | construida, falta validar | `e6fa7b8`…`6718249` | | Ver «L2 en Ubuntu 25.10» |
-| L3 | construida, panel aprobado | `9398936`…`51f61c0` | panel: sí (2026-10-14) | Ver «L3 en Ubuntu 25.10» |
-| L4 | construida, falta validar | `7b27d68`…`7c2205b` | | Ver «L4 en Ubuntu 25.10» |
+| L2 | hecha | `e6fa7b8`…`6718249` | sí (2026-10-14) | Ver «L2 en Ubuntu 25.10» |
+| L3 | hecha | `9398936`…`51f61c0` | sí (2026-10-14) | Ver «L3 en Ubuntu 25.10» |
+| L4 | hecha | `7b27d68`…`7c2205b` | sí (2026-10-14) | Ver «L4 en Ubuntu 25.10» |
 | L5 | pendiente | | | |
 | L6 | pendiente | | | |
 | L7 | pendiente | | | |

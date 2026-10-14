@@ -78,10 +78,10 @@ con el equipo cargado y pasa al repetir.
 |---|---|
 | L0 diagnóstico | hecha |
 | L1 compila y pasa tests | hecha |
-| L2 arranca y procesa con STT remoto | construida e instalada; falta validar en pantalla |
-| L3 grabar | construida; panel aprobado por Rubén; falta validar reproducción y proceso |
-| L4 Whisper local | construida e instalada; falta validar |
-| Varios modelos de Whisper | construido en Linux e interfaz; falta Swift |
+| L2 arranca y procesa con STT remoto | hecha, validada por Rubén |
+| L3 grabar | hecha, validada por Rubén |
+| L4 Whisper local | hecha, validada por Rubén |
+| Varios modelos de Whisper | validado en Linux; falta Swift |
 | L5 hablantes y Personas | **siguiente** |
 | L6 aislar recetas | pendiente, diseño propuesto abajo |
 | L7 paquetes y CI | pendiente |
@@ -114,15 +114,6 @@ Decisiones de Rubén tomadas en esta sesión (además de las del plan):
 - La parte de Swift (Mac) se hará al terminar Linux.
 
 ## Pendiente
-
-### Por validar con Rubén
-
-- L2: «Abrir al iniciar sesión» (mira `~/.config/autostart/` y su `Exec`),
-  notificaciones (abrir Escriba dos veces avisa «otra copia»), redimensionar la
-  ventana sin barra del sistema.
-- L3: una nota grabada se reproduce (`.ogg`, WebKitGTK usa GStreamer) y la
-  procesa la receta.
-- L4 y modelos: transcribir en local con el de serie y con un modelo añadido.
 
 ### Preguntas abiertas para Rubén
 
