@@ -1,53 +1,58 @@
-export type System = "macos" | "linux";
+import type { Platform } from "../generated/Platform";
+import type { System } from "../generated/System";
 
-export interface Platform {
-  system: System;
-  recipesIsolated: boolean;
-}
+export type { Platform, System };
 
-export const macOS: Platform = { system: "macos", recipesIsolated: true };
+// What Rust reports on macOS; the interface assumes it until the library arrives.
+export const macOS: Platform = {
+  system: "macos",
+  recipesIsolated: true,
+  voiceMemos: true,
+  folderAuthorization: true,
+  systemSettings: true,
+  bundledLlm: true,
+  floatingPanel: true,
+  menuBar: true,
+  drawsWindowControls: false,
+};
 
 export const platformOf = (data: { platform?: Platform } | null | undefined): Platform => data?.platform ?? macOS;
 
-const isLinux = (platform: Platform) => platform.system === "linux";
+const isMac = (platform: Platform) => platform.system === "macos";
 
-export const device = (platform: Platform) => (isLinux(platform) ? "equipo" : "Mac");
-export const offersVoiceMemos = (platform: Platform) => !isLinux(platform);
-export const offersFolderAuthorization = (platform: Platform) => !isLinux(platform);
-export const offersSystemSettings = (platform: Platform) => !isLinux(platform);
+export const device = (platform: Platform) => (isMac(platform) ? "Mac" : "equipo");
+export const whisperName = (system: System) => (system === "macos" ? "Whisper en este Mac" : "Whisper · en este equipo");
+export const offersVoiceMemos = (platform: Platform) => platform.voiceMemos;
+export const offersFolderAuthorization = (platform: Platform) => platform.folderAuthorization;
+export const offersSystemSettings = (platform: Platform) => platform.systemSettings;
 
-export const revealInFolder = (platform: Platform) => (isLinux(platform) ? "Mostrar en la carpeta" : "Mostrar en Finder");
-export const openInFolder = (platform: Platform) => (isLinux(platform) ? "Mostrar en la carpeta" : "Abrir en el Finder");
-export const revealShort = (platform: Platform) => (isLinux(platform) ? "Carpeta" : "Finder");
-export const shortcut = (platform: Platform, key: string) => (isLinux(platform) ? `Ctrl+${key}` : `⌘${key}`);
+export const revealInFolder = (platform: Platform) => (isMac(platform) ? "Mostrar en Finder" : "Mostrar en la carpeta");
+export const openInFolder = (platform: Platform) => (isMac(platform) ? "Abrir en el Finder" : "Mostrar en la carpeta");
+export const revealShort = (platform: Platform) => (isMac(platform) ? "Finder" : "Carpeta");
+export const shortcut = (platform: Platform, key: string) => (isMac(platform) ? `⌘${key}` : `Ctrl+${key}`);
 
 export const foldersFooter = (platform: Platform) =>
-  isLinux(platform)
-    ? "Cualquier audio que caiga en ellas lo procesa la receta por defecto, que se configura en Recetas."
-    : "Cualquier audio que caiga en ellas lo procesa la receta por defecto, que se configura en Recetas. Si macOS impide leer una carpeta, puedes autorizarla; si aun así no deja leerla, la alternativa es el acceso total al disco.";
+  platform.folderAuthorization
+    ? "Cualquier audio que caiga en ellas lo procesa la receta por defecto, que se configura en Recetas. Si macOS impide leer una carpeta, puedes autorizarla; si aun así no deja leerla, la alternativa es el acceso total al disco."
+    : "Cualquier audio que caiga en ellas lo procesa la receta por defecto, que se configura en Recetas.";
 
 export const unisolatedRecipesWarning = (platform: Platform) =>
   platform.recipesIsolated
     ? null
     : "Este equipo no permite aislar las recetas: su código se ejecuta con tus permisos y podría leer tus archivos o conectarse a internet.";
 
-export const drawsWindowControls = (platform: Platform) => isLinux(platform);
+export const drawsWindowControls = (platform: Platform) => platform.drawsWindowControls;
 
 type Keys = { key: string; ctrlKey: boolean; metaKey: boolean; altKey: boolean; shiftKey: boolean };
 
-// macOS gets ⌘N from its menu bar; Linux has no menu bar inside the window.
+// With a menu bar, ⌘N comes from the menu.
 export const isNewRecordingShortcut = (event: Keys, platform: Platform) =>
-  isLinux(platform) && event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "n";
+  !platform.menuBar && event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "n";
 
-// The recording panel is its own webview without library data: Rust names the system in its URL.
-export const platformFromQuery = (search: string): Platform =>
-  new URLSearchParams(search).get("platform") === "linux" ? { system: "linux", recipesIsolated: false } : macOS;
+// The floating panel gets Liquid Glass from macOS; docked inside the window it paints its own.
+export const paintsPanelBackground = (platform: Platform) => !platform.floatingPanel;
 
-// macOS draws the panel with Liquid Glass; elsewhere the window is plainly transparent.
-export const paintsPanelBackground = (platform: Platform) => isLinux(platform);
+export const floatingRecordingPanel = (platform: Platform) => platform.floatingPanel;
 
-// Wayland lets no app place or raise its own windows, so Linux docks the panel inside the window.
-export const floatingRecordingPanel = (platform: Platform) => !isLinux(platform);
-
-// WhisperKit large-v3 on macOS, whisper.cpp large-v3-turbo on Linux.
-export const whisperDownloadLabel = (platform: Platform) => (isLinux(platform) ? "Descargar (unos 1,6 GB)" : "Descargar (unos 3 GB)");
+// Until Swift answers `models`, the Mac has no catalog and its model is WhisperKit large-v3.
+export const whisperDownloadLabel = (platform: Platform) => (isMac(platform) ? "Descargar (unos 3 GB)" : "Descargar");

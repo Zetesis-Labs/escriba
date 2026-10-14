@@ -1,10 +1,12 @@
 //! Decisions that differ between macOS and Linux, without I/O.
 
+use serde::Serialize;
 use std::{
     ffi::OsStr,
     path::{Path, PathBuf},
     process::Command,
 };
+use ts_rs::TS;
 
 #[cfg(target_os = "macos")]
 pub fn is_models_root(root: &Path) -> bool {
@@ -124,10 +126,61 @@ pub fn surreal_native() -> (String, String) {
     )
 }
 
-/// Whether recipes run under an OS sandbox. Without it they still run and
-/// the interface shows a permanent warning.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, TS)]
+#[serde(rename_all = "lowercase")]
+#[allow(dead_code)] // Each system builds only its own variant.
+pub enum System {
+    Macos,
+    Linux,
+}
+
+/// What the interface may offer on this system; it decides with this, not
+/// with the system's name.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct Platform {
+    pub system: System,
+    /// Recipes run under an OS sandbox. Without it they still run and the
+    /// interface shows a permanent warning.
+    pub recipes_isolated: bool,
+    pub voice_memos: bool,
+    pub folder_authorization: bool,
+    pub system_settings: bool,
+    pub bundled_llm: bool,
+    /// Wayland lets no app place or raise its own windows.
+    pub floating_panel: bool,
+    pub menu_bar: bool,
+    pub draws_window_controls: bool,
+}
+
+#[cfg(target_os = "macos")]
+pub const PLATFORM: Platform = Platform {
+    system: System::Macos,
+    recipes_isolated: true,
+    voice_memos: true,
+    folder_authorization: true,
+    system_settings: true,
+    bundled_llm: true,
+    floating_panel: true,
+    menu_bar: true,
+    draws_window_controls: false,
+};
+
+#[cfg(target_os = "linux")]
+pub const PLATFORM: Platform = Platform {
+    system: System::Linux,
+    recipes_isolated: false,
+    voice_memos: false,
+    folder_authorization: false,
+    system_settings: false,
+    bundled_llm: false,
+    floating_panel: false,
+    menu_bar: false,
+    draws_window_controls: true,
+};
+
 pub fn recipes_isolated() -> bool {
-    cfg!(target_os = "macos")
+    PLATFORM.recipes_isolated
 }
 
 // The native host records AAC on macOS and Opus on Linux.
@@ -136,14 +189,8 @@ pub const RECORDING_EXTENSION: &str = "m4a";
 #[cfg(target_os = "linux")]
 pub const RECORDING_EXTENSION: &str = "ogg";
 
-#[cfg(target_os = "macos")]
-pub const SYSTEM: &str = "macos";
-#[cfg(target_os = "linux")]
-pub const SYSTEM: &str = "linux";
-
-/// What the interface needs to know to show each system's options.
 pub fn summary() -> serde_json::Value {
-    serde_json::json!({"system": SYSTEM, "recipesIsolated": recipes_isolated()})
+    serde_json::to_value(PLATFORM).unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -174,11 +221,15 @@ mod tests {
     }
 
     #[test]
-    fn la_interfaz_recibe_el_sistema_y_si_las_recetas_estan_aisladas() {
+    fn la_interfaz_recibe_lo_que_puede_ofrecer_el_sistema() {
         let expected = if cfg!(target_os = "macos") {
-            serde_json::json!({"system": "macos", "recipesIsolated": true})
+            serde_json::json!({"system": "macos", "recipesIsolated": true, "voiceMemos": true,
+                "folderAuthorization": true, "systemSettings": true, "bundledLlm": true,
+                "floatingPanel": true, "menuBar": true, "drawsWindowControls": false})
         } else {
-            serde_json::json!({"system": "linux", "recipesIsolated": false})
+            serde_json::json!({"system": "linux", "recipesIsolated": false, "voiceMemos": false,
+                "folderAuthorization": false, "systemSettings": false, "bundledLlm": false,
+                "floatingPanel": false, "menuBar": false, "drawsWindowControls": true})
         };
         assert_eq!(summary(), expected);
     }

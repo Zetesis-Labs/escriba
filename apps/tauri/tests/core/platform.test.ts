@@ -4,7 +4,6 @@ import {
   whisperDownloadLabel,
   floatingRecordingPanel,
   paintsPanelBackground,
-  platformFromQuery,
   drawsWindowControls,
   isNewRecordingShortcut,
   foldersFooter,
@@ -21,8 +20,8 @@ import {
   type Platform,
 } from "../../src/core/platform";
 import { localName, resolverSubtitle, resolversFooter, removedResolverNote } from "../../src/core/resolvers";
+import { linux } from "./platforms";
 
-const linux: Platform = { system: "linux", recipesIsolated: false };
 const local = { id: "local-stt", name: "Whisper", role: "stt" as const, local: true, enabled: true };
 
 describe("plataforma", () => {
@@ -56,9 +55,21 @@ describe("plataforma", () => {
     expect(foldersFooter(linux)).not.toMatch(/macOS|autoriz|disco/i);
   });
 
-  test("la descarga de Whisper dice el tamaño del modelo de cada sistema", () => {
+  test("sin catálogo de modelos, solo el Mac sabe el tamaño de su Whisper", () => {
     expect(whisperDownloadLabel(macOS)).toBe("Descargar (unos 3 GB)");
-    expect(whisperDownloadLabel(linux)).toBe("Descargar (unos 1,6 GB)");
+    expect(whisperDownloadLabel(linux)).toBe("Descargar");
+  });
+
+  test("las opciones salen de lo que Rust dice que ofrece el sistema, no de su nombre", () => {
+    const everything: Platform = { ...linux, voiceMemos: true, folderAuthorization: true, systemSettings: true, menuBar: true, floatingPanel: true, drawsWindowControls: false };
+    expect(offersVoiceMemos(everything)).toBe(true);
+    expect(offersFolderAuthorization(everything)).toBe(true);
+    expect(offersSystemSettings(everything)).toBe(true);
+    expect(drawsWindowControls(everything)).toBe(false);
+    expect(floatingRecordingPanel(everything)).toBe(true);
+    expect(paintsPanelBackground(everything)).toBe(false);
+    expect(isNewRecordingShortcut({ key: "n", ctrlKey: true, metaKey: false, altKey: false, shiftKey: false }, everything)).toBe(false);
+    expect(resolversFooter("llm", { ...linux, bundledLlm: true })).toContain("La que no elige usa");
   });
 
   test("en Linux se muestra en la carpeta y los atajos usan Ctrl", () => {
@@ -82,7 +93,7 @@ describe("plataforma", () => {
   test("sin aislamiento de recetas hay un aviso permanente que explica qué falta", () => {
     const warning = unisolatedRecipesWarning(linux);
     expect(warning).toContain("no permite aislar las recetas");
-    expect(unisolatedRecipesWarning({ system: "linux", recipesIsolated: true })).toBeNull();
+    expect(unisolatedRecipesWarning({ ...linux, recipesIsolated: true })).toBeNull();
   });
 });
 
@@ -109,12 +120,6 @@ describe("ventana integrada", () => {
 });
 
 describe("panel de grabación", () => {
-  test("el panel sabe su sistema por la dirección con la que lo abre Rust", () => {
-    expect(platformFromQuery("?panel=recording&platform=linux").system).toBe("linux");
-    expect(platformFromQuery("?panel=recording")).toEqual(macOS);
-    expect(platformFromQuery("?panel=recording&platform=macos")).toEqual(macOS);
-  });
-
   test("en Linux el panel va dentro de la ventana; en el Mac flota sobre todo", () => {
     expect(floatingRecordingPanel(macOS)).toBe(true);
     expect(floatingRecordingPanel(linux)).toBe(false);

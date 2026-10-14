@@ -376,6 +376,7 @@ mod bindings {
         AppCommand::export_all(&config).unwrap();
         KnowledgeCommand::export_all(&config).unwrap();
         KnowledgeReply::export_all(&config).unwrap();
+        crate::platform::Platform::export_all(&config).unwrap();
     }
 
     #[test]

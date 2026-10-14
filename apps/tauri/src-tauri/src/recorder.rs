@@ -238,13 +238,7 @@ fn open_panel(app: &AppHandle) {
     let builder = WebviewWindowBuilder::new(
         app,
         PANEL,
-        WebviewUrl::App(
-            format!(
-                "index.html?panel=recording&platform={}",
-                crate::platform::SYSTEM
-            )
-            .into(),
-        ),
+        WebviewUrl::App("index.html?panel=recording".into()),
     )
     .title("Grabación")
     .inner_size(PANEL_WIDTH, PANEL_HEIGHT)

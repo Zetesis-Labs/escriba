@@ -1,12 +1,12 @@
 import type { Resolver } from "../types";
-import { device, macOS, whisperDownloadLabel, type Platform } from "./platform";
+import { device, macOS, whisperDownloadLabel, whisperName, type Platform } from "./platform";
 
 export type Role = "stt" | "llm";
 
 export const roleLabel = (role: Role) => (role === "stt" ? "STT" : "LLMs");
 export const localName = (role: Role, platform: Platform = macOS) =>
-  role === "llm" ? "Apple Intelligence" : platform.system === "linux" ? "Whisper · en este equipo" : "Whisper en este Mac";
-export const hasLocal = (role: Role, platform: Platform = macOS) => role === "stt" || platform.system !== "linux";
+  role === "llm" ? "Apple Intelligence" : whisperName(platform.system);
+export const hasLocal = (role: Role, platform: Platform = macOS) => role === "stt" || platform.bundledLlm;
 
 export const resolversFooter = (role: Role, platform: Platform = macOS) =>
   `Cada receta elige con qué ${role === "stt" ? "transcribir" : "resumir"}, en Recetas. ${

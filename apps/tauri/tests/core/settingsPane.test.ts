@@ -5,6 +5,7 @@ import { snapshot as demoSnapshot } from "../runtime/fixture";
 import { SettingsPane } from "../../src/settings/SettingsPane";
 import type { Snapshot } from "../../src/types";
 import { PlatformContext } from "../../src/app/platform";
+import { linux } from "./platforms";
 
 function renderFolder(authorizationSaved: boolean, watchIssues: Snapshot["watchIssues"] = []) {
   return renderToStaticMarkup(createElement(SettingsPane, {
@@ -52,7 +53,7 @@ function renderOnLinux(watchIssues: Snapshot["watchIssues"] = []) {
     },
     refresh: async () => {},
   });
-  return renderToStaticMarkup(createElement(PlatformContext.Provider, { value: { system: "linux", recipesIsolated: false } }, pane));
+  return renderToStaticMarkup(createElement(PlatformContext.Provider, { value: linux }, pane));
 }
 
 test("en Linux Ajustes no ofrece Notas de Voz, autorizar ni acceso total al disco", () => {

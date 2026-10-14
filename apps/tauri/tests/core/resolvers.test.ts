@@ -1,5 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { addableModels, addedModelProblem, downloadLabel, nextResolverName, presetFor, removable, remoteURLProblem, resolverName, resolverProblem, resolverSubtitle } from "../../src/core/resolvers";
+import { macOS } from "../../src/core/platform";
+import { linux } from "./platforms";
 
 describe("resolutores como en la app Swift", () => {
   test("la URL de un servicio se valida igual que en Swift", () => {
@@ -32,7 +34,6 @@ describe("resolutores como en la app Swift", () => {
 });
 
 describe("modelos de Whisper local", () => {
-  const linux = { system: "linux" as const, recipesIsolated: false };
   const catalog = {
     default: "large-v3-turbo",
     models: [
@@ -65,7 +66,7 @@ describe("modelos de Whisper local", () => {
   test("descargar dice el tamaño de ese modelo; sin catálogo, el del modelo de serie del sistema", () => {
     expect(downloadLabel("tiny", catalog, linux)).toBe("Descargar (unos 78 MB)");
     expect(downloadLabel("large-v3-turbo", catalog, linux)).toBe("Descargar (unos 1,6 GB)");
-    expect(downloadLabel("openai_whisper-large-v3-v20240930", null, { system: "macos", recipesIsolated: true })).toBe("Descargar (unos 3 GB)");
+    expect(downloadLabel("openai_whisper-large-v3-v20240930", null, macOS)).toBe("Descargar (unos 3 GB)");
   });
 
   test("un modelo añadido sin descargar lo dice en su fila", () => {
