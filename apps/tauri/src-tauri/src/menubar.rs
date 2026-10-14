@@ -314,6 +314,9 @@ pub fn install(app: &AppHandle, state: &Runtime) -> tauri::Result<()> {
     if let Some(icon) = crate::symbols::image("waveform") {
         tray = tray.icon(icon).icon_as_template(true);
     }
+    if let Some(folder) = crate::platform::tray_icon_dir() {
+        tray = tray.temp_dir_path(folder);
+    }
     tray.build(app)?;
     apply(app, state);
     Ok(())

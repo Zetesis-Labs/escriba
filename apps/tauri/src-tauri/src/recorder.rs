@@ -299,6 +299,9 @@ fn open_clock(app: &AppHandle) {
                 });
             }
         });
+    if let Some(folder) = crate::platform::tray_icon_dir() {
+        builder = builder.temp_dir_path(folder);
+    }
     if let Some(icon) = crate::symbols::image("stop.circle.fill") {
         builder = builder.icon(icon).icon_as_template(true);
     }

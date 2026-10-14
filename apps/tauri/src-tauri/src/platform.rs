@@ -236,6 +236,24 @@ pub const RECORDING_EXTENSION: &str = "m4a";
 #[cfg(target_os = "linux")]
 pub const RECORDING_EXTENSION: &str = "ogg";
 
+/// Where the tray writes its icons so the desktop can read them. Inside a
+/// Flatpak only `$XDG_RUNTIME_DIR/app/<id>` is shared with the host, at the same path.
+pub fn tray_icon_dir() -> Option<PathBuf> {
+    tray_icon_dir_from(
+        std::env::var_os("FLATPAK_ID").as_deref(),
+        std::env::var_os("XDG_RUNTIME_DIR").as_deref(),
+    )
+}
+
+fn tray_icon_dir_from(flatpak_id: Option<&OsStr>, runtime: Option<&OsStr>) -> Option<PathBuf> {
+    Some(
+        PathBuf::from(runtime?)
+            .join("app")
+            .join(flatpak_id?)
+            .join("tray-icon"),
+    )
+}
+
 /// Whether folders need an authorization: always on macOS; on Linux only
 /// inside a Flatpak, where the file chooser portal grants them.
 #[cfg(target_os = "macos")]
@@ -260,6 +278,27 @@ pub fn summary() -> serde_json::Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn dentro_de_flatpak_la_bandeja_deja_sus_iconos_donde_el_escritorio_los_ve() {
+        assert_eq!(
+            tray_icon_dir_from(
+                Some(OsStr::new("es.zetesis.Escriba")),
+                Some(OsStr::new("/run/user/1000"))
+            ),
+            Some(PathBuf::from(
+                "/run/user/1000/app/es.zetesis.Escriba/tray-icon"
+            ))
+        );
+        assert_eq!(
+            tray_icon_dir_from(None, Some(OsStr::new("/run/user/1000"))),
+            None
+        );
+        assert_eq!(
+            tray_icon_dir_from(Some(OsStr::new("es.zetesis.Escriba")), None),
+            None
+        );
+    }
 
     #[test]
     fn el_binding_de_surrealdb_es_el_del_sistema() {
