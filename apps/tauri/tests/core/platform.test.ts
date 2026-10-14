@@ -1,6 +1,8 @@
 import { describe, expect, test } from "vitest";
 import {
   device,
+  paintsPanelBackground,
+  platformFromQuery,
   drawsWindowControls,
   isNewRecordingShortcut,
   foldersFooter,
@@ -96,5 +98,18 @@ describe("ventana integrada", () => {
     expect(isNewRecordingShortcut(key({ key: "s", ctrlKey: true }), linux)).toBe(false);
     expect(isNewRecordingShortcut(key({ ctrlKey: true }), macOS)).toBe(false);
     expect(isNewRecordingShortcut(key({ metaKey: true }), macOS)).toBe(false);
+  });
+});
+
+describe("panel de grabación", () => {
+  test("el panel sabe su sistema por la dirección con la que lo abre Rust", () => {
+    expect(platformFromQuery("?panel=recording&platform=linux").system).toBe("linux");
+    expect(platformFromQuery("?panel=recording")).toEqual(macOS);
+    expect(platformFromQuery("?panel=recording&platform=macos")).toEqual(macOS);
+  });
+
+  test("sin el efecto de cristal del Mac, el panel pinta su propio fondo", () => {
+    expect(paintsPanelBackground(linux)).toBe(true);
+    expect(paintsPanelBackground(macOS)).toBe(false);
   });
 });

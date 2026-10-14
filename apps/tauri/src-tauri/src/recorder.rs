@@ -215,17 +215,16 @@ fn open_panel(app: &AppHandle) {
     if app.get_webview_window(PANEL).is_some() {
         return;
     }
-    let effects = tauri::utils::config::WindowEffectsConfig {
-        effects: vec![tauri::window::Effect::LiquidGlassRegular],
-        state: None,
-        radius: Some(PANEL_HEIGHT / 2.0),
-        color: None,
-        interactive: false,
-    };
-    let built = WebviewWindowBuilder::new(
+    let builder = WebviewWindowBuilder::new(
         app,
         PANEL,
-        WebviewUrl::App("index.html?panel=recording".into()),
+        WebviewUrl::App(
+            format!(
+                "index.html?panel=recording&platform={}",
+                crate::platform::SYSTEM
+            )
+            .into(),
+        ),
     )
     .title("Grabación")
     .inner_size(PANEL_WIDTH, PANEL_HEIGHT)
@@ -239,9 +238,17 @@ fn open_panel(app: &AppHandle) {
     .focused(false)
     .focusable(false)
     .accept_first_mouse(true)
-    .effects(effects)
-    .visible(false)
-    .build();
+    .visible(false);
+    // Liquid Glass only exists on macOS; Linux paints the panel background itself.
+    #[cfg(target_os = "macos")]
+    let builder = builder.effects(tauri::utils::config::WindowEffectsConfig {
+        effects: vec![tauri::window::Effect::LiquidGlassRegular],
+        state: None,
+        radius: Some(PANEL_HEIGHT / 2.0),
+        color: None,
+        interactive: false,
+    });
+    let built = builder.build();
     let panel = match built {
         Ok(panel) => panel,
         Err(error) => {

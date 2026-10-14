@@ -38,3 +38,10 @@ type Keys = { key: string; ctrlKey: boolean; metaKey: boolean; altKey: boolean; 
 // macOS gets ⌘N from its menu bar; Linux has no menu bar inside the window.
 export const isNewRecordingShortcut = (event: Keys, platform: Platform) =>
   isLinux(platform) && event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "n";
+
+// The recording panel is its own webview without library data: Rust names the system in its URL.
+export const platformFromQuery = (search: string): Platform =>
+  new URLSearchParams(search).get("platform") === "linux" ? { system: "linux", recipesIsolated: false } : macOS;
+
+// macOS draws the panel with Liquid Glass; elsewhere the window is plainly transparent.
+export const paintsPanelBackground = (platform: Platform) => isLinux(platform);

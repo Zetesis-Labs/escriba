@@ -1,3 +1,5 @@
+import { usePlatform } from "../app/platform";
+import { paintsPanelBackground } from "../core/platform";
 import { Trash2 } from "lucide-react";
 import { errorText } from "../mac/native";
 import { discardRecording, stopRecording, useRecording } from "./useRecording";
@@ -33,10 +35,11 @@ function RecordSymbol() {
 
 export function RecordingPanel() {
   const recording = useRecording();
+  const painted = paintsPanelBackground(usePlatform());
   const act = (work: () => Promise<unknown>) => () =>
     void work().catch((failure) => console.error(errorText(failure)));
   return (
-    <div className="recording-hud" data-tauri-drag-region>
+    <div className={painted ? "recording-hud painted" : "recording-hud"} data-tauri-drag-region>
       <RecordSymbol />
       <div className="recording-text" data-tauri-drag-region>
         <span className="recording-clock" data-tauri-drag-region>

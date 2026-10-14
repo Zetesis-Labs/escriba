@@ -71,3 +71,8 @@
 .recording-stop:active {
   filter: brightness(0.9);
 }
+.recording-hud.painted {
+  background: var(--window);
+  border: 0.5px solid var(--separator);
+  border-radius: 27px;
+}
