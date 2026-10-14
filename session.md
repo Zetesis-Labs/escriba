@@ -83,8 +83,8 @@ con el equipo cargado y pasa al repetir.
 | L4 Whisper local | hecha, validada por Rubén |
 | Varios modelos de Whisper | validado en Linux; falta Swift |
 | Puertos por sistema | hecho (sin cambios visibles) |
-| L5 hablantes y Personas | **siguiente** |
-| L6 aislar recetas | pendiente, diseño propuesto abajo |
+| L5 hablantes y Personas | construida; falta validar |
+| L6 aislar recetas | **siguiente**; diseño propuesto abajo |
 | L7 paquetes y CI | pendiente |
 
 Piezas clave ya hechas:
@@ -126,16 +126,11 @@ Decisiones de Rubén tomadas en esta sesión (además de las del plan):
 - Ctrl+Q para salir en Linux.
 - Gráfica para Whisper (hoy procesador; el plan pide demostrar que es estable).
 
-### L5. Hablantes y Personas (siguiente)
+### L5. Hablantes y Personas (construida)
 
-Ver el plan. Resumen: diarización y huellas en el host de Rust con un motor que
-funcione en Linux (candidato: sherpa-onnx), modelos descargados explícitamente.
-Hoy `transcribe` con `diarize: true` y `diarizedVoices` fallan avisando. Contrato
-de `transcribe` con `diarize`/`speakers` y de `diarizedVoices` con audio de dos
-voces de `espeak-ng` (por ejemplo `-v es` y `-v es+f3`). Calibrar el umbral (el
-0,30 del `CLAUDE.md` es de SpeakerKit) y apuntar el valor en el plan. Las huellas
-no salen del host ni del controlador. Hecho cuando Rubén registra una voz de 30 s
-y una grabación nueva la reconoce.
+Ver «L5 en Ubuntu 25.10» en el Registro: sherpa-onnx (pyannote + TitaNet) como
+biblioteca compartida, modelos bajados con cualquier Whisper, umbral 0,50.
+Hecho cuando Rubén registra una voz de 30 s y una grabación nueva la reconoce.
 
 ### L6. Aislar recetas: diseño propuesto a Rubén (no implementado)
 

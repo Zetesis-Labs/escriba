@@ -196,7 +196,7 @@ Tests primero: contrato de `transcribe` con `diarize` y `speakers`, y de
 - Diarización y huellas con un motor que funcione en Linux (sherpa-onnx es el
   candidato); modelos descargados explícitamente.
 - El umbral 0,30 del `CLAUDE.md` es el de SpeakerKit. Para Linux se calibra con
-  las pruebas y se apunta aquí el valor elegido.
+  las pruebas y se apunta aquí el valor elegido: 0,50 (ver Registro, L5).
 - Las huellas no salen del proceso nativo y de Rust, como en el Mac.
 
 **Hecho cuando** Rubén registra una voz de 30 segundos y una grabación nueva la
@@ -400,6 +400,31 @@ anterior si el host no los tiene.
 **L2, L3, L4 y varios modelos validados por Rubén** en su Ubuntu el
 2026-10-14.
 
+**L5 en Ubuntu 25.10** (2026-10-14). Hablantes con sherpa-onnx en el host de
+Rust: segmentación pyannote 3.0 (la misma familia que SpeakerKit) y huellas
+NeMo TitaNet small, modelo `sherpa-onnx/nemo-titanet-small`. Una huella por
+hablante: media de sus turnos de al menos 1 s, pesada por duración. Las palabras
+de Whisper se reparten por quien habla en su tiempo y el segmento se parte
+donde cambia la voz; el primero en hablar es «Speaker 1».
+
+- **Descarga (decidido por Rubén):** los dos modelos (unos 46 MB) se bajan al
+  descargar cualquier Whisper, sin interfaz nueva; lo ya descargado no se
+  vuelve a bajar. Sin ellos, detectar hablantes espera como «no disponible».
+- **Biblioteca compartida:** enlazado estático, el onnxruntime de sherpa-onnx y
+  whisper.cpp se pisan las plantillas de `std::regex` y el host cae con
+  `free(): invalid pointer`. Por eso sherpa-onnx va como `.so` en
+  `/usr/lib/Escriba/native` y el host la busca con su rpath (`native-host/build.rs`).
+- **Calibración:** con las voces reales públicas de `csukuangfj/sr-data`
+  (cinco personas, 20 grabaciones, 190 pares; no se guardan en el repositorio)
+  WeSpeaker ResNet34-LM confundía personas (16 errores), y TitaNet deja la
+  misma persona en el mismo idioma por debajo de 0,415 y personas distintas por
+  encima de 0,602. **Umbral de Linux: 0,50**, por modelo en
+  `src/runtime/library/voices.ts` (SpeakerKit sigue en 0,30). La misma persona
+  en otro idioma no se reconoce (más de 0,94). La agrupación usa el 0,5 de serie
+  de sherpa-onnx. Con dos voces de `espeak-ng`, misma voz 0,015 y otra 0,707.
+- Para validar en un equipo que ya tenía el Whisper de serie: añadir y
+  descargar otro modelo (por ejemplo tiny) trae los de hablantes.
+
 Lo que queda para el Mac está en `docs/pendiente-mac.md`.
 
 | Fase | Estado | Commit | Validada por Rubén | Para la sesión del Mac |
@@ -409,7 +434,7 @@ Lo que queda para el Mac está en `docs/pendiente-mac.md`.
 | L2 | hecha | `e6fa7b8`…`6718249` | sí (2026-10-14) | `docs/pendiente-mac.md` |
 | L3 | hecha | `9398936`…`51f61c0` | sí (2026-10-14) | `docs/pendiente-mac.md` |
 | L4 | hecha | `7b27d68`…`7c2205b` | sí (2026-10-14) | `docs/pendiente-mac.md` |
-| L5 | pendiente | | | |
+| L5 | construida, falta validar | ver «L5 en Ubuntu 25.10» | | `docs/pendiente-mac.md` |
 | L6 | pendiente | | | |
 | L7 | pendiente | | | |
 
