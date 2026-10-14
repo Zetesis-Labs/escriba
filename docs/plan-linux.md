@@ -337,6 +337,22 @@ commits de `espeak-ng` y de clippy, porque `main` borró ese código. La prueba 
 la biblioteca grande tiene 30 s de margen: en Ubuntu tarda 6,5 s también en
 `main`.
 
+**L3 en Ubuntu 25.10** (2026-10-14). El host de Rust graba con el micrófono por
+defecto (cpal) en Opus/Ogg con libopus estática, con pausa, cancelación y nivel
+como el medidor del Mac; batería de contrato con `ESCRIBA_AUDIO_SOURCE` y prueba
+real de micrófono ignorada. Las grabaciones de Linux se llaman `.ogg`.
+**Decidido por Rubén:** en Linux no hay panel flotante (Wayland no deja colocar
+ni subir ventanas); el panel va dentro de la ventana principal, centrado arriba
+sobre el contenido, y la ventana se muestra al empezar a grabar. Pendiente: si
+la nota grabada se reproduce y se procesa en la app instalada, y si hay botón de
+pausa (solo Linux, ambos o ninguno). `worker.test.ts` («tiempo de inferencia en
+host…») falló una vez con el equipo cargado y pasó al repetir.
+
+**Para la sesión del Mac (L3):** `recorder.rs` construye la ventana flotante
+solo en macOS (`open_panel` ya no compila en Linux: comprobar que compila en el
+Mac); la URL del panel lleva `&platform=macos`; `RecordingPanel` acepta
+`docked` y pone `data-tauri-drag-region="true"`.
+
 **Para la sesión del Mac (L2):** que nada visible ha cambiado, y revisar:
 
 - `scripts/prepare.mjs` y `runtime-host/build.mjs` eligen paquete y triple con
@@ -377,7 +393,7 @@ revisar en particular:
 | L0 | hecha | `5fdc89a` | | Nada: solo diagnóstico |
 | L1 | hecha | `54436b9`…`c758503` | | Ver «L1 en Ubuntu 25.10» |
 | L2 | construida, falta validar | `e6fa7b8`…`6718249` | | Ver «L2 en Ubuntu 25.10» |
-| L3 | pendiente | | | |
+| L3 | construida, panel aprobado | `9398936`…`51f61c0` | panel: sí (2026-10-14) | Ver «L3 en Ubuntu 25.10» |
 | L4 | pendiente | | | |
 | L5 | pendiente | | | |
 | L6 | pendiente | | | |
