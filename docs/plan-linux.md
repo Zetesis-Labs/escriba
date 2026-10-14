@@ -426,6 +426,41 @@ donde cambia la voz; el primero en hablar es «Speaker 1».
   descargar otro modelo (por ejemplo tiny) trae los de hablantes.
 - **Validada por Rubén** el 2026-10-14: identifica bien a los hablantes.
 
+**L6 en Ubuntu 25.10** (2026-10-14). `apps/tauri/sandbox` construye
+`escriba-sandbox`, el `sandbox-exec` de Linux. Se encierra con `no_new_privs`,
+Landlock (archivos y TCP, ABI 4 o posterior) y seccomp, y después se convierte
+en el programa. Tiene los mismos tres perfiles que el Mac: receta (`worker`),
+herramienta (`tool`) e instalación (`install`, que además conecta por TCP).
+Rust lo usa desde `confinement.rs` (adaptador por sistema) para los workers de
+`scripts.rs`, las herramientas de `project.rs` y el lanzador `./escriba`.
+
+- **Detección:** `escriba-sandbox --check` una vez al arrancar. Con Landlock 4
+  y seccomp, `recipes_isolated` es verdadero y el aviso desaparece. Si no,
+  todo sigue sin aislar con aviso (decisión 3).
+- **Medido con Bun, no por documentación:** Bun aborta sin leer su propio
+  `/proc/<pid>` (`maps`, `statm`, `cgroup`, `mem`), `/proc/stat`,
+  `/proc/sys/vm/{overcommit_memory,mmap_min_addr}`, `/sys/devices/system/cpu`,
+  `/sys/kernel/mm/transparent_hugepage` y `/dev/urandom`. Es lo que en el Mac
+  cubre `sysctl-read`. Solo su propio `/proc`; los límites del cgroup se le
+  niegan y los tolera. `clone3` responde ENOSYS y glibc vuelve a `clone`,
+  donde solo se permiten hilos.
+- **Solo se ejecuta** el programa y el cargador dinámico que nombra su
+  cabecera ELF; las bibliotecas se leen, no se ejecutan.
+- **seccomp** niega crear procesos, `socket`/`socketpair` (en `install` solo se
+  permiten Unix, IPv4, IPv6 y netlink), `ptrace`, `bpf`, `io_uring`, montar,
+  espacios de nombres, módulos y claves. Leer la memoria de otro proceso ya lo
+  impide Landlock.
+- **Diferencias con el Mac:** con Landlock anterior a 6 (Linux 6.12, como el
+  6.8 de Ubuntu 24.04) una receta puede mandar señales a otros procesos del
+  usuario. Landlock no puede permitir leer solo `/` sin lo que cuelga de él,
+  así que no se permite.
+- **Pruebas:** las tres de aislamiento de `sidecar.test.ts` corren en Linux,
+  junto con `herramienta_test_no_puede_leer_fuera_del_proyecto` y el
+  lanzador de `project.rs`; los perfiles se prueban contra el kernel en
+  `sandbox/tests/profiles.rs`.
+- **Pendiente para dar L6 por hecha:** pasar las pruebas en Ubuntu 24.04 y en
+  Fedora (necesita máquinas virtuales) y que Rubén vea desaparecer el aviso.
+
 Lo que queda para el Mac está en `docs/pendiente-mac.md`.
 
 | Fase | Estado | Commit | Validada por Rubén | Para la sesión del Mac |
@@ -436,7 +471,7 @@ Lo que queda para el Mac está en `docs/pendiente-mac.md`.
 | L3 | hecha | `9398936`…`51f61c0` | sí (2026-10-14) | `docs/pendiente-mac.md` |
 | L4 | hecha | `7b27d68`…`7c2205b` | sí (2026-10-14) | `docs/pendiente-mac.md` |
 | L5 | hecha | ver «L5 en Ubuntu 25.10» | sí (2026-10-14) | `docs/pendiente-mac.md` |
-| L6 | pendiente | | | |
+| L6 | construida; falta 24.04 y Fedora | ver «L6 en Ubuntu 25.10» | | `docs/pendiente-mac.md` |
 | L7 | pendiente | | | |
 
 Matriz de L7 (✓ instala y arranca, reproduce m4a, graba y transcribe):

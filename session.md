@@ -84,7 +84,7 @@ con el equipo cargado y pasa al repetir.
 | Varios modelos de Whisper | validado en Linux; falta Swift |
 | Puertos por sistema | hecho (sin cambios visibles) |
 | L5 hablantes y Personas | hecha, validada por Rubén |
-| L6 aislar recetas | **siguiente**; diseño propuesto abajo |
+| L6 aislar recetas | construida en 25.10; falta probar en 24.04 y Fedora |
 | L7 paquetes y CI | pendiente |
 | AI SDK (ADR-0012) | decidido; después de L7 |
 
@@ -133,25 +133,11 @@ Ver «L5 en Ubuntu 25.10» en el Registro: sherpa-onnx (pyannote + TitaNet) como
 biblioteca compartida, modelos bajados con cualquier Whisper, umbral 0,50.
 Hecho cuando Rubén registra una voz de 30 s y una grabación nueva la reconoce.
 
-### L6. Aislar recetas: diseño propuesto a Rubén (no implementado)
+### L6. Aislar recetas (construida)
 
-Rust aplica al lanzar cada worker de receta (`scripts.rs`, `spawn` con
-`worker = true`; hoy en Linux arranca sin aislar porque
-`platform::recipes_isolated()` es falso):
-
-1. `prctl(PR_SET_NO_NEW_PRIVS)`.
-2. Landlock: solo lectura del ejecutable y sus bibliotecas; sin escritura; red
-   TCP prohibida (ABI 4, kernel ≥ 6.7).
-3. seccomp: sin `execve`/`fork` (sí hilos; `clone3` → ENOSYS) ni sockets
-   nuevos de red o Unix, salvo el canal heredado.
-
-Sin bubblewrap: Ubuntu 24.04 restringe los espacios de nombres sin privilegios
-con AppArmor. Detección en arranque; si no se puede, decisión 3 (sin aislar con
-aviso). Pruebas: las tres de aislamiento de `tests/runtime/sidecar.test.ts` (hoy
-`isolation`, solo macOS) y las equivalentes de `scripts.rs`/`project.rs`, en
-Ubuntu 24.04 y Fedora. Riesgo: Bun/JavaScriptCore necesita llamadas de sistema
-poco comunes; ajustar seccomp con recetas reales. Las herramientas del proyecto
-(`project.rs`) conservan su permiso de red al instalar.
+Ver «L6 en Ubuntu 25.10» en el Registro: `escriba-sandbox` (Landlock y seccomp)
+con los tres perfiles del Mac, usado desde `confinement.rs`. Falta pasar las
+pruebas en Ubuntu 24.04 y Fedora, y que Rubén vea desaparecer el aviso.
 
 ### L7. Paquetes y CI
 

@@ -85,6 +85,9 @@ Código del Mac que se movió tal cual desde Linux, sin compilarlo:
   También `folder_access::restore_saved`.
 - `symbols/macos.rs` (SF Symbols) y `platform::file_flags` (`st_flags`).
 - `platform::MACOS` y `platform::voice_memos_root`.
+- `confinement.rs`: los perfiles de `sandbox-exec` (receta, herramienta e
+  instalación) se movieron allí desde `scripts.rs` y `project.rs`, con los
+  mismos textos; el lanzador `./escriba` debe generarse igual.
 - `install_app_menu` y `open_panel` se llaman según `PLATFORM`. La URL del
   panel ya no lleva `&platform=` y el panel toma el macOS por defecto.
 - El controlador recibe `ESCRIBA_PLATFORM` y toma de ahí el modelo de serie, si
