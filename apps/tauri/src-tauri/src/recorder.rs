@@ -239,6 +239,11 @@ fn open_panel(app: &AppHandle) {
     .focusable(false)
     .accept_first_mouse(true)
     .visible(false);
+    // GTK may grow a tiny undecorated window past its requested size.
+    #[cfg(not(target_os = "macos"))]
+    let builder = builder
+        .min_inner_size(PANEL_WIDTH, PANEL_HEIGHT)
+        .max_inner_size(PANEL_WIDTH, PANEL_HEIGHT);
     // Liquid Glass only exists on macOS; Linux paints the panel background itself.
     #[cfg(target_os = "macos")]
     let builder = builder.effects(tauri::utils::config::WindowEffectsConfig {

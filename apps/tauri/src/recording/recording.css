@@ -72,6 +72,8 @@
   filter: brightness(0.9);
 }
 .recording-hud.painted {
+  box-sizing: border-box;
+  height: 54px;
   background: var(--window);
   border: 0.5px solid var(--separator);
   border-radius: 27px;
