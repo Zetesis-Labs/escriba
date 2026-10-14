@@ -20,7 +20,9 @@ otra cosa, se le pregunta antes de tocarla.
 
 1. Sin LLM incluido en Linux: resumir y preguntar usan resolutores (remotos o un
    Ollama/LM Studio del usuario). Sin LLM elegido, ese paso falla y ya.
-2. Paquetes `.deb` y `.rpm`, para x86_64 y arm64. Nada más.
+2. Paquetes `.deb` y `.rpm`, para x86_64 y arm64. **Ampliada por Rubén el
+   2026-10-14:** también Flatpak para Flathub, reempaquetando los binarios de las
+   releases (L8). Snap y la Mac App Store, no por ahora.
 3. Si el equipo no permite aislar recetas, se ejecutan todas con un aviso
    permanente.
 4. Se graba en Opus (`.ogg`); al importar o vigilar se aceptan m4a y el resto de
@@ -231,6 +233,22 @@ sin aislar desaparece en un equipo que sí aísla.
   Registro.
 
 **Hecho cuando** la matriz está completa y Rubén instala un paquete en su Ubuntu.
+
+### L8. Flatpak
+
+Decidido por Rubén el 2026-10-14. Flatpak que reempaqueta el `.deb` de cada
+release (Flathub lo admite), sin compilar desde el código en Flathub.
+
+- Hecho: VS Code por `vscode://` y el inicio con la sesión por el portal
+  Background dentro de Flatpak (`login.rs`, `platform::inside_flatpak`).
+- Manifiesto con `org.gnome.Platform`, la extensión `codecs-extra` para AAC y
+  permisos: red, Wayland/X11, `dri`, PulseAudio, la carpeta personal (carpetas
+  vigiladas) y D-Bus de bandeja, notificaciones e instancia única.
+- Ficha AppStream y escritorio con el identificador de Flathub.
+- Comprobar dentro de Flatpak que arranca, que encuentra sus recursos en `/app`,
+  que graba y transcribe y que `escriba-sandbox` aísla; si no, decisión 3.
+
+**Hecho cuando** Rubén instala el Flatpak en su Ubuntu y funciona como el `.deb`.
 
 ## Fuera de este plan: la sesión del Mac
 
