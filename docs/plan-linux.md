@@ -381,13 +381,24 @@ anterior si el host no los tiene.
   de TypeScript se genera (`src/generated/Platform.ts`); la interfaz decide con
   eso. La medición de procesos va en `process_probe.rs` y la extensión de la
   grabación en `platform::RECORDING_EXTENSION`.
-- Quedan como están: las ramas `cfg` de `lib.rs` (elegir y restaurar carpeta,
-  Notas de Voz, autostart, `Reopen`); el modelo de serie, escrito en el host y
-  en el controlador; y que el Mac llame «Whisper · en este Mac» al resolutor
-  guardado y «Whisper en este Mac» en la interfaz, que ya era así en `main`.
+- Segunda pasada: `platform::MACOS` y `platform::LINUX` generan
+  `src/generated/platforms.json`, con el modelo de Whisper de serie; Rust pasa
+  la del sistema al controlador en `ESCRIBA_PLATFORM`, que deja de mirar
+  `process.platform`. Elegir y restaurar carpeta viven en cada
+  `folder_access` (`choose`, `restore_saved`); Notas de Voz y los flags de
+  archivo, en `platform`; los iconos de bandeja en `symbols/{macos,linux}.rs`;
+  el menú de la app y el panel flotante se deciden con `PLATFORM`.
+- Quedan `cfg` sueltos solo donde la API de Tauri existe únicamente en macOS
+  (`macos_launcher` del autostart y `RunEvent::Reopen`) y en pruebas propias de
+  un sistema. El host nativo repite el modelo de serie de su sistema, como
+  Swift con `WhisperKitBackend.defaultVariant`. El Mac sigue llamando
+  «Whisper · en este Mac» al resolutor guardado y «Whisper en este Mac» en la
+  interfaz, como en `main`.
 
-**Para la sesión del Mac (puertos):** compilar `process_probe.rs` (el código del
-Mac se movió tal cual) y `platform::PLATFORM` de macOS; el panel flotante se
+**Para la sesión del Mac (puertos):** compilar lo movido tal cual sin poder
+probarlo aquí: `process_probe.rs`, `folder_access::choose` (el selector sigue
+abriéndose en el hilo principal), `symbols/macos.rs`, `platform::file_flags`,
+`install_app_menu` y `open_panel` llamados según `PLATFORM`; el panel flotante se
 abre sin `&platform=` y toma el macOS por defecto; pasar la batería común contra
 el host de Swift con
 `ESCRIBA_NATIVE_HOST=<EscribaNativeHost> cargo test --test contract` desde
