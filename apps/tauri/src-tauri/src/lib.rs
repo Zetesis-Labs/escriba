@@ -1033,17 +1033,12 @@ async fn shell_capability(
             Ok(Value::Null)
         }
         "autolaunch" => {
-            use tauri_plugin_autostart::ManagerExt;
-            let auto = app.autolaunch();
-            if params["enabled"]
+            let enabled = params["enabled"]
                 .as_bool()
-                .ok_or("Inicio automático inválido")?
-            {
-                auto.enable()
-            } else {
-                auto.disable()
-            }
-            .map_err(|e| format!("No se pudo cambiar el inicio automático: {e}"))?;
+                .ok_or("Inicio automático inválido")?;
+            login::set(app, enabled)
+                .await
+                .map_err(|e| format!("No se pudo cambiar el inicio automático: {e}"))?;
             Ok(Value::Null)
         }
         "files" => tokio::task::spawn_blocking(move || {

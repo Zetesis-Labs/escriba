@@ -151,6 +151,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "ashpd"
+version = "0.12.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "33a3c86f3fd70c0ffa500ed189abfa90b5a52398a45d5dc372fcc38ebeb7a645"
+dependencies = [
+ "enumflags2",
+ "futures-channel",
+ "futures-util",
+ "rand 0.9.5",
+ "serde",
+ "serde_repr",
+ "tokio",
+ "url",
+ "zbus",
+]
+
+[[package]]
 name = "async-broadcast"
 version = "0.7.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1680,6 +1697,7 @@ dependencies = [
 name = "escriba-tauri"
 version = "0.1.0"
 dependencies = [
+ "ashpd",
  "base64 0.22.1",
  "block2",
  "chrono",
@@ -7379,6 +7397,7 @@ dependencies = [
  "signal-hook-registry",
  "socket2",
  "tokio-macros",
+ "tracing",
  "windows-sys 0.61.2",
 ]
 
@@ -8780,6 +8799,7 @@ dependencies = [
  "rustix",
  "serde",
  "serde_repr",
+ "tokio",
  "tracing",
  "uds_windows",
  "uuid",
@@ -8950,6 +8970,7 @@ dependencies = [
  "endi",
  "enumflags2",
  "serde",
+ "url",
  "winnow 1.0.4",
  "zcheapstr",
  "zvariant_derive",

@@ -75,6 +75,12 @@ pub fn open_vscode(path: &Path) -> Command {
     command
 }
 
+/// Flatpak marks its sandbox with this file.
+#[cfg(target_os = "linux")]
+pub fn inside_flatpak() -> bool {
+    Path::new("/.flatpak-info").exists()
+}
+
 // VS Code's URL works for its deb, snap and Flatpak installs, also from inside a Flatpak.
 #[cfg(target_os = "linux")]
 pub fn open_vscode(path: &Path) -> Command {

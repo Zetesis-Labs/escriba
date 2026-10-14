@@ -1,14 +1,46 @@
 use std::{fs, path::Path};
 use tauri_plugin_autostart::ManagerExt;
 
-pub fn synchronize(app: &tauri::AppHandle, enabled: bool) -> Result<(), String> {
-    use tauri::Manager;
+fn plugin(app: &tauri::AppHandle, enabled: bool) -> Result<(), String> {
     let auto = app.autolaunch();
     if enabled {
-        auto.enable().map_err(|error| error.to_string())?;
+        auto.enable().map_err(|error| error.to_string())
     } else {
-        auto.disable().map_err(|error| error.to_string())?;
+        auto.disable().map_err(|error| error.to_string())
     }
+}
+
+/// Inside a Flatpak only the Background portal may start the app with the session.
+#[cfg(target_os = "linux")]
+async fn portal(enabled: bool) -> Result<(), String> {
+    ashpd::desktop::background::Background::request()
+        .reason("Abrir Escriba al iniciar sesión")
+        .auto_start(enabled)
+        .command(["escriba-tauri"])
+        .dbus_activatable(false)
+        .send()
+        .await
+        .and_then(|request| request.response())
+        .map(|_| ())
+        .map_err(|error| format!("El escritorio no permitió el inicio automático: {error}"))
+}
+
+pub async fn set(app: &tauri::AppHandle, enabled: bool) -> Result<(), String> {
+    #[cfg(target_os = "linux")]
+    if crate::platform::inside_flatpak() {
+        return portal(enabled).await;
+    }
+    plugin(app, enabled)
+}
+
+/// At startup the plugin's entry follows the setting; the portal keeps its own.
+pub fn synchronize(app: &tauri::AppHandle, enabled: bool) -> Result<(), String> {
+    use tauri::Manager;
+    #[cfg(target_os = "linux")]
+    if crate::platform::inside_flatpak() {
+        return Ok(());
+    }
+    plugin(app, enabled)?;
     retire_previous_agent(&app.path().home_dir().map_err(|error| error.to_string())?)
 }
 
