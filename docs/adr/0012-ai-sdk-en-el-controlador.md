@@ -1,7 +1,7 @@
 # El AI SDK de Vercel para los resolutores remotos
 
-Propuesto el 2026-10-14; **pendiente de decisión de Rubén**. Se haría después
-de L6 y L7 de Linux. Depende del ADR-0011: sin él no es posible.
+Decidido por Rubén el 2026-10-14. Se hace después de L6 y L7 de Linux.
+Depende del ADR-0011: sin él no es posible.
 
 ## Contexto
 
@@ -26,7 +26,7 @@ Lo que hoy falla o no existe:
   usan solo si ofrecen esa compatibilidad, y con sus límites.
 - No hay streaming ni llamadas a herramientas. Hoy ninguna receta los pide.
 
-## Decisión propuesta
+## Decisión
 
 1. **El AI SDK (`ai` y sus proveedores `@ai-sdk/*`) sustituye a `remote.ts`
    dentro del controlador**, y solo ahí. Las recetas siguen pidiendo `ask` y
@@ -42,16 +42,20 @@ Lo que hoy falla o no existe:
    corte de red, son `backend_unavailable` (reintentable). El resto es
    `failed`. Los reintentos internos del SDK se apagan (`maxRetries: 0`),
    porque reintentar es cosa de la cola de trabajos.
-4. **El resumen y las preguntas con esquema usan `generateObject`** con el JSON
-   Schema que ya define cada receta (`jsonSchema(...)`). Un resumen vacío sigue
-   siendo un error.
+4. **El resumen y las preguntas con esquema piden salida estructurada** con el
+   JSON Schema que ya define cada receta (`jsonSchema(...)`). En `ai` 7
+   (comprobado el 2026-10-14, 7.0.140 con `@ai-sdk/openai-compatible` 3.0.68)
+   `generateObject` está obsoleto: se usa `generateText` con
+   `output: Output.object(...)`. Un resumen vacío sigue siendo un error.
 5. **La transcripción remota** usa el proveedor compatible con OpenAI. La
    función de transcripción del SDK es experimental: si no da los segmentos
    con tiempos de `verbose_json`, la transcripción sigue con la llamada actual.
    No se activa la diarización remota: «diarización sólo local» (`CLAUDE.md`).
 6. **Primera vertical sin cambios visibles:** solo el proveedor compatible con
-   OpenAI (`@ai-sdk/openai-compatible`), con las mismas pruebas de
-   `remote.ts`, más una con un servidor que ignora `response_format`.
+   OpenAI (`@ai-sdk/openai-compatible`). Pruebas primero: hoy `ask` solo se
+   prueba de pasada en `domain.test.ts`. Antes de cambiarlo, `remote.test.ts`
+   cubre respuesta en texto y con esquema, un servidor que ignora
+   `response_format`, los errores 401, 429 y 500 y que la clave nunca aparece.
 
 ## Lo que necesita encargo aparte
 

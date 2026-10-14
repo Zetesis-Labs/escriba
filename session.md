@@ -86,6 +86,7 @@ con el equipo cargado y pasa al repetir.
 | L5 hablantes y Personas | construida; falta validar |
 | L6 aislar recetas | **siguiente**; diseño propuesto abajo |
 | L7 paquetes y CI | pendiente |
+| AI SDK (ADR-0012) | decidido; después de L7 |
 
 Piezas clave ya hechas:
 
