@@ -589,24 +589,12 @@ async fn authorize_watched_folder(
         ),
         None => None,
     };
-    #[cfg(target_os = "macos")]
-    let selected = {
-        let (reply, receive) = tokio::sync::oneshot::channel();
-        app.run_on_main_thread(move || {
-            let _ = reply.send(folder_access::select_folder(initial_path.as_deref()));
-        })
-        .map_err(|error| format!("No se pudo abrir el selector de carpetas: {error}"))?;
-        receive
-            .await
-            .map_err(|_| "El selector de carpetas se cerró inesperadamente")??
-    };
-    #[cfg(target_os = "linux")]
-    let selected = folder_access::select_folder(app, initial_path.as_deref()).await?;
+    let selected = folder_access::choose(app, initial_path.as_deref()).await?;
     let Some(selected) = selected else {
         return Ok(Value::Null);
     };
     let _scan = state.scan_lock.lock().await;
-    let resolved = restore_folder(&selected.path, &selected.bookmark)?;
+    let resolved = folder_access::restore_saved(&selected.path, &selected.bookmark)?;
     if resolved.path != selected.path {
         return Err("La carpeta cambió mientras se autorizaba. Vuelve a seleccionarla".into());
     }
@@ -652,29 +640,9 @@ fn surreal_native(app: &tauri::AppHandle) -> Option<PathBuf> {
         .find(|path| path.is_file())
 }
 
-#[cfg(target_os = "macos")]
 fn voice_memos_root(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-    Ok(app
-        .path()
-        .home_dir()
-        .map_err(|e| e.to_string())?
-        .join("Library/Group Containers/group.com.apple.VoiceMemos.shared/Recordings"))
-}
-
-// Voice Memos and its iCloud folder only exist on macOS.
-#[cfg(not(target_os = "macos"))]
-fn voice_memos_root(_: &tauri::AppHandle) -> Result<PathBuf, String> {
-    Err("Notas de Voz solo existe en macOS".into())
-}
-
-#[cfg(target_os = "macos")]
-fn restore_folder(_: &Path, bookmark: &[u8]) -> Result<folder_access::ResolvedFolder, String> {
-    folder_access::restore(bookmark)
-}
-
-#[cfg(target_os = "linux")]
-fn restore_folder(path: &Path, _: &[u8]) -> Result<folder_access::ResolvedFolder, String> {
-    folder_access::restore(path)
+    let home = app.path().home_dir().map_err(|e| e.to_string())?;
+    platform::voice_memos_root(&home).ok_or_else(|| "Notas de Voz solo existe en macOS".into())
 }
 
 async fn restore_watched_folders(
@@ -698,7 +666,7 @@ async fn restore_watched_folders(
         if known.contains(&id) {
             continue;
         }
-        match restore_folder(&path, &bookmark) {
+        match folder_access::restore_saved(&path, &bookmark) {
             Ok(resolved) => {
                 if state
                     .controller(

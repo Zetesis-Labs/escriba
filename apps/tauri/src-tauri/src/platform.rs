@@ -188,6 +188,25 @@ pub const PLATFORM: Platform = MACOS;
 #[cfg(target_os = "linux")]
 pub const PLATFORM: Platform = LINUX;
 
+#[cfg(target_os = "macos")]
+pub fn file_flags(metadata: &std::fs::Metadata) -> u32 {
+    use std::os::macos::fs::MetadataExt;
+    metadata.st_flags()
+}
+
+// Linux has no SF_DATALESS: sync placeholders are separate files the scanner skips.
+#[cfg(target_os = "linux")]
+pub fn file_flags(_: &std::fs::Metadata) -> u32 {
+    0
+}
+
+/// Voice Memos and its iCloud folder only exist on macOS.
+pub fn voice_memos_root(home: &Path) -> Option<PathBuf> {
+    PLATFORM
+        .voice_memos
+        .then(|| home.join("Library/Group Containers/group.com.apple.VoiceMemos.shared/Recordings"))
+}
+
 pub fn recipes_isolated() -> bool {
     PLATFORM.recipes_isolated
 }
@@ -251,6 +270,21 @@ mod tests {
             LINUX
         };
         assert_eq!(summary(), serde_json::to_value(expected).unwrap());
+    }
+
+    #[test]
+    fn notas_de_voz_solo_tiene_carpeta_donde_existe() {
+        let root = voice_memos_root(Path::new("/home/ana"));
+        if PLATFORM.voice_memos {
+            assert_eq!(
+                root,
+                Some(PathBuf::from(
+                    "/home/ana/Library/Group Containers/group.com.apple.VoiceMemos.shared/Recordings"
+                ))
+            );
+        } else {
+            assert_eq!(root, None);
+        }
     }
 
     #[test]

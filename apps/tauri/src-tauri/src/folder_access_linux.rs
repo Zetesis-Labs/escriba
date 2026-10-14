@@ -35,7 +35,7 @@ fn selected(path: &Path) -> Result<SelectedFolder, String> {
 }
 
 /// Cancellation returns None; an unreadable choice returns an error.
-pub async fn select_folder(
+pub async fn choose(
     app: &tauri::AppHandle,
     initial_path: Option<&Path>,
 ) -> Result<Option<SelectedFolder>, String> {
@@ -57,6 +57,11 @@ pub async fn select_folder(
         .into_path()
         .map_err(|_| "La selección no es una carpeta local")?;
     selected(&path).map(Some)
+}
+
+/// Linux keeps no bookmark: the folder is read through its path.
+pub fn restore_saved(path: &Path, _: &[u8]) -> Result<ResolvedFolder, String> {
+    restore(path)
 }
 
 pub fn restore(path: &Path) -> Result<ResolvedFolder, String> {

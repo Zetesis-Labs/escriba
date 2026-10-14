@@ -1,8 +1,6 @@
 use chrono::{Datelike, Local, NaiveDate, TimeZone, Timelike};
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use serde_json::{json, Value};
-#[cfg(target_os = "macos")]
-use std::os::macos::fs::MetadataExt;
 use std::os::unix::fs::MetadataExt as UnixMetadataExt;
 use std::{
     collections::{HashMap, HashSet},
@@ -204,17 +202,6 @@ pub struct WatchHandle {
     pub errors: Vec<FolderError>,
 }
 
-#[cfg(target_os = "macos")]
-fn file_flags(metadata: &fs::Metadata) -> u32 {
-    metadata.st_flags()
-}
-
-// Linux has no SF_DATALESS: sync placeholders are separate files the scanner skips.
-#[cfg(not(target_os = "macos"))]
-fn file_flags(_: &fs::Metadata) -> u32 {
-    0
-}
-
 pub fn file_status(path: &Path) -> Result<Value, io::Error> {
     let metadata = fs::symlink_metadata(path)?;
     if !metadata.is_file() {
@@ -223,7 +210,7 @@ pub fn file_status(path: &Path) -> Result<Value, io::Error> {
             format!("No es un archivo regular: {}", path.display()),
         ));
     }
-    let flags = file_flags(&metadata);
+    let flags = crate::platform::file_flags(&metadata);
     let modified = metadata
         .modified()?
         .duration_since(UNIX_EPOCH)

@@ -108,6 +108,27 @@ pub fn select_folder(initial_path: Option<&Path>) -> Result<Option<SelectedFolde
     }
 }
 
+/// Opens the panel on the main thread, as AppKit requires.
+pub async fn choose(
+    app: &tauri::AppHandle,
+    initial_path: Option<&Path>,
+) -> Result<Option<SelectedFolder>, String> {
+    let initial_path = initial_path.map(Path::to_path_buf);
+    let (reply, receive) = tokio::sync::oneshot::channel();
+    app.run_on_main_thread(move || {
+        let _ = reply.send(select_folder(initial_path.as_deref()));
+    })
+    .map_err(|error| format!("No se pudo abrir el selector de carpetas: {error}"))?;
+    receive
+        .await
+        .map_err(|_| String::from("El selector de carpetas se cerró inesperadamente"))?
+}
+
+/// macOS reads a watched folder through its saved bookmark.
+pub fn restore_saved(_: &Path, bookmark: &[u8]) -> Result<ResolvedFolder, String> {
+    restore(bookmark)
+}
+
 /// Resolves the stored bookmark afresh and verifies that the directory can be
 /// enumerated. Callers must retain `guard` while they use the directory.
 pub fn restore(bytes: &[u8]) -> Result<ResolvedFolder, String> {
