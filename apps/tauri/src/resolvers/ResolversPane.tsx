@@ -7,6 +7,12 @@ import { call, native } from "../api";
 import { Pane } from "../app/Pane";
 import { progressForModel } from "../core/downloadProgress";
 import {
+  addableModels,
+  addedModelProblem,
+  isAddedModel,
+  removable,
+  resolverName,
+  type WhisperCatalog,
   bytesLabel,
   hasLocal,
   localId,
@@ -26,11 +32,24 @@ import {
   type Role,
 } from "../core/resolvers";
 import { Button, ContentUnavailable, FormRow, FormSection, InlineField, LabeledRow, ListBar, ListBarButton, PopupButton, Spinner } from "../mac/controls";
-import { alertMessage, confirmDestructive, errorText, item, popupMenu } from "../mac/native";
+import { alertMessage, confirmDestructive, errorText, item, popupMenu, separator } from "../mac/native";
 import type { Digest, Resolver, Snapshot } from "../types";
 import "./resolvers.css";
 
 type NativeStatus = { whisper?: { available?: boolean; model?: string }; llm?: { available?: boolean; reason?: string | null } };
+
+// Hosts without a catalog (Swift until its session) leave a single local Whisper.
+function useWhisperCatalog(role: Role) {
+  const [catalog, setCatalog] = useState<WhisperCatalog | null>(null);
+  const reload = useCallback(() => {
+    if (role !== "stt") return;
+    void native<WhisperCatalog>("models", {})
+      .then(setCatalog)
+      .catch(() => setCatalog(null));
+  }, [role]);
+  useEffect(reload, [reload]);
+  return { catalog, reload };
+}
 
 function useNativeStatus(model: string) {
   const [status, setStatus] = useState<NativeStatus | null>(null);
@@ -48,13 +67,28 @@ export function ResolversPane({ data, role, refresh }: { data: Snapshot; role: R
   const resolvers = [...data.resolvers.filter((resolver) => resolver.role === role)].sort((a, b) => Number(b.local) - Number(a.local));
   const [chosen, setSelected] = useState<string>(localId(role));
   const selected = resolvers.some((resolver) => resolver.id === chosen) ? chosen : (resolvers.find((resolver) => resolver.local)?.id ?? chosen);
-  const { status, reload } = useNativeStatus(data.settings.whisperModel);
+  const { status, reload: reloadNative } = useNativeStatus(data.settings.whisperModel);
+  const { catalog, reload: reloadCatalog } = useWhisperCatalog(role);
+  const reload = () => {
+    reloadNative();
+    reloadCatalog();
+  };
   const local = localProblem(role, status);
   const current = resolvers.find((resolver) => resolver.id === selected);
 
+  const addModel = (model: string) => {
+    const created: Resolver = { id: `local-stt-${model}`, name: `Whisper · ${model}`, role, local: true, enabled: true, model };
+    void call("config_save", { collection: "resolvers", item: created })
+      .then(async () => {
+        await refresh();
+        setSelected(created.id);
+      })
+      .catch((failure) => alertMessage("No se pudo", errorText(failure)));
+  };
+  const models = addableModels(catalog, resolvers).map((entry) => item(entry.title, () => addModel(entry.model)));
   const add = async (event: React.MouseEvent<HTMLButtonElement>) => {
     await popupMenu(
-      remotePresets(role).map((preset) =>
+      [...remotePresets(role).map((preset) =>
         item(preset.name, () => {
           const created: Resolver = {
             id: crypto.randomUUID(),
@@ -72,13 +106,16 @@ export function ResolversPane({ data, role, refresh }: { data: Snapshot; role: R
             })
             .catch((failure) => alertMessage("No se pudo", errorText(failure)));
         }),
-      ),
+      ), ...(models.length ? [separator, ...models] : [])],
       event.currentTarget,
     );
   };
   const remove = async () => {
-    if (!current || current.local) return;
-    const confirmed = await confirmDestructive(`¿Quitar «${current.name}»?`, removedResolverNote(role, platform), "Quitar");
+    if (!current || !removable(current)) return;
+    const note = isAddedModel(current)
+      ? `Las recetas que lo usaban pasan a ${localName(role, platform)}. El modelo descargado no se borra del disco.`
+      : removedResolverNote(role, platform);
+    const confirmed = await confirmDestructive(`¿Quitar «${current.name}»?`, note, "Quitar");
     if (!confirmed) return;
     try {
       await call("config_remove", { collection: "resolvers", id: current.id });
@@ -97,7 +134,7 @@ export function ResolversPane({ data, role, refresh }: { data: Snapshot; role: R
         <div className="side-list" style={{ width: 250 }}>
           <div className="side-list-items" role="listbox" aria-label={roleLabel(role)} tabIndex={0}>
             {resolvers.map((resolver) => {
-              const problem = resolverProblem(resolver, local);
+              const problem = isAddedModel(resolver) ? addedModelProblem(resolver, catalog) : resolverProblem(resolver, local);
               return (
                 <div
                   key={resolver.id}
@@ -108,7 +145,7 @@ export function ResolversPane({ data, role, refresh }: { data: Snapshot; role: R
                 >
                   {resolver.local ? <Laptop size={15} strokeWidth={1.7} className="secondary" /> : <Globe size={15} strokeWidth={1.7} className="secondary" />}
                   <div className="resolver-row-text">
-                    <div>{resolver.local ? localName(role, platform) : resolver.name}</div>
+                    <div>{resolverName(resolver, role, platform)}</div>
                     <div className={`font-caption ${problem && !resolver.local ? "warning" : "secondary"}`}>{resolverSubtitle(resolver, problem, platform)}</div>
                   </div>
                 </div>
@@ -117,13 +154,13 @@ export function ResolversPane({ data, role, refresh }: { data: Snapshot; role: R
           </div>
           <ListBar>
             <ListBarButton icon={Plus} label="Añadir un servicio compatible con OpenAI" onClick={(event) => void add(event)} />
-            <ListBarButton icon={Minus} label="Quitar" onClick={() => void remove()} disabled={!current || current.local} />
+            <ListBarButton icon={Minus} label="Quitar" onClick={() => void remove()} disabled={!current || !removable(current)} />
           </ListBar>
         </div>
         <div className="list-detail-divider" />
         <div className="detail-column">
           {current ? (
-            <ResolverEditor key={current.id} resolver={current} role={role} localProblem={local} whisperModel={data.settings.whisperModel} refresh={refresh} reloadStatus={reload} />
+            <ResolverEditor key={current.id} resolver={current} role={role} localProblem={isAddedModel(current) ? addedModelProblem(current, catalog) : local} whisperModel={isAddedModel(current) ? current.model ?? "" : data.settings.whisperModel} refresh={refresh} reloadStatus={reload} />
           ) : (
             <ContentUnavailable title="Sin resolutor elegido" icon={role === "llm" ? Sparkles : AudioWaveform} description="Elige uno de la lista o añade un servicio con +." />
           )}
@@ -229,7 +266,7 @@ function ResolverEditor({
             resolversFooter(role, platform)
           }
         >
-          <LabeledRow label="Nombre">{resolver.local ? localName(role, platform) : <InlineField value={name} onChange={setName} />}</LabeledRow>
+          <LabeledRow label="Nombre">{resolver.local ? resolverName(resolver, role, platform) : <InlineField value={name} onChange={setName} />}</LabeledRow>
           {readiness && (
             <FormRow>
               <span className="font-caption secondary readiness">
@@ -239,7 +276,7 @@ function ResolverEditor({
           )}
         </FormSection>
 
-        {resolver.local && role === "stt" && <WhisperModelSection model={whisperModel} onChange={reloadStatus} />}
+        {resolver.local && role === "stt" && <WhisperModelSection model={whisperModel} explicit={isAddedModel(resolver)} onChange={reloadStatus} />}
         {resolver.local && (
           <FormSection>
             <FormRow>
@@ -340,7 +377,7 @@ function ResolverEditor({
   );
 }
 
-function WhisperModelSection({ model, onChange }: { model: string; onChange: () => void }) {
+function WhisperModelSection({ model, explicit, onChange }: { model: string; explicit: boolean; onChange: () => void }) {
   const platform = usePlatform();
   const [info, setInfo] = useState<{ model: string; available: boolean; bytes: number } | null>(null);
   const [downloadProgress, setDownloadProgress] = useState<number | null>(null);
@@ -356,11 +393,11 @@ function WhisperModelSection({ model, onChange }: { model: string; onChange: () 
     };
   }, []);
   const load = useCallback(() => {
-    void call<{ model: string; available: boolean; bytes: number }>("whisper_model", { action: "info" })
+    void call<{ model: string; available: boolean; bytes: number }>("whisper_model", { action: "info", ...(explicit ? { model } : {}) })
       .then(setInfo)
       .catch((error) => setFailure(errorText(error)));
-  }, []);
-  useEffect(load, [load, model]);
+  }, [explicit, model]);
+  useEffect(load, [load]);
   const download = async () => {
     const currentLifecycle = lifecycle.current;
     setDownloadProgress(0);
@@ -392,7 +429,7 @@ function WhisperModelSection({ model, onChange }: { model: string; onChange: () 
   };
   const remove = async () => {
     try {
-      await call("whisper_model", { action: "delete" });
+      await call("whisper_model", { action: "delete", ...(explicit ? { model } : {}) });
     } catch (error) {
       setFailure(errorText(error));
     } finally {

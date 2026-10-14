@@ -87,7 +87,7 @@ export function resolverProblem(resolver: Pick<Resolver, "local" | "url" | "mode
 
 export function resolverSubtitle(resolver: Resolver, problem: string | null, platform: Platform = macOS) {
   if (problem && !resolver.local) return "Sin terminar de configurar";
-  if (resolver.local) return `En este ${device(platform)}`;
+  if (resolver.local) return [`En este ${device(platform)}`, isAddedModel(resolver) ? resolver.model : ""].filter(Boolean).join(" · ");
   let host = resolver.url ?? "";
   try {
     host = new URL(resolver.url ?? "").host || host;
@@ -118,4 +118,28 @@ export function bytesLabel(bytes: number) {
   return new Intl.NumberFormat("es-ES", { style: "unit", unit: bytes >= 1e9 ? "gigabyte" : "megabyte", maximumFractionDigits: 1 }).format(
     bytes >= 1e9 ? bytes / 1e9 : bytes / 1e6,
   );
+}
+
+export interface WhisperCatalog {
+  default: string;
+  models: { model: string; label: string; bytes: number; installed: boolean }[];
+}
+
+// Each Whisper model added in STT is a local resolver of its own.
+export const isAddedModel = (resolver: Pick<Resolver, "id" | "local">) => resolver.local && resolver.id.startsWith("local-stt-");
+export const removable = (resolver: Pick<Resolver, "id" | "local">) => !resolver.local || isAddedModel(resolver);
+export const resolverName = (resolver: Resolver, role: Role, platform: Platform = macOS) =>
+  resolver.local && !isAddedModel(resolver) ? localName(role, platform) : resolver.name;
+
+export function addableModels(catalog: WhisperCatalog | null, resolvers: Pick<Resolver, "id" | "local" | "model">[]) {
+  if (!catalog) return [];
+  const present = new Set(resolvers.filter(isAddedModel).map((resolver) => resolver.model));
+  return catalog.models
+    .filter((entry) => entry.model !== catalog.default && !present.has(entry.model))
+    .map((entry) => ({ model: entry.model, title: `Whisper · ${entry.label} (unos ${bytesLabel(entry.bytes)})` }));
+}
+
+export function addedModelProblem(resolver: Pick<Resolver, "id" | "local" | "model">, catalog: WhisperCatalog | null) {
+  if (!catalog || !isAddedModel(resolver)) return null;
+  return catalog.models.find((entry) => entry.model === resolver.model)?.installed ? null : "el modelo no está descargado; descárgalo aquí abajo";
 }

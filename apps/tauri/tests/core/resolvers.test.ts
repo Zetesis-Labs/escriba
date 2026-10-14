@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { nextResolverName, presetFor, remoteURLProblem, resolverProblem, resolverSubtitle } from "../../src/core/resolvers";
+import { addableModels, addedModelProblem, nextResolverName, presetFor, removable, remoteURLProblem, resolverName, resolverProblem, resolverSubtitle } from "../../src/core/resolvers";
 
 describe("resolutores como en la app Swift", () => {
   test("la URL de un servicio se valida igual que en Swift", () => {
@@ -28,5 +28,43 @@ describe("resolutores como en la app Swift", () => {
     expect(nextResolverName("Groq", ["OpenAI"])).toBe("Groq");
     expect(presetFor("llm", "http://localhost:11434/v1")).toBe("Ollama");
     expect(presetFor("llm", "https://mi.servidor/v1")).toBe("Otro servicio compatible");
+  });
+});
+
+describe("modelos de Whisper local", () => {
+  const linux = { system: "linux" as const, recipesIsolated: false };
+  const catalog = {
+    default: "large-v3-turbo",
+    models: [
+      { model: "large-v3-turbo", label: "large-v3-turbo", bytes: 1_620_000_000, installed: true },
+      { model: "tiny", label: "tiny", bytes: 78_000_000, installed: false },
+      { model: "base", label: "base", bytes: 148_000_000, installed: true },
+    ],
+  };
+  const serie = { id: "local-stt", name: "Whisper · en este equipo", role: "stt" as const, local: true, enabled: true };
+  const base = { id: "local-stt-base", name: "Whisper · base", role: "stt" as const, local: true, enabled: true, model: "base" };
+
+  test("el «+» ofrece los modelos que faltan, sin el de serie, con su tamaño", () => {
+    expect(addableModels(catalog, [serie, base])).toEqual([{ model: "tiny", title: "Whisper · tiny (unos 78 MB)" }]);
+    expect(addableModels(null, [serie])).toEqual([]);
+  });
+
+  test("un modelo añadido se llama por su modelo y dice dónde corre", () => {
+    expect(resolverName(base, "stt", linux)).toBe("Whisper · base");
+    expect(resolverName(serie, "stt", linux)).toBe("Whisper · en este equipo");
+    expect(resolverSubtitle(base, null, linux)).toBe("En este equipo · base");
+    expect(resolverSubtitle(serie, null, linux)).toBe("En este equipo");
+  });
+
+  test("solo los modelos añadidos se pueden quitar", () => {
+    expect(removable(base)).toBe(true);
+    expect(removable(serie)).toBe(false);
+    expect(removable({ ...serie, id: "remote", local: false })).toBe(true);
+  });
+
+  test("un modelo añadido sin descargar lo dice en su fila", () => {
+    expect(addedModelProblem(base, catalog)).toBeNull();
+    expect(addedModelProblem({ ...base, id: "local-stt-tiny", model: "tiny" }, catalog)).toBe("el modelo no está descargado; descárgalo aquí abajo");
+    expect(addedModelProblem(base, null)).toBeNull();
   });
 });
