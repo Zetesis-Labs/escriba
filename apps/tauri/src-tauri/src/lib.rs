@@ -182,34 +182,58 @@ fn models_root(status: &Value) -> Result<PathBuf, String> {
 }
 
 async fn whisper_model(state: &Arc<Runtime>, p: &Value) -> Result<Value, String> {
-    let model = state.setting("whisperModel")?;
+    let default = state.setting("whisperModel")?;
+    let model = p
+        .get("model")
+        .filter(|model| model.is_string())
+        .cloned()
+        .unwrap_or(default.clone());
     let status = state
         .inference
         .call("status", json!({"model": model}))
         .await?;
-    let root = models_root(&status)?;
+    let name = status["whisper"]["model"].clone();
     match text(p, "action")? {
         "info" => {
-            let size = if status["whisper"]["available"] == true {
-                let root = root.clone();
-                tokio::task::spawn_blocking(move || directory_size(&root))
-                    .await
-                    .map_err(|e| e.to_string())?
-            } else {
-                0
+            let bytes = match state.inference.call("models", json!({})).await {
+                Ok(catalog) => catalog["models"]
+                    .as_array()
+                    .and_then(|models| models.iter().find(|entry| entry["model"] == name))
+                    .filter(|entry| entry["installed"] == true)
+                    .and_then(|entry| entry["bytes"].as_u64())
+                    .unwrap_or(0),
+                Err(error)
+                    if native::unsupported(&error) && status["whisper"]["available"] == true =>
+                {
+                    let root = models_root(&status)?;
+                    tokio::task::spawn_blocking(move || directory_size(&root))
+                        .await
+                        .map_err(|e| e.to_string())?
+                }
+                Err(error) if native::unsupported(&error) => 0,
+                Err(error) => return Err(error.message),
             };
-            Ok(
-                json!({"model": status["whisper"]["model"], "available": status["whisper"]["available"], "bytes": size}),
-            )
+            Ok(json!({"model": name, "available": status["whisper"]["available"], "bytes": bytes}))
         }
         "delete" => {
             state.inference.unload_if_idle(Duration::ZERO);
-            if root.exists() {
-                tokio::fs::remove_dir_all(&root)
-                    .await
-                    .map_err(|e| format!("No se pudo borrar el modelo: {e}"))?;
+            match state
+                .inference
+                .call("deleteModel", json!({"model": model}))
+                .await
+            {
+                Ok(_) => Ok(Value::Null),
+                Err(error) if native::unsupported(&error) && model == default => {
+                    let root = models_root(&status)?;
+                    if root.exists() {
+                        tokio::fs::remove_dir_all(&root)
+                            .await
+                            .map_err(|e| format!("No se pudo borrar el modelo: {e}"))?;
+                    }
+                    Ok(Value::Null)
+                }
+                Err(error) => Err(error.message),
             }
-            Ok(Value::Null)
         }
         _ => Err("Acción desconocida".into()),
     }
@@ -340,7 +364,7 @@ async fn dispatch_app(
             }
             AppCommand::Native(Untyped(p)) => {
                 let method = text(&p, "method")?;
-                if !["status", "downloadModel"].contains(&method) {
+                if !["status", "downloadModel", "models"].contains(&method) {
                     return Err("Esta capacidad se ejecuta a través de la biblioteca".into());
                 }
                 let params = p.get("params").cloned().unwrap_or(json!({}));

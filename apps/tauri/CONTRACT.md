@@ -69,7 +69,7 @@ reenvía a Bun; los comandos `knowledge_*` se atienden en Rust.
 - settings_save {settings: Partial<Settings>} -> Settings.
 - log {message,level?,recordingId?,recipeId?} -> void (`level` info, warn o error; emite `escriba://log`, no `escriba://changed`).
 - log_list {recordingId?,before?,limit?} -> LogEntry[] (más recientes primero, hasta 3000; `before` pagina por `at`). `library` y `snapshot` no incluyen el registro.
-- native {method,params} -> resultado sidecar; native_cancel -> void (interrumpe proceso y se reinicia a demanda).
+- native {method,params} -> resultado sidecar (solo `status`, `downloadModel` y `models`); native_cancel -> void (interrumpe proceso y se reinicia a demanda).
 - transcribe {recordingId,resolverId,language?,diarize?,speakers?} -> Transcript (Bun elige el resolutor y pide inferencia local mediante `shell.native` o realiza la petición remota; el controlador conserva las huellas y reconoce hablantes).
 - summarize {resolverId,instructions,prompt} -> Digest (una petición; troceo TS).
 - ask {resolverId,instructions,prompt,schema?} -> JSON.
@@ -80,7 +80,7 @@ reenvía a Bun; los comandos `knowledge_*` se atienden en Rust.
 - open_privacy_settings -> void (abre Ajustes del Sistema, destino fijo; no disponible para recetas).
 - okf_file {accountId,path,action:'open'|'reveal'} -> void (solo documentos dentro de la carpeta autorizada de la cuenta OKF).
 - system_appearance -> {accent:string|null} (color de acento del sistema).
-- whisper_model {action:'info'|'delete'} -> {model,available,bytes} | void (solo la carpeta de modelos de Escriba).
+- whisper_model {action:'info'|'delete',model?} -> {model,available,bytes} | void (un modelo del Whisper local; sin `model`, el de serie; el host nativo borra solo ese modelo y, si no tiene `deleteModel`, se borra la carpeta de modelos de Escriba como antes).
 - project_init {path} -> {hasDist:boolean} (crea ausentes; si ya existe el artefacto no añade fuentes).
 - project_open_vscode -> void (abre la carpeta del proyecto en VS Code).
 - project_list -> {files:string[]} (fuentes y JSON/Markdown; excluye dist, node_modules, .git, .escriba y enlaces).
