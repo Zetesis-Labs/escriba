@@ -1,3 +1,4 @@
 Escriba.deb
 build/
 .flatpak-builder/
+repo/
