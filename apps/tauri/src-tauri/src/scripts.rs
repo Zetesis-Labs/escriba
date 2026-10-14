@@ -45,7 +45,6 @@ type Input = Arc<Mutex<ChildStdin>>;
 const MAX_FRAME: u64 = 32 * 1024 * 1024;
 const MAX_WORKER_RSS: u64 = 512 * 1024 * 1024;
 const MAX_STARTUP_STDERR: usize = 2048;
-const SANDBOX: &str = include_str!("../../runtime-host/sandbox.sb");
 
 struct StderrCapture {
     bytes: Arc<StdMutex<Vec<u8>>>,
@@ -196,22 +195,13 @@ fn spawn(
         return Err("El motor TypeScript no es un archivo".into());
     }
     // Only recipe workers are isolated; the controller needs the library and the network.
-    let mut command = if worker && crate::platform::recipes_isolated() {
-        let mut command = Command::new("/usr/bin/sandbox-exec");
-        command
-            .arg("-p")
-            .arg(SANDBOX)
-            .arg("-D")
-            .arg(format!("EXECUTABLE={}", executable.display()))
-            .arg(executable)
-            .arg("--worker");
+    let mut command = if worker {
+        let wrapped = crate::confinement::wrap(&executable, crate::confinement::Profile::Worker);
+        let mut command = Command::new(wrapped.program);
+        command.args(wrapped.arguments).arg("--worker");
         command
     } else {
-        let mut command = Command::new(executable);
-        if worker {
-            command.arg("--worker");
-        }
-        command
+        Command::new(executable)
     };
     let mut child = command
         .env_clear()

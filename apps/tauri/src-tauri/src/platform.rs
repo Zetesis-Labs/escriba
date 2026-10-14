@@ -141,7 +141,8 @@ pub enum System {
 pub struct Platform {
     pub system: System,
     /// Recipes run under an OS sandbox. Without it they still run and the
-    /// interface shows a permanent warning.
+    /// interface shows a permanent warning. On Linux the tables say false and
+    /// `summary` tells what the kernel allows.
     pub recipes_isolated: bool,
     pub voice_memos: bool,
     pub folder_authorization: bool,
@@ -207,8 +208,9 @@ pub fn voice_memos_root(home: &Path) -> Option<PathBuf> {
         .then(|| home.join("Library/Group Containers/group.com.apple.VoiceMemos.shared/Recordings"))
 }
 
+/// Whether this computer isolates recipes; on Linux it depends on the kernel.
 pub fn recipes_isolated() -> bool {
-    PLATFORM.recipes_isolated
+    crate::confinement::available()
 }
 
 // The native host records AAC on macOS and Opus on Linux.
@@ -218,7 +220,11 @@ pub const RECORDING_EXTENSION: &str = "m4a";
 pub const RECORDING_EXTENSION: &str = "ogg";
 
 pub fn summary() -> serde_json::Value {
-    serde_json::to_value(PLATFORM).unwrap_or_default()
+    serde_json::to_value(Platform {
+        recipes_isolated: recipes_isolated(),
+        ..PLATFORM
+    })
+    .unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -269,7 +275,11 @@ mod tests {
         } else {
             LINUX
         };
-        assert_eq!(summary(), serde_json::to_value(expected).unwrap());
+        let detected = Platform {
+            recipes_isolated: recipes_isolated(),
+            ..expected
+        };
+        assert_eq!(summary(), serde_json::to_value(detected).unwrap());
     }
 
     #[test]
@@ -411,7 +421,10 @@ mod tests {
     }
 
     #[test]
-    fn las_recetas_solo_se_aislan_en_macos_por_ahora() {
-        assert_eq!(recipes_isolated(), cfg!(target_os = "macos"));
+    fn las_recetas_se_aislan_en_macos_y_en_un_linux_con_landlock() {
+        assert!(
+            recipes_isolated(),
+            "falta escriba-sandbox o el equipo no aísla: ejecuta scripts/build-linux.sh"
+        );
     }
 }

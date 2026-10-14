@@ -4,6 +4,7 @@ mod appearance;
 mod audio_ingress;
 mod capabilities;
 mod command;
+mod confinement;
 mod error;
 #[cfg(target_os = "macos")]
 mod folder_access;

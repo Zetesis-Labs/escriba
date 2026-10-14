@@ -17,11 +17,13 @@ import { build } from "esbuild";
 import { CborCodec, RecordId } from "surrealdb";
 import { controllerEnvironment } from "./native";
 import type { Recipe, Recording, Snapshot } from "../../src/types";
-// sandbox-exec only exists on macOS; elsewhere workers run unisolated, as in the app.
+// macOS isolates with sandbox-exec and Linux with escriba-sandbox, as in the app.
 const macos = process.platform === "darwin";
-const isolation = test.runIf(macos);
+const linux = process.platform === "linux";
+const isolation = test.runIf(macos || linux);
 let directory = "";
 let executable = "";
+let sandbox = "";
 beforeAll(async () => {
   directory = await mkdtemp(join(tmpdir(), "escriba-runtime-"));
   executable = join(directory, "runtime");
@@ -32,13 +34,20 @@ beforeAll(async () => {
     encoding: "utf8",
   });
   assert.equal(result.status, 0, result.stderr);
-}, 30000);
+  if (linux) {
+    const manifest = fileURLToPath(new URL("../../sandbox/Cargo.toml", import.meta.url));
+    const cargo = spawnSync("cargo", ["build", "--quiet", "--manifest-path", manifest], { encoding: "utf8" });
+    assert.equal(cargo.status, 0, cargo.stderr);
+    sandbox = fileURLToPath(new URL("../../sandbox/target/debug/escriba-sandbox", import.meta.url));
+  }
+}, 120000);
 afterAll(async () => {
   await rm(directory, { recursive: true, force: true });
 });
 function launch(data: string, worker = false) {
   const path = realpathSync(executable);
   if (!worker) return spawn(path, [], { env: controllerEnvironment(data), cwd: "/" });
+  if (linux) return spawn(sandbox, ["worker", "--executable", path, "--", "--worker"], { env: {}, cwd: "/" });
   if (!macos) return spawn(path, ["--worker"], { env: {}, cwd: "/" });
   const profile = readFileSync(new URL("../../runtime-host/sandbox.sb", import.meta.url), "utf8");
   return spawn("/usr/bin/sandbox-exec", [

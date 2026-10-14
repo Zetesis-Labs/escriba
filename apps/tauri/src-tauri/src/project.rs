@@ -31,8 +31,6 @@ const MANIFEST_LIMIT: usize = 1024 * 1024;
 const CATALOG_LIMIT: usize = 30 * 1024 * 1024;
 const TOOL_OUTPUT_LIMIT: usize = 64 * 1024;
 const TOOL_TIMEOUT: Duration = Duration::from_secs(60);
-const DEV_SANDBOX: &str = "(version 1)\n(deny default)\n(allow process-exec (literal (param \"EXECUTABLE\")))\n(allow file-read* (literal \"/\") (literal (param \"EXECUTABLE\")) (subpath (param \"PROJECT\")) (subpath (param \"VENDOR\")) (subpath \"/System/Library\") (subpath \"/usr/lib\") (subpath \"/usr/share/icu\"))\n(allow file-read-metadata (literal \"/var\") (literal \"/tmp\"))\n(allow file-write* (subpath (param \"PROJECT\")))\n(allow sysctl-read)\n";
-const INSTALL_NETWORK: &str = "(allow network-outbound)\n";
 const LAUNCHER_MARKER: &str = "#!/bin/sh\nESCRIBA_LAUNCHER_VERSION=1\n";
 
 #[derive(Deserialize)]
@@ -271,27 +269,16 @@ fn run_development(
     for directory in ["cache", "tmp"] {
         real_directory(&managed.join(directory))?;
     }
-    let profile = if network {
-        format!("{DEV_SANDBOX}{INSTALL_NETWORK}")
-    } else {
-        DEV_SANDBOX.to_owned()
-    };
-    let mut command = if crate::platform::recipes_isolated() {
-        let mut command = Command::new("/usr/bin/sandbox-exec");
-        command
-            .arg("-p")
-            .arg(profile)
-            .arg("-D")
-            .arg(format!("EXECUTABLE={}", executable.display()))
-            .arg("-D")
-            .arg(format!("PROJECT={}", root.display()))
-            .arg("-D")
-            .arg(format!("VENDOR={}", vendor.display()))
-            .arg(&executable);
-        command
-    } else {
-        Command::new(&executable)
-    };
+    let wrapped = crate::confinement::wrap(
+        &executable,
+        crate::confinement::Profile::Tool {
+            project: &root,
+            vendor: &vendor,
+            network,
+        },
+    );
+    let mut command = Command::new(wrapped.program);
+    command.args(wrapped.arguments);
     command
         .args(arguments)
         .env_clear()
@@ -425,12 +412,14 @@ fn launcher_source(runtime: &Path, vendor: &Path, checker: &Path) -> Result<Stri
     let runtime = shell_quote(runtime.to_str().ok_or("Ruta de Bun no UTF-8")?);
     let vendor = shell_quote(vendor.to_str().ok_or("Ruta vendor no UTF-8")?);
     let checker = shell_quote(checker.to_str().ok_or("Ruta TypeScript no UTF-8")?);
-    let profile = shell_quote(DEV_SANDBOX);
-    let install_profile = shell_quote(&format!("{DEV_SANDBOX}{INSTALL_NETWORK}"));
-    let sandbox = if crate::platform::recipes_isolated() {
-        r#"/usr/bin/sandbox-exec -p "$profile" -D "EXECUTABLE=$executable" -D "PROJECT=$ROOT" -D "VENDOR=$VENDOR" "#
-    } else {
-        ""
+    let confinement = crate::confinement::launcher();
+    let (profile, install_profile, run) = match &confinement {
+        Some(launcher) => (
+            shell_quote(&launcher.tool),
+            shell_quote(&launcher.install),
+            launcher.command.as_str(),
+        ),
+        None => ("''".to_owned(), "''".to_owned(), r#""$executable""#),
     };
     Ok(format!(
         r#"{LAUNCHER_MARKER}set -eu
@@ -456,9 +445,9 @@ run() {{
   bun=$3
   shift 3
   if [ "$bun" = yes ]; then
-    exec /usr/bin/env -i TMPDIR="$ROOT/.escriba/tmp" BUN_INSTALL_CACHE_DIR="$ROOT/.escriba/cache" BUN_BE_BUN=1 {sandbox}"$executable" "$@"
+    exec /usr/bin/env -i TMPDIR="$ROOT/.escriba/tmp" BUN_INSTALL_CACHE_DIR="$ROOT/.escriba/cache" BUN_BE_BUN=1 {run} "$@"
   fi
-  exec /usr/bin/env -i TMPDIR="$ROOT/.escriba/tmp" BUN_INSTALL_CACHE_DIR="$ROOT/.escriba/cache" {sandbox}"$executable" "$@"
+  exec /usr/bin/env -i TMPDIR="$ROOT/.escriba/tmp" BUN_INSTALL_CACHE_DIR="$ROOT/.escriba/cache" {run} "$@"
 }}
 if [ "$#" -ne 1 ]; then
   printf '%s\n' 'Uso: ./escriba install|check|test|build' >&2
@@ -475,7 +464,7 @@ esac
     ))
 }
 
-fn shell_quote(value: &str) -> String {
+pub(crate) fn shell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
 }
 
@@ -1612,10 +1601,12 @@ mod tests {
         );
     }
 
-    // Proves the sandbox-exec profile; Linux has no recipe isolation yet.
-    #[cfg(target_os = "macos")]
     #[test]
     fn herramienta_test_no_puede_leer_fuera_del_proyecto() {
+        assert!(
+            crate::confinement::available(),
+            "falta escriba-sandbox o el equipo no aísla: ejecuta scripts/build-linux.sh"
+        );
         let folder = tempfile::tempdir().unwrap();
         let outside = tempfile::tempdir().unwrap();
         let vendor = tempfile::tempdir().unwrap();
@@ -1765,19 +1756,13 @@ mod tests {
         .unwrap();
         let runs = source
             .lines()
-            .filter(|line| line.contains(r#""$executable" "$@""#))
+            .filter(|line| line.trim_start().starts_with("exec /usr/bin/env -i "))
             .collect::<Vec<_>>();
         assert_eq!(runs.len(), 2);
+        let isolated = crate::confinement::launcher().map(|launcher| launcher.command);
         for run in runs {
-            assert!(
-                run.trim_start().starts_with("exec /usr/bin/env -i "),
-                "{run}"
-            );
-            assert_eq!(
-                run.contains("/usr/bin/sandbox-exec"),
-                crate::platform::recipes_isolated(),
-                "{run}"
-            );
+            let expected = isolated.as_deref().unwrap_or(r#""$executable""#);
+            assert!(run.ends_with(&format!("{expected} \"$@\"")), "{run}");
         }
     }
 

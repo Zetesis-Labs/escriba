@@ -44,7 +44,8 @@ consultas SurrealQL, ambos guardables bajo Biblioteca, están aprobados en
 
 La WebView muestra estado y envía acciones; los trabajos sobreviven a cerrar
 una ventana. El controlador TypeScript y cada receta usan procesos separados.
-Bun ejecuta las recetas bajo el perfil de sandbox por proceso de macOS. Tokens,
+Bun ejecuta las recetas aisladas por proceso: `sandbox-exec` en macOS y
+`escriba-sandbox` (Landlock y seccomp) en Linux, en `src-tauri/src/confinement.rs`. Tokens,
 rutas de audio y huellas no cruzan a código de recetas. Consultar
 `apps/tauri/CONTRACT.md`, `apps/tauri/runtime-host/README.md`,
 `docs/tauri-persistence.md` y `docs/tauri-native-protocol.md` al tocar esos límites.

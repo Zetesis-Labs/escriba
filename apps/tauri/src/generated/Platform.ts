@@ -8,7 +8,8 @@ import type { System } from "./System";
 export type Platform = { system: System, 
 /**
  * Recipes run under an OS sandbox. Without it they still run and the
- * interface shows a permanent warning.
+ * interface shows a permanent warning. On Linux the tables say false and
+ * `summary` tells what the kernel allows.
  */
 recipesIsolated: boolean, voiceMemos: boolean, folderAuthorization: boolean, systemSettings: boolean, bundledLlm: boolean, 
 /**
