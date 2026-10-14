@@ -1,6 +1,6 @@
 import { test } from "vitest";
 import assert from "node:assert/strict";
-import { cosineDistance, dominantVoice, publicReply, recognize, speechBySpeaker, type KnownVoice, type SpeakerVoice } from "../../../src/runtime/library/voices";
+import { cosineDistance, dominantVoice, matchThreshold, publicReply, recognize, speechBySpeaker, type KnownVoice, type SpeakerVoice } from "../../../src/runtime/library/voices";
 
 const voice = (speaker: string, embedding: number[], model: string): SpeakerVoice => ({ speaker, embedding, model });
 const known = (person: string, embedding: number[], model: string): KnownVoice => ({ personId: person, person, embedding, model });
@@ -30,6 +30,16 @@ test("reconoce la huella más cercana entre varias de cada persona", () => {
     [known("Rubén", [1, 0.01], "m"), known("Nuria", [0, 1], "m")],
   );
   assert.deepEqual(found.map((item) => [item.speaker, item.person]), [["Speaker 2", "Nuria"], ["Speaker 1", "Rubén"]]);
+});
+
+test("cada modelo de huellas compara con su propio umbral", () => {
+  assert.equal(matchThreshold("speakerkit/pyannote-v3/speaker_embedder"), 0.3);
+  assert.equal(matchThreshold("sherpa-onnx/nemo-titanet-small"), 0.5);
+  assert.equal(matchThreshold("desconocido"), 0.3);
+  // At 0.4 apart: the same person for TitaNet, someone else for SpeakerKit.
+  const apart = [1, Math.sqrt(1 / 0.36 - 1)];
+  for (const [model, people] of [["sherpa-onnx/nemo-titanet-small", 1], ["speakerkit/pyannote-v3/speaker_embedder", 0]] as const)
+    assert.equal(recognize([voice("Speaker 1", apart, model)], [known("Rubén", [1, 0], model)]).length, people, model);
 });
 
 test("la muestra elige la voz que habla al menos treinta segundos", () => {

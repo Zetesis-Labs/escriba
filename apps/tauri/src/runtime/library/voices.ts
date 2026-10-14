@@ -1,6 +1,12 @@
 import { isObject } from "./json";
 
-export const MATCH_THRESHOLD = 0.3;
+// Each embedding model has its own scale: SpeakerKit's on the Mac and
+// TitaNet's on Linux, calibrated with public real voices (docs/plan-linux.md, L5).
+const THRESHOLDS: Record<string, number> = {
+  "speakerkit/pyannote-v3/speaker_embedder": 0.3,
+  "sherpa-onnx/nemo-titanet-small": 0.5,
+};
+export const matchThreshold = (model: string) => THRESHOLDS[model] ?? 0.3;
 export interface SpeakerVoice {
   speaker: string;
   embedding: number[];
@@ -65,12 +71,16 @@ export function recognize(voices: SpeakerVoice[], known: KnownVoice[]): Recognit
       if (people.has(person.person)) continue;
       people.add(person.person);
       let nearest: number | undefined;
+      let threshold = 0;
       for (const own of voices.filter((item) => item.speaker === voice.speaker))
         for (const candidate of known.filter((item) => item.person === person.person && item.model === own.model)) {
           const distance = cosineDistance(own.embedding, candidate.embedding);
-          if (distance !== undefined && (nearest === undefined || distance < nearest)) nearest = distance;
+          if (distance !== undefined && (nearest === undefined || distance < nearest)) {
+            nearest = distance;
+            threshold = matchThreshold(own.model);
+          }
         }
-      if (nearest !== undefined && nearest <= MATCH_THRESHOLD)
+      if (nearest !== undefined && nearest <= threshold)
         candidates.push({ speaker: voice.speaker, person: person.person, personId: person.personId, distance: nearest });
     }
   }

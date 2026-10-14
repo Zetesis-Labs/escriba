@@ -105,9 +105,10 @@ no se ha podido leer. Preservar la lectura de datos ya guardados al actualizar.
   El borrado local respeta el archivo original y los servicios externos.
 - Diarización desactivada de serie y sólo local. Guardar los hablantes detectados
   sin adivinar cuántos hay; la corrección es explícita. Personas aprende N
-  huellas por persona, compara con el mismo modelo y umbral 0,30 y reconoce sólo
-  al transcribir. Registrar voz exige 30 segundos de habla; admite micrófono y
-  archivo. Una versión diarizada sin huellas se vuelve a diarizar.
+  huellas por persona, compara con el mismo modelo y su umbral (0,30 en
+  SpeakerKit) y reconoce sólo al transcribir. Registrar voz exige 30 segundos
+  de habla; admite micrófono y archivo. Una versión diarizada sin huellas se
+  vuelve a diarizar.
 - WhisperKit es el motor local; modelos en
   `~/Library/Application Support/escriba/models`, descargados explícitamente.
   Cada modelo añadido en STT es un resolutor local con su modelo; el Whisper de
