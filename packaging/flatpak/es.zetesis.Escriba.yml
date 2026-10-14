@@ -13,8 +13,8 @@ finish-args:
   - --device=dri
   # Recording and playback.
   - --socket=pulseaudio
-  # Watched folders and the recipe project live anywhere in the user's files.
-  - --filesystem=home
+  # No --filesystem: each watched folder, the recipe project and the connector
+  # folders are granted through the file chooser portal, like macOS bookmarks.
   - --talk-name=org.kde.StatusNotifierWatcher
   - --talk-name=org.freedesktop.Notifications
   # tauri-plugin-single-instance owns the app's technical identifier on D-Bus.
