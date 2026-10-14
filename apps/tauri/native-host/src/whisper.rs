@@ -1,7 +1,7 @@
 //! Local transcription with whisper.cpp. Models are ggml files downloaded
 //! explicitly into the models folder; transcribing never downloads.
 
-use crate::platform::{models_root, DEFAULT_MODEL};
+use crate::platform::{models_root, DEFAULT_MODEL, MODELS};
 use crate::protocol::{required_string, Failure, Params};
 use serde_json::{json, Value};
 use std::{
@@ -31,6 +31,22 @@ pub fn installed(model: &str) -> bool {
     model_path(model)
         .and_then(|path| fs::metadata(path).ok())
         .is_some_and(|metadata| metadata.is_file() && metadata.len() > 0)
+}
+
+/// The catalog with the real size of installed models.
+pub fn catalog() -> Value {
+    let models: Vec<Value> = MODELS
+        .iter()
+        .map(|(model, approximate)| {
+            let installed = installed(model);
+            let bytes = model_path(model)
+                .and_then(|path| fs::metadata(path).ok())
+                .filter(|_| installed)
+                .map_or(*approximate, |metadata| metadata.len());
+            json!({"model": model, "label": model, "bytes": bytes, "installed": installed})
+        })
+        .collect();
+    json!({"models": models, "default": DEFAULT_MODEL})
 }
 
 fn download_failed(error: impl std::fmt::Display) -> Failure {
@@ -125,6 +141,31 @@ fn language(params: &Params) -> Result<Option<String>, Failure> {
 }
 
 impl Whisper {
+    pub fn delete(&mut self, model: &str) -> Result<Value, Failure> {
+        let path = model_path(model)
+            .filter(|_| installed(model))
+            .ok_or_else(|| {
+                Failure::new(
+                    "model_missing",
+                    format!("el modelo {model} no está descargado"),
+                )
+            })?;
+        if self
+            .engine
+            .as_ref()
+            .is_some_and(|engine| engine.model == model)
+        {
+            self.engine = None;
+        }
+        fs::remove_file(&path).map_err(|error| {
+            Failure::new(
+                "delete_failed",
+                format!("no se pudo borrar el modelo: {error}"),
+            )
+        })?;
+        Ok(json!({"model": model}))
+    }
+
     fn engine(&mut self, model: &str) -> Result<&Engine, Failure> {
         if self
             .engine

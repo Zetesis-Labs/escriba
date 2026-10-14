@@ -1,6 +1,16 @@
 use std::{ffi::OsStr, path::PathBuf};
 
 pub const DEFAULT_MODEL: &str = "large-v3-turbo";
+
+/// whisper.cpp models offered in STT, with their approximate download size.
+pub const MODELS: [(&str, u64); 6] = [
+    ("large-v3-turbo", 1_620_000_000),
+    ("tiny", 78_000_000),
+    ("base", 148_000_000),
+    ("small", 488_000_000),
+    ("medium", 1_530_000_000),
+    ("large-v3", 3_100_000_000),
+];
 pub const LLM_UNAVAILABLE: &str =
     "Escriba no incluye un LLM en Linux: añade uno en LLMs y elígelo en la receta";
 

@@ -67,6 +67,8 @@ impl Host {
             )),
             "transcribe" => self.whisper.transcribe(params, &model_name(params)?),
             "downloadModel" => crate::whisper::download(&model_name(params)?, progress),
+            "models" => Ok(crate::whisper::catalog()),
+            "deleteModel" => self.whisper.delete(&model_name(params)?),
             "diarizedVoices" => Err(Failure::new(
                 "backend_unavailable",
                 "detectar hablantes aún no está disponible en Linux",

@@ -629,3 +629,81 @@ fn transcribe_voz_sintetica_en_wav_y_en_la_grabacion_opus() {
         "{text}"
     );
 }
+
+fn install(data: &Path, model: &str, bytes: usize) {
+    let folder = data.join("escriba/models");
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::write(folder.join(format!("ggml-{model}.bin")), vec![1u8; bytes]).unwrap();
+}
+
+#[test]
+fn el_catalogo_dice_que_modelos_hay_cuanto_ocupan_y_cuales_estan_instalados() {
+    let data = tempfile::tempdir().unwrap();
+    install(data.path(), "base", 1234);
+    let mut host = Host::start_with(&[("XDG_DATA_HOME", data.path())]);
+    let catalog = host.result("models", json!({}));
+    assert_eq!(catalog["default"], "large-v3-turbo");
+    let models = catalog["models"].as_array().unwrap();
+    let names: Vec<_> = models
+        .iter()
+        .map(|model| model["model"].as_str().unwrap())
+        .collect();
+    assert!(
+        names.contains(&"large-v3-turbo") && names.contains(&"tiny") && names.contains(&"base"),
+        "{names:?}"
+    );
+    let mut unique = names.clone();
+    unique.sort();
+    unique.dedup();
+    assert_eq!(unique.len(), names.len());
+    for model in models {
+        assert!(
+            model["label"]
+                .as_str()
+                .is_some_and(|label| !label.is_empty()),
+            "{model}"
+        );
+        assert!(
+            model["bytes"].as_u64().is_some_and(|bytes| bytes > 0),
+            "{model}"
+        );
+    }
+    let base = models
+        .iter()
+        .find(|model| model["model"] == "base")
+        .unwrap();
+    assert_eq!(base["installed"], true);
+    assert_eq!(base["bytes"], 1234);
+    assert!(models
+        .iter()
+        .filter(|model| model["model"] != "base")
+        .all(|model| model["installed"] == false));
+}
+
+#[test]
+fn borrar_un_modelo_borra_solo_ese() {
+    let data = tempfile::tempdir().unwrap();
+    install(data.path(), "base", 10);
+    install(data.path(), "tiny", 10);
+    let mut host = Host::start_with(&[("XDG_DATA_HOME", data.path())]);
+    assert_eq!(
+        host.result("deleteModel", json!({"model": "base"})),
+        json!({"model": "base"})
+    );
+    assert_eq!(
+        host.result("status", json!({"model": "base"}))["whisper"]["available"],
+        false
+    );
+    assert_eq!(
+        host.result("status", json!({"model": "tiny"}))["whisper"]["available"],
+        true
+    );
+    assert_eq!(
+        host.error("deleteModel", json!({"model": "base"}))["code"],
+        "model_missing"
+    );
+    assert_eq!(
+        host.error("deleteModel", json!({"model": "../tiny"}))["code"],
+        "invalid_params"
+    );
+}
