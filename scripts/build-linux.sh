@@ -37,7 +37,7 @@ if ! command -v cargo >/dev/null && [[ -x "$HOME/.cargo/bin/cargo" ]]; then expo
 CONFIGURATION=debug
 CARGO_ARGS=()
 TAURI_ARGS=(build --debug --no-bundle)
-if [[ "${1:-}" == "--release" ]]; then CONFIGURATION=release; CARGO_ARGS=(--release); TAURI_ARGS=(build --bundles deb); fi
+if [[ "${1:-}" == "--release" ]]; then CONFIGURATION=release; CARGO_ARGS=(--release); TAURI_ARGS=(build --bundles deb,rpm); fi
 if [[ "${1:-}" == "--dev" ]]; then TAURI_ARGS=(dev); fi
 cargo build --manifest-path "$TAURI/native-host/Cargo.toml" "${CARGO_ARGS[@]}"
 cargo build --manifest-path "$TAURI/sandbox/Cargo.toml" "${CARGO_ARGS[@]}"
@@ -62,6 +62,7 @@ node "$TAURI/scripts/prepare.mjs"
 (cd "$TAURI" && npm exec tauri -- "${TAURI_ARGS[@]}")
 if [[ "${1:-}" == "--release" ]]; then
   echo "Construido: $(ls -t "$TAURI"/src-tauri/target/release/bundle/deb/*.deb | head -1)"
+  echo "Construido: $(ls -t "$TAURI"/src-tauri/target/release/bundle/rpm/*.rpm | head -1)"
 elif [[ "${1:-}" != "--dev" ]]; then
   echo "Construido: $TAURI/src-tauri/target/debug/escriba-tauri"
 fi

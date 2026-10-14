@@ -16,7 +16,8 @@
   },
   "bundle": {
     "targets": [
-      "deb"
+      "deb",
+      "rpm"
     ],
     "externalBin": [
       "binaries/EscribaNativeHost",
@@ -30,6 +31,27 @@
     },
     "icon": [
       "icons/icon.png"
-    ]
+    ],
+    "linux": {
+      "deb": {
+        "depends": [
+          "libasound2t64",
+          "gstreamer1.0-plugins-base",
+          "gstreamer1.0-plugins-good",
+          "gstreamer1.0-libav"
+        ]
+      },
+      "rpm": {
+        "depends": [
+          "webkit2gtk4.1",
+          "gtk3",
+          "libayatana-appindicator-gtk3",
+          "alsa-lib",
+          "gstreamer1-plugins-base",
+          "gstreamer1-plugins-good",
+          "gstreamer1-plugin-libav"
+        ]
+      }
+    }
   }
 }
