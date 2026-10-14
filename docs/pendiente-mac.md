@@ -27,6 +27,9 @@ Swift, y por eso el «+» de STT no ofrece modelos locales.
   comportamiento anterior: mide la carpeta de modelos y solo borra el de serie,
   borrando la carpeta entera. Con `deleteModel` ese camino deja de usarse en el
   Mac. Comprobar que borrar el de serie no se lleva los demás modelos.
+- Con el catálogo, el «−» también quita el Whisper de serie (hoy está
+  desactivado en el Mac porque no podría volver con «+»). Comprobar que una
+  receta sin STT pasa al primer Whisper local que quede.
 - Comprobar en la app:
   - Añadir un modelo, descargarlo con progreso y transcribir con él.
   - Dos modelos distintos no reutilizan la misma transcripción.
