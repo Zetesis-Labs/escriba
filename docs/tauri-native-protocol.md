@@ -33,6 +33,13 @@ Rust mantiene la decisión de asentamiento, el seguimiento de carpetas y la pers
 
 Cada carpeta vigilada conserva `style`: `any` (predeterminado, audio recursivo), `justPressRecord` (solo `AAAA-MM-DD/HH-MM-SS.m4a` a un nivel de la raíz, fecha de inicio obtenida del nombre en hora local) o `voiceMemos` (solo audio en el primer nivel, fecha de modificación e identidad estable de inode ante renombrados). El escáner Rust entrega título, fecha e identidad de origen al almacén. Omite symlinks, elementos ocultos y placeholders `.icloud` hasta que aparezca el archivo de audio visible; mantiene la conciliación periódica.
 
+## Batería de contrato común
+
+`apps/tauri/native-host/tests/contract.rs` comprueba lo que todo host cumple y
+`tests/linux.rs`, lo propio del host de Linux. La común se lanza contra otro
+host con `ESCRIBA_NATIVE_HOST=<binario> cargo test --test contract` desde
+`apps/tauri/native-host`.
+
 ## Verificación de la receta con el motor real
 
 La suite normal comprueba el recorrido de la receta TypeScript compilada a Rust
