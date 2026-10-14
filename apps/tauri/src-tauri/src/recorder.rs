@@ -9,11 +9,8 @@ use tauri::{
 
 const PANEL: &str = "recording";
 const CLOCK_TRAY: &str = "recording-clock";
-#[cfg(target_os = "macos")]
 const PANEL_WIDTH: f64 = 452.0;
-#[cfg(target_os = "macos")]
 const PANEL_HEIGHT: f64 = 54.0;
-#[cfg(target_os = "macos")]
 const PANEL_TOP: f64 = 12.0;
 
 pub fn view(state: &Runtime) -> Value {
@@ -214,22 +211,17 @@ fn closed(app: &AppHandle, state: &Runtime) {
     });
 }
 
-#[cfg(target_os = "macos")]
+// Without a floating panel (Wayland lets no app place or raise a window) it lives inside the main window.
 fn show_panel(app: &AppHandle) {
-    open_panel(app);
-}
-
-// Wayland lets no app place or raise a window: the panel lives inside the main window.
-#[cfg(not(target_os = "macos"))]
-fn show_panel(app: &AppHandle) {
-    if let Some(window) = app.get_webview_window("main") {
+    if crate::platform::PLATFORM.floating_panel {
+        open_panel(app);
+    } else if let Some(window) = app.get_webview_window("main") {
         let _ = window.unminimize();
         let _ = window.show();
         let _ = window.set_focus();
     }
 }
 
-#[cfg(target_os = "macos")]
 fn open_panel(app: &AppHandle) {
     use tauri::{PhysicalPosition, WebviewUrl, WebviewWindowBuilder};
     if app.get_webview_window(PANEL).is_some() {
