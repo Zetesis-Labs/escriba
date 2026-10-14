@@ -258,9 +258,10 @@ añadir libayatana-appindicator (módulo compartido de Flathub). Los iconos de l
 bandeja se escriben en `$XDG_RUNTIME_DIR/app/<id>`. Dentro del Flatpak se aíslan
 las recetas, graba y reproduce m4a.
 
-- **Fallo abierto:** en Wozniak (máquina virtual) el Flatpak pinta la ventana a
-  trozos: solo el elemento seleccionado y los botones de ventana; el `.deb` no
-  lo hace. Descartado: Wayland (pasa igual por X11), el dmabuf y la composición
+- **Fallo abierto:** en Wozniak (máquina virtual) el Flatpak no repinta la
+  ventana al volver al frente tras quedar detrás de otra: solo se ven el
+  elemento seleccionado, lo que se toca con el ratón y los botones de ventana;
+  el resto queda transparente. El `.deb` no lo hace (comprobado por Rubén). Descartado: Wayland (pasa igual por X11), el dmabuf y la composición
   acelerada de WebKit (desactivados en el manifiesto, sigue). Sospecha: WebKitGTK
   rasteriza con Skia en la GPU y el Mesa del runtime no funciona con la gráfica
   virtual (`MESA: vdrm_device_connect failed`). Siguiente prueba:
