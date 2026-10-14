@@ -41,7 +41,11 @@ export function buildRecipeForm({ stts, llms, conectores }: ListasDeEscriba) {
       .prefault({})
       .meta({ title: "Hablantes" }),
     resumir: z.boolean().default(true).meta({ title: "Resumir" }),
-    llm: opciones(llms).default(local(llms)).meta({ title: "Resume con", si: "resumir" }),
+    // Without LLMs (Linux ships none) summarizing fails visibly and the note is kept.
+    llm: (llms.length ? opciones(llms).default(local(llms)) : opciones(llms).nullable().default(null)).meta({
+      title: "Resume con",
+      si: "resumir",
+    }),
     prompt: z
       .string()
       .nullable()
@@ -72,7 +76,7 @@ export async function flujo(audio: Audio, escriba: Escriba<Parametros>): Promise
   })
   if (parametros.resumir) {
     try {
-      await nota.resumir({ llm: parametros.llm, prompt: parametros.prompt })
+      await nota.resumir({ llm: parametros.llm ?? undefined, prompt: parametros.prompt })
     } catch (error) {
       console.warn(`no se pudo resumir: ${error}`)
     }
