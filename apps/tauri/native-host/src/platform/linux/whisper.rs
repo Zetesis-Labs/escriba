@@ -2,17 +2,13 @@
 //! explicitly into the models folder; transcribing never downloads.
 
 use super::{models_root, DEFAULT_MODEL, MODELS};
-use crate::protocol::{required_string, Failure, Params};
+use crate::protocol::{Failure, Params};
 use serde_json::{json, Value};
-use std::{
-    fs::{self, File},
-    io::{Read, Write},
-    path::{Path, PathBuf},
-};
+use std::{fs, path::PathBuf};
 use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
 
 const MODELS_URL: &str = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main";
-const SAMPLE_RATE: u32 = 16_000;
+pub const SAMPLE_RATE: u32 = 16_000;
 
 /// A library created before Linux had its own engine may name a macOS model.
 pub fn normalized(model: &str) -> &str {
@@ -49,56 +45,22 @@ pub fn catalog() -> Value {
     json!({"models": models, "default": DEFAULT_MODEL})
 }
 
-fn download_failed(error: impl std::fmt::Display) -> Failure {
-    Failure::new(
-        "download_failed",
-        format!("no se pudo descargar el modelo: {error}"),
-    )
-}
-
 /// Downloads into a temporary file and only keeps a complete model.
 pub fn download(model: &str, progress: &mut dyn FnMut(f64)) -> Result<Value, Failure> {
     let model = normalized(model);
-    let path = model_path(model).ok_or_else(|| download_failed("no hay carpeta de datos"))?;
-    let partial = path.with_extension("bin.part");
+    let path =
+        model_path(model).ok_or_else(|| super::download::failed("no hay carpeta de datos"))?;
     let base = std::env::var("ESCRIBA_MODELS_URL").unwrap_or_else(|_| MODELS_URL.into());
-    let fetched = (|| -> Result<(), Failure> {
-        fs::create_dir_all(path.parent().expect("carpeta de modelos")).map_err(download_failed)?;
-        let response = ureq::get(&format!("{base}/ggml-{model}.bin"))
-            .call()
-            .map_err(download_failed)?;
-        let body = response.into_body();
-        let total = body.content_length();
-        let mut reader = body.into_reader();
-        let mut file = File::create(&partial).map_err(download_failed)?;
-        let mut buffer = vec![0; 1 << 16];
-        let (mut received, mut reported) = (0u64, -1.0);
-        loop {
-            let read = reader.read(&mut buffer).map_err(download_failed)?;
-            if read == 0 {
-                break;
-            }
-            file.write_all(&buffer[..read]).map_err(download_failed)?;
-            received += read as u64;
-            if let Some(total) = total.filter(|total| *total > 0) {
-                let fraction = (received as f64 / total as f64).min(1.0);
-                if fraction - reported >= 0.01 {
-                    progress(fraction);
-                    reported = fraction;
-                }
-            }
-        }
-        if received == 0 || total.is_some_and(|total| total != received) {
-            return Err(download_failed("la descarga se cortó"));
-        }
-        file.sync_all().map_err(download_failed)?;
-        fs::rename(&partial, &path).map_err(download_failed)
-    })();
-    if let Err(failure) = fetched {
-        let _ = fs::remove_file(&partial);
-        return Err(failure);
-    }
+    super::download::fetch(&format!("{base}/ggml-{model}.bin"), &path, progress)?;
     Ok(json!({"model": model, "path": path}))
+}
+
+/// The approximate download size of a catalog model.
+pub fn approximate_bytes(model: &str) -> u64 {
+    MODELS
+        .iter()
+        .find(|(name, _)| *name == normalized(model))
+        .map_or(MODELS[0].1, |(_, bytes)| *bytes)
 }
 
 pub struct Engine {
@@ -111,19 +73,19 @@ pub struct Whisper {
     engine: Option<Engine>,
 }
 
-fn unavailable(model: &str) -> Failure {
+pub fn unavailable(model: &str) -> Failure {
     Failure::new(
         "backend_unavailable",
         format!("el modelo de Whisper {model} no está descargado"),
     )
 }
 
-fn failed(error: impl std::fmt::Display) -> Failure {
+pub fn failed(error: impl std::fmt::Display) -> Failure {
     Failure::new("transcription_failed", error.to_string())
 }
 
 /// `null` or `auto` detect the language; otherwise a two or three letter code.
-fn language(params: &Params) -> Result<Option<String>, Failure> {
+pub fn language(params: &Params) -> Result<Option<String>, Failure> {
     match params.get("language") {
         None => Ok(Some("es".into())),
         Some(Value::Null) => Ok(None),
@@ -191,26 +153,20 @@ impl Whisper {
         Ok(self.engine.as_ref().expect("motor cargado"))
     }
 
-    pub fn transcribe(&mut self, params: &Params, model: &str) -> Result<Value, Failure> {
-        let audio = Path::new(required_string(params, "audioPath")?);
-        if !audio.is_file() {
-            return Err(Failure::new(
-                "audio_missing",
-                format!("no existe el fichero de audio: {}", audio.display()),
-            ));
-        }
-        if params.get("diarize").and_then(Value::as_bool) == Some(true) {
-            return Err(failed("detectar hablantes aún no está disponible en Linux"));
-        }
-        let language = language(params)?;
+    /// Transcribes `samples` (mono, 16 kHz) with an installed model.
+    pub fn transcribe(
+        &mut self,
+        samples: &[f32],
+        language: Option<&str>,
+        model: &str,
+    ) -> Result<Vec<Segment>, Failure> {
         if !installed(model) {
             return Err(unavailable(model));
         }
-        let samples = crate::audio::decode_16k(audio)?;
         let engine = self.engine(model)?;
         let mut state = engine.context.create_state().map_err(failed)?;
         let mut full = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
-        full.set_language(Some(language.as_deref().unwrap_or("auto")));
+        full.set_language(Some(language.unwrap_or("auto")));
         full.set_token_timestamps(true);
         full.set_print_progress(false);
         full.set_print_realtime(false);
@@ -221,7 +177,7 @@ impl Whisper {
                 .map(|cores| cores.get().min(8) as i32)
                 .unwrap_or(4),
         );
-        state.full(full, &samples).map_err(failed)?;
+        state.full(full, samples).map_err(failed)?;
         let special = engine.context.token_eot();
         let mut segments = Vec::new();
         for index in 0..state.full_n_segments() {
@@ -249,30 +205,26 @@ impl Whisper {
             if text.is_empty() {
                 continue;
             }
-            segments.push(json!({
-                "start": segment.start_timestamp() as f64 / 100.0,
-                "end": segment.end_timestamp() as f64 / 100.0,
-                "text": text,
-                "speaker": null,
-                "words": words.iter().map(Word::json).collect::<Vec<_>>(),
-            }));
+            segments.push(Segment {
+                start: segment.start_timestamp() as f64 / 100.0,
+                end: segment.end_timestamp() as f64 / 100.0,
+                text,
+                words,
+            });
         }
-        let text = segments
-            .iter()
-            .filter_map(|segment| segment["text"].as_str())
-            .collect::<Vec<_>>()
-            .join(" ");
-        Ok(json!({
-            "text": text,
-            "segments": segments,
-            "voices": [],
-            "language": language.unwrap_or_else(|| "auto".into()),
-            "duration": samples.len() as f64 / SAMPLE_RATE as f64,
-        }))
+        Ok(segments)
     }
 }
 
-use words::Word;
+#[derive(Debug, PartialEq)]
+pub struct Segment {
+    pub start: f64,
+    pub end: f64,
+    pub text: String,
+    pub words: Vec<Word>,
+}
+
+pub use words::Word;
 
 mod words {
     use serde_json::{json, Value};

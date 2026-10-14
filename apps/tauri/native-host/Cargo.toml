@@ -18,6 +18,7 @@ opus = "0.3"
 audiopus_sys = { version = "0.2", features = ["static"] }
 ogg = "0.9"
 whisper-rs = "0.15"
+sherpa-onnx = { version = "1.13.8", default-features = false, features = ["shared"] }
 ureq = "3"
 rubato = "0.16"
 

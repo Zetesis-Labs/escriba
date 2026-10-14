@@ -275,42 +275,78 @@ fn sin_grabacion_activa_no_hay_pausa_ni_reanudacion() {
     }
 }
 
-/// Serves `size` synthetic bytes once per connection; `cut` closes the body early.
-fn model_server(size: usize, cut: Option<usize>) -> (String, std::thread::JoinHandle<()>) {
+const SEGMENTATION: &str = "pyannote-segmentation-3-0.onnx";
+const EMBEDDING: &str = "nemo_en_titanet_small.onnx";
+
+/// Serves each `(path, size, cut)` once, in any order, and returns the paths
+/// it was asked for; `cut` closes the body early.
+fn files_server(
+    files: &[(&str, usize, Option<usize>)],
+) -> (String, std::thread::JoinHandle<Vec<String>>) {
     use std::net::TcpListener;
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let base = format!("http://{}", listener.local_addr().unwrap());
+    let files: Vec<(String, usize, Option<usize>)> = files
+        .iter()
+        .map(|(path, size, cut)| (format!("/{path}"), *size, *cut))
+        .collect();
     let thread = std::thread::spawn(move || {
-        let (mut stream, _) = listener.accept().unwrap();
-        let mut request = [0u8; 2048];
-        let read = std::io::Read::read(&mut stream, &mut request).unwrap();
-        let first = String::from_utf8_lossy(&request[..read])
-            .lines()
-            .next()
-            .unwrap_or_default()
-            .to_owned();
-        assert!(first.starts_with("GET /ggml-tiny.bin "), "{first}");
-        write!(
-            stream,
-            "HTTP/1.1 200 OK\r\nContent-Length: {size}\r\nConnection: close\r\n\r\n"
-        )
-        .unwrap();
-        let body = vec![7u8; cut.unwrap_or(size)];
-        for chunk in body.chunks(4096) {
-            stream.write_all(chunk).unwrap();
+        let mut asked = Vec::new();
+        for _ in 0..files.len() {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = [0u8; 2048];
+            let read = std::io::Read::read(&mut stream, &mut request).unwrap();
+            let first = String::from_utf8_lossy(&request[..read])
+                .lines()
+                .next()
+                .unwrap_or_default()
+                .to_owned();
+            let path = first.split(' ').nth(1).unwrap_or_default().to_owned();
+            let (_, size, cut) = files
+                .iter()
+                .find(|(file, ..)| *file == path)
+                .unwrap_or_else(|| panic!("petición inesperada: {first}"));
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Length: {size}\r\nConnection: close\r\n\r\n"
+            )
+            .unwrap();
+            let body = vec![7u8; cut.unwrap_or(*size)];
+            for chunk in body.chunks(4096) {
+                stream.write_all(chunk).unwrap();
+            }
+            asked.push(path);
+            if cut.is_some() {
+                break;
+            }
         }
+        asked
     });
     (base, thread)
+}
+
+fn install_speakers(data: &Path) {
+    let folder = data.join("escriba/models/speakers");
+    std::fs::create_dir_all(&folder).unwrap();
+    for name in [SEGMENTATION, EMBEDDING] {
+        std::fs::write(folder.join(name), b"modelo falso").unwrap();
+    }
+}
+
+fn downloader(data: &Path, base: &str) -> Host {
+    Host::start_with(&[
+        ("XDG_DATA_HOME", data),
+        ("ESCRIBA_MODELS_URL", Path::new(base)),
+        ("ESCRIBA_SPEAKER_MODELS_URL", Path::new(base)),
+    ])
 }
 
 #[test]
 fn descargar_un_modelo_informa_del_progreso_y_lo_deja_instalado() {
     let data = tempfile::tempdir().unwrap();
-    let (base, server) = model_server(300_000, None);
-    let mut host = Host::start_with(&[
-        ("XDG_DATA_HOME", data.path()),
-        ("ESCRIBA_MODELS_URL", Path::new(&base)),
-    ]);
+    install_speakers(data.path());
+    let (base, server) = files_server(&[("ggml-tiny.bin", 300_000, None)]);
+    let mut host = downloader(data.path(), &base);
     assert_eq!(
         host.result("status", json!({"model": "tiny"}))["whisper"]["available"],
         false
@@ -340,17 +376,21 @@ fn descargar_un_modelo_informa_del_progreso_y_lo_deja_instalado() {
 #[test]
 fn una_descarga_cortada_no_deja_un_modelo_a_medias() {
     let data = tempfile::tempdir().unwrap();
-    let (base, server) = model_server(300_000, Some(100_000));
-    let mut host = Host::start_with(&[
-        ("XDG_DATA_HOME", data.path()),
-        ("ESCRIBA_MODELS_URL", Path::new(&base)),
-    ]);
+    install_speakers(data.path());
+    let (base, server) = files_server(&[("ggml-tiny.bin", 300_000, Some(100_000))]);
+    let mut host = downloader(data.path(), &base);
     let error = host.error("downloadModel", json!({"model": "tiny"}));
     server.join().unwrap();
     assert_eq!(error["code"], "download_failed", "{error}");
     let models = data.path().join("escriba/models");
     let left: Vec<_> = std::fs::read_dir(&models)
-        .map(|entries| entries.flatten().map(|entry| entry.file_name()).collect())
+        .map(|entries| {
+            entries
+                .flatten()
+                .map(|entry| entry.file_name())
+                .filter(|name| name != "speakers")
+                .collect()
+        })
         .unwrap_or_default();
     assert!(left.is_empty(), "{left:?}");
     assert_eq!(
@@ -370,20 +410,100 @@ fn el_modelo_del_mac_guardado_en_la_biblioteca_se_toma_como_el_de_serie() {
 }
 
 #[test]
-fn detectar_hablantes_aun_no_esta_y_lo_dice() {
+fn descargar_whisper_baja_tambien_los_modelos_de_hablantes() {
     let data = tempfile::tempdir().unwrap();
-    std::fs::create_dir_all(data.path().join("escriba/models")).unwrap();
-    std::fs::write(
-        data.path().join("escriba/models/ggml-tiny.bin"),
-        b"modelo falso",
-    )
-    .unwrap();
-    let mut host = Host::start_with(&[("XDG_DATA_HOME", data.path())]);
-    let error = host.error(
-        "transcribe",
-        json!({"audioPath": fixture("tono.wav"), "model": "tiny", "diarize": true}),
+    let (base, server) = files_server(&[
+        ("ggml-tiny.bin", 300_000, None),
+        (SEGMENTATION, 50_000, None),
+        (EMBEDDING, 80_000, None),
+    ]);
+    let mut host = downloader(data.path(), &base);
+    host.result("downloadModel", json!({"model": "tiny"}));
+    let mut asked = server.join().unwrap();
+    asked.sort();
+    let mut expected = vec![
+        "/ggml-tiny.bin".to_owned(),
+        format!("/{SEGMENTATION}"),
+        format!("/{EMBEDDING}"),
+    ];
+    expected.sort();
+    assert_eq!(asked, expected);
+    let speakers = data.path().join("escriba/models/speakers");
+    assert_eq!(
+        std::fs::metadata(speakers.join(SEGMENTATION))
+            .unwrap()
+            .len(),
+        50_000
     );
-    assert_eq!(error["code"], "transcription_failed", "{error}");
+    assert_eq!(
+        std::fs::metadata(speakers.join(EMBEDDING)).unwrap().len(),
+        80_000
+    );
+    assert!(
+        host.progress.windows(2).all(|pair| pair[0] <= pair[1]),
+        "{:?}",
+        host.progress
+    );
+    assert!(host
+        .progress
+        .iter()
+        .all(|fraction| (0.0..=1.0).contains(fraction)));
+}
+
+#[test]
+fn con_whisper_ya_descargado_solo_se_bajan_los_de_hablantes() {
+    let data = tempfile::tempdir().unwrap();
+    install(data.path(), "tiny", 10);
+    let (base, server) = files_server(&[(SEGMENTATION, 50_000, None), (EMBEDDING, 80_000, None)]);
+    let mut host = downloader(data.path(), &base);
+    host.result("downloadModel", json!({"model": "tiny"}));
+    assert_eq!(server.join().unwrap().len(), 2);
+    assert_eq!(
+        std::fs::metadata(data.path().join("escriba/models/ggml-tiny.bin"))
+            .unwrap()
+            .len(),
+        10
+    );
+}
+
+#[test]
+fn una_descarga_de_hablantes_cortada_no_deja_modelos_a_medias() {
+    let data = tempfile::tempdir().unwrap();
+    install(data.path(), "tiny", 10);
+    let (base, server) = files_server(&[
+        (SEGMENTATION, 50_000, Some(1_000)),
+        (EMBEDDING, 80_000, Some(1_000)),
+    ]);
+    let mut host = downloader(data.path(), &base);
+    let error = host.error("downloadModel", json!({"model": "tiny"}));
+    server.join().unwrap();
+    assert_eq!(error["code"], "download_failed", "{error}");
+    let speakers = data.path().join("escriba/models/speakers");
+    let left: Vec<_> = std::fs::read_dir(&speakers)
+        .map(|entries| entries.flatten().map(|entry| entry.file_name()).collect())
+        .unwrap_or_default();
+    assert!(left.is_empty(), "{left:?}");
+}
+
+#[test]
+fn detectar_hablantes_sin_sus_modelos_espera_como_no_disponible() {
+    let data = tempfile::tempdir().unwrap();
+    install(data.path(), "tiny", 10);
+    let mut host = Host::start_with(&[("XDG_DATA_HOME", data.path())]);
+    for (method, params) in [
+        (
+            "transcribe",
+            json!({"audioPath": fixture("tono.wav"), "model": "tiny", "diarize": true}),
+        ),
+        ("diarizedVoices", json!({"audioPath": fixture("tono.wav")})),
+    ] {
+        let error = host.error(method, params);
+        assert_eq!(error["code"], "backend_unavailable", "{method}: {error}");
+        assert!(
+            error["message"].as_str().unwrap().contains("hablantes"),
+            "{error}"
+        );
+    }
 }
 
 fn speech(folder: &Path) -> PathBuf {
@@ -525,4 +645,116 @@ fn borrar_un_modelo_borra_solo_ese() {
         host.error("deleteModel", json!({"model": "../tiny"}))["code"],
         "invalid_params"
     );
+}
+
+const VOICE_MODEL: &str = "sherpa-onnx/nemo-titanet-small";
+
+fn say(folder: &Path, name: &str, voice: &str, text: &str) -> PathBuf {
+    let path = folder.join(format!("{name}.wav"));
+    let status = Command::new("espeak-ng")
+        .args(["-v", voice, "-s", "150", "-w"])
+        .arg(&path)
+        .arg(text)
+        .status()
+        .unwrap();
+    assert!(status.success());
+    path
+}
+
+/// Joins espeak-ng WAVs, which share format and a 44-byte header.
+fn join_wavs(path: &Path, parts: &[PathBuf]) -> PathBuf {
+    let mut header = Vec::new();
+    let mut data = Vec::new();
+    for part in parts {
+        let bytes = std::fs::read(part).unwrap();
+        header = bytes[..44].to_vec();
+        data.extend_from_slice(&bytes[44..]);
+    }
+    header[4..8].copy_from_slice(&(36 + data.len() as u32).to_le_bytes());
+    header[40..44].copy_from_slice(&(data.len() as u32).to_le_bytes());
+    std::fs::write(path, [header, data].concat()).unwrap();
+    path.to_path_buf()
+}
+
+fn cosine_distance(a: &[f64], b: &[f64]) -> f64 {
+    let dot: f64 = a.iter().zip(b).map(|(x, y)| x * y).sum();
+    let norm = |v: &[f64]| v.iter().map(|x| x * x).sum::<f64>().sqrt();
+    1.0 - dot / (norm(a) * norm(b))
+}
+
+fn embedding(voice: &serde_json::Value) -> Vec<f64> {
+    voice["embedding"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|value| value.as_f64().unwrap())
+        .collect()
+}
+
+fn speaker_at(transcript: &serde_json::Value, second: f64) -> String {
+    transcript["segments"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|segment| seconds(&segment["start"]) <= second && second <= seconds(&segment["end"]))
+        .and_then(|segment| segment["speaker"].as_str())
+        .unwrap_or_else(|| panic!("nadie habla en {second} s: {transcript}"))
+        .to_owned()
+}
+
+const FIRST: &str = "Buenos días a todos. Hoy repasamos el presupuesto del trimestre y las contrataciones previstas para el equipo de diseño.";
+const SECOND: &str = "Gracias. Antes de empezar quiero comentar que el proveedor ha retrasado la entrega de los equipos hasta finales de mes.";
+const THIRD: &str = "De acuerdo, entonces movemos la presentación al lunes y avisamos al cliente esta misma tarde por correo.";
+
+#[test]
+#[ignore = "Descarga whisper tiny y los modelos de hablantes (unos 125 MB) y separa dos voces sintéticas"]
+fn separa_dos_voces_sinteticas_y_sus_huellas_las_distinguen() {
+    let data = tempfile::tempdir().unwrap();
+    let folder = tempfile::tempdir().unwrap();
+    let first = say(folder.path(), "a1", "es", FIRST);
+    let second = say(folder.path(), "b1", "es+f3", SECOND);
+    let third = say(folder.path(), "a2", "es", THIRD);
+    let dialog = join_wavs(
+        &folder.path().join("dialogo.wav"),
+        &[first.clone(), second.clone(), third.clone()],
+    );
+    let length = |path: &Path| (std::fs::metadata(path).unwrap().len() - 44) as f64 / 44_100.0;
+    let (first_end, second_end) = (length(&first), length(&first) + length(&second));
+    let mut host = Host::start_with(&[("XDG_DATA_HOME", data.path())]);
+    host.result("downloadModel", json!({"model": "tiny"}));
+
+    let transcript = host.result(
+        "transcribe",
+        json!({"audioPath": dialog, "model": "tiny", "language": "es", "diarize": true, "speakers": 2}),
+    );
+    let a = speaker_at(&transcript, first_end / 2.0);
+    let b = speaker_at(&transcript, (first_end + second_end) / 2.0);
+    assert_ne!(a, b, "{transcript}");
+    assert_eq!(speaker_at(&transcript, second_end + 2.0), a, "{transcript}");
+    let voices = transcript["voices"].as_array().unwrap();
+    assert_eq!(voices.len(), 2, "{transcript}");
+    for voice in voices {
+        assert_eq!(voice["model"], VOICE_MODEL);
+        assert!(embedding(voice).len() >= 128);
+    }
+
+    let heard = host.result("diarizedVoices", json!({"audioPath": dialog}));
+    assert!(!heard["spans"].as_array().unwrap().is_empty(), "{heard}");
+    let alone = host.result("diarizedVoices", json!({"audioPath": third}));
+    assert_eq!(alone["voices"].as_array().unwrap().len(), 1, "{alone}");
+    let voice = |name: &str| {
+        voices
+            .iter()
+            .find(|voice| voice["speaker"] == name)
+            .map(embedding)
+            .unwrap()
+    };
+    let own = embedding(&alone["voices"][0]);
+    let same = cosine_distance(&own, &voice(&a));
+    let other = cosine_distance(&own, &voice(&b));
+    eprintln!(
+        "distancias: misma voz {same:.3}, otra voz {other:.3}, hablantes sin fijar {}",
+        heard["voices"].as_array().unwrap().len()
+    );
+    assert!(same < other, "misma {same} otra {other}");
 }

@@ -1,9 +1,12 @@
 //! Linux: whisper.cpp, no bundled LLM, Opus in Ogg and no on-demand files.
 
+mod download;
 mod opus_ogg;
+mod speakers;
+mod transcript;
 mod whisper;
 
-use crate::protocol::{Failure, Params};
+use crate::protocol::{required_string, Failure, Params};
 use serde_json::{json, Value};
 use std::{
     ffi::OsStr,
@@ -31,6 +34,44 @@ pub fn materialize(_: &Path, _: Duration) -> bool {
 #[derive(Default)]
 pub struct Inference {
     whisper: whisper::Whisper,
+    speakers: speakers::Speakers,
+}
+
+fn audio(params: &Params) -> Result<&Path, Failure> {
+    let audio = Path::new(required_string(params, "audioPath")?);
+    if audio.is_file() {
+        Ok(audio)
+    } else {
+        Err(Failure::new(
+            "audio_missing",
+            format!("no existe el fichero de audio: {}", audio.display()),
+        ))
+    }
+}
+
+/// Omitted or `null` leaves the count open; otherwise a positive integer.
+fn speaker_count(params: &Params) -> Result<Option<u32>, Failure> {
+    match params.get("speakers") {
+        None | Some(Value::Null) => Ok(None),
+        Some(value) => value
+            .as_u64()
+            .filter(|count| *count > 0)
+            .and_then(|count| u32::try_from(count).ok())
+            .map(Some)
+            .ok_or_else(|| Failure::new("invalid_params", "speakers debe ser un entero positivo")),
+    }
+}
+
+fn voices(diarization: &speakers::Diarization) -> Value {
+    Value::Array(
+        diarization
+            .voices
+            .iter()
+            .map(|(speaker, embedding)| {
+                json!({"speaker": speakers::label(*speaker), "embedding": embedding, "model": speakers::VOICE_MODEL})
+            })
+            .collect(),
+    )
 }
 
 impl Inference {
@@ -46,26 +87,80 @@ impl Inference {
     }
 
     pub fn transcribe(&mut self, params: &Params, model: &str) -> Result<Value, Failure> {
-        self.whisper.transcribe(params, model)
+        let audio = audio(params)?;
+        let diarize = params.get("diarize").and_then(Value::as_bool) == Some(true);
+        let count = speaker_count(params)?;
+        let language = whisper::language(params)?;
+        if !whisper::installed(model) {
+            return Err(whisper::unavailable(model));
+        }
+        if diarize && !speakers::installed() {
+            return Err(speakers::unavailable());
+        }
+        let samples = crate::audio::decode_16k(audio)?;
+        let segments = self
+            .whisper
+            .transcribe(&samples, language.as_deref(), model)?;
+        let duration = samples.len() as f64 / whisper::SAMPLE_RATE as f64;
+        if !diarize {
+            let plain = segments
+                .into_iter()
+                .map(|segment| (None, segment))
+                .collect();
+            return Ok(transcript::reply(plain, json!([]), language, duration));
+        }
+        let diarization = self.speakers.diarize(&samples, count)?;
+        let voices = voices(&diarization);
+        Ok(transcript::reply(
+            transcript::by_speaker(segments, &diarization.spans),
+            voices,
+            language,
+            duration,
+        ))
     }
 
-    pub fn diarized_voices(&mut self, _: &Params) -> Result<Value, Failure> {
-        Err(Failure::new(
-            "backend_unavailable",
-            "detectar hablantes aún no está disponible en Linux",
-        ))
+    pub fn diarized_voices(&mut self, params: &Params) -> Result<Value, Failure> {
+        let audio = audio(params)?;
+        let count = speaker_count(params)?;
+        if !speakers::installed() {
+            return Err(speakers::unavailable());
+        }
+        let samples = crate::audio::decode_16k(audio)?;
+        let diarization = self.speakers.diarize(&samples, count)?;
+        let spans: Vec<Value> = diarization
+            .spans
+            .iter()
+            .map(|span| json!({"speaker": speakers::label(span.speaker), "start": span.start, "end": span.end}))
+            .collect();
+        Ok(json!({"voices": voices(&diarization), "spans": spans}))
     }
 
     pub fn generate(&mut self, _: &Params) -> Result<Value, Failure> {
         Err(Failure::new("backend_unavailable", LLM_UNAVAILABLE))
     }
 
+    /// Any Whisper download also brings the speaker models; what is already
+    /// there is not downloaded again.
     pub fn download(
         &mut self,
         model: &str,
         progress: &mut dyn FnMut(f64),
     ) -> Result<Value, Failure> {
-        whisper::download(model, progress)
+        let model = whisper::normalized(model);
+        let own = if whisper::installed(model) {
+            0
+        } else {
+            whisper::approximate_bytes(model)
+        };
+        let total = (own + speakers::missing_bytes()).max(1) as f64;
+        let share = own as f64 / total;
+        let reply = if own > 0 {
+            whisper::download(model, &mut |fraction| progress(fraction * share))?
+        } else {
+            json!({"model": model, "path": whisper::model_path(model)})
+        };
+        speakers::download(&mut |fraction| progress(share + fraction * (1.0 - share)))?;
+        Ok(reply)
     }
 
     pub fn models(&self) -> Value {
