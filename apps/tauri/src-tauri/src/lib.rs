@@ -1263,6 +1263,8 @@ fn start_watcher(
 }
 
 pub fn run() {
+    #[cfg(target_os = "linux")]
+    platform::prefer_software_rendering_without_gpu();
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _, _| {
             let _ = menubar::show(app, "library");

@@ -236,6 +236,42 @@ pub const RECORDING_EXTENSION: &str = "m4a";
 #[cfg(target_os = "linux")]
 pub const RECORDING_EXTENSION: &str = "ogg";
 
+/// WebKitGTK's GPU paths, which may leave the transparent window undrawn on
+/// machines without a usable GPU (servers, virtual machines, remote desktops).
+#[cfg(any(target_os = "linux", test))]
+const SOFTWARE_RENDERING: [&str; 2] = [
+    "WEBKIT_DISABLE_DMABUF_RENDERER",
+    "WEBKIT_DISABLE_COMPOSITING_MODE",
+];
+
+/// What to turn off: nothing with a GPU render node; never what the user already set.
+#[cfg(any(target_os = "linux", test))]
+fn software_rendering(
+    has_render_node: bool,
+    already_set: impl Fn(&str) -> bool,
+) -> Vec<&'static str> {
+    if has_render_node {
+        return Vec::new();
+    }
+    SOFTWARE_RENDERING
+        .into_iter()
+        .filter(|variable| !already_set(variable))
+        .collect()
+}
+
+/// Call before WebKit starts, while the process has a single thread.
+#[cfg(target_os = "linux")]
+pub fn prefer_software_rendering_without_gpu() {
+    let has_render_node = std::fs::read_dir("/dev/dri").is_ok_and(|entries| {
+        entries
+            .flatten()
+            .any(|entry| entry.file_name().to_string_lossy().starts_with("renderD"))
+    });
+    for variable in software_rendering(has_render_node, |name| std::env::var_os(name).is_some()) {
+        std::env::set_var(variable, "1");
+    }
+}
+
 /// Where the tray writes its icons so the desktop can read them. Inside a
 /// Flatpak only `$XDG_RUNTIME_DIR/app/<id>` is shared with the host, at the same path.
 pub fn tray_icon_dir() -> Option<PathBuf> {
@@ -278,6 +314,22 @@ pub fn summary() -> serde_json::Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sin_grafica_webkit_pinta_por_software_y_se_respeta_lo_que_ya_haya_puesto_el_usuario() {
+        assert!(software_rendering(true, |_| false).is_empty());
+        assert_eq!(
+            software_rendering(false, |_| false),
+            [
+                "WEBKIT_DISABLE_DMABUF_RENDERER",
+                "WEBKIT_DISABLE_COMPOSITING_MODE"
+            ]
+        );
+        assert_eq!(
+            software_rendering(false, |name| name == "WEBKIT_DISABLE_COMPOSITING_MODE"),
+            ["WEBKIT_DISABLE_DMABUF_RENDERER"]
+        );
+    }
 
     #[test]
     fn dentro_de_flatpak_la_bandeja_deja_sus_iconos_donde_el_escritorio_los_ve() {
