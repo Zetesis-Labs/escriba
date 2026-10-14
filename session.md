@@ -82,6 +82,7 @@ con el equipo cargado y pasa al repetir.
 | L3 grabar | hecha, validada por Rubén |
 | L4 Whisper local | hecha, validada por Rubén |
 | Varios modelos de Whisper | validado en Linux; falta Swift |
+| Puertos por sistema | hecho (sin cambios visibles) |
 | L5 hablantes y Personas | **siguiente** |
 | L6 aislar recetas | pendiente, diseño propuesto abajo |
 | L7 paquetes y CI | pendiente |
@@ -91,14 +92,16 @@ Piezas clave ya hechas:
 - `apps/tauri/native-host/`: host nativo de Linux en Rust (protocolo v1).
   `status`, `audioInfo`, `fileStatus`, `materialize`, grabación Opus/Ogg con
   cpal (`recording/`), whisper.cpp (`whisper.rs`), `models`, `deleteModel`.
-  Batería de contrato en `tests/contract.rs`
+  Lo propio de Linux en `src/platform/linux/` (ver Registro, «puertos»).
+  Batería común en `tests/contract.rs` y la de Linux en `tests/linux.rs`
   (`ESCRIBA_AUDIO_SOURCE` inyecta audio, `ESCRIBA_MODELS_URL` un servidor de
   modelos). Pruebas reales con `--ignored`.
 - Rust de la app: `src-tauri/src/platform.rs` (decisiones por sistema),
   `folder_access_linux.rs`, `tray_icons.rs`, notificaciones con `notify-rust`.
 - Controlador Bun: `src/runtime/platform.ts` (valores de serie por sistema),
   `src/runtime/localModels.ts` (un resolutor local por modelo).
-- Interfaz: `src/core/platform.ts` + `src/app/platform.ts` (`PlatformContext`),
+- Interfaz: `src/core/platform.ts` + `src/app/platform.ts` (`PlatformContext`)
+  con lo que Rust dice en `platform::PLATFORM` (tipo generado),
   cabecera estilo GNOME (`WindowControls.tsx`), panel de grabación dentro de la
   ventana en Linux.
 

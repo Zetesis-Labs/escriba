@@ -368,6 +368,32 @@ tomando el de los ajustes. El protocolo gana `models` y `deleteModel`, ya en el
 host de Linux; `whisper_model` acepta `model` y vuelve al comportamiento
 anterior si el host no los tiene.
 
+**Lo propio de cada sistema detrás de puertos** (encargo de Rubén del
+2026-10-14, antes de L5). Sin cambios visibles.
+
+- Host nativo: lo de Linux vive en `native-host/src/platform/linux/`
+  (whisper.cpp, Opus/Ogg, archivos sin iCloud) detrás de `Inference`,
+  `Encoder`/`ENCODER_RATES`, `file_flags`, `dataless` y `materialize`; el Mac
+  añadirá `platform/macos/` con los mismos nombres.
+- La batería de contrato se parte: `tests/contract.rs` vale para cualquier host
+  (`ESCRIBA_NATIVE_HOST=<binario>`) y `tests/linux.rs` es lo del host de Linux.
+- Rust de la app: `platform::PLATFORM` dice qué ofrece cada sistema y su tipo
+  de TypeScript se genera (`src/generated/Platform.ts`); la interfaz decide con
+  eso. La medición de procesos va en `process_probe.rs` y la extensión de la
+  grabación en `platform::RECORDING_EXTENSION`.
+- Quedan como están: las ramas `cfg` de `lib.rs` (elegir y restaurar carpeta,
+  Notas de Voz, autostart, `Reopen`); el modelo de serie, escrito en el host y
+  en el controlador; y que el Mac llame «Whisper · en este Mac» al resolutor
+  guardado y «Whisper en este Mac» en la interfaz, que ya era así en `main`.
+
+**Para la sesión del Mac (puertos):** compilar `process_probe.rs` (el código del
+Mac se movió tal cual) y `platform::PLATFORM` de macOS; el panel flotante se
+abre sin `&platform=` y toma el macOS por defecto; pasar la batería común contra
+el host de Swift con
+`ESCRIBA_NATIVE_HOST=<EscribaNativeHost> cargo test --test contract` desde
+`apps/tauri/native-host`: fallará en `models`/`deleteModel` hasta que Swift los
+tenga. `recordingStatus` de Swift no devuelve `paused`, que el protocolo pide.
+
 **Para la sesión del Mac (modelos):** implementar en Swift `models` (catálogo de
 WhisperKit con tamaño e instalados, y `default`) y `deleteModel` (borrar solo
 ese modelo); hasta entonces el «+» de STT no ofrece modelos locales y todo
