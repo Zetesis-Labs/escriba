@@ -100,21 +100,16 @@ pub fn duration_clock(seconds: f64) -> String {
     }
 }
 
-// macOS records AAC; Linux records Opus.
-#[cfg(target_os = "macos")]
-const RECORDING_EXTENSION: &str = "m4a";
-#[cfg(not(target_os = "macos"))]
-const RECORDING_EXTENSION: &str = "ogg";
-
 pub fn recording_name(started: DateTime<Local>) -> String {
     format!(
-        "Grabación {:04}-{:02}-{:02} {:02}.{:02}.{:02}.{RECORDING_EXTENSION}",
+        "Grabación {:04}-{:02}-{:02} {:02}.{:02}.{:02}.{}",
         started.year(),
         started.month(),
         started.day(),
         started.hour(),
         started.minute(),
-        started.second()
+        started.second(),
+        crate::platform::RECORDING_EXTENSION
     )
 }
 
@@ -137,14 +132,12 @@ mod tests {
     #[test]
     fn la_grabacion_se_llama_por_su_hora_de_inicio() {
         let started = Local.with_ymd_and_hms(2026, 10, 9, 7, 5, 3).unwrap();
-        let extension = if cfg!(target_os = "linux") {
-            "ogg"
-        } else {
-            "m4a"
-        };
         assert_eq!(
             recording_name(started),
-            format!("Grabación 2026-10-09 07.05.03.{extension}")
+            format!(
+                "Grabación 2026-10-09 07.05.03.{}",
+                crate::platform::RECORDING_EXTENSION
+            )
         );
     }
 

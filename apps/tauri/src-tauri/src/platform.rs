@@ -130,6 +130,12 @@ pub fn recipes_isolated() -> bool {
     cfg!(target_os = "macos")
 }
 
+// The native host records AAC on macOS and Opus on Linux.
+#[cfg(target_os = "macos")]
+pub const RECORDING_EXTENSION: &str = "m4a";
+#[cfg(target_os = "linux")]
+pub const RECORDING_EXTENSION: &str = "ogg";
+
 #[cfg(target_os = "macos")]
 pub const SYSTEM: &str = "macos";
 #[cfg(target_os = "linux")]
@@ -175,6 +181,16 @@ mod tests {
             serde_json::json!({"system": "linux", "recipesIsolated": false})
         };
         assert_eq!(summary(), expected);
+    }
+
+    #[test]
+    fn la_grabacion_lleva_la_extension_del_formato_del_host() {
+        let expected = if cfg!(target_os = "macos") {
+            "m4a"
+        } else {
+            "ogg"
+        };
+        assert_eq!(RECORDING_EXTENSION, expected);
     }
 
     fn line(command: &Command) -> Vec<String> {
