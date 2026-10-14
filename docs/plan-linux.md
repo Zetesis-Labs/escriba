@@ -424,6 +424,7 @@ donde cambia la voz; el primero en hablar es «Speaker 1».
   de sherpa-onnx. Con dos voces de `espeak-ng`, misma voz 0,015 y otra 0,707.
 - Para validar en un equipo que ya tenía el Whisper de serie: añadir y
   descargar otro modelo (por ejemplo tiny) trae los de hablantes.
+- **Validada por Rubén** el 2026-10-14: identifica bien a los hablantes.
 
 Lo que queda para el Mac está en `docs/pendiente-mac.md`.
 
@@ -434,7 +435,7 @@ Lo que queda para el Mac está en `docs/pendiente-mac.md`.
 | L2 | hecha | `e6fa7b8`…`6718249` | sí (2026-10-14) | `docs/pendiente-mac.md` |
 | L3 | hecha | `9398936`…`51f61c0` | sí (2026-10-14) | `docs/pendiente-mac.md` |
 | L4 | hecha | `7b27d68`…`7c2205b` | sí (2026-10-14) | `docs/pendiente-mac.md` |
-| L5 | construida, falta validar | ver «L5 en Ubuntu 25.10» | | `docs/pendiente-mac.md` |
+| L5 | hecha | ver «L5 en Ubuntu 25.10» | sí (2026-10-14) | `docs/pendiente-mac.md` |
 | L6 | pendiente | | | |
 | L7 | pendiente | | | |
 

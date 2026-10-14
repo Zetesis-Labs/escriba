@@ -83,7 +83,7 @@ con el equipo cargado y pasa al repetir.
 | L4 Whisper local | hecha, validada por Rubén |
 | Varios modelos de Whisper | validado en Linux; falta Swift |
 | Puertos por sistema | hecho (sin cambios visibles) |
-| L5 hablantes y Personas | construida; falta validar |
+| L5 hablantes y Personas | hecha, validada por Rubén |
 | L6 aislar recetas | **siguiente**; diseño propuesto abajo |
 | L7 paquetes y CI | pendiente |
 | AI SDK (ADR-0012) | decidido; después de L7 |
@@ -127,7 +127,7 @@ Decisiones de Rubén tomadas en esta sesión (además de las del plan):
 - Ctrl+Q para salir en Linux.
 - Gráfica para Whisper (hoy procesador; el plan pide demostrar que es estable).
 
-### L5. Hablantes y Personas (construida)
+### L5. Hablantes y Personas (hecha, validada)
 
 Ver «L5 en Ubuntu 25.10» en el Registro: sherpa-onnx (pyannote + TitaNet) como
 biblioteca compartida, modelos bajados con cualquier Whisper, umbral 0,50.
