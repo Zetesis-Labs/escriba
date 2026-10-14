@@ -17,7 +17,9 @@ impl Failure {
 pub type Params = Map<String, Value>;
 
 #[derive(Default)]
-pub struct Host {}
+pub struct Host {
+    recorder: crate::recording::Recorder,
+}
 
 impl Host {
     pub fn handle(&mut self, line: &str) -> String {
@@ -52,16 +54,12 @@ impl Host {
                 "backend_unavailable",
                 crate::platform::WHISPER_UNAVAILABLE,
             )),
-            "recordingStatus" => {
-                Ok(json!({"active": false, "paused": false, "audioPath": null, "duration": 0}))
-            }
-            "recordingStart" => Err(Failure::new(
-                "recording_failed",
-                crate::platform::RECORDING_UNAVAILABLE,
-            )),
-            "recordingStop" | "recordingCancel" | "recordingPause" | "recordingResume" => Err(
-                Failure::new("recording_inactive", "no hay ninguna grabación activa"),
-            ),
+            "recordingStatus" => Ok(self.recorder.status()),
+            "recordingStart" => self.recorder.start(params),
+            "recordingPause" => self.recorder.pause(true),
+            "recordingResume" => self.recorder.pause(false),
+            "recordingStop" => self.recorder.stop(),
+            "recordingCancel" => self.recorder.cancel(),
             _ => Err(Failure::new(
                 "unknown_method",
                 format!("método desconocido: {method}"),

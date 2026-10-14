@@ -5,5 +5,6 @@ mod audio;
 mod files;
 mod platform;
 mod protocol;
+mod recording;
 
 pub use protocol::Host;

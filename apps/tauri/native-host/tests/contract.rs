@@ -217,12 +217,174 @@ fn transcribir_sin_modelo_instalado_es_reintentable() {
     }
 }
 
+fn recorder(source: &Path) -> Host {
+    Host::start_with(&[("ESCRIBA_AUDIO_SOURCE", source)])
+}
+
+fn wait(milliseconds: u64) {
+    std::thread::sleep(std::time::Duration::from_millis(milliseconds));
+}
+
+fn seconds(value: &Value) -> f64 {
+    value.as_f64().unwrap()
+}
+
+#[test]
+fn graba_opus_en_ogg_desde_la_fuente_y_el_fichero_se_lee() {
+    let folder = tempfile::tempdir().unwrap();
+    let output = folder.path().join("capturas/Grabación.ogg");
+    let mut host = recorder(&fixture("tono.wav"));
+    let started = host.result("recordingStart", json!({"outputPath": output}));
+    assert_eq!(started["audioPath"], output.to_str().unwrap());
+    wait(700);
+    let status = host.result("recordingStatus", json!({}));
+    assert_eq!(status["active"], true);
+    assert_eq!(status["paused"], false);
+    assert_eq!(status["audioPath"], output.to_str().unwrap());
+    assert!(seconds(&status["duration"]) > 0.3, "{status}");
+    assert!(seconds(&status["level"]) > 0.3, "{status}");
+    let stopped = host.result("recordingStop", json!({}));
+    assert_eq!(stopped["audioPath"], output.to_str().unwrap());
+    let duration = seconds(&stopped["duration"]);
+    assert!((0.4..1.2).contains(&duration), "{duration}");
+    let bytes = std::fs::read(&output).unwrap();
+    assert_eq!(&bytes[..4], b"OggS");
+    assert!(bytes.windows(8).any(|window| window == b"OpusHead"));
+    let info = host.result("audioInfo", json!({"audioPath": output}));
+    assert!(
+        (seconds(&info["duration"]) - duration).abs() < 0.1,
+        "{info} {duration}"
+    );
+    assert_eq!(host.result("recordingStatus", json!({}))["active"], false);
+}
+
+#[test]
+fn en_pausa_no_avanza_y_al_reanudar_sigue() {
+    let folder = tempfile::tempdir().unwrap();
+    let output = folder.path().join("pausa.ogg");
+    let mut host = recorder(&fixture("tono.wav"));
+    host.result("recordingStart", json!({"outputPath": output}));
+    wait(400);
+    let paused = host.result("recordingPause", json!({}));
+    assert_eq!(paused["audioPath"], output.to_str().unwrap());
+    let at_pause = seconds(&paused["duration"]);
+    wait(600);
+    let status = host.result("recordingStatus", json!({}));
+    assert_eq!(status["paused"], true);
+    assert_eq!(status["level"], 0.0);
+    assert!(
+        seconds(&status["duration"]) - at_pause < 0.1,
+        "{status} {at_pause}"
+    );
+    assert_eq!(
+        host.error("recordingPause", json!({}))["code"],
+        "recording_paused"
+    );
+    host.result("recordingResume", json!({}));
+    assert_eq!(
+        host.error("recordingResume", json!({}))["code"],
+        "recording_active"
+    );
+    wait(400);
+    let duration = seconds(&host.result("recordingStop", json!({}))["duration"]);
+    assert!(
+        (0.6..1.2).contains(&duration),
+        "la pausa no cuenta: {duration}"
+    );
+}
+
+#[test]
+fn cancelar_borra_la_grabacion() {
+    let folder = tempfile::tempdir().unwrap();
+    let output = folder.path().join("descartada.ogg");
+    let mut host = recorder(&fixture("tono.wav"));
+    host.result("recordingStart", json!({"outputPath": output}));
+    wait(200);
+    host.result("recordingCancel", json!({}));
+    assert!(!output.exists());
+    assert_eq!(host.result("recordingStatus", json!({}))["active"], false);
+}
+
+#[test]
+fn una_sola_grabacion_y_nunca_sobre_un_fichero_existente() {
+    let folder = tempfile::tempdir().unwrap();
+    let existing = folder.path().join("existe.ogg");
+    std::fs::write(&existing, b"no tocar").unwrap();
+    let mut host = recorder(&fixture("tono.wav"));
+    assert_eq!(
+        host.error("recordingStart", json!({"outputPath": existing}))["code"],
+        "file_exists"
+    );
+    assert_eq!(std::fs::read(&existing).unwrap(), b"no tocar");
+    let output = folder.path().join("nueva.ogg");
+    host.result("recordingStart", json!({"outputPath": output}));
+    let again = folder.path().join("otra.ogg");
+    assert_eq!(
+        host.error("recordingStart", json!({"outputPath": again}))["code"],
+        "recording_active"
+    );
+    assert!(!again.exists());
+    host.result("recordingStop", json!({}));
+}
+
+#[test]
+fn sin_microfono_no_se_crea_ninguna_grabacion() {
+    let folder = tempfile::tempdir().unwrap();
+    let output = folder.path().join("nada.ogg");
+    let mut host = recorder(Path::new("none"));
+    let error = host.error("recordingStart", json!({"outputPath": output}));
+    assert_eq!(error["code"], "recording_failed");
+    assert!(
+        error["message"].as_str().unwrap().contains("micrófono"),
+        "{error}"
+    );
+    assert!(!output.exists());
+    assert_eq!(host.result("recordingStatus", json!({}))["active"], false);
+}
+
+#[test]
+fn cerrar_la_entrada_mientras_graba_termina_el_proceso() {
+    let folder = tempfile::tempdir().unwrap();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_EscribaNativeHost"))
+        .env("ESCRIBA_AUDIO_SOURCE", fixture("tono.wav"))
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .spawn()
+        .unwrap();
+    let request = json!({"id": "a", "method": "recordingStart", "params": {"outputPath": folder.path().join("viva.ogg")}});
+    writeln!(child.stdin.as_mut().unwrap(), "{request}").unwrap();
+    wait(300);
+    drop(child.stdin.take());
+    let started = std::time::Instant::now();
+    while child.try_wait().unwrap().is_none() {
+        assert!(started.elapsed().as_secs() < 5, "el host sigue vivo");
+        wait(50);
+    }
+}
+
+#[test]
+#[ignore = "Graba un segundo del micrófono real del equipo"]
+fn graba_del_microfono_real() {
+    let folder = tempfile::tempdir().unwrap();
+    let output = folder.path().join("microfono.ogg");
+    let mut host = Host::start();
+    host.result("recordingStart", json!({"outputPath": output}));
+    wait(1000);
+    let duration = seconds(&host.result("recordingStop", json!({}))["duration"]);
+    assert!(duration > 0.8, "{duration}");
+    let info = host.result("audioInfo", json!({"audioPath": output}));
+    assert!(
+        (seconds(&info["duration"]) - duration).abs() < 0.1,
+        "{info}"
+    );
+}
+
 #[test]
 fn sin_grabacion_activa_el_estado_lo_dice_y_parar_falla() {
     let mut host = Host::start();
     assert_eq!(
         host.result("recordingStatus", json!({})),
-        json!({"active": false, "paused": false, "audioPath": null, "duration": 0})
+        json!({"active": false, "paused": false, "audioPath": null, "duration": 0, "level": 0})
     );
     for method in [
         "recordingStop",

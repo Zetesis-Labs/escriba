@@ -5,7 +5,6 @@ pub const LLM_UNAVAILABLE: &str =
     "Escriba no incluye un LLM en Linux: añade uno en LLMs y elígelo en la receta";
 pub const WHISPER_UNAVAILABLE: &str =
     "El Whisper local aún no está disponible en Linux: usa un resolutor de STT remoto";
-pub const RECORDING_UNAVAILABLE: &str = "Grabar aún no está disponible en Linux";
 
 pub fn models_root() -> Option<PathBuf> {
     models_root_from(

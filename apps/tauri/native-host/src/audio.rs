@@ -2,8 +2,13 @@ use crate::protocol::{required_string, Failure, Params};
 use serde_json::{json, Value};
 use std::{fs::File, path::Path};
 use symphonia::core::{
-    codecs::CODEC_TYPE_MP3, formats::FormatOptions, io::MediaSourceStream, meta::MetadataOptions,
-    probe::Hint, units::TimeBase,
+    audio::SampleBuffer,
+    codecs::{DecoderOptions, CODEC_TYPE_MP3},
+    formats::FormatOptions,
+    io::MediaSourceStream,
+    meta::MetadataOptions,
+    probe::Hint,
+    units::TimeBase,
 };
 
 pub fn info(params: &Params) -> Result<Value, Failure> {
@@ -24,7 +29,7 @@ fn invalid(error: impl std::fmt::Display) -> Failure {
     )
 }
 
-fn duration(path: &Path) -> Result<f64, Failure> {
+pub(crate) fn duration(path: &Path) -> Result<f64, Failure> {
     let file = File::open(path).map_err(invalid)?;
     let mut hint = Hint::new();
     if let Some(extension) = path.extension().and_then(|e| e.to_str()) {
@@ -72,4 +77,46 @@ fn duration(path: &Path) -> Result<f64, Failure> {
     } else {
         Err(invalid("duración nula"))
     }
+}
+
+/// Decodes a whole file to mono samples; the recorder plays it as a test microphone.
+pub(crate) fn decode_mono(path: &Path) -> Result<(u32, Vec<f32>), Failure> {
+    let file = File::open(path).map_err(invalid)?;
+    let probed = symphonia::default::get_probe()
+        .format(
+            &Hint::new(),
+            MediaSourceStream::new(Box::new(file), Default::default()),
+            &FormatOptions::default(),
+            &MetadataOptions::default(),
+        )
+        .map_err(invalid)?;
+    let mut format = probed.format;
+    let track = format
+        .default_track()
+        .ok_or_else(|| invalid("no tiene pistas"))?;
+    let track_id = track.id;
+    let rate = track
+        .codec_params
+        .sample_rate
+        .ok_or_else(|| invalid("sin frecuencia válida"))?;
+    let mut decoder = symphonia::default::get_codecs()
+        .make(&track.codec_params, &DecoderOptions::default())
+        .map_err(invalid)?;
+    let mut samples = Vec::new();
+    while let Ok(packet) = format.next_packet() {
+        if packet.track_id() != track_id {
+            continue;
+        }
+        let decoded = decoder.decode(&packet).map_err(invalid)?;
+        let channels = decoded.spec().channels.count().max(1);
+        let mut buffer = SampleBuffer::<f32>::new(decoded.capacity() as u64, *decoded.spec());
+        buffer.copy_interleaved_ref(decoded);
+        samples.extend(
+            buffer
+                .samples()
+                .chunks(channels)
+                .map(|frame| frame.iter().sum::<f32>() / channels as f32),
+        );
+    }
+    Ok((rate, samples))
 }
