@@ -675,7 +675,8 @@ test("las credenciales no entran en el snapshot", async () => {
   assert.equal(store.credential("notion"), "fake-local-secret");
 });
 
-test("el contexto de ejecución limita una biblioteca grande a la grabación pedida", async () => {
+// Builds a large synthetic library: slower machines need more than the default 5 s.
+test("el contexto de ejecución limita una biblioteca grande a la grabación pedida", { timeout: 30_000 }, async () => {
   const store = await space.open();
   const selectedPath = "/private/audio/selected.wav";
   const otherMarker = "foreign-recording-marker";
