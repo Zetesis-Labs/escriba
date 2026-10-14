@@ -8,6 +8,7 @@ import { changes, type RowOp } from "./changes";
 import { conservativeVoices, currentVersion, draftContent, draftFingerprint, draftRequest, newDraft, parseDraftContent, readDraft, validateContent, type NoteDraft } from "./drafts";
 import { array, canonical, clone, equal, isObject, newId, now, object, safeId, text, type Json } from "./json";
 import { defaultResolvers, defaultWhisperModel } from "../platform";
+import { isLocalSttId, localSttId } from "../localModels";
 import { catalog, readLibraryData, readRecording, readSettings, readVersion, setCatalog, type LibraryData, type Recording, type Settings, type Transcript, type Version, type WatchedFolder } from "./model";
 import { Persistence, parseLogQuery, scope, scopedWrite, type AudioDeletion, type LibraryWrite, type Teaching, type WriteScope } from "./persistence";
 import { lightPublication, previewVersion, typedLibrary } from "./projection";
@@ -596,7 +597,9 @@ export class Store {
         if (typeof item.name !== "string" || !item.name.trim()) throw Error("Escribe un nombre");
         if (collection === "resolvers") {
           if (!["stt", "llm"].includes(String(item.role))) throw Error("Papel de resolutor inválido");
-          if (!["local-stt", "local-llm"].includes(key)) item.local = false;
+          const addedModel = key !== "local-stt" && isLocalSttId(key);
+          if (addedModel && (item.role !== "stt" || localSttId(String(item.model)) !== key)) throw Error("El modelo no corresponde a este Whisper local");
+          if (!["local-stt", "local-llm"].includes(key) && !addedModel) item.local = false;
           else {
             item.local = true;
             item.enabled = true;

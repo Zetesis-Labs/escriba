@@ -1185,3 +1185,19 @@ test("preparar el audio no toca la biblioteca y limpia su copia", async () => {
   stageAudio(store.root, audio, false).discard();
   assert.equal(temporaries(), 0);
 });
+
+test("un modelo de Whisper añadido es un resolutor local que se puede quitar; el de serie no", async () => {
+  const store = await space.open();
+  const added = obj(await store.mutate("config_save", { collection: "resolvers", item: { id: "local-stt-base", name: "Whisper · base", role: "stt", model: "base", local: false, enabled: false } }));
+  assert.equal(added.local, true);
+  assert.equal(added.enabled, true);
+  assert.equal(store.item("resolvers", "local-stt-base").model, "base");
+  const ids = arr(obj(await store.snapshot()).resolvers).map((resolver) => resolver.id);
+  assert.equal(ids[0], "local-stt");
+  assert.equal(ids.at(-1), "local-stt-base");
+  await assert.rejects(store.mutate("config_save", { collection: "resolvers", item: { id: "local-stt-base", name: "x", role: "stt", model: "small" } }), /modelo/);
+  await assert.rejects(store.mutate("config_save", { collection: "resolvers", item: { id: "local-stt-base", name: "x", role: "llm", model: "base" } }), /modelo/);
+  await store.mutate("config_remove", { collection: "resolvers", id: "local-stt-base" });
+  assert.throws(() => store.item("resolvers", "local-stt-base"));
+  await assert.rejects(store.mutate("config_remove", { collection: "resolvers", id: "local-stt" }), /de serie/);
+});
