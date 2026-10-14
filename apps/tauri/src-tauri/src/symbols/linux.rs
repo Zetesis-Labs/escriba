@@ -1,7 +1,11 @@
 //! Tray icons for desktops without SF Symbols, drawn as white glyphs with
 //! signed distances so their edges stay smooth at any panel size.
 
-pub const SIZE: u32 = 32;
+const SIZE: u32 = 32;
+
+pub fn image(name: &str) -> Option<tauri::image::Image<'static>> {
+    Some(tauri::image::Image::new_owned(draw(name)?, SIZE, SIZE))
+}
 
 type Shape = fn(f32, f32) -> f32;
 

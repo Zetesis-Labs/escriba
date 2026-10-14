@@ -1,9 +1,8 @@
-#[cfg(target_os = "macos")]
+//! macOS draws the tray with SF Symbols.
+
 const CANVAS: f64 = 36.0;
-#[cfg(target_os = "macos")]
 const POINT_SIZE: f64 = 26.0;
 
-#[cfg(target_os = "macos")]
 #[allow(deprecated)]
 pub fn png(name: &str) -> Option<Vec<u8>> {
     use objc2::AllocAnyThread;
@@ -40,22 +39,11 @@ pub fn png(name: &str) -> Option<Vec<u8>> {
     Some(data.to_vec())
 }
 
-#[cfg(target_os = "macos")]
 pub fn image(name: &str) -> Option<tauri::image::Image<'static>> {
     tauri::image::Image::from_bytes(&png(name)?).ok()
 }
 
-#[cfg(not(target_os = "macos"))]
-pub fn image(name: &str) -> Option<tauri::image::Image<'static>> {
-    let size = crate::tray_icons::SIZE;
-    Some(tauri::image::Image::new_owned(
-        crate::tray_icons::draw(name)?,
-        size,
-        size,
-    ))
-}
-
-#[cfg(all(test, target_os = "macos"))]
+#[cfg(test)]
 mod tests {
     use super::*;
 

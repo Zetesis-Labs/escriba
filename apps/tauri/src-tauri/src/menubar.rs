@@ -218,8 +218,6 @@ fn tray_menu(
     Ok((menu, stop))
 }
 
-// On Linux the app menu would be a bar inside the window; shortcuts live in the interface.
-#[cfg(target_os = "macos")]
 fn install_app_menu(app: &AppHandle, state: &Runtime, name: &str) -> tauri::Result<()> {
     use tauri::menu::Submenu;
     let new_recording = MenuItem::with_id(
@@ -305,8 +303,10 @@ fn install_app_menu(app: &AppHandle, state: &Runtime, name: &str) -> tauri::Resu
 
 pub fn install(app: &AppHandle, state: &Runtime) -> tauri::Result<()> {
     let name = app.package_info().name.clone();
-    #[cfg(target_os = "macos")]
-    install_app_menu(app, state, &name)?;
+    // Without a menu bar it would be a bar inside the window; shortcuts live in the interface.
+    if crate::platform::PLATFORM.menu_bar {
+        install_app_menu(app, state, &name)?;
+    }
     let mut tray = TrayIconBuilder::with_id(STATUS_TRAY)
         .tooltip(&name)
         .show_menu_on_left_click(true)
