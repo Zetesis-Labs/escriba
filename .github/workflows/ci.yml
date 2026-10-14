@@ -120,3 +120,35 @@ jobs:
           path: apps/tauri/src-tauri/target/release/bundle
       - name: Instalar y comprobar en un sistema limpio
         run: scripts/linux/matrix.sh "${{ matrix.image }}"
+
+  linux-flatpak:
+    name: Linux ${{ matrix.arch }} · Flatpak
+    needs: linux
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: escriba-linux-${{ matrix.arch }}
+          path: apps/tauri/src-tauri/target/release/bundle
+      - name: flatpak-builder y Flathub
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y flatpak flatpak-builder
+          # Ubuntu 24.04 blocks the unprivileged user namespaces bubblewrap needs.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+      - name: Construir el Flatpak
+        run: scripts/build-linux-flatpak.sh --bundle "$PWD/Escriba-${{ matrix.arch }}.flatpak"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: escriba-flatpak-${{ matrix.arch }}
+          path: Escriba-${{ matrix.arch }}.flatpak
