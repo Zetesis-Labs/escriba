@@ -12,6 +12,8 @@ struct Host {
     input: ChildStdin,
     output: BufReader<ChildStdout>,
     next: u32,
+    progress: Vec<f64>,
+    _data: Option<tempfile::TempDir>,
 }
 
 impl Host {
@@ -19,8 +21,15 @@ impl Host {
         Self::start_with(&[])
     }
 
+    /// Without an explicit XDG_DATA_HOME the host gets a temporary one, so no
+    /// test reads or writes the real models folder.
     fn start_with(env: &[(&str, &Path)]) -> Self {
         let mut command = Command::new(env!("CARGO_BIN_EXE_EscribaNativeHost"));
+        let data = (!env.iter().any(|(key, _)| *key == "XDG_DATA_HOME"))
+            .then(|| tempfile::tempdir().unwrap());
+        if let Some(data) = &data {
+            command.env("XDG_DATA_HOME", data.path());
+        }
         for (key, value) in env {
             command.env(key, value);
         }
@@ -37,15 +46,28 @@ impl Host {
             input,
             output,
             next: 0,
+            progress: Vec::new(),
+            _data: data,
         }
     }
 
     fn line(&mut self, line: &str) -> Value {
         writeln!(self.input, "{line}").unwrap();
         self.input.flush().unwrap();
-        let mut reply = String::new();
-        self.output.read_line(&mut reply).unwrap();
-        serde_json::from_str(&reply).unwrap()
+        self.reply()
+    }
+
+    /// The final reply, keeping the progress lines that come before it.
+    fn reply(&mut self) -> Value {
+        loop {
+            let mut line = String::new();
+            self.output.read_line(&mut line).unwrap();
+            let reply: Value = serde_json::from_str(&line).unwrap();
+            match reply.get("progress") {
+                Some(progress) => self.progress.push(progress["fraction"].as_f64().unwrap()),
+                None => return reply,
+            }
+        }
     }
 
     fn call(&mut self, method: &str, params: Value) -> Value {
@@ -202,12 +224,12 @@ fn resumir_y_preguntar_no_tienen_motor_en_linux() {
 
 #[test]
 fn transcribir_sin_modelo_instalado_es_reintentable() {
-    let mut host = Host::start();
+    let data = tempfile::tempdir().unwrap();
+    let mut host = Host::start_with(&[("XDG_DATA_HOME", data.path())]);
     let audio = fixture("tono.wav");
     for (method, params) in [
         ("transcribe", json!({"audioPath": audio, "language": "es"})),
         ("diarizedVoices", json!({"audioPath": audio})),
-        ("downloadModel", json!({})),
     ] {
         assert_eq!(
             host.error(method, params)["code"],
@@ -432,4 +454,178 @@ fn cerrar_la_entrada_termina_el_proceso() {
     .unwrap();
     drop(child.stdin.take());
     assert!(child.wait().unwrap().success());
+}
+
+/// Serves `size` synthetic bytes once per connection; `cut` closes the body early.
+fn model_server(size: usize, cut: Option<usize>) -> (String, std::thread::JoinHandle<()>) {
+    use std::net::TcpListener;
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let thread = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut request = [0u8; 2048];
+        let read = std::io::Read::read(&mut stream, &mut request).unwrap();
+        let first = String::from_utf8_lossy(&request[..read])
+            .lines()
+            .next()
+            .unwrap_or_default()
+            .to_owned();
+        assert!(first.starts_with("GET /ggml-tiny.bin "), "{first}");
+        write!(
+            stream,
+            "HTTP/1.1 200 OK\r\nContent-Length: {size}\r\nConnection: close\r\n\r\n"
+        )
+        .unwrap();
+        let body = vec![7u8; cut.unwrap_or(size)];
+        for chunk in body.chunks(4096) {
+            stream.write_all(chunk).unwrap();
+        }
+    });
+    (base, thread)
+}
+
+#[test]
+fn descargar_un_modelo_informa_del_progreso_y_lo_deja_instalado() {
+    let data = tempfile::tempdir().unwrap();
+    let (base, server) = model_server(300_000, None);
+    let mut host = Host::start_with(&[
+        ("XDG_DATA_HOME", data.path()),
+        ("ESCRIBA_MODELS_URL", Path::new(&base)),
+    ]);
+    assert_eq!(
+        host.result("status", json!({"model": "tiny"}))["whisper"]["available"],
+        false
+    );
+    let downloaded = host.result("downloadModel", json!({"model": "tiny"}));
+    server.join().unwrap();
+    let file = data.path().join("escriba/models/ggml-tiny.bin");
+    assert_eq!(downloaded["model"], "tiny");
+    assert_eq!(downloaded["path"], file.to_str().unwrap());
+    assert_eq!(std::fs::metadata(&file).unwrap().len(), 300_000);
+    assert!(!host.progress.is_empty());
+    assert!(
+        host.progress.windows(2).all(|pair| pair[0] <= pair[1]),
+        "{:?}",
+        host.progress
+    );
+    assert!(host
+        .progress
+        .iter()
+        .all(|fraction| (0.0..=1.0).contains(fraction)));
+    assert_eq!(
+        host.result("status", json!({"model": "tiny"}))["whisper"]["available"],
+        true
+    );
+}
+
+#[test]
+fn una_descarga_cortada_no_deja_un_modelo_a_medias() {
+    let data = tempfile::tempdir().unwrap();
+    let (base, server) = model_server(300_000, Some(100_000));
+    let mut host = Host::start_with(&[
+        ("XDG_DATA_HOME", data.path()),
+        ("ESCRIBA_MODELS_URL", Path::new(&base)),
+    ]);
+    let error = host.error("downloadModel", json!({"model": "tiny"}));
+    server.join().unwrap();
+    assert_eq!(error["code"], "download_failed", "{error}");
+    let models = data.path().join("escriba/models");
+    let left: Vec<_> = std::fs::read_dir(&models)
+        .map(|entries| entries.flatten().map(|entry| entry.file_name()).collect())
+        .unwrap_or_default();
+    assert!(left.is_empty(), "{left:?}");
+    assert_eq!(
+        host.result("status", json!({"model": "tiny"}))["whisper"]["available"],
+        false
+    );
+}
+
+#[test]
+fn el_modelo_del_mac_guardado_en_la_biblioteca_se_toma_como_el_de_serie() {
+    let mut host = Host::start();
+    let status = host.result(
+        "status",
+        json!({"model": "openai_whisper-large-v3-v20240930"}),
+    );
+    assert_eq!(status["whisper"]["model"], "large-v3-turbo");
+}
+
+#[test]
+fn detectar_hablantes_aun_no_esta_y_lo_dice() {
+    let data = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(data.path().join("escriba/models")).unwrap();
+    std::fs::write(
+        data.path().join("escriba/models/ggml-tiny.bin"),
+        b"modelo falso",
+    )
+    .unwrap();
+    let mut host = Host::start_with(&[("XDG_DATA_HOME", data.path())]);
+    let error = host.error(
+        "transcribe",
+        json!({"audioPath": fixture("tono.wav"), "model": "tiny", "diarize": true}),
+    );
+    assert_eq!(error["code"], "transcription_failed", "{error}");
+}
+
+fn speech(folder: &Path) -> PathBuf {
+    let path = folder.join("voz.wav");
+    let status = Command::new("espeak-ng")
+        .args(["-v", "es", "-s", "150", "-w"])
+        .arg(&path)
+        .arg("Hola, esta es una prueba de transcripción de Escriba. Mañana revisamos el diseño.")
+        .status()
+        .unwrap();
+    assert!(status.success());
+    path
+}
+
+#[test]
+#[ignore = "Descarga el modelo tiny de whisper.cpp (75 MB) y transcribe voz sintética"]
+fn transcribe_voz_sintetica_en_wav_y_en_la_grabacion_opus() {
+    let data = tempfile::tempdir().unwrap();
+    let folder = tempfile::tempdir().unwrap();
+    let voice = speech(folder.path());
+    let mut host = Host::start_with(&[("XDG_DATA_HOME", data.path())]);
+    host.result("downloadModel", json!({"model": "tiny"}));
+    let spanish = host.result(
+        "transcribe",
+        json!({"audioPath": voice, "model": "tiny", "language": "es"}),
+    );
+    assert_eq!(spanish["language"], "es");
+    let text = spanish["text"].as_str().unwrap().to_lowercase();
+    assert!(
+        text.contains("prueba") || text.contains("escriba"),
+        "{text}"
+    );
+    let segments = spanish["segments"].as_array().unwrap();
+    assert!(!segments.is_empty());
+    for segment in segments {
+        assert!(seconds(&segment["end"]) >= seconds(&segment["start"]));
+        assert!(segment["speaker"].is_null());
+        assert!(
+            !segment["words"].as_array().unwrap().is_empty(),
+            "{segment}"
+        );
+    }
+    assert_eq!(spanish["voices"], json!([]));
+    assert!(seconds(&spanish["duration"]) > 2.0);
+    let detected = host.result(
+        "transcribe",
+        json!({"audioPath": voice, "model": "tiny", "language": null}),
+    );
+    assert_eq!(detected["language"], "auto");
+    let recording = folder.path().join("grabada.ogg");
+    let mut recorder = recorder(&voice);
+    recorder.result("recordingStart", json!({"outputPath": recording}));
+    wait(6000);
+    recorder.result("recordingStop", json!({}));
+    let recorded = host.result(
+        "transcribe",
+        json!({"audioPath": recording, "model": "tiny", "language": "es"}),
+    );
+    let text = recorded["text"].as_str().unwrap().to_lowercase();
+    assert!(
+        text.contains("prueba") || text.contains("escriba"),
+        "{text}"
+    );
 }

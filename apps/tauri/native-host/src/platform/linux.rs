@@ -3,8 +3,6 @@ use std::{ffi::OsStr, path::PathBuf};
 pub const DEFAULT_MODEL: &str = "large-v3-turbo";
 pub const LLM_UNAVAILABLE: &str =
     "Escriba no incluye un LLM en Linux: añade uno en LLMs y elígelo en la receta";
-pub const WHISPER_UNAVAILABLE: &str =
-    "El Whisper local aún no está disponible en Linux: usa un resolutor de STT remoto";
 
 pub fn models_root() -> Option<PathBuf> {
     models_root_from(
@@ -24,11 +22,6 @@ fn models_root_from(data_home: Option<&OsStr>, home: Option<&OsStr>) -> Option<P
                 .map(|home| home.join(".local/share"))
         })?;
     Some(data.join("escriba/models"))
-}
-
-/// Without a local engine no model can transcribe yet.
-pub fn model_installed(_model: &str) -> bool {
-    false
 }
 
 #[cfg(test)]

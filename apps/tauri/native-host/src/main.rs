@@ -8,7 +8,9 @@ fn main() {
         let Ok(line) = line else {
             break;
         };
-        let reply = host.handle(&line);
+        let reply = host.handle_with_progress(&line, &mut |progress| {
+            let _ = writeln!(stdout, "{progress}").and_then(|()| stdout.flush());
+        });
         if writeln!(stdout, "{reply}")
             .and_then(|()| stdout.flush())
             .is_err()

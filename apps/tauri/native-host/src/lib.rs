@@ -6,5 +6,6 @@ mod files;
 mod platform;
 mod protocol;
 mod recording;
+mod whisper;
 
 pub use protocol::Host;

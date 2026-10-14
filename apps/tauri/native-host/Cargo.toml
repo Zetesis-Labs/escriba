@@ -17,6 +17,9 @@ cpal = "0.16"
 opus = "0.3"
 audiopus_sys = { version = "0.2", features = ["static"] }
 ogg = "0.9"
+whisper-rs = "0.15"
+ureq = "3"
+rubato = "0.16"
 
 [dev-dependencies]
 tempfile = "3"

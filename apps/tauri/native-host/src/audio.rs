@@ -120,3 +120,92 @@ pub(crate) fn decode_mono(path: &Path) -> Result<(u32, Vec<f32>), Failure> {
     }
     Ok((rate, samples))
 }
+
+/// Ogg Opus, as Escriba records on Linux; symphonia has no Opus decoder.
+fn decode_opus(path: &Path) -> Result<(u32, Vec<f32>), Failure> {
+    let mut packets = ogg::reading::PacketReader::new(File::open(path).map_err(invalid)?);
+    let head = packets
+        .read_packet()
+        .map_err(invalid)?
+        .filter(|packet| packet.data.starts_with(b"OpusHead") && packet.data.len() >= 19)
+        .ok_or_else(|| invalid("no es Ogg Opus"))?;
+    let pre_skip = u16::from_le_bytes([head.data[10], head.data[11]]) as usize;
+    let mut decoder = opus::Decoder::new(48_000, opus::Channels::Mono).map_err(invalid)?;
+    let mut samples = Vec::new();
+    let mut frame = vec![0f32; 5760];
+    let mut last_granule = 0;
+    while let Some(packet) = packets.read_packet().map_err(invalid)? {
+        if packet.data.starts_with(b"OpusTags") {
+            continue;
+        }
+        let decoded = decoder
+            .decode_float(&packet.data, &mut frame, false)
+            .map_err(invalid)?;
+        samples.extend_from_slice(&frame[..decoded]);
+        last_granule = packet.absgp_page();
+    }
+    let real = (last_granule as usize).saturating_sub(pre_skip);
+    let mut samples = samples.split_off(pre_skip.min(samples.len()));
+    samples.truncate(real);
+    Ok((48_000, samples))
+}
+
+pub(crate) fn resample(samples: Vec<f32>, from: u32, to: u32) -> Result<Vec<f32>, Failure> {
+    use rubato::{FftFixedIn, Resampler};
+    if from == to || samples.is_empty() {
+        return Ok(samples);
+    }
+    let chunk = 1024;
+    let mut resampler =
+        FftFixedIn::<f32>::new(from as usize, to as usize, chunk, 2, 1).map_err(invalid)?;
+    let expected = (samples.len() as u64 * to as u64 / from as u64) as usize;
+    let delay = resampler.output_delay();
+    // Silence after the end flushes the filter; whole chunks keep the API simple.
+    let mut padded = samples;
+    let needed = padded.len() + (delay + 1) * from as usize / to as usize + chunk;
+    padded.resize(needed.div_ceil(chunk) * chunk, 0.0);
+    let mut output = Vec::with_capacity(padded.len() * to as usize / from as usize + chunk);
+    for block in padded.chunks_exact(chunk) {
+        output.extend_from_slice(&resampler.process(&[block], None).map_err(invalid)?[0]);
+    }
+    Ok(output[delay..delay + expected].to_vec())
+}
+
+/// Mono samples at 16 kHz, the input whisper.cpp expects.
+pub(crate) fn decode_16k(path: &Path) -> Result<Vec<f32>, Failure> {
+    let (rate, samples) = match decode_mono(path) {
+        Ok(decoded) => decoded,
+        Err(failure) => decode_opus(path).map_err(|_| failure)?,
+    };
+    resample(samples, rate, 16_000)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn fixture(name: &str) -> std::path::PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures")
+            .join(name)
+    }
+
+    #[test]
+    fn cada_formato_se_decodifica_a_16_khz_con_su_duracion() {
+        for name in ["tono.wav", "tono.flac", "tono.m4a", "tono.mp3", "tono.ogg"] {
+            let samples = decode_16k(&fixture(name)).unwrap();
+            let seconds = samples.len() as f64 / 16_000.0;
+            assert!((0.9..1.1).contains(&seconds), "{name}: {seconds}");
+            let peak = samples
+                .iter()
+                .fold(0f32, |peak, sample| peak.max(sample.abs()));
+            assert!(peak > 0.2, "{name}: {peak}");
+        }
+    }
+
+    #[test]
+    fn remuestrear_conserva_la_duracion() {
+        let tone: Vec<f32> = (0..48_000).map(|i| (i as f32 * 0.05).sin()).collect();
+        assert_eq!(resample(tone, 48_000, 16_000).unwrap().len(), 16_000);
+    }
+}

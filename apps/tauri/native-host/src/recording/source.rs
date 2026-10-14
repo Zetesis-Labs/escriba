@@ -39,7 +39,9 @@ fn mono(samples: &[f32], channels: usize) -> Vec<f32> {
 }
 
 fn file(path: &Path) -> Result<Capture, Failure> {
-    let (rate, samples) = crate::audio::decode_mono(path)?;
+    let (from, samples) = crate::audio::decode_mono(path)?;
+    let rate = 48_000;
+    let samples = crate::audio::resample(samples, from, rate)?;
     let (sender, chunks) = sync_channel(64);
     std::thread::spawn(move || {
         let step = rate as usize / 50;

@@ -1,5 +1,6 @@
 use serde_json::{json, Map, Value};
 
+#[derive(Debug)]
 pub struct Failure {
     code: &'static str,
     message: String,
@@ -19,10 +20,16 @@ pub type Params = Map<String, Value>;
 #[derive(Default)]
 pub struct Host {
     recorder: crate::recording::Recorder,
+    whisper: crate::whisper::Whisper,
 }
 
 impl Host {
     pub fn handle(&mut self, line: &str) -> String {
+        self.handle_with_progress(line, &mut |_| {})
+    }
+
+    /// `progress` receives the lines a download emits before its reply.
+    pub fn handle_with_progress(&mut self, line: &str, progress: &mut dyn FnMut(String)) -> String {
         let request = match serde_json::from_str::<Value>(line) {
             Ok(request) => request,
             Err(error) => {
@@ -36,11 +43,19 @@ impl Host {
             }
         };
         let id = request.get("id").cloned().unwrap_or(Value::Null);
-        let outcome = parse(&request).and_then(|(method, params)| self.perform(method, params));
+        let mut fraction =
+            |value: f64| progress(json!({"id": id, "progress": {"fraction": value}}).to_string());
+        let outcome = parse(&request)
+            .and_then(|(method, params)| self.perform(method, params, &mut fraction));
         reply(&id, outcome)
     }
 
-    fn perform(&mut self, method: &str, params: &Params) -> Result<Value, Failure> {
+    fn perform(
+        &mut self,
+        method: &str,
+        params: &Params,
+        progress: &mut dyn FnMut(f64),
+    ) -> Result<Value, Failure> {
         match method {
             "status" => status(params),
             "audioInfo" => crate::audio::info(params),
@@ -50,9 +65,11 @@ impl Host {
                 "backend_unavailable",
                 crate::platform::LLM_UNAVAILABLE,
             )),
-            "transcribe" | "diarizedVoices" | "downloadModel" => Err(Failure::new(
+            "transcribe" => self.whisper.transcribe(params, &model_name(params)?),
+            "downloadModel" => crate::whisper::download(&model_name(params)?, progress),
+            "diarizedVoices" => Err(Failure::new(
                 "backend_unavailable",
-                crate::platform::WHISPER_UNAVAILABLE,
+                "detectar hablantes aún no está disponible en Linux",
             )),
             "recordingStatus" => Ok(self.recorder.status()),
             "recordingStart" => self.recorder.start(params),
@@ -108,7 +125,7 @@ fn status(params: &Params) -> Result<Value, Failure> {
     Ok(json!({
         "protocolVersion": 1,
         "whisper": {
-            "available": crate::platform::model_installed(&model),
+            "available": crate::whisper::installed(&model),
             "model": model,
             "modelsPath": crate::platform::models_root().map(|root| root.display().to_string()),
         },
@@ -138,7 +155,7 @@ fn model_name(params: &Params) -> Result<String, Failure> {
             "model debe ser un nombre de variante, sin rutas",
         ));
     }
-    Ok(name.to_owned())
+    Ok(crate::whisper::normalized(name).to_owned())
 }
 
 pub fn required_string<'a>(params: &'a Params, key: &str) -> Result<&'a str, Failure> {
