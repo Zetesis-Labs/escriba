@@ -228,6 +228,17 @@ test("la inferencia local pasa por la cáscara con la ruta del audio y reconoce 
   await assert.rejects(f.ui("ask", { resolverId: "remote-llm", prompt: "x" }), /No existe remote-llm en resolvers/);
 });
 
+test("cada Whisper local transcribe con su modelo y el de serie con el de los ajustes", async () => {
+  const id = await f.imported();
+  await f.ui("config_save", { collection: "resolvers", item: { id: "local-stt-base", name: "Whisper · base", role: "stt", model: "base" } });
+  await f.ui("transcribe", { recordingId: id, resolverId: "local-stt-base", language: "es" });
+  await f.ui("transcribe", { recordingId: id, resolverId: "local-stt", language: "es" });
+  const models = f.calls
+    .filter((call) => call.method === "shell.native" && object(call.params).method === "transcribe")
+    .map((call) => object(object(call.params).params).model);
+  assert.deepEqual(models, ["base", obj(await f.shell("settings_read")).whisperModel]);
+});
+
 test("la inferencia remota lleva la clave guardada y nunca la devuelve", async () => {
   const id = await f.imported();
   await f.ui("config_save", { collection: "resolvers", item: { id: "remote-llm", name: "LLM", role: "llm", local: false, enabled: true, url: "https://llm.example/v1", model: "m" } });

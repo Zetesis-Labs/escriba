@@ -41,6 +41,7 @@ import { recipeWithValues } from "../core/recipeValues";
 import { processingRecipeId } from "../core/recordingRecipe";
 import { manualSummaryReading, manualSummaryResolver } from "../core/manualSummary";
 import { ontologyDependencies, ontologyRequirement } from "../core/ontologyDependencies";
+import { localModel } from "./localModels";
 function lookup<T extends { id: string; name: string }>(
   values: T[],
   id: string,
@@ -421,7 +422,7 @@ export function createRuntime(
                       audioHash: recording.audioHash || recording.id,
                       backend: backend.id,
                       model: backend.local
-                        ? snapshot.settings.whisperModel
+                        ? localModel(backend, snapshot.settings.whisperModel)
                         : backend.model || null,
                       language:
                         args.idioma === null || args.idioma === "auto"

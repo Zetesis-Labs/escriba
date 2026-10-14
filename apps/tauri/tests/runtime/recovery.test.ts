@@ -624,6 +624,25 @@ test("cambiar Whisper en ajustes invalida reuso aunque el resolver conserve su m
     "new-whisper",
   );
 });
+test("un Whisper añadido reutiliza solo sus transcripciones y la huella lleva su modelo", async () => {
+  const m = memory();
+  m.state.resolvers.push({ id: "local-stt-base", name: "Whisper · base", role: "stt", local: true, enabled: true, model: "base" });
+  m.state.settings.whisperModel = "large-v3-turbo";
+  let stt = "local-stt-base";
+  const runtime = createRuntime(m.host, {
+    run: async (_, context) => {
+      await context.call("transcribe", { stt });
+      await context.call("save", {});
+      return null;
+    },
+  });
+  await runtime.processRecording("r", { force: false });
+  assert.equal(m.state.recordings[0].versions.at(-1)?.inputs?.model, "base");
+  stt = "local-stt";
+  await runtime.processRecording("r", { force: false });
+  assert.equal(m.calls.filter((c) => c.method === "transcribe").length, 2);
+  assert.equal(m.state.recordings[0].versions.at(-1)?.inputs?.model, "large-v3-turbo");
+});
 test("resumen local de 4000 caracteres se trocea antes de reducir a un resumen final", async () => {
   const m = memory();
   m.state.recordings[0].versions.push({

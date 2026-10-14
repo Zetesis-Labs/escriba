@@ -16,6 +16,7 @@ import { notification, resolverProblem, settingsChanged, type Notification } fro
 import * as remote from "./remote";
 import type { NativeStatus } from "../types";
 import { missingLlm } from "./platform";
+import { localModel } from "./localModels";
 
 export interface Tasks {
   run<T>(id: string, recordingId: string | undefined, body: () => Promise<T>): Promise<T>;
@@ -111,7 +112,7 @@ async function inference(deps: DomainDependencies, method: "transcribe" | "summa
     const audio = library.audio(recordingId);
     const transcript =
       resolver.local === true
-        ? await host.call("shell.native", { method: "transcribe", params: { ...p, audioPath: audio, model: library.index().settings.whisperModel ?? null } })
+        ? await host.call("shell.native", { method: "transcribe", params: { ...p, audioPath: audio, model: localModel({ ...resolver, id: key }, library.index().settings.whisperModel) } })
         : await remote.transcribe(resolver, await secret(), audio, { language: p.language, diarize: p.diarize }, transport);
     return library.recognizeTranscription(recordingId, json(transcript));
   }
