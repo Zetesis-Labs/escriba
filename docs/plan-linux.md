@@ -250,6 +250,25 @@ release (Flathub lo admite), sin compilar desde el código en Flathub.
 
 **Hecho cuando** Rubén instala el Flatpak en su Ubuntu y funciona como el `.deb`.
 
+Estado (2026-10-14): `packaging/flatpak/es.zetesis.Escriba.yml` reempaqueta el
+`.deb` (`scripts/build-linux-flatpak.sh`), sin `--filesystem=home`: cada carpeta
+se concede por el portal y su ruta hace de bookmark (`folder_access_linux.rs`).
+Arranca tras quitar el `strip` (borraba el controlador de `escriba-runtime`) y
+añadir libayatana-appindicator (módulo compartido de Flathub). Los iconos de la
+bandeja se escriben en `$XDG_RUNTIME_DIR/app/<id>`. Dentro del Flatpak se aíslan
+las recetas, graba y reproduce m4a.
+
+- **Fallo abierto:** en Wozniak (máquina virtual) el Flatpak pinta la ventana a
+  trozos: solo el elemento seleccionado y los botones de ventana; el `.deb` no
+  lo hace. Descartado: Wayland (pasa igual por X11), el dmabuf y la composición
+  acelerada de WebKit (desactivados en el manifiesto, sigue). Sospecha: WebKitGTK
+  rasteriza con Skia en la GPU y el Mesa del runtime no funciona con la gráfica
+  virtual (`MESA: vdrm_device_connect failed`). Siguiente prueba:
+  `WEBKIT_SKIA_ENABLE_CPU_RENDERING=1` (y, si no, `LIBGL_ALWAYS_SOFTWARE=1`), y
+  probar en un equipo físico. Rubén ha vuelto al `.deb`; el Flatpak está
+  desinstalado y sus datos siguen en `~/.var/app/es.zetesis.Escriba`.
+- Para Flathub faltan: verificar `zetesis.es`, capturas y una release con el `.deb`.
+
 ## Fuera de este plan: la sesión del Mac
 
 La lista completa y ordenada está en `docs/pendiente-mac.md`.
