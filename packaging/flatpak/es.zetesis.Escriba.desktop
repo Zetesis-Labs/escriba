@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Escriba
+Comment=Biblioteca de notas de voz: transcribe, detecta hablantes y procesa con recetas
+Exec=escriba-tauri
+Icon=es.zetesis.Escriba
+Terminal=false
+Categories=AudioVideo;Audio;
+Keywords=notas;voz;transcripción;whisper;grabadora;
+StartupWMClass=escriba-tauri

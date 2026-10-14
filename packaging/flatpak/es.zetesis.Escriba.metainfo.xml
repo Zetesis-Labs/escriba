@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>es.zetesis.Escriba</id>
+  <name>Escriba</name>
+  <summary>Biblioteca de notas de voz con transcripción local</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <developer id="es.zetesis">
+    <name>Zetesis Labs</name>
+  </developer>
+  <description>
+    <p>
+      Escriba guarda tus notas de voz, las transcribe en tu equipo con Whisper
+      sin cuenta en ningún sitio y las procesa con recetas que puedes escribir tú.
+    </p>
+    <ul>
+      <li>Vigila carpetas donde llegan tus grabaciones y las procesa solas.</li>
+      <li>Graba desde la propia app.</li>
+      <li>Transcribe en local con varios modelos de Whisper o con un servicio compatible con OpenAI.</li>
+      <li>Detecta quién habla y reconoce a las personas que registres.</li>
+      <li>Resume y publica en Notion u OKF con recetas aisladas.</li>
+    </ul>
+  </description>
+  <launchable type="desktop-id">es.zetesis.Escriba.desktop</launchable>
+  <url type="homepage">https://github.com/Zetesis-Labs/escriba</url>
+  <url type="bugtracker">https://github.com/Zetesis-Labs/escriba/issues</url>
+  <content_rating type="oars-1.1"/>
+  <supports>
+    <control>pointing</control>
+    <control>keyboard</control>
+  </supports>
+  <requires>
+    <display_length compare="ge">960</display_length>
+  </requires>
+  <releases>
+    <release version="0.1.0" date="2026-10-14">
+      <description>
+        <p>Primera versión para Linux.</p>
+      </description>
+    </release>
+  </releases>
+</component>

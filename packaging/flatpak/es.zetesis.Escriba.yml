@@ -1,0 +1,39 @@
+# Repackages the .deb of a release: Flathub accepts upstream binaries.
+# For a local test, build-linux-flatpak.sh points the source at the local .deb.
+id: es.zetesis.Escriba
+runtime: org.gnome.Platform
+runtime-version: '51'
+sdk: org.gnome.Sdk
+command: escriba-tauri
+finish-args:
+  - --share=ipc
+  - --share=network
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --device=dri
+  # Recording and playback.
+  - --socket=pulseaudio
+  # Watched folders and the recipe project live anywhere in the user's files.
+  - --filesystem=home
+  - --talk-name=org.kde.StatusNotifierWatcher
+  - --talk-name=org.freedesktop.Notifications
+  # tauri-plugin-single-instance owns the app's technical identifier on D-Bus.
+  - --own-name=dev.zetesis.escriba.tauri.SingleInstance
+modules:
+  - name: escriba
+    buildsystem: simple
+    sources:
+      - type: file
+        path: Escriba.deb
+      - type: file
+        path: es.zetesis.Escriba.desktop
+      - type: file
+        path: es.zetesis.Escriba.metainfo.xml
+    build-commands:
+      - ar x Escriba.deb
+      - tar -xf data.tar.*
+      - install -Dm755 -t /app/bin usr/bin/escriba-tauri usr/bin/EscribaNativeHost usr/bin/escriba-runtime usr/bin/escriba-sandbox
+      - mkdir -p /app/lib && cp -a usr/lib/Escriba /app/lib/
+      - install -Dm644 usr/share/icons/hicolor/512x512/apps/escriba-tauri.png /app/share/icons/hicolor/512x512/apps/es.zetesis.Escriba.png
+      - install -Dm644 -t /app/share/applications es.zetesis.Escriba.desktop
+      - install -Dm644 -t /app/share/metainfo es.zetesis.Escriba.metainfo.xml
