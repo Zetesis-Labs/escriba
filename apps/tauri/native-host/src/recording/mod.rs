@@ -1,11 +1,10 @@
 //! One recording at a time, captured and encoded on its own thread because
 //! audio streams cannot move between threads.
 
-mod opus_ogg;
 mod source;
 
+use crate::platform::Encoder;
 use crate::protocol::{required_string, Failure, Params};
-use opus_ogg::OpusOgg;
 use serde_json::{json, Value};
 use std::{
     path::{Path, PathBuf},
@@ -65,7 +64,7 @@ fn meter(samples: &[f32]) -> f64 {
 
 fn record(
     capture: source::Capture,
-    mut writer: OpusOgg,
+    mut writer: Encoder,
     path: &Path,
     control: std::sync::mpsc::Receiver<Control>,
     shared: &Shared,
@@ -156,7 +155,7 @@ impl Recorder {
                                 Failure::new("recording_failed", error.to_string())
                             })?;
                         }
-                        let writer = OpusOgg::create(&path, capture.rate)
+                        let writer = Encoder::create(&path, capture.rate)
                             .map_err(|error| Failure::new("recording_failed", error.to_string()))?;
                         Ok((capture, writer))
                     });

@@ -20,7 +20,7 @@ pub type Params = Map<String, Value>;
 #[derive(Default)]
 pub struct Host {
     recorder: crate::recording::Recorder,
-    whisper: crate::whisper::Whisper,
+    inference: crate::platform::Inference,
 }
 
 impl Host {
@@ -50,6 +50,12 @@ impl Host {
         reply(&id, outcome)
     }
 
+    fn status(&self, params: &Params) -> Result<Value, Failure> {
+        let mut status = self.inference.status(&model_name(params)?);
+        status["protocolVersion"] = json!(1);
+        Ok(status)
+    }
+
     fn perform(
         &mut self,
         method: &str,
@@ -57,22 +63,16 @@ impl Host {
         progress: &mut dyn FnMut(f64),
     ) -> Result<Value, Failure> {
         match method {
-            "status" => status(params),
+            "status" => self.status(params),
             "audioInfo" => crate::audio::info(params),
             "fileStatus" => crate::files::status(params),
             "materialize" => crate::files::materialize(params),
-            "summarize" | "ask" => Err(Failure::new(
-                "backend_unavailable",
-                crate::platform::LLM_UNAVAILABLE,
-            )),
-            "transcribe" => self.whisper.transcribe(params, &model_name(params)?),
-            "downloadModel" => crate::whisper::download(&model_name(params)?, progress),
-            "models" => Ok(crate::whisper::catalog()),
-            "deleteModel" => self.whisper.delete(&model_name(params)?),
-            "diarizedVoices" => Err(Failure::new(
-                "backend_unavailable",
-                "detectar hablantes aún no está disponible en Linux",
-            )),
+            "summarize" | "ask" => self.inference.generate(params),
+            "transcribe" => self.inference.transcribe(params, &model_name(params)?),
+            "downloadModel" => self.inference.download(&model_name(params)?, progress),
+            "models" => Ok(self.inference.models()),
+            "deleteModel" => self.inference.delete_model(&model_name(params)?),
+            "diarizedVoices" => self.inference.diarized_voices(params),
             "recordingStatus" => Ok(self.recorder.status()),
             "recordingStart" => self.recorder.start(params),
             "recordingPause" => self.recorder.pause(true),
@@ -122,23 +122,6 @@ fn reply(id: &Value, outcome: Result<Value, Failure>) -> String {
     .to_string()
 }
 
-fn status(params: &Params) -> Result<Value, Failure> {
-    let model = model_name(params)?;
-    Ok(json!({
-        "protocolVersion": 1,
-        "whisper": {
-            "available": crate::whisper::installed(&model),
-            "model": model,
-            "modelsPath": crate::platform::models_root().map(|root| root.display().to_string()),
-        },
-        "llm": {
-            "available": false,
-            "reason": crate::platform::LLM_UNAVAILABLE,
-            "capacity": 0,
-        },
-    }))
-}
-
 fn model_name(params: &Params) -> Result<String, Failure> {
     let Some(value) = params.get("model").filter(|value| !value.is_null()) else {
         return Ok(crate::platform::DEFAULT_MODEL.to_owned());
@@ -157,7 +140,7 @@ fn model_name(params: &Params) -> Result<String, Failure> {
             "model debe ser un nombre de variante, sin rutas",
         ));
     }
-    Ok(crate::whisper::normalized(name).to_owned())
+    Ok(crate::platform::normalized_model(name).to_owned())
 }
 
 pub fn required_string<'a>(params: &'a Params, key: &str) -> Result<&'a str, Failure> {

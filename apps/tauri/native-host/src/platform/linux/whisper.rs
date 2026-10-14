@@ -1,7 +1,7 @@
 //! Local transcription with whisper.cpp. Models are ggml files downloaded
 //! explicitly into the models folder; transcribing never downloads.
 
-use crate::platform::{models_root, DEFAULT_MODEL, MODELS};
+use super::{models_root, DEFAULT_MODEL, MODELS};
 use crate::protocol::{required_string, Failure, Params};
 use serde_json::{json, Value};
 use std::{

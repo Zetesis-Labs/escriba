@@ -2,7 +2,7 @@
 //! ESCRIBA_AUDIO_SOURCE injects for tests (a WAV played in real time, or
 //! `none` to behave as a computer without a microphone).
 
-use super::opus_ogg::RATES;
+use crate::platform::ENCODER_RATES;
 use crate::protocol::Failure;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use std::{
@@ -87,7 +87,7 @@ fn microphone() -> Result<Capture, Failure> {
         .supported_input_configs()
         .map_err(|error| unusable(&error))?
         .collect();
-    let (range, rate) = RATES
+    let (range, rate) = ENCODER_RATES
         .iter()
         .rev()
         .find_map(|&rate| {

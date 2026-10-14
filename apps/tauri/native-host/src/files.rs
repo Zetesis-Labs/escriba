@@ -1,6 +1,6 @@
 use crate::protocol::{required_string, Failure, Params};
 use serde_json::{json, Value};
-use std::{fs, io, os::unix::fs::MetadataExt};
+use std::{fs, io, os::unix::fs::MetadataExt, path::Path, time::Duration};
 
 pub fn status(params: &Params) -> Result<Value, Failure> {
     let path = required_string(params, "path")?;
@@ -21,32 +21,36 @@ pub fn status(params: &Params) -> Result<Value, Failure> {
         .modified()
         .map(chrono::DateTime::<chrono::Utc>::from)
         .map_err(|error| Failure::new("invalid_audio", error.to_string()))?;
+    let flags = crate::platform::file_flags(&metadata);
     Ok(json!({
         "size": metadata.len(),
         "blocks": metadata.blocks(),
-        "flags": 0,
-        "dataless": false,
+        "flags": flags,
+        "dataless": crate::platform::dataless(flags),
         "modifiedAt": modified.to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
     }))
 }
 
-/// Linux has no on-demand files to download: a file is ready once it has data.
 pub fn materialize(params: &Params) -> Result<Value, Failure> {
-    if let Some(timeout) = params
+    let timeout = match params
         .get("timeoutSeconds")
         .filter(|value| !value.is_null())
     {
-        if !timeout
+        None => 300,
+        Some(value) => value
             .as_u64()
-            .is_some_and(|seconds| (1..=300).contains(&seconds))
-        {
-            return Err(Failure::new(
-                "invalid_params",
-                "timeoutSeconds debe estar entre 1 y 300",
-            ));
-        }
-    }
+            .filter(|seconds| (1..=300).contains(seconds))
+            .ok_or_else(|| {
+                Failure::new("invalid_params", "timeoutSeconds debe estar entre 1 y 300")
+            })?,
+    };
+    status(params)?;
+    let completed = crate::platform::materialize(
+        Path::new(required_string(params, "path")?),
+        Duration::from_secs(timeout),
+    );
     let state = status(params)?;
     let size = state["size"].as_u64().unwrap_or(0);
-    Ok(json!({"ready": size > 0, "dataless": false, "size": size}))
+    let dataless = state["dataless"].as_bool().unwrap_or(false);
+    Ok(json!({"ready": completed && !dataless && size > 0, "dataless": dataless, "size": size}))
 }
