@@ -18,6 +18,11 @@
     "targets": [
       "deb"
     ],
+    "resources": {
+      "vendor/": "vendor/",
+      "surreal/": "surreal/",
+      "native/": "native/"
+    },
     "icon": [
       "icons/icon.png"
     ]

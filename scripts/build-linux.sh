@@ -43,6 +43,14 @@ cargo build --manifest-path "$TAURI/native-host/Cargo.toml" "${CARGO_ARGS[@]}"
 TRIPLE="$(rustc -vV | sed -n 's/^host: //p')"
 mkdir -p "$TAURI/src-tauri/binaries"
 cp "$TAURI/native-host/target/$CONFIGURATION/EscribaNativeHost" "$TAURI/src-tauri/binaries/EscribaNativeHost-$TRIPLE"
+# The host finds sherpa-onnx next to itself while developing and in /usr/lib/Escriba/native once installed.
+rm -rf "$TAURI/src-tauri/native"
+mkdir -p "$TAURI/src-tauri/native" "$TAURI/src-tauri/target/$CONFIGURATION"
+for LIBRARY in "$TAURI/native-host/target/$CONFIGURATION"/lib{onnxruntime,sherpa-onnx-c-api}.so*; do
+  cp -L "$LIBRARY" "$TAURI/src-tauri/native/"
+  cp -L "$LIBRARY" "$TAURI/src-tauri/binaries/"
+  cp -L "$LIBRARY" "$TAURI/src-tauri/target/$CONFIGURATION/"
+done
 npm ci --ignore-scripts --prefix "$PROJECT/packages/conectores"
 npm run build --prefix "$PROJECT/packages/conectores"
 npm ci --ignore-scripts --prefix "$TAURI"
