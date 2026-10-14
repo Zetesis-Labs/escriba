@@ -324,6 +324,19 @@ redactados aquí, provisionales: «Elegir carpeta», los avisos de permisos, los
 mensajes del host nativo, «La receta no tiene un LLM elegido…», «no puede
 resumir», «se quedan sin LLM», el botón «Carpeta» y el aviso de recetas.
 
+**Rebase sobre `main` con el ADR-0011** (2026-10-14). La biblioteca, la
+configuración y la cola pasan al controlador Bun, así que lo de L2 que vivía
+en el almacén de Rust se rehízo en TypeScript: `src/runtime/platform.ts`
+(valores de serie por sistema, «no tiene prueba», resumir sin LLM) y
+`authorizeWatchedFolder` sin bookmark en Linux. El binding de SurrealDB del
+controlador se elige por sistema (`targets.mjs`, `platform::surreal_native`).
+Las pruebas destaparon que la receta por defecto fallaba sin LLMs; ahora «Resume
+con» queda vacío y resumir falla avisando. `sidecar.test.ts` corre en Linux con
+el worker sin aislar, salvo las tres pruebas de aislamiento. Se descartaron los
+commits de `espeak-ng` y de clippy, porque `main` borró ese código. La prueba de
+la biblioteca grande tiene 30 s de margen: en Ubuntu tarda 6,5 s también en
+`main`.
+
 **Para la sesión del Mac (L2):** que nada visible ha cambiado, y revisar:
 
 - `scripts/prepare.mjs` y `runtime-host/build.mjs` eligen paquete y triple con
@@ -331,8 +344,12 @@ resumir», «se quedan sin LLM», el botón «Carpeta» y el aviso de recetas.
 - `library` lleva `platform`; la interfaz la lee con `PlatformContext`, que por
   defecto es macOS. `resolvers.ts` tiene parámetros opcionales de plataforma y
   `useRecorderAlert` recibe si hay enlace a Ajustes del Sistema.
-- `store/settings.rs`: `default_resolvers` por sistema y el bookmark vacío solo
-  se admite fuera de macOS.
+- `src/runtime/platform.ts` y `store.ts`: valores de serie por sistema y el
+  bookmark vacío solo se admite fuera de macOS. `recetas/por-defecto/receta.ts`
+  solo cambia sin LLMs. `sidecar.test.ts` debe seguir pasando entero en el Mac.
+- `prepare.mjs`, `lib.rs` y `scripts.rs` toman el binding de SurrealDB de
+  `targets.mjs`/`platform::surreal_native`; en el Mac debe seguir siendo el de
+  `darwin-<arch>`.
 - `symbols::image` se parte por sistema; `notification_delivery` y
   `voice_memos_root` tienen rama de Linux.
 - Las pruebas del protocolo nativo (`native.rs`, `scripts.rs`) vuelven a correr
