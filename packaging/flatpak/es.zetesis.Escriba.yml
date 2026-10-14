@@ -11,6 +11,8 @@ finish-args:
   - --socket=wayland
   - --socket=fallback-x11
   - --device=dri
+  # Without it WebKitGTK may draw nothing in the sandbox and the transparent window stays invisible.
+  - --env=WEBKIT_DISABLE_DMABUF_RENDERER=1
   # Recording and playback.
   - --socket=pulseaudio
   # No --filesystem: each watched folder, the recipe project and the connector
