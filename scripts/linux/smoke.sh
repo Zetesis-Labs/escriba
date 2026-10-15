@@ -61,12 +61,13 @@ if $NETWORK; then
   # open until then, because the host stops when it closes.
   transcription() {
     local line
-    coproc HOST { EscribaNativeHost 2>/dev/null; }
+    coproc HOST { EscribaNativeHost 2>/tmp/host-transcribe.log; }
     echo '{"id":"d","method":"downloadModel","params":{"model":"tiny"}}' >&"${HOST[1]}"
     while IFS= read -r -t 600 line <&"${HOST[0]}"; do
       [[ $line == *'"id":"d","result"'* ]] && break
       [[ $line == *'"id":"d","error"'* ]] && { echo "$line"; return; }
     done
+    [[ $line == *'"id":"d","result"'* ]] || { echo "la descarga no terminó; última línea: $line"; return; }
     echo '{"id":"t","method":"transcribe","params":{"audioPath":"'"$voice"'","model":"tiny","language":"es"}}' >&"${HOST[1]}"
     while IFS= read -r -t 600 line <&"${HOST[0]}"; do
       [[ $line == *'"id":"t","result"'* || $line == *'"id":"t","error"'* ]] && { echo "$line"; break; }
@@ -74,7 +75,11 @@ if $NETWORK; then
     eval "exec ${HOST[1]}>&-"
   }
   reply=$(transcription)
-  if grep -q '"id":"t","result".*[Pp]rueba' <<<"$reply"; then ok "transcribe en local (tiny)"; else fail "transcribe en local" "$(tail -c 300 <<<"$reply")"; fi
+  if grep -q '"id":"t","result".*[Pp]rueba' <<<"$reply"; then
+    ok "transcribe en local (tiny)"
+  else
+    fail "transcribe en local" "$(tail -c 300 <<<"$reply"); audio $(stat -c %s "$voice" 2>&1); host: $(tail -c 600 /tmp/host-transcribe.log)"
+  fi
 else
   echo "--    transcribir (sin red)"
 fi
