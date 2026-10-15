@@ -22,9 +22,14 @@ la apertura, ve a **Ajustes del Sistema > Privacidad y seguridad > Abrir
 igualmente** y confirma que quieres abrir Escriba. Consulta también las
 [instrucciones de Apple](https://support.apple.com/es-es/102445).
 
-La distribución para macOS es provisional: está firmada ad hoc y Apple todavía
-no la ha notarizado. El ZIP incluye `LEEME.txt` con estos pasos. La release
-ofrece también `SHA256SUMS-macos-arm64` para comprobar el checksum del ZIP.
+Los ZIP cuyo nombre termina en `_sin-notarizar.zip` llevan firma ad hoc y
+requieren la autorización manual anterior. Los que terminan en `_macos_arm64.zip`
+están firmados con Developer ID y notarizados por Apple. El ZIP incluye
+`LEEME.txt` con los pasos de su modalidad. La release ofrece también
+`SHA256SUMS-macos-arm64` para comprobar el checksum del ZIP. El
+flujo para activar la notarización cuando estén configurados los certificados
+está documentado en [releases de macOS](docs/releases-macos.md); todavía no se
+ha probado una notarización real.
 
 También puedes compilar e instalar desde el código fuente:
 
