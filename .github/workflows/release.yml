@@ -1,0 +1,62 @@
+# release-please keeps a release PR from the conventional commits on main; merging
+# it tags and publishes the release, and this same workflow attaches the Linux
+# packages (a tag created with GITHUB_TOKEN would not start another workflow).
+# The Mac app is not attached: it needs signing and notarization first.
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+# The run in progress may be tagging or publishing.
+concurrency:
+  group: release-please
+  cancel-in-progress: false
+
+jobs:
+  release-please:
+    runs-on: ubuntu-24.04
+    outputs:
+      created: ${{ steps.rp.outputs.release_created }}
+      tag: ${{ steps.rp.outputs.tag_name }}
+      version: ${{ steps.rp.outputs.version }}
+    steps:
+      - uses: googleapis/release-please-action@v4
+        id: rp
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  linux:
+    name: Linux x86_64 · paquetes de la release
+    needs: release-please
+    if: needs.release-please.outputs.created == 'true'
+    runs-on: ${{ vars.LINUX_RUNNER || 'ubuntu-24.04' }}
+    env:
+      TAG: ${{ needs.release-please.outputs.tag }}
+      VERSION: ${{ needs.release-please.outputs.version }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.release-please.outputs.tag }}
+      - name: La versión de la app coincide con el tag
+        run: |
+          version=$(node -p "require('./apps/tauri/src-tauri/tauri.conf.json').version")
+          test "v$version" = "$TAG" || { echo "tauri.conf.json dice $version y el tag es $TAG"; exit 1; }
+      - uses: ./.github/actions/linux-paquetes
+      - uses: ./.github/actions/flatpak
+        with:
+          bundle: ${{ github.workspace }}/Escriba_${{ needs.release-please.outputs.version }}_x86_64.flatpak
+      - name: Subir los paquetes a la release
+        run: |
+          bundle=apps/tauri/src-tauri/target/release/bundle
+          files=("$bundle"/deb/Escriba_"$VERSION"_*.deb "$bundle"/rpm/Escriba-"$VERSION"-*.rpm "Escriba_${VERSION}_x86_64.flatpak")
+          ls -l "${files[@]}"
+          sha256sum "${files[@]}" | sed 's|  .*/|  |' > SHA256SUMS
+          cat SHA256SUMS
+          gh release upload "$TAG" "${files[@]}" SHA256SUMS --repo "$GITHUB_REPOSITORY"
