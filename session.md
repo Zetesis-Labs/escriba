@@ -85,7 +85,7 @@ con el equipo cargado y pasa al repetir.
 | Puertos por sistema | hecho (sin cambios visibles) |
 | L5 hablantes y Personas | hecha, validada por Rubén |
 | L6 aislar recetas | validada en 25.10; falta 24.04 y Fedora (con L7) |
-| L7 paquetes y CI | x86_64 comprobada en las cinco distribuciones; arm64 y Fedora con su kernel pendientes |
+| L7 paquetes y CI | x86_64 comprobada en las cinco distribuciones; arm64 (CI apagado) y Fedora con su kernel pendientes |
 | AI SDK (ADR-0012) | decidido; después de L7 |
 
 Piezas clave ya hechas:

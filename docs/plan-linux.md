@@ -512,7 +512,7 @@ Lo que queda para el Mac está en `docs/pendiente-mac.md`.
 | L4 | hecha | `7b27d68`…`7c2205b` | sí (2026-10-14) | `docs/pendiente-mac.md` |
 | L5 | hecha | ver «L5 en Ubuntu 25.10» | sí (2026-10-14) | `docs/pendiente-mac.md` |
 | L6 | construida; falta 24.04 y Fedora | ver «L6 en Ubuntu 25.10» | 25.10: sí (2026-10-14) | `docs/pendiente-mac.md` |
-| L7 | x86_64 comprobada; arm64 en CI | `e332ed3`…`3413d07` | | Ver «L7» |
+| L7 | x86_64 comprobada; arm64 pendiente, CI apagado | `e332ed3`…`3413d07` | | Ver «L7» |
 
 **L7** (2026-10-14). `scripts/build-linux.sh --release` deja `.deb` y `.rpm`
 con sus dependencias declaradas (`tauri.linux.conf.json`): WebKitGTK 4.1, GTK,
@@ -527,15 +527,17 @@ sistema y ejecuta `scripts/linux/smoke.sh`: bibliotecas sin resolver, m4a/ogg/mp
 con GStreamer, grabar (fuente inyectada) y transcribir (tiny) por el protocolo
 del host, el perfil de receta de `escriba-sandbox` y la app con Xvfb (sus tres
 procesos vivos a los 15 s). El CI (`linux` y `linux-matriz`) hace lo mismo en
-x86_64 y arm64.
+x86_64.
 
 - **Aislamiento:** un contenedor usa el kernel de quien lo ejecuta, así que la
   columna mide el 6.17 de este equipo (Landlock 7), no el de cada sistema. El
   kernel de Ubuntu 24.04 lo cubren las pruebas de `sandbox` en el runner
   `ubuntu-24.04` del CI. **Fedora con su kernel queda pendiente de una máquina
   virtual** (aquí no hay KVM).
-- **arm64:** solo se construye y prueba en el CI (`ubuntu-24.04-arm`); sus
-  celdas se rellenan cuando el workflow corra en GitHub (requiere push).
+- **arm64:** el CI arm64 está apagado (Rubén, 2026-10-15); la decisión 2 sigue
+  en pie y arm64 queda pendiente. Lo último que dio el runner `ubuntu-24.04-arm`:
+  el paquete se construye, pero el controlador no carga el binding de SurrealDB
+  («Cannot find native binding») y fallan seis pruebas de `scripts` y `project`.
 - **Grabar con micrófono y transcribir en la ventana** solo lo ha hecho Rubén en
   su Ubuntu 25.10; en la matriz es el host por protocolo.
 
@@ -544,8 +546,8 @@ graba y transcribe con el host, aísla una receta y la app arranca):
 
 | Sistema | x86_64 | arm64 |
 |---|---|---|
-| Ubuntu 24.04 | ✓ (2026-10-14) | CI |
-| Ubuntu 26.04 | ✓ (2026-10-14) | CI |
-| Debian 13 | ✓ (2026-10-14) | CI |
-| Fedora 44 | ✓ (2026-10-14) | CI |
-| Fedora 43 | ✓ (2026-10-14) | CI |
+| Ubuntu 24.04 | ✓ (2026-10-14) | pendiente |
+| Ubuntu 26.04 | ✓ (2026-10-14) | pendiente |
+| Debian 13 | ✓ (2026-10-14) | pendiente |
+| Fedora 44 | ✓ (2026-10-14) | pendiente |
+| Fedora 43 | ✓ (2026-10-14) | pendiente |
