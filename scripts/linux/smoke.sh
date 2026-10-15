@@ -57,8 +57,9 @@ fi
 if $NETWORK; then
   voice=$(mktemp -d)/voz.wav
   espeak-ng -v es -w "$voice" "Esta es una prueba de transcripción de Escriba." >/dev/null 2>&1
-  reply=$( { echo '{"id":"d","method":"downloadModel","params":{"model":"tiny"}}'
-    echo '{"id":"t","method":"transcribe","params":{"audioPath":"'"$voice"'","model":"tiny","language":"es"}}'; } | EscribaNativeHost 2>/dev/null)
+  # The model is downloaded first: a transcription requested meanwhile finds no model.
+  echo '{"id":"d","method":"downloadModel","params":{"model":"tiny"}}' | EscribaNativeHost >/dev/null 2>&1
+  reply=$(echo '{"id":"t","method":"transcribe","params":{"audioPath":"'"$voice"'","model":"tiny","language":"es"}}' | EscribaNativeHost 2>/dev/null)
   if grep -q '"id":"t","result".*[Pp]rueba' <<<"$reply"; then ok "transcribe en local (tiny)"; else fail "transcribe en local" "$(tail -c 300 <<<"$reply")"; fi
 else
   echo "--    transcribir (sin red)"
