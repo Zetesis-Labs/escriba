@@ -57,9 +57,23 @@ fi
 if $NETWORK; then
   voice=$(mktemp -d)/voz.wav
   espeak-ng -v es -w "$voice" "Esta es una prueba de transcripción de Escriba." >/dev/null 2>&1
-  # The model is downloaded first: a transcription requested meanwhile finds no model.
-  echo '{"id":"d","method":"downloadModel","params":{"model":"tiny"}}' | EscribaNativeHost >/dev/null 2>&1
-  reply=$(echo '{"id":"t","method":"transcribe","params":{"audioPath":"'"$voice"'","model":"tiny","language":"es"}}' | EscribaNativeHost 2>/dev/null)
+  # One host: the transcription is asked once the download answers, and stdin stays
+  # open until then, because the host stops when it closes.
+  transcription() {
+    local line
+    coproc HOST { EscribaNativeHost 2>/dev/null; }
+    echo '{"id":"d","method":"downloadModel","params":{"model":"tiny"}}' >&"${HOST[1]}"
+    while IFS= read -r -t 600 line <&"${HOST[0]}"; do
+      [[ $line == *'"id":"d","result"'* ]] && break
+      [[ $line == *'"id":"d","error"'* ]] && { echo "$line"; return; }
+    done
+    echo '{"id":"t","method":"transcribe","params":{"audioPath":"'"$voice"'","model":"tiny","language":"es"}}' >&"${HOST[1]}"
+    while IFS= read -r -t 600 line <&"${HOST[0]}"; do
+      [[ $line == *'"id":"t","result"'* || $line == *'"id":"t","error"'* ]] && { echo "$line"; break; }
+    done
+    eval "exec ${HOST[1]}>&-"
+  }
+  reply=$(transcription)
   if grep -q '"id":"t","result".*[Pp]rueba' <<<"$reply"; then ok "transcribe en local (tiny)"; else fail "transcribe en local" "$(tail -c 300 <<<"$reply")"; fi
 else
   echo "--    transcribir (sin red)"
