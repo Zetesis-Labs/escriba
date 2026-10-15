@@ -1,12 +1,15 @@
-# release-please keeps a release PR from the conventional commits on main; merging
-# it tags and publishes the release, and this same workflow attaches the Linux
-# packages (a tag created with GITHUB_TOKEN would not start another workflow).
-# The Mac app is not attached: it needs signing and notarization first.
+# Los tags creados con GITHUB_TOKEN no inician otro workflow: los paquetes se adjuntan aquí.
 name: Release
 
 on:
   push:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release existente a la que añadir macOS (por ejemplo, v0.2.0)
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -19,6 +22,7 @@ concurrency:
 
 jobs:
   release-please:
+    if: github.event_name == 'push'
     runs-on: ubuntu-24.04
     outputs:
       created: ${{ steps.rp.outputs.release_created }}
@@ -84,3 +88,81 @@ jobs:
           $paths = @($files.FullName) + @('SHA256SUMS-Windows')
           gh release upload $env:TAG @paths --repo $env:GITHUB_REPOSITORY
           if ($LASTEXITCODE -ne 0) { throw 'No se pudo adjuntar la distribución de Windows' }
+
+  macos:
+    name: macOS arm64 · paquete sin notarizar
+    needs: release-please
+    if: ${{ !cancelled() && (needs.release-please.outputs.created == 'true' || github.event_name == 'workflow_dispatch') }}
+    runs-on: macos-26
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ needs.release-please.outputs.tag || inputs.tag }}
+      SWIFT_VERSION: 6.4.0
+      APPLE_SIGNING_IDENTITY: '-'
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Comprobar la release de destino
+        run: |
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Tag de versión no válido: $TAG" >&2; exit 1; }
+          test "$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json tagName --jq .tagName)" = "$TAG"
+          test "$(uname -m)" = arm64
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: La versión de la app coincide con el tag
+        run: |
+          version=$(node -p "require('./apps/tauri/src-tauri/tauri.conf.json').version")
+          test "v$version" = "$TAG" || { echo "tauri.conf.json dice $version y el tag es $TAG" >&2; exit 1; }
+      - name: Toolchain de swift.org
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/swift.pkg" "https://download.swift.org/swift-${SWIFT_VERSION}-release/xcode/swift-${SWIFT_VERSION}-RELEASE/swift-${SWIFT_VERSION}-RELEASE-osx.pkg"
+          sudo installer -pkg "$RUNNER_TEMP/swift.pkg" -target /
+          toolchain="/Library/Developer/Toolchains/swift-${SWIFT_VERSION}-RELEASE.xctoolchain"
+          echo "TOOLCHAINS=$(plutil -extract CFBundleIdentifier raw "$toolchain/Info.plist")" >> "$GITHUB_ENV"
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Leer la versión de Bun del runtime
+        id: bun
+        run: |
+          version=$(cat apps/tauri/runtime-host/bun-version)
+          test -n "$version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ steps.bun.outputs.version }}
+      - name: Construir la app
+        run: ./scripts/build-app.sh --release
+      - name: Empaquetar y verificar la firma ad hoc
+        run: |
+          app=apps/tauri/src-tauri/target/release/bundle/macos/Escriba.app
+          test "$(plutil -extract CFBundleShortVersionString raw "$app/Contents/Info.plist")" = "${TAG#v}"
+          codesign --force --deep --sign - --entitlements apps/tauri/src-tauri/Entitlements.plist "$app"
+          codesign --verify --deep --strict "$app"
+          staging="$RUNNER_TEMP/escriba-macos"
+          mkdir -p "$staging" release-macos
+          ditto "$app" "$staging/Escriba.app"
+          cat > "$staging/LEEME.txt" <<'EOF'
+          Escriba para macOS 26 · Apple Silicon (M1 o posterior)
+
+          Esta versión lleva firma ad hoc y todavía no está notarizada por Apple.
+          Arrastra Escriba.app a Aplicaciones y ábrela.
+          Si macOS bloquea la apertura, ve a Ajustes del Sistema > Privacidad y
+          seguridad > Abrir igualmente y confirma la apertura de Escriba.
+          Más información: https://support.apple.com/es-es/102445
+          EOF
+          archive="Escriba_${TAG#v}_macos_arm64_sin-notarizar.zip"
+          ditto -c -k --sequesterRsrc "$staging" "release-macos/$archive"
+          ditto -x -k "release-macos/$archive" "$RUNNER_TEMP/escriba-verificacion"
+          codesign --verify --deep --strict "$RUNNER_TEMP/escriba-verificacion/Escriba.app"
+          (cd release-macos && shasum -a 256 "$archive" > SHA256SUMS-macos-arm64)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: escriba-macos-arm64
+          path: release-macos/
+          if-no-files-found: error
+      - name: Subir el paquete de macOS a la release
+        run: |
+          gh release upload "$TAG" release-macos/*.zip release-macos/SHA256SUMS-macos-arm64 --repo "$GITHUB_REPOSITORY" --clobber
