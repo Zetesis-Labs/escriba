@@ -102,6 +102,10 @@ Código del Mac que se movió tal cual desde Linux, sin compilarlo:
     de `project.rs` debe generarse idéntico.
   - En pruebas, `storage::engine` abre la base en un runtime compartido.
   - `tests/runtime/project.test.ts` usa `realpath(tmpdir())`.
+- El borrado pendiente de una copia de audio guarda también su fecha de
+  creación (`birth`) y exige que coincida, porque ext4 reutiliza el inodo. Los
+  descartes ya guardados sin ella se comprueban como antes. Descartar una nota
+  en el Mac debe seguir borrando su copia.
 
 Después, la suite completa del bloque «Construir y comprobar» del `CLAUDE.md`,
 con `sidecar.test.ts` entero, incluidas sus pruebas de aislamiento.

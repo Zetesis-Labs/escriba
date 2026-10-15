@@ -32,8 +32,10 @@ export interface AudioDeletion {
   path: string;
   device: number;
   inode: number;
+  // ext4 reuses an inode at once; with the creation time a new file at the same path differs.
+  birth?: number;
 }
-export const audioDeletion = (path: string, device: number, inode: number): AudioDeletion => ({ id: newId(), path, device, inode });
+export const audioDeletion = (path: string, device: number, inode: number, birth: number): AudioDeletion => ({ id: newId(), path, device, inode, birth });
 export interface LibraryWrite {
   ops: RowOp[];
   recipeAliases?: Map<string, string>;
@@ -247,9 +249,9 @@ export class Persistence {
   async pendingAudioDeletions(): Promise<AudioDeletion[]> {
     return (await rows(this.db, "audio_deletion")).map((row) => {
       const deletion = row.payload;
-      if (!isObject(deletion) || deletion.id !== row.key || typeof deletion.path !== "string" || typeof deletion.device !== "number" || typeof deletion.inode !== "number")
+      if (!isObject(deletion) || deletion.id !== row.key || typeof deletion.path !== "string" || typeof deletion.device !== "number" || typeof deletion.inode !== "number" || (deletion.birth !== undefined && typeof deletion.birth !== "number"))
         throw Error("Cola de borrado de audio incoherente");
-      return { id: deletion.id as string, path: deletion.path, device: deletion.device, inode: deletion.inode };
+      return { id: deletion.id as string, path: deletion.path, device: deletion.device, inode: deletion.inode, ...(typeof deletion.birth === "number" ? { birth: deletion.birth } : {}) };
     });
   }
   async completeAudioDeletion(id: string) {

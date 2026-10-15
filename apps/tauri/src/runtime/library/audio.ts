@@ -111,7 +111,7 @@ export function audioCopyToDelete(root: string, data: LibraryData, path: string)
   }
   if (!canonical.startsWith(`${audioCopyRoot(root)}/`)) throw Error("Audio fuera de la biblioteca");
   if (referencesAudio(data, canonical)) return undefined;
-  return audioDeletion(canonical, metadata.dev, metadata.ino);
+  return audioDeletion(canonical, metadata.dev, metadata.ino, metadata.birthtimeMs);
 }
 export function linkStaged(temp: string, target: string): boolean {
   try {

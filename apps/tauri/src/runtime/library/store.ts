@@ -281,7 +281,7 @@ export class Store {
         throw Error(`No se puede comprobar el audio pendiente: ${(error as Error).message}`);
       }
       if (!metadata.isFile()) throw Error("La copia pendiente no es un archivo normal");
-      if (metadata.dev !== deletion.device || metadata.ino !== deletion.inode) throw Error("La copia de audio pendiente cambió desde el descarte");
+      if (metadata.dev !== deletion.device || metadata.ino !== deletion.inode || (deletion.birth !== undefined && metadata.birthtimeMs !== deletion.birth)) throw Error("La copia de audio pendiente cambió desde el descarte");
       let canonical: string;
       try {
         canonical = realpathSync(deletion.path);
