@@ -61,29 +61,7 @@ jobs:
     runs-on: ${{ vars.LINUX_RUNNER || 'ubuntu-24.04' }}
     steps:
       - uses: actions/checkout@v4
-      - name: Dependencias del sistema
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential pkg-config clang cmake curl \
-            libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev \
-            librsvg2-dev libxdo-dev libasound2-dev espeak-ng
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy, rustfmt
-      - name: Leer la versión de Bun del runtime
-        id: bun
-        run: |
-          version=$(cat apps/tauri/runtime-host/bun-version)
-          test -n "$version"
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: ${{ steps.bun.outputs.version }}
-      - name: Construir los paquetes
-        run: ./scripts/build-linux.sh --release
+      - uses: ./.github/actions/linux-paquetes
       # Before the tests, so the install matrix and the Flatpak check the packages anyway.
       - uses: actions/upload-artifact@v4
         with:
@@ -94,7 +72,8 @@ jobs:
       - name: Cargar el binding de SurrealDB con Node y con Bun
         working-directory: apps/tauri
         run: |
-          export NATIVE=$(node --input-type=module -e "import { surrealNative } from './runtime-host/targets.mjs'; const native = surrealNative(process.platform, process.arch); console.log(process.cwd() + '/node_modules/' + native.package + '/' + native.file)")
+          NATIVE=$(node --input-type=module -e "import { surrealNative } from './runtime-host/targets.mjs'; const native = surrealNative(process.platform, process.arch); console.log(process.cwd() + '/node_modules/' + native.package + '/' + native.file)")
+          export NATIVE
           ls -l "$NATIVE"
           node -e 'require(process.env.NATIVE)'
           bun -e 'try { require(process.env.NATIVE) } catch (error) { console.error(error, error.cause); process.exit(1) }'
@@ -145,20 +124,9 @@ jobs:
         with:
           name: escriba-linux-${{ matrix.arch }}
           path: apps/tauri/src-tauri/target/release/bundle
-      - name: flatpak-builder y Flathub
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y flatpak dbus
-          # Ubuntu 24.04 blocks the unprivileged user namespaces bubblewrap needs.
-          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-          flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
-          # Ubuntu's flatpak-builder 1.4.2 lets CMake install into /app/lib64, where the tray modules do not look.
-          flatpak install --user -y --noninteractive flathub org.flatpak.Builder
-      - name: Construir el Flatpak
-        env:
-          FLATPAK_BUILDER: flatpak run org.flatpak.Builder
-        # The sandboxed builder installs the SDK through the session bus, which a runner lacks.
-        run: dbus-run-session -- scripts/build-linux-flatpak.sh --bundle "$PWD/Escriba-${{ matrix.arch }}.flatpak"
+      - uses: ./.github/actions/flatpak
+        with:
+          bundle: ${{ github.workspace }}/Escriba-${{ matrix.arch }}.flatpak
       - uses: actions/upload-artifact@v4
         with:
           name: escriba-flatpak-${{ matrix.arch }}

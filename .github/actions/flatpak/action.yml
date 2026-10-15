@@ -1,0 +1,26 @@
+name: Flatpak
+description: Construye el paquete .flatpak a partir del .deb que dejó la construcción de Linux.
+inputs:
+  bundle:
+    description: Ruta absoluta del .flatpak que se genera.
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: flatpak-builder y Flathub
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y flatpak dbus
+        # Ubuntu 24.04 blocks the unprivileged user namespaces bubblewrap needs.
+        sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+        flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+        # Ubuntu's flatpak-builder 1.4.2 lets CMake install into /app/lib64, where the tray modules do not look.
+        flatpak install --user -y --noninteractive flathub org.flatpak.Builder
+    - name: Construir el Flatpak
+      shell: bash
+      env:
+        FLATPAK_BUILDER: flatpak run org.flatpak.Builder
+        BUNDLE: ${{ inputs.bundle }}
+      # The sandboxed builder installs the SDK through the session bus, which a runner lacks.
+      run: dbus-run-session -- scripts/build-linux-flatpak.sh --bundle "$BUNDLE"

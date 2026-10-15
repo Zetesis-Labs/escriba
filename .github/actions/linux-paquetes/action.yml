@@ -1,0 +1,31 @@
+name: Paquetes de Linux
+description: Prepara el sistema, Node, Rust y Bun, y construye el .deb y el .rpm en release.
+runs:
+  using: composite
+  steps:
+    - name: Dependencias del sistema
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential pkg-config clang cmake curl \
+          libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev \
+          librsvg2-dev libxdo-dev libasound2-dev espeak-ng
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 22
+    - uses: dtolnay/rust-toolchain@stable
+      with:
+        components: clippy, rustfmt
+    - name: Leer la versión de Bun del runtime
+      id: bun
+      shell: bash
+      run: |
+        version=$(cat apps/tauri/runtime-host/bun-version)
+        test -n "$version"
+        echo "version=$version" >> "$GITHUB_OUTPUT"
+    - uses: oven-sh/setup-bun@v2
+      with:
+        bun-version: ${{ steps.bun.outputs.version }}
+    - name: Construir los paquetes
+      shell: bash
+      run: ./scripts/build-linux.sh --release
