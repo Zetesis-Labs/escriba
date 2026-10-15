@@ -100,6 +100,22 @@ export async function rowsForParent(db: Surreal, table: string, parent: string):
   const [found] = await run<[Row[]]>(db, `SELECT key, parent, position, payload FROM type::table($table) WHERE parent = ${literal(parent)}`, { table });
   return found ?? [];
 }
+// One transaction: a write landing between separate reads would make a record and its projections disagree.
+export async function rowsTogether(db: Surreal, reads: ({ table: string; key: string } | { table: string; parent: string })[]): Promise<Row[][]> {
+  const vars: Record<string, string> = {};
+  const statements = reads.map((read, index) => {
+    vars[`t${index}`] = read.table;
+    if ("key" in read) {
+      vars[`k${index}`] = read.key;
+      return `SELECT key, parent, position, payload FROM type::record($t${index}, $k${index})`;
+    }
+    return `SELECT key, parent, position, payload FROM type::table($t${index}) WHERE parent = ${literal(read.parent)}`;
+  });
+  // BEGIN and COMMIT answer too, with nothing.
+  const found = (await run<Row[][]>(db, `BEGIN TRANSACTION; ${statements.join("; ")}; COMMIT TRANSACTION;`, vars)).slice(1, -1);
+  if (found.length !== reads.length) throw Error("Lectura de la biblioteca incompleta");
+  return found.map((rows) => rows ?? []);
+}
 export async function rowByKey(db: Surreal, table: string, key: string): Promise<Row | undefined> {
   const [found] = await run<[Row[]]>(db, "SELECT key, parent, position, payload FROM type::record($table, $key)", { table, key });
   return found?.[0];

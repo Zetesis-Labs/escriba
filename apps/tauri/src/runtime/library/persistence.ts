@@ -2,7 +2,7 @@ import { canonical, isObject, newId, now, text, type Json } from "./json";
 import { changes, preview, type Children, type RowOp, type RowWrite, type Table } from "./changes";
 import { readLibraryData, readRecording, readVersion } from "./model";
 import { lightPublication, lightVersion } from "./projection";
-import { closeDatabase, literal, openDatabase, rowByKey, rows, rowsForParent, run, Transaction, type Database, type Row } from "./surreal";
+import { closeDatabase, literal, openDatabase, rowByKey, rows, rowsForParent, rowsTogether, run, Transaction, type Database, type Row } from "./surreal";
 import type { KnownVoice, SpeakerVoice } from "./voices";
 
 export const LOG_RETAINED = 3000;
@@ -576,13 +576,16 @@ async function loadIndex(db: Database): Promise<Json | undefined> {
   return data;
 }
 async function recording(db: Database, id: string): Promise<Json | undefined> {
-  const row = await rowByKey(db, "recording", id);
+  const tables = ["version", "version_preview", "publication", "publication_preview"];
+  const [own, ...read] = await rowsTogether(db, [{ table: "recording", key: id }, ...tables.map((table) => ({ table, parent: id }))]);
+  const row = own![0];
   if (!row) return undefined;
   if (!isObject(row.payload) || row.payload.id !== id) throw Error("Grabación guardada inválida");
   const value: Record<string, Json> = { ...row.payload };
+  const found = new Map(tables.map((table, index) => [table, read[index]!.sort((a, b) => a.position - b.position)]));
   for (const [table, field] of [["version", "versions"], ["publication", "publications"]] as const) {
-    const children = (await rowsForParent(db, table, id)).sort((a, b) => a.position - b.position);
-    const previews = (await rowsForParent(db, `${table}_preview`, id)).sort((a, b) => a.position - b.position);
+    const children = found.get(table)!;
+    const previews = found.get(`${table}_preview`)!;
     const idField = table === "version" ? "id" : "destinationId";
     const mismatch =
       children.length !== previews.length ||

@@ -106,6 +106,10 @@ Código del Mac que se movió tal cual desde Linux, sin compilarlo:
   creación (`birth`) y exige que coincida, porque ext4 reutiliza el inodo. Los
   descartes ya guardados sin ella se comprueban como antes. Descartar una nota
   en el Mac debe seguir borrando su copia.
+- Leer una nota toma la ficha, las versiones, los recibos y sus proyecciones en
+  una sola transacción (`rowsTogether`). Antes eran lecturas sueltas y una
+  escritura en medio daba «version y su proyección no coinciden»; en el CI del
+  Mac fallaba `paquete_legacy_js_ejecuta_flujo_en_sidecar_compilado`.
 
 Después, la suite completa del bloque «Construir y comprobar» del `CLAUDE.md`,
 con `sidecar.test.ts` entero, incluidas sus pruebas de aislamiento.
