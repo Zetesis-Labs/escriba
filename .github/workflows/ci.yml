@@ -148,7 +148,7 @@ jobs:
       - name: flatpak-builder y Flathub
         run: |
           sudo apt-get update
-          sudo apt-get install -y flatpak
+          sudo apt-get install -y flatpak dbus
           # Ubuntu 24.04 blocks the unprivileged user namespaces bubblewrap needs.
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
@@ -157,7 +157,8 @@ jobs:
       - name: Construir el Flatpak
         env:
           FLATPAK_BUILDER: flatpak run org.flatpak.Builder
-        run: scripts/build-linux-flatpak.sh --bundle "$PWD/Escriba-${{ matrix.arch }}.flatpak"
+        # The sandboxed builder installs the SDK through the session bus, which a runner lacks.
+        run: dbus-run-session -- scripts/build-linux-flatpak.sh --bundle "$PWD/Escriba-${{ matrix.arch }}.flatpak"
       - uses: actions/upload-artifact@v4
         with:
           name: escriba-flatpak-${{ matrix.arch }}
