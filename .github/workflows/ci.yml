@@ -148,11 +148,15 @@ jobs:
       - name: flatpak-builder y Flathub
         run: |
           sudo apt-get update
-          sudo apt-get install -y flatpak flatpak-builder
+          sudo apt-get install -y flatpak
           # Ubuntu 24.04 blocks the unprivileged user namespaces bubblewrap needs.
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+          # Ubuntu's flatpak-builder 1.4.2 lets CMake install into /app/lib64, where the tray modules do not look.
+          flatpak install --user -y --noninteractive flathub org.flatpak.Builder
       - name: Construir el Flatpak
+        env:
+          FLATPAK_BUILDER: flatpak run org.flatpak.Builder
         run: scripts/build-linux-flatpak.sh --bundle "$PWD/Escriba-${{ matrix.arch }}.flatpak"
       - uses: actions/upload-artifact@v4
         with:

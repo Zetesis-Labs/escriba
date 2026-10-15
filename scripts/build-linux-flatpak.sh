@@ -9,7 +9,9 @@ FLATPAK="$PROJECT/packaging/flatpak"
 DEB=$(ls -t "$PROJECT"/apps/tauri/src-tauri/target/release/bundle/deb/*.deb 2>/dev/null | head -1)
 if [[ -z "$DEB" ]]; then echo "Falta el .deb: ejecuta scripts/build-linux.sh --release" >&2; exit 1; fi
 cp "$DEB" "$FLATPAK/Escriba.deb"
-BUILD=(flatpak-builder --user --force-clean --install-deps-from=flathub
+# FLATPAK_BUILDER picks another builder, such as "flatpak run org.flatpak.Builder".
+read -ra BUILDER <<<"${FLATPAK_BUILDER:-flatpak-builder}"
+BUILD=("${BUILDER[@]}" --user --force-clean --install-deps-from=flathub
   --state-dir "$FLATPAK/.flatpak-builder" "$FLATPAK/build" "$FLATPAK/es.zetesis.Escriba.yml")
 if [[ "${1:-}" == "--bundle" ]]; then
   BUNDLE="${2:?Falta el archivo .flatpak}"
