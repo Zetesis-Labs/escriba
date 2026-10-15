@@ -14,6 +14,20 @@ nativas de Apple. Se distribuye una sola aplicación: **Escriba.app**.
 
 ## Empezar
 
+Requiere macOS 26 y un Mac con Apple Silicon (M1 o posterior). Para instalar la
+versión publicada, descarga el ZIP de macOS desde la
+[release oficial](https://github.com/Zetesis-Labs/escriba/releases), descomprímelo
+y arrastra `Escriba.app` a Aplicaciones. Después, abre la app. Si macOS bloquea
+la apertura, ve a **Ajustes del Sistema > Privacidad y seguridad > Abrir
+igualmente** y confirma que quieres abrir Escriba. Consulta también las
+[instrucciones de Apple](https://support.apple.com/es-es/102445).
+
+La distribución para macOS es provisional: está firmada ad hoc y Apple todavía
+no la ha notarizado. El ZIP incluye `LEEME.txt` con estos pasos. La release
+ofrece también `SHA256SUMS-macos-arm64` para comprobar el checksum del ZIP.
+
+También puedes compilar e instalar desde el código fuente:
+
 ```sh
 ./scripts/build-app.sh --release
 ./scripts/install-app.sh --release

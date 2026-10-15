@@ -270,12 +270,18 @@ las recetas, graba y reproduce m4a.
   desinstalado y sus datos siguen en `~/.var/app/es.zetesis.Escriba`.
 - Para Flathub faltan: verificar `zetesis.es`, capturas y una release con el `.deb`.
 
-Releases (Rubén, 2026-10-15): release-please (`release-please-config.json`,
-desde el `main` anterior a Linux) mantiene una PR de versión; al fusionarla
-etiqueta `vX.Y.Z`, publica la release y `.github/workflows/release.yml` adjunta
-el `.deb`, el `.rpm`, el `.flatpak` de x86_64 y `SHA256SUMS`. La versión vive en
-`tauri.conf.json` y `apps/tauri/package.json`. El `.app` del Mac no se adjunta
-hasta que se firme y notarice.
+Releases (decisión de Rubén, 2026-10-15): release-please
+(`release-please-config.json`, desde el `main` anterior a Linux) mantiene una PR
+de versión; al fusionarla etiqueta `vX.Y.Z`, publica la release y
+`.github/workflows/release.yml` adjunta el `.deb`, el `.rpm`, el `.flatpak` de
+x86_64 y `SHA256SUMS`. La versión vive en `tauri.conf.json` y
+`apps/tauri/package.json`. La release incluye también
+`Escriba_X.Y.Z_macos_arm64_sin-notarizar.zip` y
+`SHA256SUMS-macos-arm64`, construidos en `macos-26` para Apple Silicon. El ZIP
+contiene `Escriba.app` y `LEEME.txt`; la app lleva firma ad hoc y aún no está
+notarizada por Apple. Esta publicación es provisional mientras se resuelve la
+notarización. `workflow_dispatch` permite añadir el paquete de macOS a una
+release existente indicando su tag.
 
 ## Fuera de este plan: la sesión del Mac
 
