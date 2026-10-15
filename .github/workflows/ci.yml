@@ -85,6 +85,20 @@ jobs:
           bun-version: ${{ steps.bun.outputs.version }}
       - name: Construir los paquetes
         run: ./scripts/build-linux.sh --release
+      # Before the tests, so the install matrix and the Flatpak check the packages anyway.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: escriba-linux-${{ matrix.arch }}
+          path: |
+            apps/tauri/src-tauri/target/release/bundle/deb/*.deb
+            apps/tauri/src-tauri/target/release/bundle/rpm/*.rpm
+      - name: Cargar el binding de SurrealDB con Node y con Bun
+        working-directory: apps/tauri
+        run: |
+          export NATIVE=$(node --input-type=module -e "import { surrealNative } from './runtime-host/targets.mjs'; const native = surrealNative(process.platform, process.arch); console.log(process.cwd() + '/node_modules/' + native.package + '/' + native.file)")
+          ls -l "$NATIVE"
+          node -e 'require(process.env.NATIVE)'
+          bun -e 'try { require(process.env.NATIVE) } catch (error) { console.error(error, error.cause); process.exit(1) }'
       - name: Pruebas
         run: |
           for crate in native-host sandbox src-tauri; do
@@ -96,16 +110,11 @@ jobs:
           cargo test --manifest-path apps/tauri/src-tauri/Cargo.toml --lib
           npm test --prefix apps/tauri
           npm run typecheck:runtime --prefix apps/tauri
-      - uses: actions/upload-artifact@v4
-        with:
-          name: escriba-linux-${{ matrix.arch }}
-          path: |
-            apps/tauri/src-tauri/target/release/bundle/deb/*.deb
-            apps/tauri/src-tauri/target/release/bundle/rpm/*.rpm
 
   linux-matriz:
     name: Linux ${{ matrix.arch }} · instala en ${{ matrix.image }}
     needs: linux
+    if: ${{ !cancelled() }}
     strategy:
       fail-fast: false
       matrix:
@@ -124,6 +133,7 @@ jobs:
   linux-flatpak:
     name: Linux ${{ matrix.arch }} · Flatpak
     needs: linux
+    if: ${{ !cancelled() }}
     strategy:
       fail-fast: false
       matrix:
