@@ -90,26 +90,43 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'No se pudo adjuntar la distribución de Windows' }
 
   macos:
-    name: macOS arm64 · paquete sin notarizar
+    name: macOS arm64 · paquete de la release
     needs: release-please
     if: ${{ !cancelled() && (needs.release-please.outputs.created == 'true' || github.event_name == 'workflow_dispatch') }}
     runs-on: macos-26
+    defaults:
+      run:
+        working-directory: source
     permissions:
       contents: write
     env:
       TAG: ${{ needs.release-please.outputs.tag || inputs.tag }}
       SWIFT_VERSION: 6.4.0
+      MACOS_NOTARIZE: ${{ vars.MACOS_NOTARIZE || 'false' }}
       APPLE_SIGNING_IDENTITY: '-'
       GH_TOKEN: ${{ github.token }}
     steps:
       - name: Comprobar la release de destino
+        working-directory: .
         run: |
+          case "$MACOS_NOTARIZE" in true|false) ;; *) echo "MACOS_NOTARIZE debe ser true o false" >&2; exit 1 ;; esac
           [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Tag de versión no válido: $TAG" >&2; exit 1; }
           test "$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json tagName --jq .tagName)" = "$TAG"
           test "$(uname -m)" = arm64
       - uses: actions/checkout@v4
         with:
           ref: ${{ env.TAG }}
+          path: source
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: release-tools
+          sparse-checkout: scripts
+          persist-credentials: false
+      - name: Pruebas del empaquetado y la notarización
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: python3 -m unittest discover -s ../release-tools/scripts/tests -p test_macos_package.py -v
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -135,34 +152,27 @@ jobs:
           bun-version: ${{ steps.bun.outputs.version }}
       - name: Construir la app
         run: ./scripts/build-app.sh --release
-      - name: Empaquetar y verificar la firma ad hoc
+      - name: Firmar, notarizar cuando esté activado y empaquetar
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          app=apps/tauri/src-tauri/target/release/bundle/macos/Escriba.app
-          test "$(plutil -extract CFBundleShortVersionString raw "$app/Contents/Info.plist")" = "${TAG#v}"
-          codesign --force --deep --sign - --entitlements apps/tauri/src-tauri/Entitlements.plist "$app"
-          codesign --verify --deep --strict "$app"
-          staging="$RUNNER_TEMP/escriba-macos"
-          mkdir -p "$staging" release-macos
-          ditto "$app" "$staging/Escriba.app"
-          cat > "$staging/LEEME.txt" <<'EOF'
-          Escriba para macOS 26 · Apple Silicon (M1 o posterior)
-
-          Esta versión lleva firma ad hoc y todavía no está notarizada por Apple.
-          Arrastra Escriba.app a Aplicaciones y ábrela.
-          Si macOS bloquea la apertura, ve a Ajustes del Sistema > Privacidad y
-          seguridad > Abrir igualmente y confirma la apertura de Escriba.
-          Más información: https://support.apple.com/es-es/102445
-          EOF
-          archive="Escriba_${TAG#v}_macos_arm64_sin-notarizar.zip"
-          ditto -c -k --sequesterRsrc "$staging" "release-macos/$archive"
-          ditto -x -k "release-macos/$archive" "$RUNNER_TEMP/escriba-verificacion"
-          codesign --verify --deep --strict "$RUNNER_TEMP/escriba-verificacion/Escriba.app"
-          (cd release-macos && shasum -a 256 "$archive" > SHA256SUMS-macos-arm64)
+          ../release-tools/scripts/package-macos.sh apps/tauri/src-tauri/target/release/bundle/macos/Escriba.app "$TAG" release-macos
       - uses: actions/upload-artifact@v4
         with:
           name: escriba-macos-arm64
-          path: release-macos/
+          path: source/release-macos/
           if-no-files-found: error
       - name: Subir el paquete de macOS a la release
         run: |
           gh release upload "$TAG" release-macos/*.zip release-macos/SHA256SUMS-macos-arm64 --repo "$GITHUB_REPOSITORY" --clobber
+          previous="Escriba_${TAG#v}_macos_arm64.zip"
+          if [[ "$MACOS_NOTARIZE" == true ]]; then previous="Escriba_${TAG#v}_macos_arm64_sin-notarizar.zip"; fi
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' > "$RUNNER_TEMP/release-assets"
+          if grep -Fxq "$previous" "$RUNNER_TEMP/release-assets"; then
+            gh release delete-asset "$TAG" "$previous" --repo "$GITHUB_REPOSITORY" --yes
+          fi
