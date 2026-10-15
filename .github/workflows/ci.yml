@@ -8,6 +8,8 @@ on:
 env:
   SWIFT_VERSION: 6.4.0
 
+# Linux jobs run on the runner the repository variable LINUX_RUNNER names
+# (herschel-runners in Zetesis-Labs); a clone without it uses GitHub's.
 jobs:
   macos:
     name: macOS · Escriba y adaptador Swift 6.4
@@ -56,8 +58,7 @@ jobs:
       matrix:
         include:
           - arch: x86_64
-            runner: herschel-runners
-    runs-on: ${{ matrix.runner }}
+    runs-on: ${{ vars.LINUX_RUNNER || 'ubuntu-24.04' }}
     steps:
       - uses: actions/checkout@v4
       - name: Dependencias del sistema
@@ -118,7 +119,7 @@ jobs:
       matrix:
         arch: [x86_64]
         image: ["ubuntu:24.04", "ubuntu:26.04", "debian:13", "fedora:44", "fedora:43"]
-    runs-on: herschel-runners
+    runs-on: ${{ vars.LINUX_RUNNER || 'ubuntu-24.04' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
@@ -137,8 +138,7 @@ jobs:
       matrix:
         include:
           - arch: x86_64
-            runner: herschel-runners
-    runs-on: ${{ matrix.runner }}
+    runs-on: ${{ vars.LINUX_RUNNER || 'ubuntu-24.04' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
