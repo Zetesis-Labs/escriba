@@ -110,6 +110,11 @@ Código del Mac que se movió tal cual desde Linux, sin compilarlo:
   una sola transacción (`rowsTogether`). Antes eran lecturas sueltas y una
   escritura en medio daba «version y su proyección no coinciden»; en el CI del
   Mac fallaba `paquete_legacy_js_ejecuta_flujo_en_sidecar_compilado`.
+- En las pruebas, `storage::released` ya no usa `flock` sobre el `LOCK` de
+  RocksDB (que bloquea con `fcntl`): espera a que el proceso cierre su
+  descriptor, buscado en `/dev/fd` con `F_GETPATH`. En el CI del Mac fallaba a
+  veces `base_dispatch_sincroniza_cambios_borrados_y_reconstruye_grafo_perdido`
+  con un `MANIFEST` que apuntaba a un `.sst` borrado.
 
 Después, la suite completa del bloque «Construir y comprobar» del `CLAUDE.md`,
 con `sidecar.test.ts` entero, incluidas sus pruebas de aislamiento.

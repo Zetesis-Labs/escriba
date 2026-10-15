@@ -73,7 +73,7 @@ async fn connect(path: &Path, config: Config, root: Option<&Root>) -> Result<Sur
     }
 }
 
-#[cfg(all(test, any(target_os = "macos", target_os = "windows")))]
+#[cfg(all(test, target_os = "windows"))]
 pub(crate) async fn released(path: &Path) -> Result<(), String> {
     use fs2::FileExt;
     let lock = path.join("LOCK");
@@ -96,7 +96,7 @@ pub(crate) async fn released(path: &Path) -> Result<(), String> {
 
 // RocksDB locks with fcntl, which on Linux neither conflicts with flock nor
 // with other locks of the same process; its open LOCK descriptor does tell.
-#[cfg(all(test, target_os = "linux"))]
+#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
 pub(crate) async fn released(path: &Path) -> Result<(), String> {
     let lock = path.join("LOCK");
     for _ in 0..400 {
@@ -106,6 +106,27 @@ pub(crate) async fn released(path: &Path) -> Result<(), String> {
         tokio::time::sleep(Duration::from_millis(25)).await;
     }
     Err(format!("{} no liberó su bloqueo", path.display()))
+}
+
+#[cfg(all(test, target_os = "macos"))]
+fn held_by_this_process(lock: &Path) -> bool {
+    use std::os::unix::ffi::OsStrExt;
+    let Ok(lock) = lock.canonicalize() else {
+        return false;
+    };
+    std::fs::read_dir("/dev/fd")
+        .into_iter()
+        .flatten()
+        .filter_map(|entry| entry.ok()?.file_name().to_str()?.parse::<i32>().ok())
+        .any(|descriptor| {
+            let mut buffer = [0u8; libc::PATH_MAX as usize];
+            // SAFETY: F_GETPATH writes at most PATH_MAX bytes, NUL included, into the buffer.
+            let found = unsafe { libc::fcntl(descriptor, libc::F_GETPATH, buffer.as_mut_ptr()) };
+            found == 0
+                && std::ffi::CStr::from_bytes_until_nul(&buffer).is_ok_and(|path| {
+                    Path::new(std::ffi::OsStr::from_bytes(path.to_bytes())) == lock
+                })
+        })
 }
 
 #[cfg(all(test, target_os = "linux"))]
