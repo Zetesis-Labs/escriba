@@ -13,6 +13,7 @@ function library(versions: Version[] = [], currentVersionId?: string) {
   const state: Snapshot = structuredClone({ ...snapshot, recipes: [...BUILTIN_RECIPES] });
   state.recordings[0].versions = structuredClone(versions);
   if (currentVersionId) state.recordings[0].currentVersionId = currentVersionId;
+  if (versions.length) state.recordings[0].status = "done";
   const calls: Array<{ method: string; params: Record<string, unknown> }> = [];
   const memory = new Map<string, unknown>();
   let summaries = 0;
@@ -32,8 +33,9 @@ function library(versions: Version[] = [], currentVersionId?: string) {
       return undefined;
     },
   };
+  const statuses = () => calls.filter((call) => call.method === "recording_update").map((call) => call.params.status);
   const writes = () => calls.filter((call) => ["version_save", "version_update", "version_select"].includes(call.method));
-  return { state, host, calls, writes, summaries: () => summaries };
+  return { state, host, calls, writes, statuses, summaries: () => summaries };
 }
 
 function runner(steps: (context: WorkerContext) => Promise<unknown>, tasks: WorkerTask[] = []): RuntimeRunner {
@@ -150,4 +152,27 @@ test("una receta de código no recibe programa de serie", async () => {
   const controller = createRuntime(host, runner(async (context) => context.call("note", {}), tasks));
   await controller.processRecording("r", { recipeId: "ejemplo" });
   assert.deepEqual([tasks[0].program, tasks[0].payload.builtin], ["var __recipe={}", undefined]);
+});
+
+test("una receta que no transcribe no cambia el estado de una nota transcrita, ni al terminar ni al fallar", async () => {
+  const { host, statuses } = library([version("v1", "texto")], "v1");
+  await createRuntime(host, runner(async (context) => context.call("note", {}))).processRecording("r");
+  const failing = createRuntime(
+    host,
+    runner(async (context) => {
+      await context.call("note", {});
+      throw Error("LLM caído");
+    }),
+  );
+  await assert.rejects(failing.processRecording("r"), /LLM caído/);
+  assert.deepEqual(statuses(), []);
+});
+
+test("transcribir lleva la nota por procesando hasta terminada, y una nota sin versión empieza procesando", async () => {
+  const transcribed = library([version("v1", "texto")], "v1");
+  await createRuntime(transcribed.host, runner(async (context) => context.call("transcribe", {}))).processRecording("r");
+  assert.deepEqual(transcribed.statuses(), ["processing", "done"]);
+  const empty = library();
+  await assert.rejects(createRuntime(empty.host, runner(async (context) => context.call("note", {}))).processRecording("r"), /no produjo/);
+  assert.deepEqual(empty.statuses(), ["processing", "failed"]);
 });
