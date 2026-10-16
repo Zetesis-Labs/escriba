@@ -401,6 +401,9 @@ test("combinar une las copias en el orden dado, da de alta la combinada con sus 
   const statuses = Object.fromEntries(arr((await f.library.snapshot()).recordings).map((item) => [obj(item).id, obj(item).status]));
   assert.deepEqual([statuses[first], statuses[second], statuses[str(record.id)]], ["discarded", "discarded", "pending"]);
   assert.ok(!existsSync(str(request!.outputPath)));
+  await f.queue.automatic();
+  const queued = arr(await f.queue.visible()).map((job) => obj(job));
+  assert.ok(queued.some((job) => job.operation === "processRecording" && obj(job.args).recordingId === record.id), "la combinada entra en la cola como cualquier pendiente");
 });
 
 test("combinar se niega antes de unir si falta audio, y nombra la nota cuando el host no puede leer una pieza", async () => {
