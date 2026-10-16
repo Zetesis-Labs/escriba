@@ -90,9 +90,12 @@ function parse(schema: unknown, value: unknown): unknown {
 function noteObject(
   raw: unknown,
   dataSchema?: unknown,
-): Record<string, unknown> {
+): { note: Record<string, unknown>; refresh: (raw: unknown) => void } {
   let current = object(raw);
   let data: unknown = current.datos ?? null;
+  const refresh = (next: unknown) => {
+    current = object(next);
+  };
   const note = {
     get clave() {
       return current.clave;
@@ -151,7 +154,7 @@ function noteObject(
       await rpc("graph.link", { noteId: current.handle, ontologyId, recordId, expectedVersion });
     },
   };
-  return note;
+  return { note, refresh };
 }
 async function recipe(task: WorkerTask) {
   const p = task.payload;
@@ -191,10 +194,18 @@ async function recipe(task: WorkerTask) {
   const dataSchema = metadata.datos;
   const audio = Object.freeze(object(p.audio));
   const notes = new WeakMap<object, unknown>();
+  const byHandle = new Map<unknown, ReturnType<typeof noteObject>>();
   const asNote = (raw: unknown) => {
-    const note = noteObject(raw, dataSchema);
-    notes.set(note, object(raw).handle);
-    return note;
+    const handle = object(raw).handle;
+    const known = byHandle.get(handle);
+    if (known) {
+      known.refresh(raw);
+      return known.note;
+    }
+    const created = noteObject(raw, dataSchema);
+    byHandle.set(handle, created);
+    notes.set(created.note, handle);
+    return created.note;
   };
   const lookup = (
     key: string,
