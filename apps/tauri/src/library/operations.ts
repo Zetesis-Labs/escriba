@@ -32,7 +32,16 @@ export async function chooseVersion(recording: Recording, version: Version) {
 async function saveCorrection(recording: Recording, transcript: Transcript, teaching?: { speaker: string; person: string; existingOnly?: boolean }) {
   const version = currentVersion(recording);
   if (!version) return;
-  const saved = await call<Version>("version_save", { recordingId: recording.id, sourceVersionId: version.id, transcript, digest: version.digest ?? null, backend: "correccion", ...(teaching ? { teaching } : {}) });
+  const saved = await call<Version>("version_save", {
+    recordingId: recording.id,
+    sourceVersionId: version.id,
+    transcript,
+    digest: version.digest ?? null,
+    data: version.data ?? null,
+    ...(version.inputs ? { inputs: version.inputs } : {}),
+    backend: "correccion",
+    ...(teaching ? { teaching } : {}),
+  });
   await republish(recording);
   return saved;
 }

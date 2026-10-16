@@ -180,6 +180,22 @@ test("transcribir con los criterios de la versión de partida devuelve la suya s
   assert.deepEqual([transcriptions(), of("version_save").length], [0, 0]);
 });
 
+test("una corrección antigua sin criterios se reconoce con los de su versión anterior y no se vuelve a transcribir", async () => {
+  const legacy = version("v2", "corregida a mano", { backend: "correccion", inputs: undefined });
+  const { host, of, transcriptions } = library([version("v1", "original"), legacy], "v2");
+  const controller = createRuntime(
+    host,
+    runner(async (context) => {
+      const open = await note(context);
+      const transcribed = (await context.call("transcribe", { handle: open.handle, stt: "local-stt", idioma: "es" })) as Note;
+      assert.equal(transcribed.texto, "corregida a mano");
+      await context.call("save", { handle: open.handle, data: null });
+    }),
+  );
+  await controller.processRecording("r");
+  assert.deepEqual([transcriptions(), of("version_save").length], [0, 0]);
+});
+
 test("editar escribe en la propia versión, también su transcripción, sin crear otra", async () => {
   const { host, recording, of } = library([version("v1", "uno"), version("v2", "dos")], "v2");
   const controller = createRuntime(
