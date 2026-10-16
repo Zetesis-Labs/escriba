@@ -101,10 +101,12 @@ no se ha podido leer. Preservar la lectura de datos ya guardados al actualizar.
   abierta al encolar el trabajo (`escriba.nota`) o de la que pida. Lo que
   cambia sustituye su parte; al `guardar()` queda una versión nueva que hereda
   de su origen lo demás y pasa a vigente, o con `editar` cambia esa misma.
-  Sin cambios no crea versión. Componer es pasarse la misma nota. Con los
-  criterios de la versión de origen, transcribir no vuelve a transcribir.
-  Reintentos y Relanzar parten de la misma versión. La memoria es de la
-  grabación. La transcripción se guarda antes de resumir. Un resumen vacío es
+  Sin cambios no crea versión ni cambia la vigente; vincular al grafo es la
+  única excepción y materializa la nota. Componer es pasarse la misma nota.
+  Con los criterios de la versión de origen, transcribir no vuelve a
+  transcribir, salvo en un reprocesado a mano (`force`), que rehace una vez
+  por ejecución cada transcripción, resumen y pregunta. Reintentos y
+  Relanzar parten de la misma versión. La memoria es de la grabación. La transcripción se guarda antes de resumir. Un resumen vacío es
   un error; si falla el resumen, la nota transcrita se conserva y el fallo se
   muestra.
 - El resumen pertenece a la versión y se hereda en las derivadas. «Resumir»

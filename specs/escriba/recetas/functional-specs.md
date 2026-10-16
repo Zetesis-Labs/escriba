@@ -189,8 +189,13 @@ escribe `datos`.
   primera transcripción, resumen o respuesta de la nota, sin ser vigente.
 - **La versión pasa a vigente cuando la receta llama a `guardar()`.** Hasta
   entonces existe pero no sustituye a la anterior. `guardar()` sobre una nota
-  sin cambios no crea versión y deja vigente la de origen. Hoy pasa a vigente
-  al transcribir y `guardar()` solo añade `datos`.
+  sin cambios no crea versión ni cambia la vigente: solo una versión nueva o
+  `editar` tocan lo que la persona ve. Hoy pasa a vigente al transcribir y
+  `guardar()` solo añade `datos`.
+- **Vincular una nota al grafo** la materializa aunque no haya cambiado: queda
+  una versión igual a la de origen con el vínculo, y `guardar()` la deja
+  vigente. Es la única excepción a «sin cambios no hay versión», porque
+  vincular la de origen sería cambiarla sin `editar`.
 - **Una receta que vuelve sin `guardar()` deja la nota saltada**, tanto si
   volvió antes de transcribir como si transcribió y decidió no quedarse con
   el resultado: la versión queda guardada pero no vigente, y la nota lo
@@ -256,15 +261,20 @@ se reintenta.
   criterios, resumen y respuestas por huella de la petición (LLM,
   instrucciones, entrada, esquema), publicaciones por recibo. El mismo texto
   con el mismo LLM y las mismas instrucciones no se vuelve a resumir aunque
-  esté en otra versión. Un reprocesado a mano rehace una vez cada resumen y
-  cada pregunta; sus reintentos reutilizan lo que ese mismo reprocesado
-  obtuvo.
+  esté en otra versión. Un reprocesado a mano («Reprocesar», «Resumir» de la
+  nota) rehace una vez cada transcripción, resumen y pregunta, aunque la
+  versión de partida tenga esos criterios; sus reintentos, los trabajos
+  automáticos y «Probar con una nota» reutilizan lo que ya hay, incluido lo
+  que ese mismo reprocesado obtuvo. Hoy la memoria de resúmenes y preguntas
+  solo se consulta en esos casos: un reprocesado a mano siempre la rehace.
 - Reutilizar una transcripción con hablantes exige que la versión conserve
   sus huellas; si no, se vuelve a diarizar.
 - Un STT remoto con `hablantes.detectar` es un error, nunca texto sin
   hablantes. Sin elección, transcribir y resumir usan el motor local.
 - Un resumen vacío es un error. Si falla el resumen, la nota transcrita se
-  conserva y el fallo se muestra.
+  conserva y el fallo se muestra: en la nota si la ejecución la transcribió o
+  la nota no tenía versión; si no, solo en Trabajos, porque una ejecución que
+  no transcribe no cambia el estado de la nota (§6.3).
 - `preguntar` valida la respuesta con el esquema de Zod antes de dársela a la
   receta; sin troceado automático. Se recuerdan por grabación, también las
   hechas antes de transcribir.
@@ -332,8 +342,10 @@ La plataforma no fija sobre qué versión trabaja una receta: la pide ella.
   resumen, datos).
 - `nota.transcribir(opciones)` sustituye la transcripción de la nota. Con los
   criterios de su versión de origen devuelve la de origen, correcciones
-  incluidas, sin cambiar nada; con otros, reutiliza la de otra versión con
-  esos criterios o transcribe. Resumen y datos se conservan.
+  incluidas, sin cambiar nada ni pasar la nota por «procesando»; con otros,
+  reutiliza la de otra versión con esos criterios o transcribe. En un
+  reprocesado a mano transcribe una vez por ejecución aunque los criterios
+  coincidan (§6.7). Resumen y datos se conservan.
   `escriba.transcribir(audio, opciones)` es lo mismo sobre `escriba.nota(audio)`.
 - Lo que corrigió la persona es la entrada: si la versión de partida es una
   corrección, la nota llega con sus hablantes, segmentos y datos.
@@ -342,7 +354,8 @@ La plataforma no fija sobre qué versión trabaja una receta: la pide ella.
   vale solo para esa ejecución y no se guarda en los valores de la receta;
   vacío es la versión de partida. Al configurar la receta sin nota delante
   aparece fijo en «la abierta».
-- En «Probar con una nota» lee igual y no guarda nada.
+- En «Probar con una nota» lee igual, reutiliza la transcripción que ya hay y
+  no guarda nada.
 - Solo puede pedir notas y versiones de su grabación.
 
 ### 6.10 Versiones derivadas (decidido 2026-10-16)

@@ -38,8 +38,10 @@ import type { Lists } from "./defaultRecipe";
 import { normalizeTranscriptionInputs, withCorrectionCriteria } from "../core/transcriptionMemory";
 import {
   confirmedVersionId,
+  materialized,
   noteView,
   openNote,
+  transcriptionKey,
   transcriptionPlan,
   versionSaveParams,
   versionsView,
@@ -234,6 +236,7 @@ export function createRuntime(
       const fresh = processOptions.force ?? true;
       let accountMutation = false;
       const recomputed = fresh && !processOptions.dryRun ? new Set<string>() : undefined;
+      const retranscribed = fresh && !processOptions.dryRun ? new Set<string>() : undefined;
       const remembering = !processOptions.dryRun;
       const base = startingVersion(recording, processOptions.baseVersionId);
       const notes = new Map<string, WorkingNote>();
@@ -267,6 +270,11 @@ export function createRuntime(
         notes.set(note.handle, note);
         return note;
       };
+      const update = (note: WorkingNote) => {
+        notes.set(note.handle, note);
+        if (inCourse?.handle === note.handle) inCourse = note;
+        return note;
+      };
       const noteOf = (handle: unknown) => {
         aborted(signal);
         if (handle === undefined) return (inCourse ??= open(base, false));
@@ -283,27 +291,27 @@ export function createRuntime(
         if (index < 0) recording.versions.push(version);
         else recording.versions[index] = version;
       };
-      const materialize = async (note: WorkingNote, recipeId: string, transcriptChanged = false) => {
+      const materialize = async (opened: WorkingNote, recipeId: string, transcriptChanged = false): Promise<WorkingNote> => {
         aborted(signal);
         if (processOptions.dryRun) {
-          note.versionId ??= `dry-${recording.versions.length}`;
+          const note = update(materialized(opened, opened.versionId ?? `dry-${recording.versions.length}`));
           const { recordingId: _recording, select: _select, voicesFrom: _voices, job: _job, ...fields } = versionSaveParams(note, id, recipeId);
-          place({ ...(fields as unknown as Version), id: note.versionId, createdAt: new Date().toISOString() });
-          return;
+          place({ ...(fields as unknown as Version), id: note.versionId!, createdAt: new Date().toISOString() });
+          return note;
         }
-        if (!note.versionId && processOptions.jobId) {
-          const earlier = recording.versions.find((v) => v.job?.id === processOptions.jobId && v.job?.note === note.key);
-          if (earlier) note.versionId = earlier.id;
-        }
+        const earlier = opened.versionId || !processOptions.jobId
+          ? undefined
+          : recording.versions.find((v) => v.job?.id === processOptions.jobId && v.job?.note === opened.key);
+        const note = earlier ? update(materialized(opened, earlier.id)) : opened;
         if (note.versionId) {
           const updated = await request<Version | null>(host, "version_update", versionUpdateParams(note, id, note.versionId, transcriptChanged));
           const local = recording.versions.find((v) => v.id === note.versionId);
           place(updated ?? { ...(local as Version), transcript: note.transcript!, inputs: note.inputs, digest: note.digest ?? null, data: note.data ?? null });
-        } else {
-          const saved = await request<Version>(host, "version_save", versionSaveParams(note, id, recipeId, processOptions.jobId));
-          note.versionId = saved.id;
-          place(saved);
+          return note;
         }
+        const saved = await request<Version>(host, "version_save", versionSaveParams(note, id, recipeId, processOptions.jobId));
+        place(saved);
+        return update(materialized(note, saved.id));
       };
       const execute = async (
         recipe: Recipe,
@@ -395,11 +403,8 @@ export function createRuntime(
                     if (operation === "graph.link") {
                       if (ontologyId === "escriba")
                         throw Error("La base de Escriba ya deriva sus registros de la biblioteca; no se puede vincular una nota a ella");
-                      const note = transcribed(noteOf(args.noteId));
-                      if (!note.versionId) {
-                        note.changed = true;
-                        await materialize(note, recipe.id);
-                      }
+                      const opened = transcribed(noteOf(args.noteId));
+                      const note = opened.versionId ? opened : await materialize(update({ ...opened, changed: true }), recipe.id);
                       return await host.call("knowledge_link", {
                         ...params, expectedVersion: args.expectedVersion,
                         versionId: note.versionId, recordId: text(args.recordId, "registro"),
@@ -415,11 +420,7 @@ export function createRuntime(
                     });
                   }
                   case "transcribe": {
-                    const note = noteOf(args.handle);
-                    if (!ownsStatus && !processOptions.dryRun) {
-                      ownsStatus = true;
-                      await host.call("recording_update", { id, status: "processing", error: null });
-                    }
+                    const opened = noteOf(args.handle);
                     const backend = selected(
                       snapshot,
                       "stt",
@@ -450,17 +451,22 @@ export function createRuntime(
                           ? speakers.cuantos
                           : null,
                     });
-                    const plan = transcriptionPlan(note, inputs, recording.versions);
-                    if (plan.kind === "keep") return view(note);
+                    const plan = transcriptionPlan(opened, inputs, recording.versions, retranscribed);
+                    if (plan.kind === "keep") return view(opened);
+                    if (!ownsStatus && !processOptions.dryRun) {
+                      ownsStatus = true;
+                      await host.call("recording_update", { id, status: "processing", error: null });
+                    }
+                    let note: WorkingNote;
                     if (plan.kind === "reuse") {
                       stage(id, "Reutilizando transcripción");
-                      withTranscript(note, {
+                      note = update(withTranscript(opened, {
                         transcript: plan.version.transcript,
                         inputs,
                         backend: plan.version.backend,
                         hasVoices: plan.version.hasVoices === true,
                         voicesFrom: plan.version.id,
-                      });
+                      }));
                     } else {
                       stage(id, "Transcribiendo");
                       let transcript: Transcript;
@@ -489,16 +495,16 @@ export function createRuntime(
                         throw Error(
                           "El transcriptor devolvió una respuesta no válida",
                         );
-                      withTranscript(note, {
+                      note = update(withTranscript(opened, {
                         transcript,
                         inputs,
                         backend: backend.id,
                         hasVoices: inputs.diarize === true,
                         voicesFrom: null,
-                      });
+                      }));
                     }
-                    await materialize(note, recipe.id, true);
-                    return view(note);
+                    retranscribed?.add(transcriptionKey(inputs));
+                    return view(await materialize(note, recipe.id, true));
                   }
                   case "note": {
                     const editing = args.editar === true;
@@ -553,17 +559,15 @@ export function createRuntime(
                       if (nativeOwner === owner) nativeOwner = undefined;
                     }
                     aborted(signal);
-                    withDigest(note, digest);
-                    await materialize(note, recipe.id);
-                    return view(note);
+                    return view(await materialize(update(withDigest(note, digest)), recipe.id));
                   }
                   case "save": {
-                    const note = transcribed(noteOf(args.handle));
-                    const dataChanged = "data" in args && withData(note, json(args.data));
-                    if (dataChanged || (note.changed && !note.versionId))
-                      await materialize(note, recipe.id);
-                    const target = confirmedVersionId(note)!;
+                    const opened = transcribed(noteOf(args.handle));
+                    const changed = "data" in args ? update(withData(opened, json(args.data))) : opened;
+                    const note = changed !== opened || (changed.changed && !changed.versionId) ? await materialize(changed, recipe.id) : changed;
                     aborted(signal);
+                    if (!note.changed) return view(note);
+                    const target = note.versionId!;
                     if (!processOptions.dryRun)
                       await host.call("version_select", { recordingId: id, versionId: target });
                     recording.currentVersionId = target;

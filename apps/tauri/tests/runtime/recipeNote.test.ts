@@ -151,7 +151,7 @@ test("componer sobre la misma nota deja una sola versión con transcripción y r
   assert.deepEqual([recording.versions.length, recording.versions[1].digest?.title, recording.currentVersionId], [2, "Resumen 1", "v2"]);
 });
 
-test("guardar una nota sin cambios no crea versión y deja vigente la de partida", async () => {
+test("guardar una nota sin cambios no crea versión ni cambia la vigente", async () => {
   const { host, recording, of } = library([version("v1", "uno"), version("v2", "dos")], "v2");
   const controller = createRuntime(
     host,
@@ -161,12 +161,27 @@ test("guardar una nota sin cambios no crea versión y deja vigente la de partida
     }),
   );
   assert.deepEqual(await controller.processRecording("r", { baseVersionId: "v1" }), { versionId: "v1" });
-  assert.deepEqual([of("version_save"), recording.currentVersionId], [[], "v1"]);
+  assert.deepEqual([of("version_save"), of("version_select"), recording.currentVersionId], [[], [], "v2"]);
 });
 
-test("transcribir con los criterios de la versión de partida devuelve la suya sin transcribir ni crear versión", async () => {
+test("reprocesar a mano con los criterios de la versión de partida vuelve a transcribir una vez por ejecución y crea versión", async () => {
+  const { host, recording, of, transcriptions, statuses } = library([version("v1", "original")], "v1");
+  const controller = createRuntime(
+    host,
+    runner(async (context) => {
+      const open = await note(context);
+      await context.call("transcribe", { handle: open.handle, stt: "local-stt", idioma: "es" });
+      await context.call("transcribe", { handle: open.handle, stt: "local-stt", idioma: "es" });
+      await context.call("save", { handle: open.handle, data: null });
+    }),
+  );
+  await controller.processRecording("r", { force: true });
+  assert.deepEqual([transcriptions(), of("version_save").length, recording.currentVersionId, statuses()], [1, 1, "v2", ["processing", "done"]]);
+});
+
+test("transcribir con los criterios de la versión de partida sin forzar devuelve la suya sin transcribir, sin crear versión ni pasar por procesando", async () => {
   const corrected = version("v2", "corregida", { backend: "correccion", sourceVersionId: "v1" } as Partial<Version>);
-  const { host, of, transcriptions } = library([version("v1", "original"), corrected], "v2");
+  const { host, of, transcriptions, statuses } = library([version("v1", "original"), corrected], "v2");
   const controller = createRuntime(
     host,
     runner(async (context) => {
@@ -176,8 +191,8 @@ test("transcribir con los criterios de la versión de partida devuelve la suya s
       await context.call("save", { handle: open.handle, data: null });
     }),
   );
-  await controller.processRecording("r");
-  assert.deepEqual([transcriptions(), of("version_save").length], [0, 0]);
+  await controller.processRecording("r", { force: false });
+  assert.deepEqual([transcriptions(), of("version_save").length, statuses()], [0, 0, []]);
 });
 
 test("una corrección antigua sin criterios se reconoce con los de su versión anterior y no se vuelve a transcribir", async () => {
@@ -192,7 +207,7 @@ test("una corrección antigua sin criterios se reconoce con los de su versión a
       await context.call("save", { handle: open.handle, data: null });
     }),
   );
-  await controller.processRecording("r");
+  await controller.processRecording("r", { force: false });
   assert.deepEqual([transcriptions(), of("version_save").length], [0, 0]);
 });
 
