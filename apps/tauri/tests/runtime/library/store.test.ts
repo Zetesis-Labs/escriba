@@ -136,6 +136,48 @@ test("copiar versión reetiqueta huellas y rechaza origen de otra nota", async (
   assert.equal((await store.versionVoices(sourceId))[0]!.speaker, "Rubén");
 });
 
+test("una versión derivada se guarda sin hacerse vigente y apunta su origen, su trabajo y de dónde vienen sus huellas", async () => {
+  const audio = space.path("sample.wav");
+  write(audio, "synthetic audio");
+  let store = await space.open();
+  const key = str(obj(await store.import(audio)).id);
+  const segment = (speaker: string) => [{ speaker, start: 0, end: 1, text: "hola", words: [] }];
+  const first = await store.recognizeTranscription(key, { text: "hola", segments: segment("Speaker 1"), voices: [voice("Speaker 1", [1, 0])] });
+  const origin = str(obj(await store.mutate("version_save", { recordingId: key, transcript: first })).id);
+  const second = await store.recognizeTranscription(key, { text: "hola", segments: segment("Speaker 2"), voices: [voice("Speaker 2", [0, 1])] });
+  const retranscribed = obj(
+    await store.mutate("version_save", { recordingId: key, transcript: second, sourceVersionId: origin, voicesFrom: null, select: false, job: { id: "trabajo", note: `${origin}#0` } }),
+  );
+  const kept = obj(await store.mutate("version_save", { recordingId: key, transcript: first, sourceVersionId: origin, digest: { title: "R", summary: "s", tags: [] }, select: false }));
+  assert.equal(obj(await store.recording(key)).currentVersionId, origin);
+  assert.deepEqual((await store.versionVoices(str(retranscribed.id))).map((item) => item.speaker), ["Speaker 2"]);
+  assert.deepEqual((await store.versionVoices(str(kept.id))).map((item) => item.speaker), ["Speaker 1"]);
+  store = await reopen(space, store);
+  const versions = arr(obj(await store.recording(key)).versions).map(obj);
+  assert.deepEqual(
+    versions.map((item) => [item.sourceVersionId ?? null, item.job ?? null]),
+    [
+      [null, null],
+      [origin, { id: "trabajo", note: `${origin}#0` }],
+      [origin, null],
+    ],
+  );
+});
+
+test("actualizar la transcripción de una versión sustituye sus huellas", async () => {
+  const audio = space.path("sample.wav");
+  write(audio, "synthetic audio");
+  const store = await space.open();
+  const key = str(obj(await store.import(audio)).id);
+  const segment = (speaker: string) => [{ speaker, start: 0, end: 1, text: "hola", words: [] }];
+  const first = await store.recognizeTranscription(key, { text: "hola", segments: segment("Speaker 1"), voices: [voice("Speaker 1", [1, 0])] });
+  const versionId = str(obj(await store.mutate("version_save", { recordingId: key, transcript: first })).id);
+  const second = await store.recognizeTranscription(key, { text: "adiós", segments: segment("Speaker 2"), voices: [voice("Speaker 2", [0, 1]), voice("Speaker 3", [1, 1])] });
+  const updated = obj(await store.mutate("version_update", { recordingId: key, versionId, transcript: second, inputs: { diarize: true }, backend: "local-stt", voicesFrom: null }));
+  assert.deepEqual([obj(updated.transcript).text, obj(updated.inputs).diarize, updated.hasVoices], ["adiós", true, true]);
+  assert.deepEqual((await store.versionVoices(versionId)).map((item) => item.speaker), ["Speaker 2", "Speaker 3"]);
+});
+
 test("corregir enseña huellas atómicamente y fusión sin persona solo reetiqueta", async () => {
   const audio = space.path("sample.wav");
   write(audio, "synthetic audio");
@@ -576,8 +618,8 @@ test("borrar limpia memoria, traza, trabajo y huella de versión sin olvidar per
   const version = obj(await store.mutate("version_save", { recordingId: key, transcript }));
   const versionId = str(version.id);
   assert.equal((await store.versionVoices(versionId)).length, 1);
-  await store.memoryKeep(key, versionId, "huella-sintetica", { value: "recuerdo privado" });
-  const memoryKey = JSON.stringify([key, versionId, "huella-sintetica"]);
+  await store.memoryKeep(key, "huella-sintetica", { value: "recuerdo privado" });
+  const memoryKey = JSON.stringify([key, "huella-sintetica"]);
   await store.traceSave({ id: "traza", recordingId: key, startedAt: "2026-10-10", detail: "privado" });
   await store.jobSave({ id: "trabajo", recordingId: key, state: "cancelled" });
   await store.addPersonVoice("Persona", voice("Hablante", [1, 0], "modelo-sintetico"), key);
@@ -847,13 +889,13 @@ test("memorias y trazas sobreviven al reinicio sin entrar en el snapshot", async
   const recordingId = str(obj(await store.import(audio)).id);
   const versionId = str(obj(await store.mutate("version_save", { recordingId, transcript: { text: "hola", segments: [] } })).id);
   const answer = { value: { answer: "respuesta" } };
-  await store.memoryKeep(recordingId, versionId, "fingerprint-1", answer);
+  await store.memoryKeep(recordingId, "fingerprint-1", answer);
   await store.traceSave({ recordingId, recipeId: "default", startedAt: "2026-10-01T00:00:00Z", finishedAt: "2026-10-01T00:00:01Z", steps: [] });
-  assert.deepEqual(await store.memoryRecall(recordingId, versionId, "fingerprint-1"), answer);
+  assert.deepEqual(await store.memoryRecall(recordingId, "fingerprint-1"), answer);
   assert.equal((await store.traceList(recordingId)).length, 1);
   assert.ok(!JSON.stringify(await store.snapshot()).includes("fingerprint-1"));
   store = await reopen(space, store);
-  assert.deepEqual(await store.memoryRecall(recordingId, versionId, "fingerprint-1"), answer);
+  assert.deepEqual(await store.memoryRecall(recordingId, "fingerprint-1"), answer);
   assert.equal((await store.traceList(recordingId)).length, 1);
 });
 
@@ -864,7 +906,7 @@ test("borrar una grabación limpia audio propio, memoria y trazas pero no el ori
   const recordingId = str(obj(await store.import(source)).id);
   const copy = store.audio(recordingId);
   const versionId = str(obj(await store.mutate("version_save", { recordingId, transcript: { text: "hola", segments: [] } })).id);
-  await store.memoryKeep(recordingId, versionId, "fingerprint-1", { value: "x" });
+  await store.memoryKeep(recordingId, "fingerprint-1", { value: "x" });
   await store.traceSave({ recordingId, startedAt: "2026-10-01T00:00:00Z", steps: [] });
   await store.jobSave({ id: "job-active", recordingId, state: "running" });
   await store.mutate("recording_delete", { id: recordingId });
@@ -877,7 +919,7 @@ test("borrar una grabación limpia audio propio, memoria y trazas pero no el ori
   await assert.rejects(store.recording(recordingId));
   assert.deepEqual(await store.traceList(recordingId), []);
   assert.deepEqual(await store.jobs(), []);
-  assert.equal(await store.database.recall(JSON.stringify([recordingId, versionId, "fingerprint-1"])), undefined);
+  assert.equal(await store.database.recall(JSON.stringify([recordingId, "fingerprint-1"])), undefined);
 });
 
 test("un fichero vacío es visible y se reactiva cuando llega el audio", async () => {

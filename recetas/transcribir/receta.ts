@@ -10,6 +10,7 @@ export function buildRecipeForm(listas: ListasDeEscriba) {
 type Parametros = z.output<ReturnType<typeof buildRecipeForm>>
 
 export async function flujo(audio: Audio, escriba: Escriba<Parametros>): Promise<void> {
-  const nota = await transcribir(audio, escriba, escriba.parametros)
+  const nota = await escriba.nota(audio)
+  await transcribir(nota, escriba.parametros)
   await nota.guardar()
 }

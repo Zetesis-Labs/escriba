@@ -24,6 +24,7 @@ const PREVIOUS_TYPES_SHA256: &[&str] = &[
     "976e7e95fa41cffb8273cc14a72ec4fa091e89c9d9d147824f542ff971e3cebe",
     "dd560d43ed138390fcbdaa222ae214a90c04084864c4ed9595596fb4f3a83b8b",
     "7bcbc0a206ebb579fefc562a5aeb8fcc84b963bab156540e968cd9375f42938a",
+    "79937382df1625fde0940602a46c11b07e5b155f12df99f444ed527714cb2afa",
 ];
 const EXAMPLE: &str = include_str!("../../../../recetas/por-defecto/receta.ts");
 const PIECES: &str = include_str!("../../../../recetas/piezas.ts");
@@ -1428,7 +1429,19 @@ mod tests {
     fn refresca_tipos_generados_sin_pisar_tipos_editados() {
         let folder = tempfile::tempdir().unwrap();
         let types = folder.path().join("escriba-recetas.d.ts");
-        let before_note = TYPES.replace("  nota(audio: Audio): Promise<Nota | null>\n", "");
+        let before_versions = TYPES
+            .replace("interface InfoDeVersion {\n  readonly clave: string\n  readonly numero: number\n  readonly fecha: string\n  readonly origen: \"receta\" | \"correccion\"\n  readonly receta: string | null\n  readonly vigente: boolean\n  readonly abierta: boolean\n  readonly criterios: OpcionesDeTranscripcion | null\n  readonly tiene: { readonly hablantes: boolean; readonly resumen: boolean; readonly datos: boolean }\n}\n\ninterface OpcionesDeNota {\n  version?: string\n  editar?: boolean\n}\n\n", "")
+            .replace("  readonly origen: number | null\n", "")
+            .replace("  transcribir(opciones?: OpcionesDeTranscripcion): Promise<Nota>\n", "")
+            .replace("  nota(audio: Audio, opciones?: OpcionesDeNota): Promise<Nota>\n  versiones(audio: Audio): Promise<readonly InfoDeVersion[]>\n", "  nota(audio: Audio): Promise<Nota | null>\n");
+        assert_eq!(
+            format!("{:x}", Sha256::digest(before_versions.as_bytes())),
+            PREVIOUS_TYPES_SHA256[4]
+        );
+        fs::write(&types, &before_versions).unwrap();
+        refresh_generated_types(folder.path()).unwrap();
+        assert_eq!(fs::read_to_string(&types).unwrap(), TYPES);
+        let before_note = before_versions.replace("  nota(audio: Audio): Promise<Nota | null>\n", "");
         assert_eq!(
             format!("{:x}", Sha256::digest(before_note.as_bytes())),
             PREVIOUS_TYPES_SHA256[3]

@@ -145,15 +145,15 @@ test("sin programa de proyecto el worker ejecuta la receta por defecto compilada
     {
       call: async (operation, args) => {
         calls.push({ operation, args: args as Record<string, unknown> });
-        if (operation === "transcribe" || operation === "save") return note;
+        if (operation === "note" || operation === "transcribe" || operation === "save") return note;
         if (operation === "summarize") throw Error("motor ocupado");
         if (operation === "publish" && (args as { destinationId: string }).destinationId === "okf") throw Error("carpeta ausente");
         return null;
       },
     },
   );
-  assert.deepEqual(calls.filter((call) => call.operation !== "log").map((call) => call.operation), ["transcribe", "summarize", "save", "publish", "publish"]);
-  assert.deepEqual(calls[0].args, { stt: "local-stt", idioma: "es", hablantes: { detectar: false, cuantos: null } });
+  assert.deepEqual(calls.filter((call) => call.operation !== "log").map((call) => call.operation), ["note", "transcribe", "summarize", "save", "publish", "publish"]);
+  assert.deepEqual(calls[1].args, { stt: "local-stt", idioma: "es", hablantes: { detectar: false, cuantos: null }, handle: "v1" });
   assert.deepEqual(calls.filter((call) => call.operation === "publish").map((call) => call.args.destinationId), ["okf", "notion"]);
   const warnings = calls.filter((call) => call.operation === "log").map((call) => call.args);
   assert.ok(warnings.every((entry) => entry.level === "warn"), JSON.stringify(warnings));
@@ -180,13 +180,14 @@ function recording(results: (operation: string, args: Record<string, unknown>) =
     },
   };
 }
-const vigente = { handle: "v2", clave: "r", version: 2, texto: "Texto", segmentos: [], datos: null };
+const vigente = { handle: "v2", clave: "r", version: 2, origen: 2, texto: "Texto", segmentos: [], datos: null };
+const vacia = { handle: "n1", clave: "r", version: null, origen: null, texto: "", segmentos: [], datos: null };
 const conectores = [{ clave: "okf", nombre: "Archivo", activo: true }, { clave: "notion", nombre: "Notion", activo: true }];
-test("Transcribir de serie transcribe con sus valores y guarda sin resumir ni publicar", async () => {
+test("Transcribir de serie transcribe la nota abierta con sus valores y guarda sin resumir ni publicar", async () => {
   const host = recording(() => vigente);
   await runner().run({ kind: "recipe", payload: { ...payload, builtin: "transcribir", values: { idioma: "en", hablantes: { detectar: true } } } }, host);
-  assert.deepEqual(host.operations(), ["transcribe", "save"]);
-  assert.deepEqual(host.calls[0].args, { stt: "local-stt", idioma: "en", hablantes: { detectar: true, cuantos: null } });
+  assert.deepEqual(host.operations(), ["note", "transcribe", "save"]);
+  assert.deepEqual(host.calls[1].args, { stt: "local-stt", idioma: "en", hablantes: { detectar: true, cuantos: null }, handle: "v2" });
 });
 test("Resumir de serie resume la nota vigente con su LLM y su prompt sin transcribir", async () => {
   const host = recording(() => vigente);
@@ -197,7 +198,7 @@ test("Resumir de serie resume la nota vigente con su LLM y su prompt sin transcr
 });
 test("Resumir y Publicar de serie fallan sin tocar nada si la nota no está transcrita", async () => {
   for (const builtin of ["resumir", "publicar"]) {
-    const host = recording(() => null);
+    const host = recording(() => vacia);
     await assert.rejects(
       runner().run({ kind: "recipe", payload: { ...payload, builtin, lists: { ...lists, conectores }, values: builtin === "publicar" ? { conectores: ["okf"] } : {} } }, host),
       /La nota aún no está transcrita/,
@@ -237,18 +238,30 @@ test("una receta de serie desconocida falla nombrándola", async () => {
     /Receta de serie desconocida: traducir/,
   );
 });
-test("escriba.nota devuelve la nota de su grabación o nada, y rechaza otro audio", async () => {
+test("escriba.nota devuelve la nota de su grabación, vacía si nunca se transcribió, y rechaza otro audio", async () => {
   const program = await recipe(`export async function flujo(audio, escriba) {
     const nota = await escriba.nota(audio);
-    console.log(nota === null ? "sin nota" : nota.texto);
+    console.log(nota.version === null ? "sin transcribir" : nota.texto);
     await escriba.nota({ ...audio });
   }`);
-  for (const [answer, logged] of [[vigente, "Texto"], [null, "sin nota"]] as const) {
+  for (const [answer, logged] of [[vigente, "Texto"], [vacia, "sin transcribir"]] as const) {
     const host = recording(() => answer);
     await assert.rejects(runner().run({ kind: "recipe", program, payload }, host), /su grabación/);
     assert.deepEqual(host.operations(), ["note"]);
     assert.equal(host.calls.find((call) => call.operation === "log")?.args.message, logged);
   }
+});
+test("una receta pide otra versión para editarla, lista las versiones y transcribe sobre su nota", async () => {
+  const program = await recipe(`export async function flujo(audio, escriba) {
+    const [primera] = await escriba.versiones(audio);
+    const nota = await escriba.nota(audio, { version: primera.clave, editar: true });
+    await nota.transcribir({ idioma: "es" });
+    await nota.guardar();
+  }`);
+  const host = recording((operation) => (operation === "versions" ? [{ clave: "v1", numero: 1 }] : vigente));
+  await runner().run({ kind: "recipe", program, payload }, host);
+  assert.deepEqual(host.operations(), ["versions", "note", "transcribe", "save"]);
+  assert.deepEqual([host.calls[1].args, host.calls[2].args], [{ version: "v1", editar: true }, { idioma: "es", handle: "v2" }]);
 });
 test("una receta de código sin formulario comunica que no tiene parámetros", async () => {
   const schema = await runner().run(

@@ -636,6 +636,7 @@ async function apply(db: Database, write: LibraryWrite): Promise<boolean> {
   applyAliases(tx, write.recipeAliases ?? new Map());
   if (write.versionVoices) {
     const [versionId, voices] = write.versionVoices;
+    tx.add(`DELETE voice WHERE parent = ${tx.bind(versionId)}`);
     voices.forEach((voice, position) => {
       const record: VersionVoiceRecord = { id: `${versionId}:${position}`, version_id: versionId, speaker: voice.speaker, model: voice.model, embedding: voice.embedding };
       tx.add(`CREATE type::record('voice', ${tx.bind(record.id)}) SET key = ${tx.bind(record.id)}, parent = ${tx.bind(versionId)}, position = ${tx.bind(position)}, payload = ${tx.bind(record)}`);

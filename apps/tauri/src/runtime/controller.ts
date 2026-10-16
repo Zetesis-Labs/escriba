@@ -35,7 +35,20 @@ import { createConnectorService, currentVersion } from "./connectors";
 import { summarizeText } from "./summary";
 import { remember, summaryMemory } from "./memory";
 import type { Lists } from "./defaultRecipe";
-import { normalizeTranscriptionInputs, reusableTranscription, transcriptionCriteriaKey } from "../core/transcriptionMemory";
+import { normalizeTranscriptionInputs } from "../core/transcriptionMemory";
+import {
+  confirmedVersionId,
+  noteView,
+  openNote,
+  transcriptionPlan,
+  versionSaveParams,
+  versionsView,
+  versionUpdateParams,
+  withData,
+  withDigest,
+  withTranscript,
+  type WorkingNote,
+} from "../core/workingNote";
 import { notificationProblems } from "../core/notificationProblems";
 import { recipeWithValues } from "../core/recipeValues";
 import { processingRecipeId } from "../core/recordingRecipe";
@@ -124,36 +137,12 @@ function recipeProgram(
   }
   return undefined;
 }
-function recipeNote(version: Version, recording: Recording) {
-  const transcript = version.transcript;
-  return {
-    handle: version.id,
-    clave: recording.id,
-    version: recording.versions.findIndex((v) => v.id === version.id) + 1,
-    texto: transcript.text,
-    hablantes: [
-      ...new Set(transcript.segments.map((s) => s.speaker).filter(Boolean)),
-    ],
-    segmentos: transcript.segments.map((s) => ({
-      inicio: s.start,
-      fin: s.end,
-      texto: s.text,
-      hablante: s.speaker || null,
-      palabras: (s.words || []).map((w) => ({
-        inicio: w.start,
-        fin: w.end,
-        texto: w.text,
-      })),
-    })),
-    resumen: version.digest
-      ? {
-          titulo: version.digest.title,
-          texto: version.digest.summary,
-          etiquetas: version.digest.tags,
-        }
-      : null,
-    datos: version.data ?? null,
-  };
+function startingVersion(recording: Recording, baseVersionId: string | null | undefined): Version | undefined {
+  if (baseVersionId === null) return undefined;
+  if (baseVersionId === undefined) return recording.versions.length ? currentVersion(recording) : undefined;
+  const found = recording.versions.find((version) => version.id === baseVersionId);
+  if (!found) throw Error("La versión de partida ya no existe");
+  return found;
 }
 export function createRuntime(
   host: RuntimeHost,
@@ -243,11 +232,14 @@ export function createRuntime(
       const chosen = lookup(snapshot.recipes, requestedRecipe, "Receta");
       const fresh = processOptions.force ?? true;
       let accountMutation = false;
-      const renewed = new Set<string>();
       const recomputed = fresh && !processOptions.dryRun ? new Set<string>() : undefined;
-      let current: Version | undefined;
+      const remembering = !processOptions.dryRun;
+      const base = startingVersion(recording, processOptions.baseVersionId);
+      const notes = new Map<string, WorkingNote>();
+      const opened = new Map<string, number>();
+      let inCourse: WorkingNote | undefined;
+      let confirmed: string | undefined;
       let ownsStatus = !recording.versions.length;
-      let savedData: JSONValue | undefined;
       const warnings: string[] = [];
       const traceStarted = new Date().toISOString();
       const traceSteps: {
@@ -263,47 +255,54 @@ export function createRuntime(
         warnings.push(value);
         await writeLog(id, value, "warn", recipeId);
       };
-      const active = () => {
-        aborted(signal);
-        if (!current) throw Error("Primero transcribe la grabación");
-        return current;
+      const view = (note: WorkingNote) => noteView(note, recording);
+      const open = (origin: Version | undefined, editing: boolean) => {
+        const editingAlready = editing && [...notes.values()].find((note) => note.editing && note.origin?.id === origin?.id);
+        if (editingAlready) return editingAlready;
+        const prefix = origin?.id ?? "";
+        const count = opened.get(prefix) ?? 0;
+        opened.set(prefix, count + 1);
+        const note = openNote(`nota-${notes.size + 1}`, `${prefix}#${count}`, origin, editing);
+        notes.set(note.handle, note);
+        return note;
       };
-      const keep = async (version: Version) => {
-        current = version;
+      const noteOf = (handle: unknown) => {
+        aborted(signal);
+        if (handle === undefined) return (inCourse ??= open(base, false));
+        const note = notes.get(String(handle));
+        if (!note) throw Error("La nota no pertenece a esta ejecución");
+        return note;
+      };
+      const transcribed = (note: WorkingNote) => {
+        if (!note.transcript) throw Error("La nota aún no está transcrita");
+        return note;
+      };
+      const place = (version: Version) => {
         const index = recording.versions.findIndex((v) => v.id === version.id);
         if (index < 0) recording.versions.push(version);
         else recording.versions[index] = version;
       };
-      const persist = async (
-        transcript: Transcript,
-        backend: string,
-        inputs: JSONObject,
-        recipeId: string,
-        sourceVersionId?: string,
-      ) => {
-        if (processOptions.dryRun) {
-          const version: Version = {
-            id: `dry-${recording.versions.length}`,
-            createdAt: new Date().toISOString(),
-            backend,
-            recipeId,
-            transcript,
-            inputs,
-          };
-          await keep(version);
-          return version;
-        }
+      const materialize = async (note: WorkingNote, recipeId: string, transcriptChanged = false) => {
         aborted(signal);
-        const version = await request<Version>(host, "version_save", {
-          recordingId: id,
-          transcript,
-          backend,
-          recipeId,
-          inputs,
-          ...(sourceVersionId ? { sourceVersionId } : {}),
-        });
-        await keep(version);
-        return version;
+        if (processOptions.dryRun) {
+          note.versionId ??= `dry-${recording.versions.length}`;
+          const { recordingId: _recording, select: _select, voicesFrom: _voices, job: _job, ...fields } = versionSaveParams(note, id, recipeId);
+          place({ ...(fields as unknown as Version), id: note.versionId, createdAt: new Date().toISOString() });
+          return;
+        }
+        if (!note.versionId && processOptions.jobId) {
+          const earlier = recording.versions.find((v) => v.job?.id === processOptions.jobId && v.job?.note === note.key);
+          if (earlier) note.versionId = earlier.id;
+        }
+        if (note.versionId) {
+          const updated = await request<Version | null>(host, "version_update", versionUpdateParams(note, id, note.versionId, transcriptChanged));
+          const local = recording.versions.find((v) => v.id === note.versionId);
+          place(updated ?? { ...(local as Version), transcript: note.transcript!, inputs: note.inputs, digest: note.digest ?? null, data: note.data ?? null });
+        } else {
+          const saved = await request<Version>(host, "version_save", versionSaveParams(note, id, recipeId, processOptions.jobId));
+          note.versionId = saved.id;
+          place(saved);
+        }
       };
       const execute = async (
         recipe: Recipe,
@@ -395,11 +394,14 @@ export function createRuntime(
                     if (operation === "graph.link") {
                       if (ontologyId === "escriba")
                         throw Error("La base de Escriba ya deriva sus registros de la biblioteca; no se puede vincular una nota a ella");
-                      const version = active();
-                      if (args.noteId !== version.id) throw Error("La referencia no pertenece a la versión activa");
+                      const note = transcribed(noteOf(args.noteId));
+                      if (!note.versionId) {
+                        note.changed = true;
+                        await materialize(note, recipe.id);
+                      }
                       return await host.call("knowledge_link", {
                         ...params, expectedVersion: args.expectedVersion,
-                        versionId: version.id, recordId: text(args.recordId, "registro"),
+                        versionId: note.versionId, recordId: text(args.recordId, "registro"),
                       });
                     }
                     if (ontologyId !== "escriba" && !accountMutation) {
@@ -412,6 +414,7 @@ export function createRuntime(
                     });
                   }
                   case "transcribe": {
+                    const note = noteOf(args.handle);
                     if (!ownsStatus && !processOptions.dryRun) {
                       ownsStatus = true;
                       await host.call("recording_update", { id, status: "processing", error: null });
@@ -446,26 +449,20 @@ export function createRuntime(
                           ? speakers.cuantos
                           : null,
                     });
-                    const key = transcriptionCriteriaKey(inputs);
-                    const remembered = [...recording.versions]
-                      .reverse()
-                      .find((v) => reusableTranscription(v, inputs));
-                    const newVersion = fresh && !renewed.has(key);
-                    if (remembered && !newVersion) {
-                      await keep({
-                        ...remembered,
-                        ...(savedData !== undefined ? { data: savedData } : {}),
+                    const plan = transcriptionPlan(note, inputs, recording.versions);
+                    if (plan.kind === "keep") return view(note);
+                    if (plan.kind === "reuse") {
+                      stage(id, "Reutilizando transcripción");
+                      withTranscript(note, {
+                        transcript: plan.version.transcript,
+                        inputs,
+                        backend: plan.version.backend,
+                        hasVoices: plan.version.hasVoices === true,
+                        voicesFrom: plan.version.id,
                       });
-                      return recipeNote(active(), recording);
-                    }
-                    stage(
-                      id,
-                      remembered
-                        ? "Reutilizando transcripción"
-                        : "Transcribiendo",
-                    );
-                    let transcript = remembered?.transcript;
-                    if (!transcript) {
+                    } else {
+                      stage(id, "Transcribiendo");
+                      let transcript: Transcript;
                       const owner = { id };
                       nativeOwner = owner;
                       try {
@@ -491,29 +488,32 @@ export function createRuntime(
                         throw Error(
                           "El transcriptor devolvió una respuesta no válida",
                         );
+                      withTranscript(note, {
+                        transcript,
+                        inputs,
+                        backend: backend.id,
+                        hasVoices: inputs.diarize === true,
+                        voicesFrom: null,
+                      });
                     }
-                    renewed.add(key);
-                    const version = await persist(
-                      transcript,
-                      backend.id,
-                      inputs,
-                      recipe.id,
-                      remembered?.id,
-                    );
-                    if (savedData !== undefined) version.data = savedData;
-                    return recipeNote(version, recording);
+                    await materialize(note, recipe.id, true);
+                    return view(note);
                   }
                   case "note": {
-                    if (!current) {
-                      if (!recording.versions.length) return null;
-                      await keep(currentVersion(recording));
+                    const editing = args.editar === true;
+                    if (args.version === undefined || args.version === null) {
+                      if (inCourse && editing && !inCourse.editing)
+                        throw Error("La nota en curso es una copia; para editar una versión pídela por su clave");
+                      return view((inCourse ??= open(base, editing)));
                     }
-                    return recipeNote(active(), recording);
+                    const origin = recording.versions.find((v) => v.id === args.version);
+                    if (!origin) throw Error("La versión no pertenece a la grabación");
+                    return view(open(origin, editing));
                   }
+                  case "versions":
+                    return versionsView(recording, base?.id);
                   case "summarize": {
-                    const version = active();
-                    if (args.handle !== undefined && args.handle !== version.id)
-                      throw Error("La nota ya no es la versión activa");
+                    const note = transcribed(noteOf(args.handle));
                     stage(id, "Resumiendo");
                     const model = selected(
                       snapshot,
@@ -522,17 +522,18 @@ export function createRuntime(
                     );
                     const owner = { id };
                     nativeOwner = owner;
+                    let digest: Digest;
                     try {
-                      version.digest = await summarizeText(
+                      digest = await summarizeText(
                         summaryMemory(
                           host,
                           id,
-                          processOptions.dryRun ? undefined : version.id,
+                          remembering,
                           { resolver: model },
                           signal,
                           recomputed,
                         ),
-                        version.transcript.text,
+                        note.transcript!.text,
                         model.id,
                         {
                           prompt:
@@ -540,8 +541,8 @@ export function createRuntime(
                               ? args.prompt
                               : undefined,
                           language:
-                            typeof version.inputs?.language === "string"
-                              ? version.inputs.language
+                            typeof note.inputs?.language === "string"
+                              ? note.inputs.language
                               : null,
                           capacity: model.local ? 3500 : 6000,
                           signal,
@@ -551,35 +552,22 @@ export function createRuntime(
                       if (nativeOwner === owner) nativeOwner = undefined;
                     }
                     aborted(signal);
-                    if (!processOptions.dryRun)
-                      await host.call("version_update", {
-                        recordingId: id,
-                        versionId: version.id,
-                        digest: version.digest,
-                      });
-                    return recipeNote(version, recording);
+                    withDigest(note, digest);
+                    await materialize(note, recipe.id);
+                    return view(note);
                   }
                   case "save": {
-                    const version = active();
-                    if (args.handle !== undefined && args.handle !== version.id)
-                      throw Error("La nota ya no es la versión activa");
-                    if ("data" in args) {
-                      savedData = json(args.data);
-                      version.data = savedData;
-                    }
+                    const note = transcribed(noteOf(args.handle));
+                    const dataChanged = "data" in args && withData(note, json(args.data));
+                    if (dataChanged || (note.changed && !note.versionId))
+                      await materialize(note, recipe.id);
+                    const target = confirmedVersionId(note)!;
                     aborted(signal);
-                    if (!processOptions.dryRun) {
-                      await host.call("version_update", {
-                        recordingId: id,
-                        versionId: version.id,
-                        ...(savedData !== undefined ? { data: savedData } : {}),
-                      });
-                      await host.call("version_select", {
-                        recordingId: id,
-                        versionId: version.id,
-                      });
-                    }
-                    return recipeNote(version, recording);
+                    if (!processOptions.dryRun)
+                      await host.call("version_select", { recordingId: id, versionId: target });
+                    recording.currentVersionId = target;
+                    confirmed = target;
+                    return view(note);
                   }
                   case "ask": {
                     const model = selected(
@@ -606,7 +594,7 @@ export function createRuntime(
                       const answer = await remember(
                         host,
                         id,
-                        processOptions.dryRun ? undefined : current?.id,
+                        remembering,
                         {
                           kind: "ask",
                           resolver: model,
@@ -634,11 +622,9 @@ export function createRuntime(
                     }
                   }
                   case "publish": {
-                    if (
-                      args.handle !== undefined &&
-                      args.handle !== active().id
-                    )
-                      throw Error("La nota ya no es la versión activa");
+                    const note = noteOf(args.handle);
+                    const published = recording.versions.find((v) => v.id === confirmedVersionId(note));
+                    if (!published) throw Error("La nota aún no está transcrita");
                     const destination = lookup(
                       snapshot.destinations,
                       text(args.destinationId, "destino"),
@@ -649,7 +635,7 @@ export function createRuntime(
                       await connectors.publish(
                         id,
                         destination.id,
-                        active(),
+                        published,
                         signal,
                       );
                     return null;
@@ -718,14 +704,14 @@ export function createRuntime(
           });
         await execute(recipeWithValues(chosen, processOptions.values), []);
         aborted(signal);
-        if (!current) throw Error("La receta no produjo una transcripción");
+        if (!notes.size || !recording.versions.length) throw Error("La receta no produjo una transcripción");
         if (!processOptions.dryRun && ownsStatus)
           await host.call("recording_update", {
             id,
             status: "done",
             error: warnings.length ? warnings.join("\n") : null,
           });
-        return { versionId: current.id };
+        return { versionId: confirmed ?? (inCourse && confirmedVersionId(inCourse)) ?? currentVersion(recording).id };
       } catch (error) {
         if (accountMutation) error = new RuntimeError(`La receta hizo una operación externa o sobre el grafo; revisa el resultado antes de reprocesar. ${message(error)}`, "failed");
         traceError = message(error);
@@ -749,11 +735,11 @@ export function createRuntime(
             steps: traceSteps,
             error: traceError || null,
             errorCode: traceErrorCode || null,
-            result: current
+            result: inCourse?.transcript
               ? {
-                  transcript: current.transcript,
-                  digest: current.digest || null,
-                  data: current.data ?? null,
+                  transcript: inCourse.transcript,
+                  digest: inCourse.digest || null,
+                  data: inCourse.data ?? null,
                 }
               : null,
           });

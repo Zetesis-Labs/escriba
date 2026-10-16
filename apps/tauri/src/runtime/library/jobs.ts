@@ -204,15 +204,29 @@ export async function recover(store: Store) {
     await save(store, job);
   }
 }
-export async function enqueue(store: Store, operation: string, args: Json, automatic: boolean): Promise<[string, Lane]> {
+function withStartingVersion(operation: string, args: Json, record: { currentVersionId?: string | null; versions?: { id: string }[] | null }): Json {
+  if (operation !== "processRecording" || !isObject(args)) return args;
+  const options = isObject(args.options) ? args.options : {};
+  if ("baseVersionId" in options) return args;
+  const versions = record.versions ?? [];
+  const base = versions.find((version) => version.id === record.currentVersionId)?.id ?? versions.at(-1)?.id ?? null;
+  return { ...args, options: { ...options, baseVersionId: base } };
+}
+function requested(args: Json): Json {
+  if (!isObject(args) || !isObject(args.options) || !("jobId" in args.options)) return args;
+  const { jobId: _job, ...options } = args.options;
+  return { ...args, options };
+}
+export async function enqueue(store: Store, operation: string, raw: Json, automatic: boolean): Promise<[string, Lane]> {
   if (!durable(operation)) throw Error("Operación no encolable");
-  const recordingId = text(args, "recordingId");
+  const recordingId = text(raw, "recordingId");
   const record = store.data.recordings.find((item) => item.id === recordingId);
   if (!record) throw Error("Grabación no encontrada");
   if (record.status === "discarded") throw Error("Restaura la grabación antes de procesarla");
+  const args = withStartingVersion(operation, raw, record);
   const existing = (await loadFor(store.database, recordingId)).find(active);
   if (existing) {
-    if (existing.operation === operation && canonical(existing.args) === canonical(args)) return [existing.id, laneOf(operation)];
+    if (existing.operation === operation && canonical(requested(existing.args)) === canonical(args)) return [existing.id, laneOf(operation)];
     throw Error("La grabación ya tiene un trabajo pendiente");
   }
   const time = Date.now();
@@ -270,11 +284,13 @@ export async function claim(store: Store, lane: Lane, now: number): Promise<Clai
     return { kind: "blocked" };
   }
   job.attempt += 1;
-  if (job.attempt > 1 && job.operation === "processRecording") {
+  if (job.operation === "processRecording") {
     if (!isObject(job.args)) job.args = {};
     const args = job.args as Record<string, Json>;
     if (!isObject(args.options)) args.options = {};
-    (args.options as Record<string, Json>).force = false;
+    const options = args.options as Record<string, Json>;
+    options.jobId = job.id;
+    if (job.attempt > 1) options.force = false;
   }
   job.state = "running";
   job.stage = "Procesando";
@@ -389,6 +405,7 @@ export function relaunchArgs(job: Job): Json {
       options: {
         ...(typeof options.recipeId === "string" ? { recipeId: options.recipeId } : {}),
         ...(options.values !== undefined ? { values: options.values } : {}),
+        ...("baseVersionId" in options ? { baseVersionId: options.baseVersionId } : {}),
         force: true,
       },
     };

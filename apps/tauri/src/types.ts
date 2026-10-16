@@ -65,6 +65,8 @@ export interface Version {
   inputs?: JSONObject;
   hasVoices?: boolean;
   learnedVoice?: boolean;
+  sourceVersionId?: string;
+  job?: { id: string; note: string };
 }
 export interface NoteContent {
   title: string;
@@ -224,6 +226,8 @@ export interface ProcessOptions {
   summarize?: boolean;
   dryRun?: boolean;
   force?: boolean;
+  baseVersionId?: string | null;
+  jobId?: string;
 }
 export interface JobState {
   recordingId: string;

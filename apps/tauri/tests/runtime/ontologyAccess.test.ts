@@ -69,12 +69,12 @@ test("la prueba y las dependencias ausentes deniegan el grafo antes de cualquier
   }
 });
 
-test("vincular usa únicamente la versión activa de la grabación", async () => {
+test("vincular usa únicamente una nota de esta ejecución y la versión que guarda", async () => {
   const f = fixture();
   const runtime = createRuntime(f.host, { run: async (_, context) => {
-    await context.call("transcribe", {});
-    await assert.rejects(context.call("graph.link", { ontologyId: "example.topics", expectedVersion: 1, recordId: "topic:a", noteId: "other" }), /versión activa/);
-    await context.call("graph.link", { ontologyId: "example.topics", expectedVersion: 1, recordId: "topic:a", noteId: "v" });
+    const note = (await context.call("transcribe", {})) as { handle: string };
+    await assert.rejects(context.call("graph.link", { ontologyId: "example.topics", expectedVersion: 1, recordId: "topic:a", noteId: "v" }), /no pertenece a esta ejecución/);
+    await context.call("graph.link", { ontologyId: "example.topics", expectedVersion: 1, recordId: "topic:a", noteId: note.handle });
     return null;
   } });
   await runtime.processRecording("r");

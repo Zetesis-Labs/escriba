@@ -94,14 +94,33 @@ interface PreguntaConEsquema<T> extends Pregunta {
   esquema: EsquemaDeZod<T>
 }
 
+interface InfoDeVersion {
+  readonly clave: string
+  readonly numero: number
+  readonly fecha: string
+  readonly origen: "receta" | "correccion"
+  readonly receta: string | null
+  readonly vigente: boolean
+  readonly abierta: boolean
+  readonly criterios: OpcionesDeTranscripcion | null
+  readonly tiene: { readonly hablantes: boolean; readonly resumen: boolean; readonly datos: boolean }
+}
+
+interface OpcionesDeNota {
+  version?: string
+  editar?: boolean
+}
+
 interface Nota {
   readonly clave: string
   readonly version: number | null
+  readonly origen: number | null
   readonly texto: string
   readonly hablantes: readonly string[]
   readonly segmentos: readonly Segmento[]
   readonly resumen: Resumen | null
   datos: Record<string, unknown> | null
+  transcribir(opciones?: OpcionesDeTranscripcion): Promise<Nota>
   resumir(opciones?: OpcionesDeResumen): Promise<Nota>
   guardar(cambios?: { datos?: Record<string, unknown> | null }): Promise<Nota>
   vincular(ontologiaId: string, registroId: string): Promise<void>
@@ -132,7 +151,8 @@ interface ListasDeEscriba {
 interface Escriba<P = null> extends ListasDeEscriba {
   readonly parametros: P
   transcribir(audio: Audio, opciones?: OpcionesDeTranscripcion): Promise<Nota>
-  nota(audio: Audio): Promise<Nota | null>
+  nota(audio: Audio, opciones?: OpcionesDeNota): Promise<Nota>
+  versiones(audio: Audio): Promise<readonly InfoDeVersion[]>
   preguntar<T>(pedido: PreguntaConEsquema<T>): Promise<T>
   preguntar(pedido: Pregunta): Promise<string>
   conector(claveONombre: string): Conector

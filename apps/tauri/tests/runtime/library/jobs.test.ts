@@ -329,7 +329,7 @@ test("un trabajo guarda su receta y cuándo empezó y acabó", async () => {
   const before = Date.now();
   const running = obj(await queue.claim("inference"));
   assert.deepEqual(running.recipe, { id: "resumen", name: "Resumen" });
-  assert.deepEqual(running.args, { recordingId: id });
+  assert.deepEqual(running.args, { recordingId: id, options: { baseVersionId: null, jobId } });
   assert.ok((running.startedAt as number) >= before);
   await queue.finish(jobId, ok());
   await store.mutate("config_save", { collection: "recipes", item: { id: "resumen", name: "Resumen corto", kind: "form", values: {} } });
@@ -352,10 +352,10 @@ test("las acciones manuales no tienen receta y cancelar marca el final", async (
   assert.deepEqual(queue.visible(), []);
 });
 
-test("relanzar procesar repite la receta y los valores del trabajo, y lo demás se repite", () => {
+test("relanzar procesar repite la receta, los valores y la versión de partida del trabajo, y lo demás se repite", () => {
   const process = job("p", "nota", "processRecording", "failed", 1);
-  process.args = { recordingId: "nota", options: { recipeId: "serie:resumir", values: { llm: "remoto" }, force: false } };
-  assert.deepEqual(relaunchArgs(process), { recordingId: "nota", options: { recipeId: "serie:resumir", values: { llm: "remoto" }, force: true } });
+  process.args = { recordingId: "nota", options: { recipeId: "serie:resumir", values: { llm: "remoto" }, baseVersionId: "v4", jobId: "p", force: false } };
+  assert.deepEqual(relaunchArgs(process), { recordingId: "nota", options: { recipeId: "serie:resumir", values: { llm: "remoto" }, baseVersionId: "v4", force: true } });
   const automatic = { ...process, args: { recordingId: "nota", options: { force: false } } };
   assert.deepEqual(relaunchArgs(automatic), { recordingId: "nota", options: { force: true } });
   const dry = { ...process, args: { recordingId: "nota", options: { recipeId: "nueva", dryRun: true } } };
@@ -366,6 +366,35 @@ test("relanzar procesar repite la receta y los valores del trabajo, y lo demás 
   const summary = job("s", "nota", "summarizeRecording", "failed", 1);
   summary.args = { recordingId: "nota", llm: "remoto" };
   assert.deepEqual(relaunchArgs(summary), summary.args);
+});
+
+test("cada intento de procesar lleva el id de su trabajo para escribir en la versión que ya creó", async () => {
+  const store = await library();
+  const record = await imported(store, "note.wav");
+  const queue = await Queue.open(store);
+  const id = await queue.enqueue("processRecording", { recordingId: record.id, options: { baseVersionId: "v1", force: true } });
+  const first = obj(await queue.claim("inference"));
+  assert.deepEqual(obj(first.args).options, { baseVersionId: "v1", force: true, jobId: id });
+  await queue.finish(id, failure("backend_unavailable", "LLM caído"));
+  await store.withStore((inner) => inner.jobSave({ ...(obj(first) as Record<string, unknown>), state: "retry", nextAttemptAt: 0 } as never));
+  const retried = obj(await queue.claim("inference"));
+  assert.deepEqual(obj(retried.args).options, { baseVersionId: "v1", force: false, jobId: id });
+});
+
+test("encolar procesar apunta la versión de partida: la vigente, la elegida o ninguna", async () => {
+  const store = await library();
+  const fresh = await imported(store, "nueva.wav");
+  const transcribed = await imported(store, "vieja.wav");
+  const v1 = str(obj(await store.mutate("version_save", { recordingId: transcribed.id, transcript: { text: "uno", segments: [] } })).id);
+  await store.mutate("version_save", { recordingId: transcribed.id, transcript: { text: "dos", segments: [] } });
+  await store.mutate("version_select", { recordingId: transcribed.id, versionId: v1 });
+  const queue = await Queue.open(store);
+  await queue.enqueue("processRecording", { recordingId: fresh.id, options: { force: false } });
+  await queue.enqueue("processRecording", { recordingId: transcribed.id, options: { force: true } });
+  const options = (recordingId: unknown) => obj(obj(arr(queue.visible()).find((item) => item.recordingId === recordingId)!.args).options);
+  assert.equal(options(fresh.id).baseVersionId, null);
+  assert.equal(options(transcribed.id).baseVersionId, v1);
+  assert.equal(await queue.enqueue("processRecording", { recordingId: transcribed.id, options: { force: true } }), obj(arr(queue.visible()).find((item) => item.recordingId === transcribed.id)!).id);
 });
 
 async function failedJob(queue: Queue, operation: string, args: Record<string, unknown>) {
@@ -386,7 +415,7 @@ test("relanzar un fallido encola otro y conserva el original", async () => {
   assert.equal(active[0]!.id, relaunched);
   assert.equal(active[0]!.state, "queued");
   assert.equal(active[0]!.automatic, false);
-  assert.deepEqual(active[0]!.args, { recordingId: record.id, options: { recipeId: "default", force: true } });
+  assert.deepEqual(active[0]!.args, { recordingId: record.id, options: { recipeId: "default", baseVersionId: null, force: true } });
   assert.equal(obj(active[0]!.recipe).id, "default");
   const kept = await history(queue);
   assert.equal(kept.length, 1);

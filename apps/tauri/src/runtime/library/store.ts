@@ -528,40 +528,43 @@ export class Store {
         throw Error(`Operación desconocida: ${method}`);
     }
   }
+  private async originVoices(record: Recording, versionId: string): Promise<{ transcript: Transcript; voices: SpeakerVoice[] }> {
+    const origin = (record.versions ?? []).find((version) => version.id === versionId);
+    if (!origin) throw Error("La versión de origen no pertenece a la grabación");
+    if (!origin.transcript) throw Error("Transcripción de origen inválida");
+    return { transcript: origin.transcript, voices: await this.database.versionVoices(versionId) };
+  }
   private async mutateVersion(next: LibraryData, method: string, p: Json): Promise<{ result: Json; voiceSave?: VersionCommit }> {
     switch (method) {
       case "version_save": {
         const recordingId = text(p, "recordingId");
         const record = recordMut(next, recordingId);
         const params = p as Record<string, Json>;
-        let transcript: Transcript;
-        try {
-          transcript = readVersion({ id: "x", transcript: stripEmbeddings(params.transcript ?? null) }, "Transcripción inválida").transcript as Transcript;
-          if (!transcript) throw Error("Transcripción inválida");
-        } catch {
-          throw Error("Transcripción inválida");
-        }
+        const transcript = transcriptParam(params.transcript);
+        const lineage = params.sourceVersionId;
+        if (typeof lineage === "string" && !(record.versions ?? []).some((version) => version.id === lineage))
+          throw Error("La versión de origen no pertenece a la grabación");
         let teaching: Teaching | undefined;
         let voices: SpeakerVoice[];
-        const source = params.sourceVersionId;
-        if (typeof source === "string") {
-          const sourceVersion = (record.versions ?? []).find((version) => version.id === source);
-          if (!sourceVersion) throw Error("La versión de origen no pertenece a la grabación");
-          voices = await this.database.versionVoices(source);
+        const voicesFrom = "voicesFrom" in params ? params.voicesFrom : lineage;
+        if (typeof voicesFrom === "string") {
+          const origin = await this.originVoices(record, voicesFrom);
+          voices = origin.voices;
           if (isObject(params.teaching)) {
             const speaker = text(params.teaching, "speaker");
             const person = text(params.teaching, "person");
             teaching = { person, voices: voices.filter((voice) => voice.speaker === speaker).map((voice) => ({ ...voice })), source: recordingId, existingOnly: params.teaching.existingOnly === true };
           }
-          if (!sourceVersion.transcript) throw Error("Transcripción de origen inválida");
-          relabelVoices(sourceVersion.transcript, transcript, voices);
+          relabelVoices(origin.transcript, transcript, voices);
         } else {
           if (params.teaching !== undefined && params.teaching !== null) throw Error("La corrección no indica su versión de origen");
           voices = this.pendingVoices.get(recordingId)?.map((voice) => ({ ...voice })) ?? [];
         }
         const version = createVersion(params, transcript, voices.length > 0);
+        if (typeof lineage === "string") version.sourceVersionId = lineage;
+        if (isObject(params.job)) version.job = { id: text(params.job, "id"), note: text(params.job, "note") };
         const result = clone(version) as unknown as Json;
-        appendVersion(record, version);
+        appendVersion(record, version, params.select !== false);
         return { result, voiceSave: [recordingId, version.id, voices, teaching] };
       }
       case "version_select": {
@@ -581,7 +584,19 @@ export class Store {
         const params = p as Record<string, Json>;
         if ("digest" in params) version.digest = params.digest ?? null;
         if ("data" in params) version.data = params.data ?? null;
-        return { result: clone(version) as unknown as Json };
+        if (!("transcript" in params)) return { result: clone(version) as unknown as Json };
+        const transcript = transcriptParam(params.transcript);
+        let voices = this.pendingVoices.get(record.id)?.map((voice) => ({ ...voice })) ?? [];
+        if (typeof params.voicesFrom === "string") {
+          const origin = await this.originVoices(record, params.voicesFrom);
+          voices = origin.voices;
+          relabelVoices(origin.transcript, transcript, voices);
+        }
+        version.transcript = transcript;
+        version.hasVoices = voices.length > 0;
+        if ("inputs" in params) version.inputs = (params.inputs ?? undefined) as Version["inputs"];
+        if (typeof params.backend === "string") version.backend = params.backend;
+        return { result: clone(version) as unknown as Json, voiceSave: [record.id, version.id, voices, undefined] };
       }
       default:
         throw Error(`Operación desconocida: ${method}`);
@@ -848,14 +863,14 @@ export class Store {
   jobRemove(id: string) {
     return this.database.removeJob(id);
   }
-  memoryKey(recordingId: string, versionId: string, fingerprint: string): string {
-    return memoryKey(this.data, recordingId, versionId, fingerprint);
+  memoryKey(recordingId: string, fingerprint: string): string {
+    return memoryKey(this.data, recordingId, fingerprint);
   }
-  memoryRecall(recordingId: string, versionId: string, fingerprint: string): Promise<Json | undefined> {
-    return this.database.recall(this.memoryKey(recordingId, versionId, fingerprint));
+  memoryRecall(recordingId: string, fingerprint: string): Promise<Json | undefined> {
+    return this.database.recall(this.memoryKey(recordingId, fingerprint));
   }
-  memoryKeep(recordingId: string, versionId: string, fingerprint: string, value: Json) {
-    return this.database.keep(this.memoryKey(recordingId, versionId, fingerprint), recordingId, value);
+  memoryKeep(recordingId: string, fingerprint: string, value: Json) {
+    return this.database.keep(this.memoryKey(recordingId, fingerprint), recordingId, value);
   }
   async traceSave(trace: Json) {
     this.recordingForWrite(text(trace, "recordingId"));
@@ -1152,7 +1167,7 @@ export class Store {
       if (created) {
         const target = recordMut(next, key);
         target.title = draft.content.title;
-        appendVersion(target, clone(version));
+        appendVersion(target, clone(version), true);
       }
       const index = lighten(clone(next), writeScope.fullRecordings);
       const write = Store.scopedWrite(before, next, writeScope);
@@ -1230,8 +1245,17 @@ function createVersion(params: Record<string, Json>, transcript: Transcript, has
   for (const key of ["recipeId", "digest", "data", "inputs"] as const) if (key in params) (version as Record<string, unknown>)[key] = options[key] ?? null;
   return version;
 }
-function appendVersion(record: Recording, version: Version) {
-  record.currentVersionId = version.id;
+function transcriptParam(value: Json | undefined): Transcript {
+  try {
+    const transcript = readVersion({ id: "x", transcript: stripEmbeddings(value ?? null) }, "Transcripción inválida").transcript as Transcript;
+    if (!transcript) throw Error("Transcripción inválida");
+    return transcript;
+  } catch {
+    throw Error("Transcripción inválida");
+  }
+}
+function appendVersion(record: Recording, version: Version, select: boolean) {
+  if (select) record.currentVersionId = version.id;
   const duration = version.transcript?.duration;
   if (typeof duration === "number") record.duration = duration;
   if (!Array.isArray(record.versions)) throw Error("Versiones inválidas");
@@ -1247,11 +1271,10 @@ function pruneRecipes(data: LibraryData, key: string) {
   if (!Array.isArray(recipes)) throw Error("Recetas inválidas");
   for (const recipe of recipes) if (isObject(recipe) && recipe.kind === "form") recipe.values = prune(recipe.values ?? null, key);
 }
-export function memoryKey(data: LibraryData, recordingId: string, versionId: string, fingerprint: string): string {
+export function memoryKey(data: LibraryData, recordingId: string, fingerprint: string): string {
   if (!fingerprint) throw Error("Falta la huella de memoria");
-  const record = recordingForWrite(data, recordingId);
-  if (!(record.versions ?? []).some((version) => version.id === versionId)) throw Error("La versión no pertenece a la grabación");
-  return JSON.stringify([recordingId, versionId, fingerprint]);
+  recordingForWrite(data, recordingId);
+  return JSON.stringify([recordingId, fingerprint]);
 }
 export function markCredentials(root: string, value: Record<string, Json>) {
   for (const key of ["accounts", "resolvers"]) {

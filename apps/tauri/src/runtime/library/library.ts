@@ -107,8 +107,8 @@ export class Library {
   logList(params: Json) {
     return this.store.logList(params);
   }
-  memoryRecall(recordingId: string, versionId: string, fingerprint: string) {
-    return this.store.memoryRecall(recordingId, versionId, fingerprint);
+  memoryRecall(recordingId: string, fingerprint: string) {
+    return this.store.memoryRecall(recordingId, fingerprint);
   }
   traceList(recordingId?: string) {
     return this.store.traceList(recordingId);
@@ -186,8 +186,8 @@ export class Library {
   addPersonVoice(name: string, voice: SpeakerVoice, source: string) {
     return this.order((store) => store.addPersonVoice(name, voice, source));
   }
-  memoryKeep(recordingId: string, versionId: string, fingerprint: string, value: Json) {
-    return this.order((store) => store.memoryKeep(recordingId, versionId, fingerprint, value));
+  memoryKeep(recordingId: string, fingerprint: string, value: Json) {
+    return this.order((store) => store.memoryKeep(recordingId, fingerprint, value));
   }
   traceSave(trace: Json) {
     return this.order((store) => store.traceSave(trace));
