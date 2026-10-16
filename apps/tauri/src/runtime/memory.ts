@@ -16,6 +16,7 @@ export async function remember<T>(
   key: unknown,
   compute: () => Promise<T>,
   signal?: AbortSignal,
+  renewed?: Set<string>,
 ): Promise<T> {
   if (!versionId) return compute();
   const bytes = new TextEncoder().encode(JSON.stringify(canonical(key)));
@@ -24,12 +25,16 @@ export async function remember<T>(
     byte.toString(16).padStart(2, "0"),
   ).join("");
   const params = { recordingId, versionId, fingerprint };
-  const cached = await host.call("memory_recall", params);
-  aborted(signal);
-  if (cached !== null && cached !== undefined) return object(cached).value as T;
+  const renewal = `${versionId}:${fingerprint}`;
+  if (!renewed || renewed.has(renewal)) {
+    const cached = await host.call("memory_recall", params);
+    aborted(signal);
+    if (cached !== null && cached !== undefined) return object(cached).value as T;
+  }
   const value = await compute();
   aborted(signal);
   await host.call("memory_keep", { ...params, value: { value } });
+  renewed?.add(renewal);
   return value;
 }
 export function summaryMemory(
@@ -38,6 +43,7 @@ export function summaryMemory(
   versionId: string | undefined,
   scope: unknown,
   signal?: AbortSignal,
+  renewed?: Set<string>,
 ): RuntimeHost {
   return {
     call(method, params = {}) {
@@ -58,6 +64,7 @@ export function summaryMemory(
               return value;
             },
             signal,
+            renewed,
           )
         : host.call(method, params);
     },

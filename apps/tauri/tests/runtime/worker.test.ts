@@ -1,4 +1,4 @@
-import { buildDefaultRecipe } from "../../runtime-host/defaultRecipe.mjs";
+import { buildBuiltinRecipes } from "../../runtime-host/defaultRecipe.mjs";
 import { beforeAll, test } from "vitest";
 import assert from "node:assert/strict";
 import { Worker } from "node:worker_threads";
@@ -13,7 +13,7 @@ let workerCode = "";
 beforeAll(async () => {
   const built = await build({
     entryPoints: [`${root}apps/tauri/src/runtime/worker.ts`],
-    define: { __DEFAULT_RECIPE__: JSON.stringify(await buildDefaultRecipe()) },
+    define: { __BUILTIN_RECIPES__: JSON.stringify(await buildBuiltinRecipes()) },
     bundle: true,
     write: false,
     platform: "browser",
@@ -168,6 +168,87 @@ test("el formulario por defecto sale del programa compilado con el idioma de los
   assert.equal(schema.properties.idioma.default, "en");
   assert.equal(schema.properties.resumir.default, true);
   assert.deepEqual(Object.keys(schema.properties), ["stt", "idioma", "hablantes", "resumir", "llm", "prompt", "conectores"]);
+});
+function recording(results: (operation: string, args: Record<string, unknown>) => unknown) {
+  const calls: Array<{ operation: string; args: Record<string, unknown> }> = [];
+  return {
+    calls,
+    operations: () => calls.filter((call) => call.operation !== "log").map((call) => call.operation),
+    call: async (operation: string, args: unknown) => {
+      calls.push({ operation, args: args as Record<string, unknown> });
+      return results(operation, args as Record<string, unknown>);
+    },
+  };
+}
+const vigente = { handle: "v2", clave: "r", version: 2, texto: "Texto", segmentos: [], datos: null };
+const conectores = [{ clave: "okf", nombre: "Archivo", activo: true }, { clave: "notion", nombre: "Notion", activo: true }];
+test("Transcribir de serie transcribe con sus valores y guarda sin resumir ni publicar", async () => {
+  const host = recording(() => vigente);
+  await runner().run({ kind: "recipe", payload: { ...payload, builtin: "transcribir", values: { idioma: "en", hablantes: { detectar: true } } } }, host);
+  assert.deepEqual(host.operations(), ["transcribe", "save"]);
+  assert.deepEqual(host.calls[0].args, { stt: "local-stt", idioma: "en", hablantes: { detectar: true, cuantos: null } });
+});
+test("Resumir de serie resume la nota vigente con su LLM y su prompt sin transcribir", async () => {
+  const host = recording(() => vigente);
+  const llms = [...lists.llms, { clave: "remoto", nombre: "Remoto", local: false }];
+  await runner().run({ kind: "recipe", payload: { ...payload, builtin: "resumir", lists: { ...lists, llms }, values: { llm: "remoto", prompt: "Breve" } } }, host);
+  assert.deepEqual(host.operations(), ["note", "summarize", "save"]);
+  assert.deepEqual(host.calls[1].args, { llm: "remoto", prompt: "Breve", handle: "v2" });
+});
+test("Resumir y Publicar de serie fallan sin tocar nada si la nota no está transcrita", async () => {
+  for (const builtin of ["resumir", "publicar"]) {
+    const host = recording(() => null);
+    await assert.rejects(
+      runner().run({ kind: "recipe", payload: { ...payload, builtin, lists: { ...lists, conectores }, values: builtin === "publicar" ? { conectores: ["okf"] } : {} } }, host),
+      /La nota aún no está transcrita/,
+    );
+    assert.deepEqual(host.operations(), ["note"]);
+  }
+});
+test("Publicar de serie intenta todos sus conectores sobre la vigente y falla si alguno falla", async () => {
+  const host = recording((operation, args) => {
+    if (operation === "publish" && args.destinationId === "okf") throw Error("carpeta ausente");
+    return operation === "publish" ? null : vigente;
+  });
+  await assert.rejects(
+    runner().run({ kind: "recipe", payload: { ...payload, builtin: "publicar", lists: { ...lists, conectores }, values: { conectores: ["okf", "notion"] } } }, host),
+    /carpeta ausente/,
+  );
+  assert.deepEqual(host.operations(), ["note", "save", "publish", "publish"]);
+  assert.deepEqual(host.calls.filter((call) => call.operation === "publish").map((call) => [call.args.destinationId, call.args.handle]), [["okf", "v2"], ["notion", "v2"]]);
+});
+test("cada receta de serie tiene su formulario y solo «Por defecto» condiciona el resumen", async () => {
+  const schema = async (builtin: string) =>
+    (await runner().run({ kind: "recipe-schema", payload: { lists, builtin, defaultLanguage: "en" } }, { call: async () => null })) as {
+      properties: Record<string, { default?: unknown; si?: unknown }>;
+    };
+  const transcribir = await schema("transcribir");
+  assert.deepEqual(Object.keys(transcribir.properties), ["stt", "idioma", "hablantes"]);
+  assert.equal(transcribir.properties.idioma.default, "en");
+  const resumir = await schema("resumir");
+  assert.deepEqual(Object.keys(resumir.properties), ["llm", "prompt"]);
+  assert.equal(resumir.properties.llm.si, undefined);
+  assert.deepEqual(Object.keys((await schema("publicar")).properties), ["conectores"]);
+  assert.equal((await schema("por-defecto")).properties.llm.si, "resumir");
+});
+test("una receta de serie desconocida falla nombrándola", async () => {
+  await assert.rejects(
+    runner().run({ kind: "recipe-schema", payload: { lists, builtin: "traducir" } }, { call: async () => null }),
+    /Receta de serie desconocida: traducir/,
+  );
+});
+test("escriba.nota devuelve la nota de su grabación o nada, y rechaza otro audio", async () => {
+  const program = await recipe(`export async function flujo(audio, escriba) {
+    const nota = await escriba.nota(audio);
+    console.log(nota === null ? "sin nota" : nota.texto);
+    await escriba.nota({ ...audio });
+  }`);
+  for (const [answer, logged] of [[vigente, "Texto"], [null, "sin nota"]] as const) {
+    const host = recording(() => answer);
+    await assert.rejects(runner().run({ kind: "recipe", program, payload }, host), /su grabación/);
+    assert.deepEqual(host.operations(), ["note"]);
+    assert.equal(host.calls.find((call) => call.operation === "log")?.args.message, logged);
+  }
 });
 test("una receta de código sin formulario comunica que no tiene parámetros", async () => {
   const schema = await runner().run(

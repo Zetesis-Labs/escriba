@@ -6,7 +6,7 @@ import { graphVersion, openGraph } from "./knowledge";
 import { object, message, errorCode, protocolError } from "./contracts";
 import type { WorkerTask } from "./contracts";
 declare const __escribaRequire: (specifier: string) => unknown;
-declare const __DEFAULT_RECIPE__: string;
+declare const __BUILTIN_RECIPES__: Record<string, string>;
 const send = globalThis.postMessage.bind(globalThis);
 let sequence = 0;
 const pending = new Map<
@@ -70,10 +70,12 @@ function load(
   )(require);
   return object(result);
 }
-function defaultRecipe(): Record<string, unknown> {
-  return load(__DEFAULT_RECIPE__, "__recipe", (specifier) => {
+function builtinRecipe(program: unknown): Record<string, unknown> {
+  const name = program === undefined ? "por-defecto" : String(program);
+  if (!Object.hasOwn(__BUILTIN_RECIPES__, name)) throw Error(`Receta de serie desconocida: ${name}`);
+  return load(__BUILTIN_RECIPES__[name], "__recipe", (specifier) => {
     if (specifier === "zod") return zod;
-    throw Error(`La receta por defecto no incluye ${specifier}`);
+    throw Error(`La receta de serie no incluye ${specifier}`);
   });
 }
 function schemaJSON(schema: unknown): unknown {
@@ -145,7 +147,7 @@ function noteObject(
 async function recipe(task: WorkerTask) {
   const p = task.payload;
   const lists = p.lists as Lists;
-  const module = task.program ? load(task.program, "__recipe") : defaultRecipe();
+  const module = task.program ? load(task.program, "__recipe") : builtinRecipe(p.builtin);
   const form =
     typeof module.buildRecipeForm !== "function"
       ? z.object({}).passthrough()
@@ -213,6 +215,12 @@ async function recipe(task: WorkerTask) {
       if (target !== audio)
         throw Error("La receta solo puede procesar su grabación");
       return asNote(await rpc("transcribe", object(options)));
+    },
+    async nota(target: unknown) {
+      if (target !== audio)
+        throw Error("La receta solo puede procesar su grabación");
+      const raw = await rpc("note");
+      return raw === null ? null : asNote(raw);
     },
     async preguntar(request: unknown) {
       const args = object(request);

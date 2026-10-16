@@ -2,13 +2,14 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "vitest";
-import { defaultRecipeSource } from "../../runtime-host/defaultRecipe.mjs";
+import { defaultRecipeSource, piecesSource } from "../../runtime-host/defaultRecipe.mjs";
 
-test("la receta que Rust copia a los proyectos y la que compila el runtime son el mismo fichero", () => {
+test("la receta y las piezas que Rust copia a los proyectos son las que compila el runtime", () => {
   const sources = fileURLToPath(new URL("../../src-tauri/src/", import.meta.url));
   const project = readFileSync(resolve(sources, "project.rs"), "utf8");
-  const included = /const EXAMPLE: &str = include_str!\("([^"]+)"\);/.exec(project)?.[1];
-  expect(included && resolve(sources, included)).toBe(defaultRecipeSource);
+  const included = (name: string) => new RegExp(`const ${name}: &str = include_str!\\("([^"]+)"\\);`).exec(project)?.[1];
+  expect(resolve(sources, included("EXAMPLE") ?? "")).toBe(defaultRecipeSource);
+  expect(resolve(sources, included("PIECES") ?? "")).toBe(piecesSource);
 });
 
 test("la interfaz no importa la receta por defecto desde fuera de la app", () => {

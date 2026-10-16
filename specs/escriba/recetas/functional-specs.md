@@ -8,7 +8,8 @@ versión Swift) y ya no coincide con la app.
 
 Ampliación del 2026-10-16, decidida por Rubén en conversación: recetas de serie
 modulares, «Por defecto» compuesta con ellas (§6.8), y leer la nota sin
-transcribir con `escriba.nota` (§6.9).
+transcribir con `escriba.nota` (§6.9). Construida en la rama
+`feat/recetas-modulares`, pendiente de validar en pantalla.
 
 Estado: **decidido, sin construir.** Lo marcado como «hoy» es lo que hace la
 app; lo marcado como «decidido» es lo que debe pasar a hacer. Destinos queda
@@ -197,8 +198,9 @@ la reutilizan y, si no llegó a crearla, la crean. Un reprocesado produce
 exactamente una versión, caiga donde caiga. Hoy el reintento reutiliza
 cualquier versión con esos criterios, también una antigua, y puede no crear
 ninguna. Un reprocesado con una receta que no transcribe no produce ninguna:
-el trabajo recuerda la versión vigente que tomó con `escriba.nota` y sus
-reintentos vuelven a ella.
+cada intento lee con `escriba.nota` la vigente de ese momento, así que si la
+persona corrige la nota mientras el trabajo espera, el reintento parte de la
+corrección.
 
 ### 6.6 Esperar a un servicio caído (decidido)
 
@@ -398,8 +400,9 @@ había puede pisarlo.
   decidida, solo resume. Depende de destinos.
 - Al grabar o añadir, Resumir y Publicar fallan siempre (la nota aún no está
   transcrita). ¿Se ofrecen igual en esos selectores o se ocultan?
-- Un proyecto nuevo copia hoy «Por defecto» como ejemplo. ¿Trae las cuatro,
-  con la composición a la vista?
+- Resuelto (Rubén, 2026-10-16): la receta exportada a la carpeta es la misma
+  «Por defecto», editable. Un proyecto nuevo recibe su composición y
+  `piezas.ts`; las tres piezas siguen siendo de serie en la app.
 
 ## Anexo. Desviaciones entre documentación y código
 

@@ -7,6 +7,7 @@ import "./trace.css";
 const seconds = new Intl.NumberFormat("es-ES", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 const capabilityNames: Record<string, string> = {
   transcribe: "Transcribir",
+  note: "Leer la nota",
   summarize: "Resumir",
   save: "Guardar datos",
   ask: "Consultar",

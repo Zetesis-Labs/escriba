@@ -42,6 +42,7 @@ import { processingRecipeId } from "../core/recordingRecipe";
 import { manualSummaryReading, manualSummaryResolver } from "../core/manualSummary";
 import { ontologyDependencies, ontologyRequirement } from "../core/ontologyDependencies";
 import { localModel } from "./localModels";
+import { builtinProgram } from "../core/builtinRecipes";
 function lookup<T extends { id: string; name: string }>(
   values: T[],
   id: string,
@@ -243,6 +244,7 @@ export function createRuntime(
       const fresh = processOptions.force ?? true;
       let accountMutation = false;
       const renewed = new Set<string>();
+      const recomputed = fresh && !processOptions.dryRun ? new Set<string>() : undefined;
       let current: Version | undefined;
       let savedData: JSONValue | undefined;
       const warnings: string[] = [];
@@ -341,6 +343,7 @@ export function createRuntime(
             kind: "recipe",
             program,
             payload: {
+              ...(program ? {} : { builtin: builtinProgram(recipe) }),
               audio: {
                 clave: id,
                 nombre: recording.title,
@@ -495,6 +498,13 @@ export function createRuntime(
                     if (savedData !== undefined) version.data = savedData;
                     return recipeNote(version, recording);
                   }
+                  case "note": {
+                    if (!current) {
+                      if (!recording.versions.length) return null;
+                      await keep(currentVersion(recording));
+                    }
+                    return recipeNote(active(), recording);
+                  }
                   case "summarize": {
                     const version = active();
                     if (args.handle !== undefined && args.handle !== version.id)
@@ -515,6 +525,7 @@ export function createRuntime(
                           processOptions.dryRun ? undefined : version.id,
                           { resolver: model },
                           signal,
+                          recomputed,
                         ),
                         version.transcript.text,
                         model.id,
@@ -609,6 +620,7 @@ export function createRuntime(
                           return value;
                         },
                         signal,
+                        recomputed,
                       );
                       aborted(signal);
                       return answer;
@@ -808,11 +820,13 @@ export function createRuntime(
   async function getRecipeSchema(recipeId: string): Promise<JSONObject | null> {
     const snapshot = await readContext(host);
     const recipe = lookup(snapshot.recipes, recipeId, "Receta");
+    const program = recipeProgram(recipe, snapshot);
     const schema = await runner.run(
       {
         kind: "recipe-schema",
-        program: recipeProgram(recipe, snapshot),
+        program,
         payload: {
+          ...(program ? {} : { builtin: builtinProgram(recipe) }),
           lists: lists(snapshot),
           defaultLanguage: snapshot.settings.language,
         },
