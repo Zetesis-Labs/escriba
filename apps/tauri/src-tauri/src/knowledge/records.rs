@@ -387,3 +387,68 @@ impl Knowledge {
         Ok(())
     }
 }
+
+impl Knowledge {
+    pub async fn reconcile_sources(
+        &self,
+        recording_id: &str,
+        versions: &[(String, Option<String>)],
+    ) -> Result<(), String> {
+        let mut response = self
+            .root
+            .query("SELECT VALUE ontology_id FROM ontology")
+            .await
+            .map_err(error)?
+            .check()
+            .map_err(error)?;
+        let ontologies: Vec<String> = response.take(0).map_err(error)?;
+        let ids: Vec<String> = versions.iter().map(|(id, _)| id.clone()).collect();
+        for ontology in ontologies.iter().filter(|id| id.as_str() != "escriba") {
+            let db = selected(&self.root, ontology).await?;
+            db.query("DELETE _escriba_source WHERE recordingId=$recording AND versionId NOT IN $versions")
+                .bind(("recording", recording_id.to_owned()))
+                .bind(("versions", ids.clone()))
+                .await
+                .map_err(error)?
+                .check()
+                .map_err(error)?;
+            for (version, origin) in versions {
+                let Some(origin) = origin else { continue };
+                let mut response = db
+                    .query("SELECT record, recipeId FROM _escriba_source WHERE recordingId=$recording AND versionId=$origin")
+                    .bind(("recording", recording_id.to_owned()))
+                    .bind(("origin", origin.clone()))
+                    .await
+                    .map_err(error)?
+                    .check()
+                    .map_err(error)?;
+                let links: Vec<DbValue> = response.take(0).map_err(error)?;
+                for link in links {
+                    let DbValue::Object(link) = link else { continue };
+                    let Some(DbValue::RecordId(record)) = link.get("record").cloned() else {
+                        continue;
+                    };
+                    let source = Source {
+                        recording_id: recording_id.to_owned(),
+                        version_id: version.clone(),
+                        recipe_id: match link.get("recipeId") {
+                            Some(DbValue::String(recipe)) => Some(recipe.clone()),
+                            _ => None,
+                        },
+                    };
+                    db.query("LET $id = type::record('_escriba_source',$key); IF !record::exists($id) { CREATE $id SET record=$record, recordingId=$recording, versionId=$version, recipeId=$recipe }")
+                        .bind(("key", source_id(&record, &source)))
+                        .bind(("record", record))
+                        .bind(("recording", source.recording_id))
+                        .bind(("version", source.version_id))
+                        .bind(("recipe", source.recipe_id))
+                        .await
+                        .map_err(error)?
+                        .check()
+                        .map_err(error)?;
+                }
+            }
+        }
+        Ok(())
+    }
+}

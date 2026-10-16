@@ -956,6 +956,55 @@ async fn editar_y_vincular_manualmente_conserva_la_receta_de_origen() {
     );
 }
 
+async fn sources_of(db: &Knowledge, recording: &str) -> Vec<Value> {
+    db.query(
+        "provenance",
+        1,
+        &format!("SELECT versionId, recipeId FROM _escriba_source WHERE recordingId='{recording}' ORDER BY versionId"),
+        json!({}),
+    )
+    .await
+    .unwrap()
+}
+
+#[tokio::test]
+async fn una_version_derivada_hereda_los_vinculos_de_su_origen_y_los_de_una_borrada_se_van() {
+    let temp = tempfile::tempdir().unwrap();
+    let db = Knowledge::open(&temp.path().join("knowledge.rocksdb"))
+        .await
+        .unwrap();
+    db.apply(ontology("provenance")).await.unwrap();
+    db.query("provenance", 1, "CREATE person:a SET name='Ada'", json!({}))
+        .await
+        .unwrap();
+    let source = |version: &str| Source {
+        recording_id: "note".into(),
+        version_id: version.into(),
+        recipe_id: Some("receta".into()),
+    };
+    db.link("provenance", 1, "person:a", source("v1")).await.unwrap();
+    let lineage = vec![("v1".to_owned(), None), ("v2".to_owned(), Some("v1".to_owned())), ("v3".to_owned(), Some("v2".to_owned()))];
+    db.reconcile_sources("note", &lineage).await.unwrap();
+    db.reconcile_sources("note", &lineage).await.unwrap();
+    assert_eq!(
+        sources_of(&db, "note").await,
+        vec![json!([
+            {"versionId": "v1", "recipeId": "receta"},
+            {"versionId": "v2", "recipeId": "receta"},
+            {"versionId": "v3", "recipeId": "receta"}
+        ])]
+    );
+    db.link("provenance", 1, "person:a", source("v3")).await.unwrap();
+    db.reconcile_sources("note", &lineage[1..]).await.unwrap();
+    assert_eq!(
+        sources_of(&db, "note").await,
+        vec![json!([
+            {"versionId": "v2", "recipeId": "receta"},
+            {"versionId": "v3", "recipeId": "receta"}
+        ])]
+    );
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn dos_ediciones_simultaneas_con_la_misma_revision_no_se_pisan() {
     let temp = tempfile::tempdir().unwrap();

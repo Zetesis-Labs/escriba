@@ -732,7 +732,7 @@ async function recordingSnapshot(db: Database, id: string): Promise<Json | null>
   result.versions = versions.map((version) => {
     readVersion(version.payload, "Versión guardada inválida para la base de conocimiento");
     const value = version.payload;
-    const item = strings(value, ["id", "createdAt", "backend", "recipeId", "title"]);
+    const item = strings(value, ["id", "createdAt", "backend", "recipeId", "title", "sourceVersionId"]);
     if (isObject(value) && isObject(value.transcript)) item.transcript = publicTranscript(value.transcript);
     if (isObject(value) && isObject(value.digest)) {
       const digest = strings(value.digest, ["title", "summary", "description"]);
