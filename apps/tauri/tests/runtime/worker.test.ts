@@ -263,6 +263,18 @@ test("una receta pide otra versión para editarla, lista las versiones y transcr
   assert.deepEqual(host.operations(), ["versions", "note", "transcribe", "save"]);
   assert.deepEqual([host.calls[1].args, host.calls[2].args], [{ version: "v1", editar: true }, { idioma: "es", handle: "v2" }]);
 });
+test("pedir la misma nota dos veces devuelve el mismo objeto y conserva sus datos sin guardar", async () => {
+  const program = await recipe(`export async function flujo(audio, escriba) {
+    const nota = await escriba.nota(audio);
+    nota.datos = { tema: "a" };
+    const otra = await escriba.transcribir(audio);
+    if (otra !== nota || otra.datos.tema !== "a") throw Error("nota duplicada");
+    await otra.guardar();
+  }`);
+  const host = recording(() => vigente);
+  await runner().run({ kind: "recipe", program, payload }, host);
+  assert.deepEqual(host.calls.find((call) => call.operation === "save")?.args, { handle: "v2", data: { tema: "a" } });
+});
 test("una receta de código sin formulario comunica que no tiene parámetros", async () => {
   const schema = await runner().run(
     { kind: "recipe-schema", program: "var __recipe={flujo(){}}", payload: { lists } },

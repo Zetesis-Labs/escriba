@@ -164,6 +164,16 @@ test("una versión derivada se guarda sin hacerse vigente y apunta su origen, su
   );
 });
 
+test("la primera versión de una nota es vigente aunque se guarde sin seleccionarla", async () => {
+  const audio = space.path("sample.wav");
+  write(audio, "synthetic audio");
+  const store = await space.open();
+  const key = str(obj(await store.import(audio)).id);
+  const first = str(obj(await store.mutate("version_save", { recordingId: key, transcript: { text: "uno", segments: [] }, select: false })).id);
+  await store.mutate("version_save", { recordingId: key, transcript: { text: "dos", segments: [] }, sourceVersionId: first, select: false });
+  assert.equal(obj(await store.recording(key)).currentVersionId, first);
+});
+
 test("actualizar la transcripción de una versión sustituye sus huellas", async () => {
   const audio = space.path("sample.wav");
   write(audio, "synthetic audio");

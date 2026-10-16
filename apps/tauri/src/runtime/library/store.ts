@@ -1255,7 +1255,7 @@ function transcriptParam(value: Json | undefined): Transcript {
   }
 }
 function appendVersion(record: Recording, version: Version, select: boolean) {
-  if (select) record.currentVersionId = version.id;
+  if (select || !record.versions?.length) record.currentVersionId = version.id;
   const duration = version.transcript?.duration;
   if (typeof duration === "number") record.duration = duration;
   if (!Array.isArray(record.versions)) throw Error("Versiones inválidas");
