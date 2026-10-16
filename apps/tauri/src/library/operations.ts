@@ -3,7 +3,8 @@ import { call } from "../api";
 import { transcriptExportJSON } from "../core/export";
 import { correctedSpeaker, forgottenRecognition } from "../core/people";
 import { clockStamp, renderedTranscript } from "../core/presentation";
-import { cancelProcessing, processRecording, publishRecording, summarizeRecording, unpublishRecording } from "../runtime";
+import { cancelProcessing, processRecording, publishRecording, unpublishRecording } from "../runtime";
+import { builtinRecipeId } from "../core/builtinRecipes";
 import type { JSONObject, Recording, Transcript, Version } from "../types";
 import { currentVersion, isPublished } from "./model";
 import { displayTitle } from "./RecordingRow";
@@ -57,7 +58,8 @@ export function forgetSpeakerRecognition(recording: Recording, speaker: string) 
   return saveCorrection(recording, corrected);
 }
 
-export const summarize = (recording: Recording) => summarizeRecording(recording.id);
+export const summarize = (recording: Recording) =>
+  processRecording(recording.id, { recipeId: builtinRecipeId("resumir"), force: true, baseVersionId: currentVersion(recording)?.id });
 
 export async function forgetSummary(recording: Recording) {
   const version = currentVersion(recording);
