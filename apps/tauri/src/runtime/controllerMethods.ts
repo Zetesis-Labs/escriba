@@ -28,6 +28,8 @@ export const UI_CONTROLLER_METHODS = [
   "version_save",
   "version_select",
   "version_update",
+  "version_delete",
+  "version_keep_only",
   "note_draft_get",
   "note_draft_begin",
   "note_draft_save",

@@ -152,6 +152,14 @@ export class Library {
       return store.mutate("recording_remove_audio", params);
     });
   }
+  removeVersions(method: "version_delete" | "version_keep_only", params: Json): Promise<Json> {
+    return this.order(async (store) => {
+      const id = typeof params === "object" && params && !Array.isArray(params) && typeof params.recordingId === "string" ? params.recordingId : "";
+      if (!id) throw Error("Falta recordingId");
+      if (await jobs.busy(store.database, id)) throw Error("Espera a que acabe el trabajo de esta nota o cancélalo antes de borrar versiones");
+      return store.mutate(method, params);
+    });
+  }
   importStaged(staged: StagedAudio, source: string, recipeId?: string) {
     return this.order((store) => store.importStaged(staged, source, recipeId));
   }

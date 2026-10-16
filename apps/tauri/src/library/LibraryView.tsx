@@ -15,7 +15,7 @@ import { okfPublicationFile } from "../core/publicationFiles";
 import { recordingRevision } from "../core/recordingDetail";
 import { Button, ContentUnavailable, FormRow, FormSection, LabeledRow, PopupButton, Sheet, Spinner, ToolbarButton, ToolbarMenu } from "../mac/controls";
 import { alertMessage, chooseFiles, confirmDestructive, errorText, header, item, popupMenu, separator, submenu, type MenuEntry } from "../mac/native";
-import type { Destination, JobState, JSONObject, Recording, Snapshot } from "../types";
+import type { Destination, JobState, JSONObject, Recording, Snapshot, Version } from "../types";
 import { currentVersion, currentVersionLabel, isPublished, libraryRecordings, liveDestinations, originName, providerLabel, versionsInOrder, versionTitle } from "./model";
 import * as operations from "./operations";
 import { groupByDay } from "../core/libraryDays";
@@ -260,9 +260,19 @@ export function LibraryView({
     ];
   };
 
+  const deleteVersion = async (recording: Recording, version: Version, number: number) => {
+    const confirmed = await confirmDestructive(`¿Borrar la versión ${number} de ${displayTitle(recording)}?`, rowActionText.deleteVersion, "Borrar la versión");
+    if (confirmed) await perform(() => operations.deleteVersion(recording, version));
+  };
+  const keepOnlyVersion = async (recording: Recording, version: Version, number: number, others: number) => {
+    const confirmed = await confirmDestructive(`¿Quedarte solo con la versión ${number} de ${displayTitle(recording)}?`, rowActionText.keepOnlyVersion(others), "Borrar las demás");
+    if (confirmed) await perform(() => operations.keepOnlyVersion(recording, version));
+  };
   const versionsMenu = (recording: Recording): MenuEntry[] => {
     const versions = versionsInOrder(recording);
     const current = currentVersion(recording);
+    const number = versions.findIndex((version) => version.id === current?.id) + 1;
+    const several = versions.length > 1;
     return [
       ...versions.map((version, index) =>
         item(versionTitle(version, index + 1, data.recipes, data.resolvers), () => version.id !== current?.id && void perform(() => operations.chooseVersion(recording, version)), {
@@ -271,6 +281,13 @@ export function LibraryView({
       ),
       ...(versions.length ? [separator] : []),
       item("Reprocesar con una receta…", () => setReprocessing(recording), { enabled: Boolean(recording.audioPath) }),
+      ...(current
+        ? [
+            separator,
+            item("Borrar esta versión…", () => void deleteVersion(recording, current, number), { enabled: several }),
+            item("Quedarme solo con esta…", () => void keepOnlyVersion(recording, current, number, versions.length - 1), { enabled: several }),
+          ]
+        : []),
     ];
   };
 
