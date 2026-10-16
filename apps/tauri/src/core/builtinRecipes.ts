@@ -10,6 +10,20 @@ const NAMES: Record<BuiltinProgram, string> = {
   publicar: "Publicar",
 };
 
+const STARTS: Record<BuiltinProgram, "audio" | "note"> = {
+  "por-defecto": "audio",
+  transcribir: "audio",
+  resumir: "note",
+  publicar: "note",
+};
+
+export function startsFrom(recipe: Pick<Recipe, "kind" | "base" | "builtin" | "startsFrom">, recipes: readonly Recipe[]): "audio" | "note" {
+  if (recipe.kind === "code") return recipe.startsFrom ?? "audio";
+  if (!recipe.base) return STARTS[recipe.builtin ?? "por-defecto"];
+  const base = recipes.find((candidate) => candidate.id === recipe.base);
+  return base?.kind === "code" ? (base.startsFrom ?? "audio") : "audio";
+}
+
 export function builtinRecipeId(program: BuiltinProgram): string {
   return program === "por-defecto" ? "default" : `serie:${program}`;
 }

@@ -6,7 +6,7 @@ import { AlertTriangle, BadgeCheck, Braces, ChevronRight, Minus, Plus, SlidersHo
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { call } from "../api";
 import { Pane } from "../app/Pane";
-import { builtinProgram, builtinProgramName, isBuiltinRecipeId } from "../core/builtinRecipes";
+import { builtinProgram, builtinProgramName, isBuiltinRecipeId, startsFrom } from "../core/builtinRecipes";
 import { recordingWhen } from "../core/presentation";
 import { projectRevealPath } from "../core/projectDrafts";
 import { recipeFormLoad, recipeFormOverrides, recipeFormValues, recipeFormExport, type RecipeFormLoad } from "../core/recipeForm";
@@ -160,7 +160,7 @@ export function RecipesPane({ data, refresh }: { data: Snapshot; refresh: () => 
             {forms.map((recipe) =>
               row(recipe, formSubtitle(recipe), () => [
                 item("Duplicar", () => void duplicate(recipe)),
-                item("Usar por defecto", () => void makeDefault(recipe.id), { enabled: recipe.id !== defaultId }),
+                item("Usar por defecto", () => void makeDefault(recipe.id), { enabled: recipe.id !== defaultId && startsFrom(recipe, data.recipes) === "audio" }),
                 separator,
                 item("Quitar…", () => void remove(recipe), { enabled: forms.length >= 2 && !isBuiltinRecipeId(recipe.id) }),
               ]),
@@ -343,6 +343,10 @@ function RecipeDetail({
       <span className="secondary default-note">
         <BadgeCheck size={14} strokeWidth={1.8} /> Es la receta por defecto: procesa todo lo que entra.
       </span>
+    </FormRow>
+  ) : startsFrom(recipe, data.recipes) === "note" ? (
+    <FormRow>
+      <span className="secondary default-note">Parte de una nota ya transcrita: se usa al reprocesar, no con lo que entra.</span>
     </FormRow>
   ) : (
     <FormRow>

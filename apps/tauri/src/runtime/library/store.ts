@@ -9,7 +9,8 @@ import { conservativeVoices, currentVersion, draftContent, draftFingerprint, dra
 import { array, canonical, clone, equal, isObject, newId, now, object, safeId, text, type Json } from "./json";
 import { defaultResolvers, defaultWhisperModel, folderBookmarkRequired } from "../platform";
 import { isLocalSttId, localSttId } from "../localModels";
-import { builtinRecipeProblem, isBuiltinRecipeId, withBuiltinRecipes } from "../../core/builtinRecipes";
+import { builtinRecipeProblem, isBuiltinRecipeId, startsFrom, withBuiltinRecipes } from "../../core/builtinRecipes";
+import type { Recipe as RecipeInfo } from "../../types";
 import { catalog, readLibraryData, readRecording, readSettings, readVersion, setCatalog, type LibraryData, type Recording, type Settings, type Transcript, type Version, type WatchedFolder } from "./model";
 import { Persistence, parseLogQuery, scope, scopedWrite, type AudioDeletion, type LibraryWrite, type Teaching, type WriteScope } from "./persistence";
 import { lightPublication, previewVersion, typedLibrary } from "./projection";
@@ -413,10 +414,15 @@ export class Store {
         deleteAfterCommit = outcome.deleteAfterCommit;
         break;
       }
-      case "settings_save":
+      case "settings_save": {
         updateSettings(next.settings, field(p, "settings"));
+        const recipes = catalog(next, "recipes") as unknown as RecipeInfo[];
+        const chosen = recipes.find((recipe) => recipe.id === next.settings.defaultRecipeId);
+        if (chosen && startsFrom(chosen, recipes) === "note")
+          throw Error(`«${chosen.name}» parte de una nota ya transcrita y no puede procesar lo que entra`);
         result = redactedSettings(clone(next.settings) as unknown as Json);
         break;
+      }
       case "publication_save": {
         const record = recordMut(next, text(p, "recordingId"));
         const key = text(p, "destinationId");

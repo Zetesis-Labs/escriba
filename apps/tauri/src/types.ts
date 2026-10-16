@@ -134,6 +134,7 @@ export interface Recipe {
   values: JSONObject;
   base?: string;
   builtin?: import("./core/builtinRecipes").BuiltinProgram;
+  startsFrom?: "audio" | "note";
   entry?: string;
   description?: string;
   schema?: JSONObject;

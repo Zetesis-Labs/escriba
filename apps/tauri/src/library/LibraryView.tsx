@@ -8,6 +8,7 @@ import { Pane } from "../app/Pane";
 import { audioExtensions, fileName, importNotice, importPlan } from "../core/inbox";
 import { librarySummary, rowActionText, speakers } from "../core/presentation";
 import { speakerTitle } from "../core/people";
+import { startsFrom } from "../core/builtinRecipes";
 import { reprocessChoice, reprocessDraft, reprocessTransition } from "../core/reprocessSheet";
 import { recipeFormLoad } from "../core/recipeForm";
 import { okfPublicationFile } from "../core/publicationFiles";
@@ -169,9 +170,11 @@ export function LibraryView({
 
   const recipeChoices = (choose: (recipeId?: string) => void): MenuEntry[] => [
     header("Con la receta"),
-    ...data.recipes.map((recipe) =>
-      recipe.id === data.settings.defaultRecipeId ? item(`${recipe.name} (por defecto)`, () => choose()) : item(recipe.name, () => choose(recipe.id)),
-    ),
+    ...data.recipes
+      .filter((recipe) => startsFrom(recipe, data.recipes) === "audio")
+      .map((recipe) =>
+        recipe.id === data.settings.defaultRecipeId ? item(`${recipe.name} (por defecto)`, () => choose()) : item(recipe.name, () => choose(recipe.id)),
+      ),
   ];
   const chooseAudio = async (recipeId?: string) => {
     const paths = await chooseFiles(audioExtensions);
