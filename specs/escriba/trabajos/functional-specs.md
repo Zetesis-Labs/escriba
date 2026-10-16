@@ -73,8 +73,9 @@ o en la vista de la nota.
    su fila → se encola un trabajo nuevo; el original se conserva en el
    historial tal cual. El nuevo es un trabajo más de esa nota y no indica de
    cuál viene.
-   - Procesar usa la receta que tenga la nota en ese momento y crea una
-     versión nueva, con las mismas reglas que reprocesar desde la nota.
+   - Procesar repite la receta, los valores y la versión de partida del
+     trabajo original (el que no eligió receta usa la de la nota) y crea su
+     propia versión, con las mismas reglas que reprocesar desde la nota.
    - Publicar, retirar o resumir a mano repiten la misma acción sobre el mismo
      destino o versión.
    - Si la nota ya tiene un trabajo activo, no se encola otro y se avisa.
@@ -177,8 +178,8 @@ o en la vista de la nota.
 
 ## 9. Restricciones
 
-- No se puede cambiar la receta al relanzar; se usa la de la nota (o la acción
-  original).
+- No se puede cambiar la receta al relanzar; se repite la del trabajo
+  original (o la acción original).
 - No se reordena la cola ni se cambia la capacidad de los carriles.
 - El historial borrado por plazo no se recupera.
 - Trabajos no tiene búsqueda por texto; la que tenía la lista de ejecuciones

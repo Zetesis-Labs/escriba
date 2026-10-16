@@ -11,6 +11,12 @@ modulares, «Por defecto» compuesta con ellas (§6.8), y leer la nota sin
 transcribir con `escriba.nota` (§6.9). Construida en la rama
 `feat/recetas-modulares`, pendiente de validar en pantalla.
 
+Segunda ampliación del 2026-10-16, decidida por Rubén tras perder datos al
+reprocesar: la receta elige sobre qué versión trabaja y si guarda en ella o en
+una versión nueva que hereda lo que no cambia (§6.9, §6.10); las versiones se
+pueden borrar (§6.11); cada receta declara si parte de un audio o de una nota
+(§6.12). Sustituye lo escrito esa mañana sobre versiones en §6.3, §6.5 y §6.9.
+
 Estado: **decidido, sin construir.** Lo marcado como «hoy» es lo que hace la
 app; lo marcado como «decidido» es lo que debe pasar a hacer. Destinos queda
 **a reestudiar** (§10).
@@ -34,9 +40,13 @@ destinos, que está a reestudiar.
 
 La ampliación del 2026-10-16 trocea la receta de serie en piezas que se pueden
 elegir por separado: **Transcribir**, **Resumir** y **Publicar**. «Por
-defecto» se compone con ellas en su código y se comporta como hoy. Para que
-Resumir y Publicar trabajen sobre una nota ya transcrita, la receta puede leer
-la versión vigente sin transcribir.
+defecto» se compone con ellas en su código y se comporta como hoy.
+
+La receta trabaja sobre una **nota**, copia de la versión que la persona tiene
+abierta o de la que la receta elija. Lo que cambia sustituye a lo de la copia
+y lo demás se hereda; al guardar queda una versión nueva, o, si la receta lo
+decide, cambia la versión de la que partió. Nada que la persona tenga se pierde
+por reprocesar.
 
 ## 2. Actores
 
@@ -66,14 +76,17 @@ la versión vigente sin transcribir.
 
 - **Entra un audio** (grabadora, «Añadir audio…», carpeta vigilada, arrastrar):
   la nota queda pendiente y la cola la encola con su receta (la elegida al
-  grabar o añadir, o la por defecto).
+  grabar o añadir entre las que parten de un audio, o la por defecto).
 - **Reprocesar**, desde la nota o desde Trabajos: hoja con la receta (la de la
-  nota marcada) y, si tiene formulario, sus valores solo para esa vez.
-- **Probar con…**, desde la ficha de una receta: la ejecuta sobre una nota sin
-  guardar versiones, resúmenes, datos ni publicaciones; deja la traza.
+  nota marcada) y, si tiene formulario, sus valores solo para esa vez. Parte de
+  la versión que la nota tiene abierta.
+- **Probar con una nota**, desde la ficha de una receta: la ejecuta sobre una
+  nota sin guardar versiones, resúmenes, datos ni publicaciones; deja la traza.
 - **Corregir una nota** en la biblioteca (renombrar o fusionar hablantes,
   confirmar un borrador): guarda una versión de corrección. Hoy republica al
   momento; propuesto: no hace nada más (§6.4).
+- **Versiones de una nota**, en su menú: elegir la vigente, borrar una o
+  quedarse solo con una (§6.11).
 - **Trabajos**: cancelar, relanzar, ver pasos y errores.
 - **Recetas**: proyecto en una carpeta del usuario, construido a `dist/`;
   formulario de cada receta; «Guardar como receta de formulario».
@@ -86,8 +99,9 @@ desaparecen (§6.4).
 
 1. **Procesar una nota nueva.** Entra el audio → la cola encola «procesar» con
    la receta de la nota → cuando toca el carril de inferencia, la receta
-   arranca y recibe `audio` → pide `transcribir` (versión nueva) → resume,
-   pregunta, consulta el grafo, guarda datos → `guardar()` → publica → termina.
+   arranca y recibe `audio` → pide la nota (vacía, la grabación no tiene
+   versiones) y la transcribe → resume, pregunta, consulta el grafo, guarda
+   datos → `guardar()` deja la primera versión vigente → publica → termina.
    La nota pasa por pendiente → procesando → terminada. Cada paso con su
    duración queda en la traza.
    - *Servicio caído*: la capacidad falla con `no-disponible`; si la receta no
@@ -95,18 +109,26 @@ desaparecen (§6.4).
    - *Error de la nota* (respuesta que no casa con el esquema, excepción de la
      receta): la nota queda fallida con el mensaje; Trabajos permite relanzar.
    - *La receta vuelve sin `guardar()`*: la nota queda **saltada** (§6.3).
-2. **Reprocesar a mano.** Rubén elige receta y valores → trabajo nuevo con
-   «versión nueva» → la receta hace el recorrido entero; si los criterios de
-   transcripción coinciden con una versión existente, copia la transcripción
-   en la versión nueva sin transcribir; resumen, preguntas y datos se rehacen.
-   Un reprocesado produce exactamente una versión, aunque se reintente (§6.5).
+2. **Reprocesar a mano.** Rubén abre la versión de la que quiere partir,
+   elige receta y valores → el trabajo apunta esa versión de partida → la
+   receta trabaja sobre una copia: lo que hace (transcribir con otros
+   criterios, resumir, guardar datos) sustituye su parte y lo demás se hereda
+   → `guardar()` deja una versión nueva, derivada de la de partida, vigente.
+   Si nada cambió, no hay versión nueva. Con los criterios de la versión de
+   partida, transcribir devuelve su transcripción sin volver a transcribir.
+   Los reintentos parten de la misma versión y escriben en la misma derivada
+   (§6.5).
+   - *Desde la v4 con Resumir*: versión nueva = la v4 con el resumen nuevo.
+   - *Desde la v5 con Transcribir diarizando*: versión nueva = la v5 con
+     hablantes, mismo resumen y mismos datos.
 3. **Pasar la grabación a otra receta.** `escriba.receta(x).procesar(audio)`
-   ejecuta el recorrido entero de la otra receta sobre la misma nota, con sus
-   propios parámetros, dentro del mismo trabajo. Comparten la versión activa y
-   los datos ya guardados pasan a la versión que acabe guardando.
+   ejecuta el recorrido entero de la otra receta sobre la misma grabación, con
+   sus propios parámetros, dentro del mismo trabajo. La otra receta recibe la
+   nota en curso de la que la llama: lo que haga acaba en la misma versión.
 4. **Corregir y volver a lanzar.** Rubén corrige hablantes o texto → versión
-   de corrección, vigente, sin más efectos → cuando quiere, «Reprocesar» → la
-   receta parte de la versión corregida: `transcribir` con los mismos criterios
+   de corrección, vigente, sin más efectos, que conserva criterios, resumen y
+   datos de la versión corregida → cuando quiere, «Reprocesar» → la receta
+   parte de la versión corregida: transcribir con los mismos criterios
    devuelve el texto y los hablantes corregidos, y `nota.datos` llega con lo
    que la persona dejó.
 5. **Probar una receta.** Desde su ficha, sobre una nota de la biblioteca → no
@@ -117,17 +139,25 @@ desaparecen (§6.4).
 6. **Cancelar.** Desde la nota o Trabajos → la receta deja de poder pedir nada,
    su proceso termina y, si usaba un motor local, se corta → trabajo cancelado,
    nota fallida con «Proceso cancelado».
-7. **Usar una pieza suelta (decidido 2026-10-16).** Rubén elige Transcribir,
-   Resumir o Publicar (al grabar o añadir, en «Reprocesar» o en «Probar
-   con…»), o una receta de formulario sobre una de ellas → la pieza hace solo
-   lo suyo y confirma con `guardar()`. Transcribir crea o reutiliza versión
-   como cualquier `transcribir`. Resumir y Publicar leen la versión vigente
-   con `escriba.nota` y no crean ninguna.
+7. **Usar una pieza suelta (decidido 2026-10-16).** Rubén elige Transcribir
+   (también al grabar o añadir), Resumir o Publicar (en «Reprocesar» o en
+   «Probar con una nota»), o una receta de formulario sobre una de ellas → la
+   pieza hace solo lo suyo sobre la versión abierta y confirma con
+   `guardar()`. Transcribir y Resumir crean una versión derivada; Publicar no
+   cambia la nota y no crea ninguna. Dentro de «Por defecto» las tres trabajan
+   sobre la misma nota y queda una sola versión.
    - *Nota sin transcribir*: Resumir y Publicar fallan con «La nota aún no
-     está transcrita»; la nota no cambia.
+     está transcrita»; la nota no cambia. No se ofrecen al grabar ni al
+     añadir (§6.12).
    - *Falla el resumen o una publicación*: la pieza suelta falla con el error;
      un `no-disponible` espera reintento (§6.6). Solo «Por defecto» tolera
      esos fallos y conserva la nota, como hoy.
+8. **Quitar versiones que sobran (decidido 2026-10-16).** Desde el menú de
+   versiones de la nota, «Borrar esta versión…» o «Quedarme solo con esta…»
+   → confirmación → se borran → si se fue la vigente, pasa a vigente la más
+   reciente que quede (§6.11).
+   - *Única versión, trabajo en marcha o borrador abierto*: no se ofrece o se
+     rechaza diciendo por qué.
 
 ## 6. Reglas
 
@@ -141,24 +171,26 @@ clave, nombre y fecha, con origen vacío.
 ### 6.2 Qué puede corregir la receta (decidido)
 
 La receta puede **renombrar hablantes** y **reemplazar el texto de un
-segmento**; `guardar()` escribe esas correcciones en la versión activa, sin
-crear otra, igual que las correcciones a mano. No puede sustituir el texto
+segmento**; esas correcciones van a la nota y, como cualquier cambio, acaban
+en la versión que la nota guarde (§6.10). No puede sustituir el texto
 plano completo: el texto deriva de los segmentos con sus tiempos y hablantes.
 Hoy `nota.texto` y `nota.hablantes` son de solo lectura y `guardar()` solo
 escribe `datos`.
 
 ### 6.3 `guardar()` es el punto de confirmación (decidido)
 
-- Las versiones las crea solo `transcribir`: una por cada criterio distinto
-  dentro de una ejecución, y una nueva al reprocesar a mano. `escriba.nota`
-  fija como activa la versión vigente sin crear otra (§6.9). `resumir`,
-  `preguntar` y `guardar` escriben sobre esa versión activa, las veces que
-  haga falta, sin crear otra.
+- Las versiones salen de las notas que la receta guarda con cambios (§6.10):
+  por defecto, una versión nueva derivada de la de origen de la nota; con
+  `editar`, cambia esa misma versión. Componer recetas es pasarse la misma
+  nota, así que todo lo que hagan acaba en una sola versión. No es una regla
+  de la plataforma: una receta que pide varias notas guarda varias versiones.
 - Lo caro se guarda en cuanto llega (transcripción, resumen, respuestas,
-  publicaciones) y la biblioteca lo enseña.
+  publicaciones) y la biblioteca lo enseña: la versión derivada nace con la
+  primera transcripción, resumen o respuesta de la nota, sin ser vigente.
 - **La versión pasa a vigente cuando la receta llama a `guardar()`.** Hasta
-  entonces existe pero no sustituye a la anterior. Hoy pasa a vigente al
-  transcribir y `guardar()` solo añade `datos`.
+  entonces existe pero no sustituye a la anterior. `guardar()` sobre una nota
+  sin cambios no crea versión y deja vigente la de origen. Hoy pasa a vigente
+  al transcribir y `guardar()` solo añade `datos`.
 - **Una receta que vuelve sin `guardar()` deja la nota saltada**, tanto si
   volvió antes de transcribir como si transcribió y decidió no quedarse con
   el resultado: la versión queda guardada pero no vigente, y la nota lo
@@ -192,15 +224,16 @@ confirmado.
 
 ### 6.5 Reintentos de un reprocesado (decidido)
 
-Un reprocesado a mano que falla por un servicio caído se reintenta solo, y el
-trabajo **recuerda la versión que creó en su primer intento**: los reintentos
-la reutilizan y, si no llegó a crearla, la crean. Un reprocesado produce
-exactamente una versión, caiga donde caiga. Hoy el reintento reutiliza
-cualquier versión con esos criterios, también una antigua, y puede no crear
-ninguna. Un reprocesado con una receta que no transcribe no produce ninguna:
-cada intento lee con `escriba.nota` la vigente de ese momento, así que si la
-persona corrige la nota mientras el trabajo espera, el reintento parte de la
-corrección.
+El trabajo apunta al encolarse su **versión de partida**: la que la nota
+tiene abierta (hoy, la vigente) o ninguna si la grabación no tiene versiones.
+Un reprocesado a mano que falla por un servicio caído se reintenta solo, y
+cada intento parte de esa misma versión aunque la vigente cambie mientras
+espera. El trabajo **recuerda también la versión que creó** en cuanto nace: los
+reintentos escriben en ella y, si no llegó a crearla, la crean. Un reprocesado
+produce como mucho una versión por cada nota que la receta guarde, caiga donde
+caiga. «Relanzar» repite receta, valores y versión de partida en un trabajo
+nuevo, que crea su propia versión. Hoy el reintento reutiliza cualquier
+versión con esos criterios, también una antigua, y puede no crear ninguna.
 
 ### 6.6 Esperar a un servicio caído (decidido)
 
@@ -213,16 +246,19 @@ se reintenta.
 ### 6.7 Reglas que se mantienen (hoy y decididas)
 
 - La receta por defecto procesa lo que entra; elegir otra al grabar o añadir
-  solo afecta a esa nota. Si la receta de una nota no está disponible (sin
+  solo afecta a esa nota, y solo se ofrecen las que parten de un audio
+  (§6.12). Si la receta de una nota no está disponible (sin
   paquete, borrada del proyecto, el runtime no arranca), la nota espera y lo
   dice; nunca se procesa con otra.
 - Una receta a la vez; publicaciones y retiradas hasta tres a la vez. Una nota
   no tiene dos trabajos activos. Un trabajo que pasa de dos horas falla.
-- Cada capacidad recuerda lo hecho por versión: transcripción por criterios,
-  resumen y respuestas por huella de la petición (LLM, instrucciones, entrada,
-  esquema), publicaciones por recibo. Una versión manual nueva tiene su propia
-  memoria. Un reprocesado a mano rehace resumen, preguntas y datos aunque no
-  cree versión; sus reintentos reutilizan lo que ese mismo reprocesado obtuvo.
+- Cada capacidad recuerda lo hecho en la grabación: transcripción por
+  criterios, resumen y respuestas por huella de la petición (LLM,
+  instrucciones, entrada, esquema), publicaciones por recibo. El mismo texto
+  con el mismo LLM y las mismas instrucciones no se vuelve a resumir aunque
+  esté en otra versión. Un reprocesado a mano rehace una vez cada resumen y
+  cada pregunta; sus reintentos reutilizan lo que ese mismo reprocesado
+  obtuvo.
 - Reutilizar una transcripción con hablantes exige que la versión conserve
   sus huellas; si no, se vuelve a diarizar.
 - Un STT remoto con `hablantes.detectar` es un error, nunca texto sin
@@ -230,9 +266,8 @@ se reintenta.
 - Un resumen vacío es un error. Si falla el resumen, la nota transcrita se
   conserva y el fallo se muestra.
 - `preguntar` valida la respuesta con el esquema de Zod antes de dársela a la
-  receta; sin troceado automático. Las preguntas hechas antes de transcribir
-  no se recuerdan (no hay versión a la que anclarlas); las hechas después de
-  `escriba.nota` se anclan a la vigente.
+  receta; sin troceado automático. Se recuerdan por grabación, también las
+  hechas antes de transcribir.
 - `datos` se validan con `receta.datos` al guardar; un valor que ya no vale
   falla nombrando el campo. Los parámetros de la receta igual.
 - Pasar la grabación a otra receta: ciclos y profundidad limitados, con un
@@ -247,22 +282,25 @@ se reintenta.
 
 ### 6.8 Recetas de serie modulares (decidido 2026-10-16)
 
-Escriba trae cuatro recetas de serie, todas disponibles para procesar: en la
-lista de Recetas, al grabar o añadir, en «Reprocesar», en «Probar con…», como
-receta que procesa lo que entra («Usar por defecto» en Recetas) y como base de
-una receta de formulario.
+Escriba trae cuatro recetas de serie, todas disponibles para procesar donde
+su tipo lo permite (§6.12): en la lista de Recetas, al grabar o añadir, en
+«Reprocesar», en «Probar con una nota», como receta que procesa lo que entra
+(«Usar por defecto» en Recetas) y como base de una receta de formulario.
 
-| Receta | Hace | Formulario |
-|---|---|---|
-| **Transcribir** | transcribe y guarda | STT, idioma, hablantes (detectar, cuántos) |
-| **Resumir** | resume la versión vigente y guarda | LLM, prompt |
-| **Publicar** | publica la versión vigente en los conectores elegidos | conectores |
-| **Por defecto** | transcribe, resume si se pide, guarda y publica | los tres anteriores y «Resumir» sí/no |
+| Receta | Parte de | Hace | Formulario |
+|---|---|---|---|
+| **Transcribir** | audio | transcribe la versión abierta (o la grabación nueva) y guarda una versión nueva | STT, idioma, hablantes (detectar, cuántos) |
+| **Resumir** | nota | resume la versión abierta y guarda una versión nueva | LLM, prompt |
+| **Publicar** | nota | publica la versión abierta en los conectores elegidos; no crea versión | conectores |
+| **Por defecto** | audio | transcribe, resume si se pide, guarda una sola versión y publica | los tres anteriores y «Resumir» sí/no |
 
 - «Por defecto» se **compone en su código** con las tres piezas: cada pieza es
   una función que recibe la nota y sus valores, y su receta suelta solo la
   envuelve. No hay composición en tiempo de ejecución ni valores que pasen de
   una receta a otra.
+- Sueltas, Transcribir y Resumir piden su propia nota y guardan su versión;
+  dentro de «Por defecto» las tres reciben la nota de «Por defecto» y queda
+  una sola versión. Lo decide su código, no la plataforma.
 - Los valores de «Por defecto» son suyos: cambiar el LLM de Resumir suelta no
   cambia el de «Por defecto», y al revés.
 - «Por defecto» conserva los campos, los nombres y el comportamiento de hoy:
@@ -274,27 +312,90 @@ una receta de formulario.
   también a una de serie, con `escriba.receta(x).procesar(audio)`, que corre
   con los valores guardados de esa receta.
 
-### 6.9 Leer la nota sin transcribir: `escriba.nota` (decidido 2026-10-16)
+### 6.9 Elegir la versión: `escriba.nota` y `escriba.versiones` (decidido 2026-10-16)
 
-`escriba.nota(audio)` devuelve la nota sobre la que trabajar sin transcribir,
-o nada si la grabación no tiene ninguna versión.
+La plataforma no fija sobre qué versión trabaja una receta: la pide ella.
 
-- Si el trabajo ya tiene versión activa, devuelve esa: dentro de una cadena o
-  tras un `transcribir`, la pieza siguiente ve lo que acaba de hacerse aunque
-  aún no sea vigente. Si no, devuelve la vigente de la grabación y la fija
-  como activa.
-- No crea versión. `resumir`, `preguntar`, `guardar`, `publicar` y `vincular`
-  escriben sobre ella igual que tras `transcribir`, con la misma memoria por
-  versión.
-- Lo que corrigió la persona es la entrada: si la vigente es una corrección,
-  la devuelve tal cual, con sus hablantes, segmentos y datos. No depende de los
-  criterios de transcripción, así que vale también para las correcciones que
-  hoy se guardan sin ellos (anexo).
-- Un `transcribir` posterior en la misma ejecución crea o reutiliza versión y
-  pasa a ser la activa; la nota anterior deja de valer («La nota ya no es la
-  versión activa»).
-- En «Probar con…» lee igual y no guarda nada.
-- Solo puede pedir la nota de su grabación, como `transcribir`.
+- `escriba.nota(audio)` devuelve la **nota en curso** del trabajo. La primera
+  vez es una copia de la versión de partida (§6.5); las siguientes, y las de
+  una receta a la que se pasa la grabación, la misma nota. Si la grabación no
+  tiene versiones, es una nota vacía (sin número de versión) que se puede
+  transcribir.
+- `escriba.nota(audio, { version })` devuelve una copia de esa versión,
+  independiente de la nota en curso, aunque no sea la vigente.
+- `{ editar: true }`, con o sin `version`, devuelve la propia versión en lugar
+  de una copia: lo que la receta haga con ella, transcripción incluida, cambia
+  esa versión y no crea otra.
+- `escriba.versiones(audio)` lista las versiones de la grabación con su
+  número, fecha, origen (receta o corrección), receta, si es la vigente y si
+  es la de partida, criterios de transcripción y qué tiene (hablantes,
+  resumen, datos).
+- `nota.transcribir(opciones)` sustituye la transcripción de la nota. Con los
+  criterios de su versión de origen devuelve la de origen, correcciones
+  incluidas, sin cambiar nada; con otros, reutiliza la de otra versión con
+  esos criterios o transcribe. Resumen y datos se conservan.
+  `escriba.transcribir(audio, opciones)` es lo mismo sobre `escriba.nota(audio)`.
+- Lo que corrigió la persona es la entrada: si la versión de partida es una
+  corrección, la nota llega con sus hablantes, segmentos y datos.
+- Un **selector de versiones** puede formar parte del formulario de una
+  receta: muestra las versiones de la nota sobre la que se lanza; lo elegido
+  vale solo para esa ejecución y no se guarda en los valores de la receta;
+  vacío es la versión de partida. Al configurar la receta sin nota delante
+  aparece fijo en «la abierta».
+- En «Probar con una nota» lee igual y no guarda nada.
+- Solo puede pedir notas y versiones de su grabación.
+
+### 6.10 Versiones derivadas (decidido 2026-10-16)
+
+- Una nota es una copia de trabajo de su **versión de origen**. Al guardarla
+  con cambios queda una **versión nueva** que hereda de la de origen todo lo
+  que la receta no cambió: transcripción con sus hablantes y huellas,
+  resumen, datos, criterios y vínculos de conocimiento. Ninguna versión
+  existente cambia, salvo con `editar`.
+- La versión nueva apunta a su versión de origen. Si esta se borra, la nueva
+  sigue intacta y pierde la referencia.
+- El resumen heredado se conserva tal cual aunque la transcripción cambie, sin
+  marca.
+- Una transcripción nueva con hablantes trae sus propias huellas de voz; no
+  hereda las de la versión de origen.
+- Una receta puede pedir varias notas; cada una es su copia y su `guardar()`
+  su versión.
+- Una corrección a mano es una versión nueva vigente que conserva los
+  criterios de transcripción, el resumen y los datos de la versión corregida,
+  y apunta a ella. Las correcciones guardadas antes reciben los criterios de
+  la última versión no corregida anterior.
+- «Resumir» desde la nota lanza la receta Resumir sobre la versión abierta:
+  crea una versión nueva.
+- Publicaciones, sin cambios hasta que se rehagan (§10): ni `guardar()` ni
+  borrar la vigente republican; elegir otra versión en el menú republica
+  como hoy.
+
+### 6.11 Borrar versiones (decidido 2026-10-16)
+
+- Desde el menú de versiones: «Borrar esta versión…» y «Quedarme solo con
+  esta…», que borra todas las demás y deja esa vigente.
+- Si se borra la vigente, pasa a vigente la más reciente que quede, sin
+  preguntar.
+- No se puede borrar la única versión, ni mientras la nota tenga un trabajo
+  en marcha o un borrador de corrección abierto.
+- Se van con la versión sus huellas de voz y sus vínculos de conocimiento. Lo
+  recordado por la grabación (§6.7) se queda.
+- Las versiones que salieron de una borrada siguen intactas.
+
+### 6.12 De qué parte cada receta (decidido 2026-10-16)
+
+Cada receta declara en su código si parte de un **audio** (ciclo completo,
+sirve para una grabación nueva) o de una **nota** ya transcrita. Sin declarar,
+parte de un audio, como todas las recetas de hoy. Una receta de formulario
+hereda lo de su base.
+
+| Parte de | Se ofrece en |
+|---|---|
+| audio | grabar, añadir, «Usar por defecto», «Reprocesar», «Probar con una nota» |
+| nota | «Reprocesar», «Probar con una nota» |
+
+Transcribir y «Por defecto» parten de un audio; Resumir y Publicar, de una
+nota.
 
 ## 7. Conceptos
 
@@ -305,18 +406,22 @@ o nada si la grabación no tiene ninguna versión.
   Publicar). «Por defecto» se compone con las tres en su código.
 - **Audio**: lo que la receta recibe de la grabación: identidad, nombre, fecha,
   duración, tamaño, formato y origen.
-- **Nota**: la vista de la versión activa que la receta manipula, obtenida con
-  `transcribir` o con `escriba.nota`: texto,
-  hablantes, segmentos con palabras, resumen, datos. Expone `resumir`,
-  `guardar`, `vincular` y, decidido, renombrar hablantes y corregir segmentos.
-- **Versión**: resultado de una transcripción con unos criterios, con su
-  resumen, datos y recibos. **Vigente** cuando la receta la confirma con
-  `guardar()` o cuando es una corrección de la persona.
+- **Tipo de receta**: de qué parte, un audio o una nota ya transcrita (§6.12).
+- **Nota**: copia de trabajo de una versión que la receta manipula, obtenida
+  con `escriba.nota` o `escriba.transcribir`: texto, hablantes, segmentos con
+  palabras, resumen, datos. Expone `transcribir`, `resumir`, `guardar`,
+  `vincular` y, decidido, renombrar hablantes y corregir segmentos.
+- **Versión**: estado confirmado de una nota, con su transcripción y
+  criterios, resumen, datos, recibos y su versión de origen. **Vigente**
+  cuando la receta la confirma con `guardar()`, cuando es una corrección de la
+  persona o cuando la persona la elige.
+- **Versión de partida**: la que la nota tenía abierta al encolar el trabajo.
 - **Trabajo**: una ejecución de la receta sobre una nota (ver la spec de
-  Trabajos). Recuerda la versión que creó.
+  Trabajos). Recuerda su versión de partida y la versión que creó.
 - **Estado de la nota**: pendiente, procesando, terminada, **saltada**
   (decidido, nuevo), fallida, descartada.
-- **Memoria**: lo que cada capacidad guardó por versión para no repetirlo.
+- **Memoria**: lo que cada capacidad guardó en la grabación para no
+  repetirlo.
 - **Traza**: pasos de una ejecución con duración, resultado o error, y el log
   de la receta.
 
@@ -326,21 +431,25 @@ Sin pantallas nuevas. Cambios:
 
 - Decidido: estado «Saltada» en la lista y el detalle, con la traza que
   explica por qué.
-- Propuesto (§6.4): la nota pierde «Resumir», «Publicar en…» y «Retirar»;
-  conserva «Reprocesar» (con receta y valores), el menú de versiones y las
+- Propuesto (§6.4): la nota pierde «Publicar en…» y «Retirar»; conserva
+  «Reprocesar» (con receta y valores), el menú de versiones y las
   correcciones.
 - Trabajos y la ficha de la receta siguen igual.
 - Decidido 2026-10-16: Recetas lista las cuatro de serie, cada una con su
-  formulario y «Usar por defecto»; los selectores de receta (grabar, añadir,
-  Reprocesar, Probar con…) las ofrecen todas.
+  formulario; los selectores de receta las ofrecen según de qué parten
+  (§6.12), y «Usar por defecto» solo aparece en las que parten de un audio.
+- Decidido 2026-10-16: «Resumir» de la nota lanza la receta Resumir; el menú
+  de versiones gana «Borrar esta versión…» y «Quedarme solo con esta…»; un
+  formulario puede tener un selector de versiones (§6.9).
 
 ## 9. Restricciones
 
 - Nada de lo decidido está construido. Al construirlo cambian las reglas del
   producto de `CLAUDE.md` (guardar, acciones a mano, estados) y el contrato
-  `escriba-recetas.d.ts`. Con §6.8 y §6.9, además: «Reprocesar crea una
-  versión nueva» pasa a valer solo si la receta transcribe, y el contrato
-  gana `escriba.nota`.
+  `escriba-recetas.d.ts`. Con §6.8 a §6.12, además: «Reprocesar crea una
+  versión nueva» pasa a ser «guardar una nota con cambios crea una versión
+  derivada», y el contrato gana `escriba.nota` con versión y `editar`,
+  `escriba.versiones`, `nota.transcribir` y el tipo de receta.
 - Mientras no se reestudien los destinos (§10), `escriba.conector(clave)
   .publicar(nota)` sigue publicando con la configuración del destino.
 - Fase 7 (Escriba escribe recetas con su LLM) sigue descartada; MCP (RF-17)
@@ -378,28 +487,27 @@ había puede pisarlo.
 
 ### Supuestos
 
-- «Probar con…» debería aprovechar lo recordado sin guardar nada nuevo, como
-  decía el requisito original; hoy no lo hace. No se ha decidido hoy.
+- «Probar con una nota» debería aprovechar lo recordado sin guardar nada
+  nuevo, como decía el requisito original; hoy no lo hace. No se ha decidido hoy.
 
 - Los límites concretos (profundidad de recetas, llamadas a LLM por nota) los
   fija la implementación; el requisito original decía 4 niveles y 50 llamadas,
   el código hace 16 y ninguna. No se ha decidido cambiarlos.
-- Se asume que una versión de corrección conserva los criterios de
-  transcripción de su origen, para que `transcribir` la reconozca (§6.4). Hoy
-  no los conserva.
+- Decidido (2026-10-16, §6.10): una versión de corrección conserva los
+  criterios de transcripción de su origen, para que `transcribir` la
+  reconozca. Hoy no los conserva.
 - «Todos los parámetros» de Transcribir son los campos de transcripción que
   hoy tiene «Por defecto» (STT, idioma, hablantes). Ampliarlos es otra
   decisión.
 
 ### Recetas de serie modulares (2026-10-16)
 
-- ¿Resumir y Publicar sueltas sustituyen a «Resumir» y «Publicar en…» de la
-  nota? Encajan con la propuesta de §6.4, que sigue sin decidir.
-- ¿Resumir suelta actualiza lo ya publicado? Hoy el resumen a mano republica
-  las publicaciones existentes si la vigente no cambió; la pieza, tal como está
-  decidida, solo resume. Depende de destinos.
-- Al grabar o añadir, Resumir y Publicar fallan siempre (la nota aún no está
-  transcrita). ¿Se ofrecen igual en esos selectores o se ocultan?
+- Resuelto: «Resumir» de la nota lanza la receta Resumir (§6.10). «Publicar
+  en…» sigue pendiente de destinos.
+- Aplazado: cómo se hacen las publicaciones se rehará. Rubén, 2026-10-16:
+  quizá con hooks propios de las recetas, no ahora. Hasta entonces Resumir
+  suelta no actualiza lo ya publicado.
+- Resuelto: Resumir y Publicar no se ofrecen al grabar ni al añadir (§6.12).
 - Resuelto (Rubén, 2026-10-16): la receta exportada a la carpeta es la misma
   «Por defecto», editable. Un proyecto nuevo recibe su composición y
   `piezas.ts`; las tres piezas siguen siendo de serie en la app.
@@ -415,10 +523,14 @@ Hechos comprobados el 2026-10-13 sobre `feat/filtros-biblioteca` (942df11).
 | Terminar sin guardar deja la nota saltada (`requisito-recetas.md:256`) y, dos pantallas después, fallida (`:281`) | Sin transcribir: fallida. Transcribiendo sin guardar: terminada | `controller.ts:703`; `store/versions.rs:45` pone vigente al guardar la versión |
 | Profundidad 4 al pasar entre recetas (`requisito-recetas.md:416`) | 16 | `controller.ts:308` |
 | Tope de 50 llamadas a LLM por nota (`requisito-recetas.md:467`) | No existe | — |
-| «Probar con…» aprovecha lo recordado (`requisito-recetas.md:320-322`) | En prueba no consulta la memoria: sin versión, calcula siempre | `runtime/memory.ts:20`; `controller.ts:514,592` |
+| «Probar con una nota» aprovecha lo recordado (`requisito-recetas.md:320-322`) | En prueba no consulta la memoria: sin versión, calcula siempre | `runtime/memory.ts:20`; `controller.ts:514,592` |
 | Reprocesar a mano crea versión nueva (`CLAUDE.md`, reglas del producto) | Solo en el primer intento; un reintento pasa a reutilizar | `src-tauri/src/jobs.rs:463-465` |
 | Las acciones a mano llaman al `publicar` de la receta (`requisito-recetas.md:395-399`) | Resumir a mano lee los valores de la «Por defecto» de formulario y llama al LLM; corregir republica por el conector directamente | `controller.ts:750-806`; `src/library/operations.ts:11-21,33` |
 | Una corrección reutiliza la transcripción (§6.4) | La versión de corrección se guarda sin `inputs`, así que `transcribir` no la reconoce y volvería a transcribir | `src/library/operations.ts:33` |
+| Una versión nueva hereda resumen y datos de su origen (§6.10) | Transcribir crea una versión sin resumen ni datos; resumir y guardar escriben en la versión que haya | `controller.ts` (`persist`, casos `summarize` y `save`) — comprobado 2026-10-16 |
+| La versión apunta a su versión de origen (§6.10) | No se guarda; `sourceVersionId` solo dice de qué versión copiar las huellas | `src/runtime/library/store.ts` (`createVersion`, `version_save`) |
+| Pasa a vigente al `guardar()` (§6.3) | Pasa a vigente al crearse | `store.ts` (`appendVersion`) |
+| La corrección conserva los datos (§6.10) | Conserva el resumen y pierde datos y criterios | `src/library/operations.ts` (`saveCorrection`) |
 | Motor JavaScriptCore, esbuild, ledger de Swift, Monaco (`requisito-recetas.md:161-173, 445-477, 526-581, 656-677`; `roadmap.md:11-13`) | Bun aislado, `Bun.build`, cola en SurrealDB, CodeMirror (ADR-0005, ADR-0007) | `apps/tauri/runtime-host/README.md`; `docs/proyecto-recetas-tauri.md` |
 | «Escritorio en Windows y Linux: SwiftUI en el Mac» (`roadmap.md:84`) | Swift solo adapta APIs de Apple; la app es Tauri | ADR-0005 |
 | Dos fuentes de destinos sin distinguir en la receta (§10) | Gestionados de la UI + declarados en el proyecto | `src-tauri/src/catalog.rs:96-106`; `store/configuration.rs:69`; `src-tauri/src/project.rs:776` |
