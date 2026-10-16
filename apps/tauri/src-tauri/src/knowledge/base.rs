@@ -511,7 +511,27 @@ impl Knowledge {
     }
     pub async fn sync_base_change(&self, change: &CoreChange) -> Result<(), String> {
         match change.kind.as_str() {
-            "recording" => self.sync_recording(change).await,
+            "recording" => {
+                self.sync_recording(change).await?;
+                let Some(recording) = &change.value else {
+                    return Ok(());
+                };
+                let versions: Vec<(String, Option<String>)> = recording["versions"]
+                    .as_array()
+                    .map(|items| {
+                        items
+                            .iter()
+                            .filter_map(|item| {
+                                Some((
+                                    item["id"].as_str()?.to_owned(),
+                                    item["sourceVersionId"].as_str().map(str::to_owned),
+                                ))
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                self.reconcile_sources(&change.id, &versions).await
+            }
             "person" => self.sync_person(change).await,
             _ => Err("Entidad base desconocida".into()),
         }
