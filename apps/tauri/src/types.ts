@@ -100,6 +100,13 @@ export interface Publication {
   updatedAt: string;
   error?: string;
 }
+export interface RecordingPart {
+  recordingId: string;
+  title: string;
+  start: number;
+  end: number;
+}
+
 export interface Recording {
   accountEffectPending?: boolean;
   id: string;
@@ -109,6 +116,7 @@ export interface Recording {
   audioPath: string | null;
   audioHash?: string;
   duration: number;
+  parts?: RecordingPart[];
   status: "pending" | "processing" | "done" | "failed" | "discarded";
   error?: string | null;
   recipeId?: string;

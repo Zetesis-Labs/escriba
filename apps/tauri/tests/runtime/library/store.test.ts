@@ -1324,3 +1324,59 @@ test("el Whisper de serie se puede quitar; Apple Intelligence y la receta por de
   await assert.rejects(reopened.mutate("config_remove", { collection: "resolvers", id: "local-llm" }), /de serie/);
   await assert.rejects(reopened.mutate("config_remove", { collection: "recipes", id: "default" }), /de serie/);
 });
+
+test("combinar crea una grabación pendiente con sus piezas y descarta las originales en la misma operación", async () => {
+  const first = space.path("primera.wav");
+  const second = space.path("segunda.wav");
+  write(first, "audio uno");
+  write(second, "audio dos");
+  let store = await space.open();
+  const a = obj(await store.import(first));
+  const b = obj(await store.import(second));
+  const copies = [store.audio(str(a.id)), store.audio(str(b.id))];
+  const mixed = space.path("mezcla.m4a");
+  write(mixed, "audio combinado");
+  const combined = {
+    title: "Grabación combinada",
+    createdAt: "2026-10-16T10:00:00.000Z",
+    source: "Combinación",
+    duration: 7.5,
+    parts: [
+      { recordingId: str(a.id), title: str(a.title), start: 0, end: 3 },
+      { recordingId: str(b.id), title: str(b.title), start: 4, end: 7.5 },
+    ],
+  };
+  const record = obj(await store.combine({ ...stageAudio(store.root, mixed, false), source: "Combinación" }, combined, [str(a.id), str(b.id)]));
+  assert.deepEqual([record.status, record.title, record.createdAt, record.source, record.duration, record.parts], ["pending", "Grabación combinada", combined.createdAt, "Combinación", 7.5, combined.parts]);
+  assert.ok(existsSync(str(record.audioPath)) && str(record.audioPath).endsWith(".m4a"));
+  assert.ok(copies.every((copy) => !existsSync(copy)));
+  assert.ok(existsSync(first) && existsSync(second));
+  store = await reopen(space, store);
+  const recordings = arr((await store.snapshot()).recordings).map((item) => obj(item));
+  assert.deepEqual(recordings.map((item) => [item.id, item.status]).sort(), [[record.id, "pending"], [a.id, "discarded"], [b.id, "discarded"]].sort());
+  assert.deepEqual(obj(await store.recording(str(record.id))).parts, combined.parts);
+});
+
+test("combinar conservando las originales no las toca, y no se pueden borrar grabaciones ajenas a la combinación", async () => {
+  const first = space.path("primera.wav");
+  const second = space.path("segunda.wav");
+  const other = space.path("otra.wav");
+  write(first, "audio uno");
+  write(second, "audio dos");
+  write(other, "audio ajeno");
+  const store = await space.open();
+  const a = obj(await store.import(first));
+  const b = obj(await store.import(second));
+  const c = obj(await store.import(other));
+  const mixed = space.path("mezcla.m4a");
+  write(mixed, "audio combinado");
+  const combined = { title: "Grabación combinada", createdAt: "2026-10-16T10:00:00.000Z", source: "Combinación", duration: 7.5, parts: [{ recordingId: str(a.id), title: "a", start: 0, end: 3 }, { recordingId: str(b.id), title: "b", start: 4, end: 7.5 }] };
+  const staged = () => ({ ...stageAudio(store.root, mixed, false), source: "Combinación" });
+  await assert.rejects(store.combine(staged(), combined, [str(c.id)]), /forman la combinada/);
+  assert.equal(arr((await store.snapshot()).recordings).length, 3);
+  const record = obj(await store.combine(staged(), combined, []));
+  const after = arr((await store.snapshot()).recordings).map((item) => obj(item));
+  assert.deepEqual(after.map((item) => [item.id, item.status]).sort(), [[record.id, "pending"], [c.id, "pending"], [b.id, "pending"], [a.id, "pending"]].sort());
+  assert.ok(existsSync(store.audio(str(a.id))) && existsSync(store.audio(str(b.id))));
+  assert.notEqual(record.id, a.id);
+});

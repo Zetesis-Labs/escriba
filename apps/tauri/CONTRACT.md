@@ -51,6 +51,7 @@ reenvía a Bun; los comandos `knowledge_*` se atienden en Rust.
 - import_audio {paths:string[], recipeId?} -> Recording[] (copia audio).
 - recording_update {id, title?, status?, error?, duration?, recipeId?} -> Recording.
 - recording_discard {id} -> void.
+- recording_combine {ids: string[], keepOriginals?: boolean} -> Recording. Une las copias de audio de esas grabaciones en ese orden, con 1 s de silencio entre cada dos, mediante `combineAudio` del host nativo; da de alta una grabación pendiente nueva (título «Grabación combinada», fecha de la primera pieza, origen «Combinación», `duration` y `parts` medidos por el host) y, salvo `keepOriginals`, descarta las originales en la misma transacción. Rechaza si hay menos de dos, alguna sin copia de audio, descartada o con trabajo activo, o si una pieza no se puede leer (nombra la nota y el formato).
 - recording_remove_audio {id} -> void (solo copia propia).
 - version_save {recordingId, transcript, digest?, data?, backend, recipeId?, inputs?, sourceVersionId?, voicesFrom?, select?, job?} -> Version (siempre nueva). `sourceVersionId` es la versión de la que parte y queda guardado en ella; `voicesFrom` dice de qué versión copiar las huellas (`null`: las de la última transcripción; sin él, las de `sourceVersionId`). `select: false` la guarda sin hacerla vigente. `job {id, note}` identifica el trabajo y la nota que la crearon para que un reintento escriba en ella.
 - version_select {recordingId, versionId} -> void.

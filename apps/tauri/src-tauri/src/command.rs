@@ -71,6 +71,7 @@ pub const CONTROLLER_METHODS: &[&str] = &[
     "account_effect_finish",
     "recording_update",
     "recording_discard",
+    "recording_combine",
     "recording_remove_audio",
     "version_save",
     "version_select",

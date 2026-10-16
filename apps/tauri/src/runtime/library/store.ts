@@ -10,6 +10,7 @@ import { array, canonical, clone, equal, isObject, newId, now, object, safeId, t
 import { defaultResolvers, defaultWhisperModel, folderBookmarkRequired } from "../platform";
 import { isLocalSttId, localSttId } from "../localModels";
 import { builtinRecipeProblem, isBuiltinRecipeId, startsFrom, withBuiltinRecipes } from "../../core/builtinRecipes";
+import type { CombinedRecord } from "../../core/combine";
 import type { Recipe as RecipeInfo } from "../../types";
 import { catalog, readLibraryData, readRecording, readSettings, readVersion, setCatalog, type LibraryData, type Recording, type Settings, type Transcript, type Version, type WatchedFolder } from "./model";
 import { Persistence, parseLogQuery, scope, scopedWrite, type AudioDeletion, type LibraryWrite, type Teaching, type WriteScope } from "./persistence";
@@ -505,18 +506,8 @@ export class Store {
         next.recordings.unshift(readRecording(record));
         return { result: record };
       }
-      case "recording_discard": {
-        const key = text(p, "id");
-        const prior = clone(recordMut(next, key));
-        const index = next.recordings.findIndex((record) => record.id === key);
-        const tombstone = readRecording(discardedRecord(prior as unknown as Json));
-        next.recordings[index] = tombstone;
-        if (typeof prior.audioPath === "string" && prior.audioPath) {
-          const copy = audioCopyToDelete(this.root, next, prior.audioPath);
-          if (copy) audioToDelete.push(copy);
-        }
-        return { result: clone(tombstone) as unknown as Json };
-      }
+      case "recording_discard":
+        return { result: clone(this.discardInto(next, text(p, "id"), audioToDelete)) as unknown as Json };
       case "recording_remove_audio": {
         const key = text(p, "id");
         const path = this.audio(key);
@@ -989,6 +980,60 @@ export class Store {
   }
   importStaged(staged: StagedAudio, source: string, recipeId?: string): Promise<Json> {
     return this.importStagedInternal(staged, source, recipeId, undefined);
+  }
+  private discardInto(next: LibraryData, key: string, audioToDelete: AudioDeletion[]): Recording {
+    const prior = clone(recordMut(next, key));
+    const index = next.recordings.findIndex((record) => record.id === key);
+    const tombstone = readRecording(discardedRecord(prior as unknown as Json));
+    next.recordings[index] = tombstone;
+    if (typeof prior.audioPath === "string" && prior.audioPath) {
+      const copy = audioCopyToDelete(this.root, next, prior.audioPath);
+      if (copy) audioToDelete.push(copy);
+    }
+    return tombstone;
+  }
+  async combine(staged: StagedAudio, combined: CombinedRecord, discard: readonly string[]): Promise<Json> {
+    if (staged.root !== this.root || staged.source !== combined.source) {
+      staged.discard();
+      throw Error("La copia preparada no corresponde a esta combinación");
+    }
+    const discardTemp = () => rmSync(staged.temp, { force: true });
+    const pieces = new Set(combined.parts.map((part) => part.recordingId));
+    for (const id of discard) {
+      const record = this.data.recordings.find((item) => item.id === id);
+      if (!record || record.status === "discarded" || !pieces.has(id)) {
+        discardTemp();
+        throw Error("Solo se pueden borrar las grabaciones que forman la combinada");
+      }
+    }
+    const key = staged.hash;
+    const existing = this.data.recordings.find((record) => record.audioHash === key && record.status !== "failed");
+    const target = join(this.root, "audio", `${key}.${staged.ext}`);
+    const createdCopy = existing ? false : linkStaged(staged.temp, target);
+    if (existing) discardTemp();
+    const next = this.edit();
+    let record: Recording;
+    if (existing) record = recordMut(next, existing.id);
+    else {
+      record = readRecording({ id: key, status: "pending", title: combined.title, createdAt: combined.createdAt, sourceKey: null, source: combined.source, audioPath: target, audioHash: key, duration: combined.duration, parts: clone(combined.parts) as unknown as Json, recipeId: null, versions: [], publications: [] });
+      next.recordings.unshift(record);
+    }
+    const audioToDelete: AudioDeletion[] = [];
+    for (const id of discard) this.discardInto(next, id, audioToDelete);
+    const touched = new Set([record.id, ...discard]);
+    const write = Store.scopedWrite(this.data, next, scope({ fullRecordings: touched }));
+    write.audioDeletions = audioToDelete;
+    try {
+      await this.database.write(write);
+    } catch (error) {
+      if (createdCopy) rmSync(target, { force: true });
+      throw error;
+    }
+    const result = clone(record) as unknown as Json;
+    this.data = lighten(next, touched);
+    for (const id of discard) this.pendingVoices.delete(id);
+    await this.drainAudioDeletions();
+    return result;
   }
   importStagedWithMetadata(staged: StagedAudio, source: string, title: string, startedAt: Date, sourceKey: string): Promise<Json> {
     if (!sourceKey || sourceKey.length > 4096) throw Error("Identidad de origen inválida");

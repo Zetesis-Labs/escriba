@@ -4,6 +4,7 @@ import { AlertTriangle, Clock, FileText, ListTree, Pencil, Sparkles, Tag, Volume
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { audioURL, call } from "../api";
 import { clockStamp, longDate, playbackPosition, speakers } from "../core/presentation";
+import { piecesLabel } from "../core/combine";
 import { forgottenRecognition, personColors } from "../core/people";
 import { assignSelectedSpeaker, changeSegmentText, renameSpeaker, transcriptWithSegments } from "../core/transcriptEditing";
 import { transcriptGroups } from "../core/transcriptGroups";
@@ -168,6 +169,7 @@ export function TranscriptDetail({ recording, origin, job, recipes, canSummarize
         <header className="detail-header">
           {editing && content ? <GrowingTextArea className="note-title-input font-title" aria-label="Título" required value={content.title} disabled={disabled} onChange={(event) => { const title = event.target.value; update({ title, ...(content.digest ? { digest: { ...content.digest, title } } : {}) }); }} /> : <h1 className="font-title selectable">{displayTitle(recording)}</h1>}
           <div className="font-caption secondary note-metadata">{details}</div>
+          {recording.parts?.length ? <div className="font-caption secondary note-metadata note-pieces selectable">Formada por: {piecesLabel(recording.parts).join(" · ")}</div> : null}
           {editing ? <label className="note-field-label">Descripción<GrowingTextArea className="note-description-input" aria-label="Descripción" placeholder="Una descripción breve de la nota" value={digest?.description ?? ""} disabled={disabled} onChange={(event) => updateDigest({ description: event.target.value })} /></label> : digest?.description ? <p className="note-description selectable">{digest.description}</p> : null}
           {editing ? <div className="note-tags"><div className="note-field-label"><Tag size={12} /> Etiquetas</div><div className="tag-chips">{digest?.tags.map((tag) => <span className="tag-chip editable-tag" key={tag}>{tag}<button type="button" disabled={disabled} aria-label={`Quitar etiqueta ${tag}`} onClick={() => updateDigest({ tags: digest.tags.filter((candidate) => candidate !== tag) })}>×</button></span>)}<input className="tag-input" aria-label="Añadir etiqueta" placeholder="Añadir etiqueta…" disabled={disabled} value={tagInput} onChange={(event) => setTagInput(event.target.value)} onBlur={addTags} onKeyDown={(event) => { if (event.key === "Enter" || event.key === ",") { event.preventDefault(); addTags(); } }} /></div></div> : digest?.tags?.length ? <TagChips tags={digest.tags} /> : null}
         </header>

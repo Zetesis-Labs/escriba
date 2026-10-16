@@ -119,6 +119,13 @@ no se ha podido leer. Preservar la lectura de datos ya guardados al actualizar.
   continuar. Una creación incierta se reconcilia antes de intentar crear otra.
 - Descartar conserva una lápida para que la vigilancia no reincorpore el audio.
   El borrado local respeta el archivo original y los servicios externos.
+- Combinar grabaciones (`specs/escriba/combinar-grabaciones/`): desde la
+  selección múltiple de Biblioteca, en el orden elegido, con un segundo de
+  silencio entre piezas; el resultado es una grabación normal que recuerda sus
+  piezas (`parts`) y se procesa desde cero con la receta por defecto. Borrar
+  las originales es descartarlas en la misma operación. El host mide los
+  segundos de cada pieza. Con varias filas marcadas el menú solo ofrece
+  «Combinar…» hasta que Rubén decida más acciones.
 - Diarización desactivada de serie y sólo local. Guardar los hablantes detectados
   sin adivinar cuántos hay; la corrección es explícita. Personas aprende N
   huellas por persona, compara con el mismo modelo y su umbral (0,30 en

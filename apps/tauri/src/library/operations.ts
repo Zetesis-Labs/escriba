@@ -24,6 +24,9 @@ export async function republish(recording: Recording) {
 export const reprocess = (recording: Recording, recipeId?: string, values?: JSONObject) =>
   processRecording(recording.id, { recipeId, force: true, values, baseVersionId: currentVersion(recording)?.id });
 
+export const combine = (ordered: readonly Recording[], keepOriginals: boolean) =>
+  call<Recording>("recording_combine", { ids: ordered.map((recording) => recording.id), keepOriginals });
+
 export const deleteVersion = (recording: Recording, version: Version) => call("version_delete", { recordingId: recording.id, versionId: version.id });
 export const keepOnlyVersion = (recording: Recording, version: Version) => call("version_keep_only", { recordingId: recording.id, versionId: version.id });
 

@@ -33,6 +33,7 @@ export const versionSchema = z.looseObject({
   inputs: field(json),
 });
 export const recordingStatusSchema = z.enum(["pending", "processing", "done", "failed", "discarded"]);
+export const recordingPartSchema = z.looseObject({ recordingId: z.string(), title: z.string(), start: jsonNumber, end: jsonNumber });
 export const recordingSchema = z.looseObject({
   id: z.string(),
   status: recordingStatusSchema,
@@ -44,6 +45,7 @@ export const recordingSchema = z.looseObject({
   audioPath: field(z.string()),
   audioHash: field(z.string()),
   duration: field(jsonNumber),
+  parts: field(z.array(recordingPartSchema)),
   error: field(z.string()),
   recipeId: field(z.string()),
   currentVersionId: field(z.string()),
