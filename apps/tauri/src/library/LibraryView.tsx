@@ -323,6 +323,8 @@ export function LibraryView({
     setSelection((previous) => moveSelection(previous, order, event.key === "ArrowDown" ? 1 : -1));
   };
   const pickRow = (event: MouseEvent, recording: Recording) => {
+    if (event.button !== 0 || (event.ctrlKey && platform.system === "macos")) return;
+    if (event.shiftKey) event.preventDefault();
     setEditRequest(null);
     setSelection((previous) => pick(previous, order, recording.id, { toggle: event.metaKey || event.ctrlKey, range: event.shiftKey }));
   };

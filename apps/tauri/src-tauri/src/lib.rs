@@ -1015,7 +1015,7 @@ async fn shell_capability(
                     .transcribe(&audio, args["model"].clone(), args)
                     .await;
             }
-            if !["status", "summarize", "ask"].contains(&native) {
+            if !["status", "summarize", "ask", "combineAudio"].contains(&native) {
                 return Err(format!("Capacidad nativa no permitida: {native}").into());
             }
             state.inference.call(native, args).await
