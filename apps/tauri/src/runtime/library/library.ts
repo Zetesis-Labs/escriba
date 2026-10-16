@@ -5,6 +5,7 @@ import type { LibraryData } from "./model";
 import type { CoreChange, LogQuery } from "./persistence";
 import { Store, type StoreOptions } from "./store";
 import type { StagedAudio } from "./audio";
+import type { CombinedRecord } from "../../core/combine";
 import type { KnownVoice, SpeakerVoice } from "./voices";
 
 const CLOSED = "La biblioteca está cerrada";
@@ -168,6 +169,12 @@ export class Library {
       const record = await store.importStaged(staged, source, recipeId);
       const change = { ...(update as Record<string, Json>), id: (record as Record<string, Json>).id as Json };
       return store.mutate("recording_update", change);
+    });
+  }
+  combine(staged: StagedAudio, combined: CombinedRecord, discard: readonly string[]) {
+    return this.order(async (store) => {
+      for (const id of discard) if (await jobs.busy(store.database, id)) throw Error("Espera a que acabe el trabajo de esa nota o cancélalo antes de combinar");
+      return store.combine(staged, combined, discard);
     });
   }
   importWatched(staged: StagedAudio, source: string, title: string, startedAt: Date, sourceKey: string) {

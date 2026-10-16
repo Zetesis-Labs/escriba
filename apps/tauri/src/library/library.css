@@ -14,6 +14,25 @@
 .reprocess-form > * {
   flex-shrink: 0;
 }
+.combine-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+.combine-row {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) auto auto auto;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+}
+.combine-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .recording-list {
   width: 290px;
   flex: none;

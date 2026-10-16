@@ -1,4 +1,5 @@
-import { readdirSync, rmSync, statSync } from "node:fs";
+import { mkdirSync, readdirSync, rmSync, statSync } from "node:fs";
+import { combineBlocker, combinedRecord, measuredCombination, unreadableAudioMessage, type Piece } from "../core/combine";
 import { basename, extname, join } from "node:path";
 import { builtinProviders } from "@escriba/conectores";
 import type { CommandHandler, CommandOrigin, CommandRegistry } from "./commands";
@@ -190,6 +191,39 @@ export function registerDomainCommands(commands: CommandRegistry, deps: DomainDe
     return library.mutate("recording_discard", json(p));
   });
   named("recording_remove_audio", UI, "changed", (p) => library.removeAudio(json(p), (_, id) => library.busy(id)));
+  named("recording_combine", UI, "changed", async (p) => {
+    const ids = Array.isArray(p.ids) ? p.ids.map((id) => text(id, "ids")) : [];
+    if (new Set(ids).size !== ids.length) throw Error("Una grabación no puede ir dos veces en la combinación");
+    const keepOriginals = p.keepOriginals === true;
+    const known = library.index().recordings;
+    const pieces: Piece[] = ids.map((id) => {
+      const record = known.find((candidate) => candidate.id === id);
+      if (!record) throw Error("Grabación no encontrada");
+      return { id, title: record.title ?? "Grabación", createdAt: record.createdAt ?? new Date().toISOString(), audioPath: record.audioPath ?? null, status: record.status };
+    });
+    const busy = new Set<string>();
+    for (const id of ids) if (await library.busy(id)) busy.add(id);
+    const blocker = combineBlocker(pieces, (id) => busy.has(id));
+    if (blocker) throw Error(blocker);
+    const inbox = join(library.root, "inbox");
+    mkdirSync(inbox, { recursive: true, mode: 0o700 });
+    const output = join(inbox, `combinada-${newId()}.m4a`);
+    try {
+      let measured;
+      try {
+        measured = await host.call("shell.native", { method: "combineAudio", params: { inputs: pieces.map((piece) => piece.audioPath), gapSeconds: 1, outputPath: output } });
+      } catch (error) {
+        const unreadable = unreadableAudioMessage(error, pieces);
+        throw unreadable ? Error(unreadable) : error;
+      }
+      const combined = combinedRecord(pieces, measuredCombination(measured));
+      const discard = keepOriginals ? [] : ids;
+      for (const id of discard) await cancelRecording(id);
+      return await library.combine(fromInbox(library, output, combined.source), combined, discard);
+    } finally {
+      rmSync(output, { force: true });
+    }
+  });
   for (const name of ["version_save", "version_select", "version_update", "publication_save", "publication_remove"]) mutation(name, ANY);
   for (const name of ["version_delete", "version_keep_only"] as const) named(name, UI, "changed", (p) => library.removeVersions(name, json(p)));
   for (const name of ["note_draft_get", "note_draft_begin", "note_draft_save", "note_draft_discard", "note_draft_commit"]) mutation(name, UI);

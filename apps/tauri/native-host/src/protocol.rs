@@ -65,6 +65,7 @@ impl Host {
         match method {
             "status" => self.status(params),
             "audioInfo" => crate::audio::info(params),
+            "combineAudio" => Err(Failure::new("unavailable", "combinar audio no está disponible en Linux todavía")),
             "fileStatus" => crate::files::status(params),
             "materialize" => crate::files::materialize(params),
             "summarize" | "ask" => self.inference.generate(params),

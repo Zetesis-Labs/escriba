@@ -89,6 +89,7 @@ final class NativeHost {
         case "summarize": return try await summarize(params)
         case "ask": return try await ask(params)
         case "audioInfo": return try audioInfo(params)
+        case "combineAudio": return try await combineAudio(params)
         case "fileStatus": return try fileStatus(params)
         case "materialize": return try await materialize(params)
         case "downloadModel": return try await downloadModel(params, onProgress: onProgress)
@@ -199,6 +200,77 @@ final class NativeHost {
 
     private func audioInfo(_ params: DataValue) throws -> DataValue {
         .object([field("duration", .number(try audioDuration(audioURL(params))))])
+    }
+
+    /// Joins several audio files in order with a silence gap between pieces, as AAC in an .m4a container.
+    private func combineAudio(_ params: DataValue) async throws -> DataValue {
+        guard case .array(let inputs)? = params["inputs"], inputs.count >= 2 else {
+            throw HostFailure("invalid_params", "inputs debe tener al menos dos rutas")
+        }
+        let paths = try inputs.map { value -> String in
+            guard let path = value.text, !path.isEmpty else { throw HostFailure("invalid_params", "inputs debe ser una lista de rutas") }
+            return path
+        }
+        let gap: Double
+        if let value = params["gapSeconds"] {
+            guard case .number(let seconds) = value, seconds >= 0, seconds <= 60 else {
+                throw HostFailure("invalid_params", "gapSeconds debe ser un número entre 0 y 60")
+            }
+            gap = seconds
+        } else {
+            gap = 1
+        }
+        let outputPath = try requiredString(params, "outputPath")
+        let outputURL = URL(fileURLWithPath: outputPath)
+        let composition = AVMutableComposition()
+        guard let track = composition.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid) else {
+            throw HostFailure("combine_failed", "no se pudo preparar la composición")
+        }
+        var cursor = CMTime.zero
+        var parts: [DataValue] = []
+        for (index, path) in paths.enumerated() {
+            let url = try audioURL(.object([field("audioPath", .string(path))]))
+            let asset = AVURLAsset(url: url)
+            let duration: CMTime
+            let source: AVAssetTrack
+            do {
+                guard let first = try await asset.loadTracks(withMediaType: .audio).first else {
+                    throw HostFailure("unreadable_audio", "no se puede leer el audio: \(path)")
+                }
+                source = first
+                duration = try await asset.load(.duration)
+            } catch let failure as HostFailure {
+                throw failure
+            } catch {
+                throw HostFailure("unreadable_audio", "no se puede leer el audio: \(path)")
+            }
+            guard duration.isNumeric, duration > .zero else {
+                throw HostFailure("unreadable_audio", "no se puede leer el audio: \(path)")
+            }
+            if index > 0, gap > 0 {
+                let silence = CMTime(seconds: gap, preferredTimescale: 600)
+                track.insertEmptyTimeRange(CMTimeRange(start: cursor, duration: silence))
+                cursor = cursor + silence
+            }
+            do {
+                try track.insertTimeRange(CMTimeRange(start: .zero, duration: duration), of: source, at: cursor)
+            } catch {
+                throw HostFailure("unreadable_audio", "no se puede leer el audio: \(path)")
+            }
+            let end = cursor + duration
+            parts.append(.object([field("start", .number(cursor.seconds)), field("end", .number(end.seconds))]))
+            cursor = end
+        }
+        guard let export = AVAssetExportSession(asset: composition, presetName: AVAssetExportPresetAppleM4A) else {
+            throw HostFailure("combine_failed", "no se pudo preparar la exportación")
+        }
+        try? FileManager.default.removeItem(at: outputURL)
+        do {
+            try await export.export(to: outputURL, as: .m4a)
+        } catch {
+            throw HostFailure("combine_failed", "no se pudo escribir el audio combinado: \(error.localizedDescription)")
+        }
+        return .object([field("duration", .number(cursor.seconds)), field("parts", .array(parts))])
     }
 
     private func fileStatus(_ params: DataValue) throws -> DataValue {

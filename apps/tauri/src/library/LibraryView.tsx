@@ -1,22 +1,24 @@
 import { revealInFolder } from "../core/platform";
 import { usePlatform } from "../app/platform";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import { AlertTriangle, AudioLines, CircleStop, Ellipsis, FolderPlus, History, ListFilter, Mic, Users, X } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowUp, AudioLines, CircleStop, Ellipsis, FolderPlus, History, ListFilter, Mic, Users, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState, type KeyboardEvent, type MouseEvent } from "react";
 import { call, native, recordingDetail } from "../api";
 import { Pane } from "../app/Pane";
 import { audioExtensions, fileName, importNotice, importPlan } from "../core/inbox";
-import { librarySummary, rowActionText, speakers } from "../core/presentation";
+import { clockStamp, librarySummary, recordingWhen, rowActionText, speakers } from "../core/presentation";
+import { emptySelection, moveSelection, pick, pruneSelection, type Selection } from "../core/selection";
+import { combineBlocker, initialOrder, moveWithin } from "../core/combine";
 import { speakerTitle } from "../core/people";
 import { startsFrom } from "../core/builtinRecipes";
 import { reprocessChoice, reprocessDraft, reprocessTransition } from "../core/reprocessSheet";
 import { recipeFormLoad } from "../core/recipeForm";
 import { okfPublicationFile } from "../core/publicationFiles";
 import { recordingRevision } from "../core/recordingDetail";
-import { Button, ContentUnavailable, FormRow, FormSection, LabeledRow, PopupButton, Sheet, Spinner, ToolbarButton, ToolbarMenu } from "../mac/controls";
+import { Button, ContentUnavailable, FormRow, FormSection, LabeledRow, PopupButton, Segmented, Sheet, Spinner, ToolbarButton, ToolbarMenu } from "../mac/controls";
 import { alertMessage, chooseFiles, confirmDestructive, errorText, header, item, popupMenu, separator, submenu, type MenuEntry } from "../mac/native";
 import type { Destination, JobState, JSONObject, Recording, Snapshot, Version } from "../types";
-import { currentVersion, currentVersionLabel, isPublished, libraryRecordings, liveDestinations, originName, providerLabel, versionsInOrder, versionTitle } from "./model";
+import { currentVersion, currentVersionLabel, isPublished, libraryRecordings, liveDestinations, originName, providerLabel, transcriptDuration, versionsInOrder, versionTitle } from "./model";
 import * as operations from "./operations";
 import { groupByDay } from "../core/libraryDays";
 import { displayTitle, RecordingRow } from "./RecordingRow";
@@ -77,7 +79,11 @@ export function LibraryView({
   const allRecordings = useMemo(() => libraryRecordings(data), [data]);
   const recordings = useMemo(() => filters.result?.ids ? allRecordings.filter((recording) => filters.result?.ids?.has(recording.id)) : filters.result ? [] : allRecordings, [allRecordings, filters.result]);
   const [filterEditorOpen, setFilterEditorOpen] = useState(false);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selection, setSelection] = useState<Selection>(emptySelection);
+  const selectedId = selection.last;
+  const setSelectedId = (id: string | null) => setSelection(id === null ? emptySelection : { ids: [id], last: id });
+  const order = useMemo(() => recordings.map((recording) => recording.id), [recordings]);
+  const [combining, setCombining] = useState<Recording[] | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [dropTargeted, setDropTargeted] = useState(false);
   const [reprocessing, setReprocessing] = useState<Recording | null>(null);
@@ -98,8 +104,14 @@ export function LibraryView({
   useEffect(() => {
     if (!active) {
       setReprocessing(null);
+      setCombining(null);
     }
   }, [active]);
+
+  useEffect(() => {
+    if (filters.result?.loading) return;
+    setSelection((previous) => pruneSelection(previous, order));
+  }, [order, filters.result?.loading]);
 
   useEffect(() => {
     if (!reveal) return;
@@ -307,13 +319,27 @@ export function LibraryView({
   const move = (event: KeyboardEvent) => {
     if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
     event.preventDefault();
-    const index = recordings.findIndex((recording) => recording.id === selectedId);
-    const next = recordings[Math.min(Math.max(index + (event.key === "ArrowDown" ? 1 : -1), 0), recordings.length - 1)];
-    if (next) { setEditRequest(null); setSelectedId(next.id); }
+    setEditRequest(null);
+    setSelection((previous) => moveSelection(previous, order, event.key === "ArrowDown" ? 1 : -1));
+  };
+  const pickRow = (event: MouseEvent, recording: Recording) => {
+    setEditRequest(null);
+    setSelection((previous) => pick(previous, order, recording.id, { toggle: event.metaKey || event.ctrlKey, range: event.shiftKey }));
+  };
+  const multiMenu = (chosen: Recording[]): MenuEntry[] => {
+    const blocker = combineBlocker(chosen, (id) => jobs.some((job) => job.recordingId === id));
+    return [
+      ...(blocker ? [header(blocker)] : []),
+      item(`Combinar ${chosen.length} grabaciones…`, () => setCombining(initialOrder(chosen)), { enabled: !blocker }),
+    ];
   };
   const contextMenu = (event: MouseEvent, recording: Recording) => {
     event.preventDefault();
     setEditRequest(null);
+    if (selection.ids.length > 1 && selection.ids.includes(recording.id)) {
+      void popupMenu(multiMenu(recordings.filter((candidate) => selection.ids.includes(candidate.id))), { x: event.clientX, y: event.clientY });
+      return;
+    }
     setSelectedId(recording.id);
     void popupMenu(rowMenu(recording), { x: event.clientX, y: event.clientY });
   };
@@ -370,9 +396,9 @@ export function LibraryView({
                   key={recording.id}
                   data-recording-id={recording.id}
                   role="option"
-                  aria-selected={recording.id === selectedId}
-                  className={`list-row ${recording.id === selectedId ? "selected" : ""}`}
-                  onMouseDown={() => { setEditRequest(null); setSelectedId(recording.id); }}
+                  aria-selected={selection.ids.includes(recording.id)}
+                  className={`list-row ${selection.ids.includes(recording.id) ? "selected" : ""}`}
+                  onMouseDown={(event) => pickRow(event, recording)}
                   onContextMenu={(event) => contextMenu(event, recording)}
                 >
                   <RecordingRow recording={recording} origin={originName(recording, folders)} minute={minute} destinations={data.destinations} accounts={data.accounts} />
@@ -434,8 +460,73 @@ export function LibraryView({
           }}
         />
       )}
+      {combining && (
+        <CombineSheet
+          pieces={combining}
+          onCancel={() => setCombining(null)}
+          onDone={(record) => {
+            setCombining(null);
+            setSelection({ ids: [record.id], last: record.id });
+            void refresh();
+          }}
+        />
+      )}
 
     </Pane>
+  );
+}
+
+function CombineSheet({ pieces, onCancel, onDone }: { pieces: Recording[]; onCancel: () => void; onDone: (record: Recording) => void }) {
+  const [ordered, setOrdered] = useState<readonly Recording[]>(pieces);
+  const [originals, setOriginals] = useState<"keep" | "discard">("keep");
+  const [working, setWorking] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const now = new Date();
+  const run = async () => {
+    if (originals === "discard") {
+      const confirmed = await confirmDestructive(`¿Combinar y borrar ${ordered.length} grabaciones de la biblioteca?`, rowActionText.combineDiscard(ordered.length), "Combinar y borrar");
+      if (!confirmed) return;
+    }
+    setWorking(true);
+    setError(null);
+    try {
+      onDone(await operations.combine(ordered, originals === "keep"));
+    } catch (failure) {
+      setError(errorText(failure));
+      setWorking(false);
+    }
+  };
+  return (
+    <Sheet onCancel={working ? () => undefined : onCancel}>
+      <div className="font-headline">Combinar grabaciones</div>
+      <FormSection header="Piezas, en orden" footer="Entre cada dos piezas queda un segundo de silencio. El resultado es una grabación nueva que se transcribe, resume y publica desde cero.">
+        <div className="combine-list" role="list">
+          {ordered.map((recording, index) => {
+            const duration = transcriptDuration(currentVersion(recording)?.transcript) ?? (recording.duration > 0 ? recording.duration : undefined);
+            return (
+              <div className="combine-row" role="listitem" key={recording.id}>
+                <span className="combine-index font-caption secondary monospaced-digits">{index + 1}</span>
+                <span className="combine-title">{displayTitle(recording)}</span>
+                <span className="font-caption secondary">{recordingWhen(new Date(recording.createdAt), now)}{duration !== undefined ? ` · ${clockStamp(duration)}` : ""}</span>
+                <Button small icon={ArrowUp} disabled={working || index === 0} onClick={() => setOrdered((previous) => moveWithin(previous, index, -1))}>Subir</Button>
+                <Button small icon={ArrowDown} disabled={working || index === ordered.length - 1} onClick={() => setOrdered((previous) => moveWithin(previous, index, 1))}>Bajar</Button>
+              </div>
+            );
+          })}
+        </div>
+      </FormSection>
+      <FormSection header="Después de combinar">
+        <FormRow>
+          <Segmented value={originals} onChange={setOriginals} options={[{ value: "keep", label: "Conservar las originales" }, { value: "discard", label: "Borrarlas de la biblioteca" }]} />
+        </FormRow>
+      </FormSection>
+      {error && <p className="warning selectable" role="alert">{error}</p>}
+      <div className="sheet-actions">
+        {working && <><Spinner /><span className="secondary font-caption">Uniendo el audio…</span></>}
+        <Button onClick={onCancel} disabled={working}>Cancelar</Button>
+        <Button prominent onClick={() => void run()} disabled={working}>Combinar</Button>
+      </div>
+    </Sheet>
   );
 }
 
@@ -489,8 +580,8 @@ function ReprocessSheet({ data, onCancel, onRun }: { data: Snapshot; onCancel: (
         )}
       </div>
       <p className="font-caption secondary">
-        La receta hace su recorrido entero. Si no cambian los criterios de transcripción, aprovecha la transcripción que ya hay; si cambian, sale una versión
-        nueva y la anterior se conserva. Publica donde diga la receta y regenera las páginas que ya existían.
+        La receta hace su recorrido entero sobre la versión abierta y vuelve a transcribir aunque los criterios no cambien. Lo que cambie queda en una
+        versión nueva; la anterior se conserva. Publica donde diga la receta y regenera las páginas que ya existían.
       </p>
       <div className="sheet-actions">
         <Button onClick={onCancel}>Cancelar</Button>

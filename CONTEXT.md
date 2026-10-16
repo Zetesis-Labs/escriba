@@ -8,6 +8,15 @@ ellas en servicios externos o carpetas autorizadas por el usuario.
 **Grabación**: audio incorporado a la biblioteca, con su identidad y origen.
 Puede conservar sus transcripciones aunque ya no exista una copia del audio.
 
+**Grabación combinada**: grabación cuyo audio es la unión, en el orden que
+eligió la persona y con un segundo de silencio entre cada dos, de varias
+grabaciones de la biblioteca. Es una grabación normal que además recuerda sus
+piezas.
+
+**Pieza**: tramo de una grabación combinada: la grabación de origen, el título
+que tenía al combinar y el segundo en que empieza y acaba dentro del audio
+combinado.
+
 **Nota**: resultado de procesar una grabación, con transcripción y, cuando
 corresponde, resumen y datos producidos por la receta.
 

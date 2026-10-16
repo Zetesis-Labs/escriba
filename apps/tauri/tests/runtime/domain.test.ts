@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { createCommands, registerControllerCommands, type CommandRegistry } from "../../src/runtime/commands";
 import { object, RuntimeError, type RuntimeHost } from "../../src/runtime/contracts";
 import type { Json } from "../../src/runtime/library/json";
@@ -31,6 +31,7 @@ async function fixture() {
   const logs: string[] = [];
   const executed: { operation: string; args: Record<string, unknown> }[] = [];
   const running = new Map<string, { abort: AbortController }>();
+  const nativeHandlers = new Map<string, (params: Record<string, unknown>) => unknown>();
   let commands!: CommandRegistry;
   const host: RuntimeHost = {
     async call(method, params = {}) {
@@ -38,6 +39,8 @@ async function fixture() {
       if (commands.owns(method)) return commands.dispatch(method, params, "shell");
       if (method === "shell.native") {
         const request = object(params);
+        const handler = nativeHandlers.get(String(request.method));
+        if (handler) return handler(object(request.params ?? {}));
         if (request.method === "transcribe") return { text: "Hola desde Whisper", segments: [{ speaker: "Speaker 1", start: 0, end: 1, text: "Hola", words: [] }], voices: [{ speaker: "Speaker 1", model: "m", embedding: [1, 0] }] };
         if (request.method === "status") return { protocolVersion: 1, whisper: { available: true }, llm: { available: true } };
       }
@@ -116,6 +119,9 @@ async function fixture() {
     shell,
     audio,
     imported,
+    native(method: string, handler: (params: Record<string, unknown>) => unknown) {
+      nativeHandlers.set(method, handler);
+    },
     setExecute(next: typeof execute) {
       execute = next;
     },
@@ -375,4 +381,41 @@ test("el contexto del proyecto omite las cuentas cuyo destino nace en la app", (
   assert.deepEqual(projectAccounts(accounts, destinations), [accounts[1]]);
   assert.equal(audioType("/x/nota.MP3"), "audio/mpeg");
   assert.equal(audioType("/x/nota.m4a"), "audio/mp4");
+});
+
+test("combinar une las copias en el orden dado, da de alta la combinada con sus piezas y descarta las originales", async () => {
+  const first = await f.imported("inbox/primera.wav", "/origen/primera.wav", "audio uno");
+  const second = await f.imported("inbox/segunda.wav", "/origen/segunda.wav", "audio dos");
+  const copies = [f.library.audio(second), f.library.audio(first)];
+  const native: Record<string, unknown>[] = [];
+  f.native("combineAudio", (params) => {
+    native.push(params);
+    writeFileSync(str(params.outputPath), "audio combinado");
+    return { duration: 7.5, parts: [{ start: 0, end: 3 }, { start: 4, end: 7.5 }] };
+  });
+  const record = obj(await f.ui("recording_combine", { ids: [second, first], keepOriginals: false }));
+  const [request] = native;
+  assert.deepEqual([arr(request!.inputs).map((input) => basename(str(input))), request!.gapSeconds], [copies.map((copy) => basename(copy)), 1]);
+  assert.deepEqual([record.status, record.title, record.source, record.duration], ["pending", "Grabación combinada", "Combinación", 7.5]);
+  assert.deepEqual(record.parts, [{ recordingId: second, title: "segunda", start: 0, end: 3 }, { recordingId: first, title: "primera", start: 4, end: 7.5 }]);
+  const statuses = Object.fromEntries(arr((await f.library.snapshot()).recordings).map((item) => [obj(item).id, obj(item).status]));
+  assert.deepEqual([statuses[first], statuses[second], statuses[str(record.id)]], ["discarded", "discarded", "pending"]);
+  assert.ok(!existsSync(str(request!.outputPath)));
+});
+
+test("combinar se niega antes de unir si falta audio, y nombra la nota cuando el host no puede leer una pieza", async () => {
+  const first = await f.imported("inbox/primera.wav", "/origen/primera.wav", "audio uno");
+  const second = await f.imported("inbox/segunda.ogg", "/origen/segunda.ogg", "audio dos");
+  await f.ui("recording_remove_audio", { id: first });
+  let combined = 0;
+  f.native("combineAudio", (params) => {
+    combined++;
+    throw new RuntimeError(`no se puede leer el audio: ${str(arr(params.inputs)[1])}`, "failed");
+  });
+  await assert.rejects(f.ui("recording_combine", { ids: [first, second] }), /«primera» no tiene copia de audio/);
+  assert.equal(combined, 0);
+  const third = await f.imported("inbox/tercera.wav", "/origen/tercera.wav", "audio tres");
+  await assert.rejects(f.ui("recording_combine", { ids: [third, second] }), /No se puede leer el audio de «segunda» \(\.ogg\)/);
+  const statuses = arr((await f.library.snapshot()).recordings).map((item) => obj(item).status);
+  assert.ok(statuses.every((status) => status === "pending"));
 });

@@ -203,6 +203,8 @@ export const rowActionText = {
       : "Se borran sus ficheros .md de la carpeta del bundle y se anota la baja en el registro. La grabación y sus transcripciones se quedan en la biblioteca.",
   discard:
     "Desaparecen la fila, sus transcripciones y la copia de audio. El fichero original en su carpeta no se toca, pero la grabacion no volvera a aparecer en la biblioteca.",
+  combineDiscard: (count: number) =>
+    `La grabación combinada se crea y se procesa desde cero. De las ${count} originales desaparecen las filas, sus transcripciones y sus copias de audio; los archivos originales en sus carpetas no se tocan, sus publicaciones siguen donde estén y sus vínculos de conocimiento quedan huérfanos.`,
   deleteVersion:
     "Se borran su transcripción, su resumen, sus datos y sus vínculos de conocimiento. Si era la vigente, pasa a serlo la más reciente que quede. Lo publicado no cambia.",
   keepOnlyVersion: (others: number) =>
