@@ -10,10 +10,14 @@ const NAMES: Record<BuiltinProgram, string> = {
   publicar: "Publicar",
 };
 
+export function builtinRecipeId(program: BuiltinProgram): string {
+  return program === "por-defecto" ? "default" : `serie:${program}`;
+}
+
 export const BUILTIN_RECIPES: readonly Recipe[] = [
-  { id: "default", name: NAMES["por-defecto"], kind: "form", values: {} },
+  { id: builtinRecipeId("por-defecto"), name: NAMES["por-defecto"], kind: "form", values: {} },
   ...(["transcribir", "resumir", "publicar"] as const).map((program): Recipe => ({
-    id: `serie:${program}`,
+    id: builtinRecipeId(program),
     name: NAMES[program],
     kind: "form",
     builtin: program,

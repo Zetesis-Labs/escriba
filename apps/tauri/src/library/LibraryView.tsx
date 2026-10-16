@@ -238,7 +238,7 @@ export function LibraryView({
     const job = jobFor(recording);
     return [
       item("Copiar la transcripción", () => version && void perform(() => operations.copyTranscript(version.transcript)), { enabled: Boolean(version) }),
-      item(version?.digest?.summary ? "Rehacer el resumen" : "Resumir con el modelo del sistema", () => void perform(() => operations.summarize(recording)), {
+      item(version?.digest?.summary ? "Rehacer el resumen" : "Resumir", () => void perform(() => operations.summarize(recording)), {
         enabled: canSummarize && Boolean(version) && !job && !draftLocked,
       }),
       item("Quitar el resumen", () => requestEdit("removeSummary"), { enabled: Boolean(version?.digest?.summary) && !job }),

@@ -104,9 +104,9 @@ no se ha podido leer. Preservar la lectura de datos ya guardados al actualizar.
   grabación. La transcripción se guarda antes de resumir. Un resumen vacío es
   un error; si falla el resumen, la nota transcrita se conserva y el fallo se
   muestra.
-- El resumen pertenece a la versión y se hereda en las derivadas. Resumir a
-  mano ancla el resultado a esa versión y no republica si mientras tanto
-  cambió la vigente. Corregir o quitar un resumen regenera las publicaciones
+- El resumen pertenece a la versión y se hereda en las derivadas. «Resumir»
+  de la nota lanza la receta Resumir sobre la versión abierta, que guarda una
+  versión nueva. Corregir o quitar un resumen regenera las publicaciones
   existentes usando su programa y recibo.
 - Los proveedores Notion/OKF viven en `packages/conectores`. Bun aporta
   capacidades genéricas; no duplicar plantillas ni decisiones de proveedor.
