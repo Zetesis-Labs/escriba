@@ -283,6 +283,10 @@ export async function claim(store: Store, lane: Lane, now: number): Promise<Clai
   await save(store, job);
   return { kind: "job", job: jobJson(job) };
 }
+async function unsettle(store: Store, recordingId: string, status: "pending" | "failed", error: string) {
+  if ((await store.recording(recordingId)).status === "done") return;
+  await store.mutate("recording_update", { id: recordingId, status, error });
+}
 export async function finish(store: Store, id: string, result: JobResult): Promise<Lane | undefined> {
   const job = await loadOne(store.database, id);
   if (!job || job.state === "cancelled") return undefined;
@@ -304,7 +308,7 @@ export async function finish(store: Store, id: string, result: JobResult): Promi
       job.nextAttemptAt = Date.now() + seconds * 1000;
     } else end(job);
     if (job.operation === "processRecording" && !dryRun(job))
-      await store.mutate("recording_update", { id: job.recordingId, status: retry ? "pending" : "failed", error: result.error.message });
+      await unsettle(store, job.recordingId, retry ? "pending" : "failed", result.error.message);
   }
   await save(store, job);
   return laneOf(job.operation);
@@ -332,7 +336,7 @@ export async function cancel(store: Store, recording: string): Promise<Cancellat
     job.stage = "Cancelado";
     end(job);
     await save(store, job);
-    if (job.operation === "processRecording" && !dryRun(job)) await store.mutate("recording_update", { id: recording, status: "failed", error: "Proceso cancelado" });
+    if (job.operation === "processRecording" && !dryRun(job)) await unsettle(store, recording, "failed", "Proceso cancelado");
   }
   return cancellation;
 }
@@ -378,7 +382,17 @@ export async function steps(database: Persistence, id: string): Promise<Json[]> 
   return (await database.traceList(job.recordingId)).filter((trace) => traceOwner(trace, jobs) === id);
 }
 export function relaunchArgs(job: Job): Json {
-  if (job.operation === "processRecording" && !dryRun(job)) return { recordingId: job.recordingId, options: { force: true } };
+  if (job.operation === "processRecording" && !dryRun(job)) {
+    const options = isObject(job.args) && isObject(job.args.options) ? job.args.options : {};
+    return {
+      recordingId: job.recordingId,
+      options: {
+        ...(typeof options.recipeId === "string" ? { recipeId: options.recipeId } : {}),
+        ...(options.values !== undefined ? { values: options.values } : {}),
+        force: true,
+      },
+    };
+  }
   return clone(job.args);
 }
 export async function relaunch(store: Store, id: string): Promise<[string, Lane]> {

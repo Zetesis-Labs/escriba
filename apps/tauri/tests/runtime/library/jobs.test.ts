@@ -206,6 +206,24 @@ test("un servicio en espera no retiene la siguiente grabación", async () => {
   assert.equal((await store.recording(str(recordings[0]!.id))).status, "pending");
 });
 
+test("un fallo, una espera o una cancelación no cambian el estado de una nota ya transcrita", async () => {
+  const store = await library();
+  const record = await imported(store, "note.wav");
+  const id = str(record.id);
+  await store.withStore(async (inner) => {
+    await inner.mutate("version_save", { recordingId: id, transcript: { text: "sintético", segments: [] } });
+    await inner.mutate("recording_update", { id, status: "done", error: null });
+  });
+  const queue = await Queue.open(store);
+  for (const result of [failure("backend_unavailable", "LLM caído"), failure("failed", "Resumen vacío")]) {
+    const next = await queue.enqueue("processRecording", { recordingId: id, options: { recipeId: "serie:resumir", force: true } });
+    await queue.claim("inference");
+    await queue.finish(next, result);
+    if (result.error.code === "backend_unavailable") await queue.cancel(id);
+    assert.equal((await store.recording(id)).status, "done");
+  }
+});
+
 test("una prueba fallida conserva la grabación y no desactiva el trabajo automático", async () => {
   const store = await library();
   const record = await imported(store, "note.wav");
@@ -334,10 +352,12 @@ test("las acciones manuales no tienen receta y cancelar marca el final", async (
   assert.deepEqual(queue.visible(), []);
 });
 
-test("relanzar procesar reprocesa con la receta de la nota y lo demás se repite", () => {
+test("relanzar procesar repite la receta y los valores del trabajo, y lo demás se repite", () => {
   const process = job("p", "nota", "processRecording", "failed", 1);
-  process.args = { recordingId: "nota", options: { recipeId: "vieja", values: { a: 1 }, force: false } };
-  assert.deepEqual(relaunchArgs(process), { recordingId: "nota", options: { force: true } });
+  process.args = { recordingId: "nota", options: { recipeId: "serie:resumir", values: { llm: "remoto" }, force: false } };
+  assert.deepEqual(relaunchArgs(process), { recordingId: "nota", options: { recipeId: "serie:resumir", values: { llm: "remoto" }, force: true } });
+  const automatic = { ...process, args: { recordingId: "nota", options: { force: false } } };
+  assert.deepEqual(relaunchArgs(automatic), { recordingId: "nota", options: { force: true } });
   const dry = { ...process, args: { recordingId: "nota", options: { recipeId: "nueva", dryRun: true } } };
   assert.deepEqual(relaunchArgs(dry), dry.args);
   const publish = job("u", "nota", "publishRecording", "cancelled", 1);
@@ -366,7 +386,7 @@ test("relanzar un fallido encola otro y conserva el original", async () => {
   assert.equal(active[0]!.id, relaunched);
   assert.equal(active[0]!.state, "queued");
   assert.equal(active[0]!.automatic, false);
-  assert.deepEqual(active[0]!.args, { recordingId: record.id, options: { force: true } });
+  assert.deepEqual(active[0]!.args, { recordingId: record.id, options: { recipeId: "default", force: true } });
   assert.equal(obj(active[0]!.recipe).id, "default");
   const kept = await history(queue);
   assert.equal(kept.length, 1);

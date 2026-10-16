@@ -246,6 +246,7 @@ export function createRuntime(
       const renewed = new Set<string>();
       const recomputed = fresh && !processOptions.dryRun ? new Set<string>() : undefined;
       let current: Version | undefined;
+      let ownsStatus = !recording.versions.length;
       let savedData: JSONValue | undefined;
       const warnings: string[] = [];
       const traceStarted = new Date().toISOString();
@@ -411,6 +412,10 @@ export function createRuntime(
                     });
                   }
                   case "transcribe": {
+                    if (!ownsStatus && !processOptions.dryRun) {
+                      ownsStatus = true;
+                      await host.call("recording_update", { id, status: "processing", error: null });
+                    }
                     const backend = selected(
                       snapshot,
                       "stt",
@@ -705,7 +710,7 @@ export function createRuntime(
           if (processOptions.force === false) throw Error("Revisa la operación externa o sobre el grafo antes de reprocesar esta nota manualmente");
           await host.call("account_effect_finish", { recordingId: id });
         }
-        if (!processOptions.dryRun)
+        if (!processOptions.dryRun && ownsStatus)
           await host.call("recording_update", {
             id,
             status: "processing",
@@ -714,7 +719,7 @@ export function createRuntime(
         await execute(recipeWithValues(chosen, processOptions.values), []);
         aborted(signal);
         if (!current) throw Error("La receta no produjo una transcripción");
-        if (!processOptions.dryRun)
+        if (!processOptions.dryRun && ownsStatus)
           await host.call("recording_update", {
             id,
             status: "done",
@@ -725,7 +730,7 @@ export function createRuntime(
         if (accountMutation) error = new RuntimeError(`La receta hizo una operación externa o sobre el grafo; revisa el resultado antes de reprocesar. ${message(error)}`, "failed");
         traceError = message(error);
         traceErrorCode = errorCode(error);
-        if (!processOptions.dryRun)
+        if (!processOptions.dryRun && ownsStatus)
           await host.call("recording_update", {
             id,
             status: signal.aborted ? "pending" : "failed",
