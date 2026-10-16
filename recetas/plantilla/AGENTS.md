@@ -49,14 +49,16 @@ Lo que puede pedir, con los tipos completos en `escriba-recetas.d.ts`:
   (`escriba.versiones(audio)` las lista con su `clave`), y `{ editar: true }`
   la propia versión en vez de una copia.
 - `nota.transcribir({ stt, idioma, hablantes })` sustituye la transcripción de
-  la nota; con los criterios que ya tiene no vuelve a transcribir. Lo que no
-  elijas va al local: Whisper, idioma automático y sin hablantes.
+  la nota; con los criterios que ya tiene no vuelve a transcribir, salvo que
+  la persona reprocese a mano, que transcribe una vez. Lo que no elijas va al
+  local: Whisper, idioma automático y sin hablantes.
   `escriba.transcribir(audio, opciones)` hace lo mismo sobre `escriba.nota(audio)`.
 - `nota.resumir({ llm, prompt })` añade título, resumen y etiquetas. Sin
   `llm`, Apple Intelligence; sin `prompt`, el de serie.
 - `nota.guardar()` confirma la nota: si cambió algo, queda una versión nueva
   que conserva de la de origen lo que no cambió y pasa a vigente; si no cambió
-  nada, no crea versión. Con `{ editar: true }` escribe en la propia versión.
+  nada, no crea versión ni cambia la vigente. Con `{ editar: true }` escribe
+  en la propia versión.
   Una receta que termina sin guardar no cambia la versión vigente.
 - `escriba.preguntar({ esquema, entrada, instrucciones, llm })` pregunta a un
   LLM y devuelve un objeto con la forma de `esquema`, un `z.object` de Zod, ya

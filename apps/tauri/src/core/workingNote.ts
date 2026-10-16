@@ -6,18 +6,26 @@ export interface WorkingNote {
   readonly key: string;
   readonly origin?: Version;
   readonly editing: boolean;
-  versionId?: string;
-  backend?: string;
-  transcript?: Transcript;
-  inputs?: JSONObject;
-  hasVoices?: boolean;
-  voicesFrom?: string | null;
-  digest?: Digest | null;
-  data?: JSONValue;
-  changed: boolean;
+  readonly versionId?: string;
+  readonly backend?: string;
+  readonly transcript?: Transcript;
+  readonly inputs?: JSONObject;
+  readonly hasVoices?: boolean;
+  readonly voicesFrom?: string | null;
+  readonly digest?: Digest | null;
+  readonly data?: JSONValue;
+  readonly changed: boolean;
 }
 
 export type TranscriptionPlan = { kind: "keep" } | { kind: "reuse"; version: Version } | { kind: "transcribe" };
+
+export interface TranscriptChange {
+  readonly transcript: Transcript;
+  readonly inputs: JSONObject;
+  readonly backend: string;
+  readonly hasVoices: boolean;
+  readonly voicesFrom: string | null;
+}
 
 export function openNote(handle: string, key: string, origin: Version | undefined, editing: boolean): WorkingNote {
   if (editing && !origin) throw Error("No hay ninguna versión que editar");
@@ -41,31 +49,30 @@ export function openNote(handle: string, key: string, origin: Version | undefine
   };
 }
 
-export function transcriptionPlan(note: WorkingNote, inputs: JSONObject, versions: readonly Version[]): TranscriptionPlan {
+export const transcriptionKey = (inputs: JSONObject) => canonicalJSON(inputs);
+
+export function transcriptionPlan(
+  note: WorkingNote,
+  inputs: JSONObject,
+  versions: readonly Version[],
+  renewed?: ReadonlySet<string>,
+): TranscriptionPlan {
+  if (renewed && !renewed.has(transcriptionKey(inputs))) return { kind: "transcribe" };
   if (note.transcript && note.inputs && reusableTranscription({ inputs: note.inputs, hasVoices: note.hasVoices }, inputs))
     return { kind: "keep" };
   const version = [...versions].reverse().find((candidate) => reusableTranscription(candidate, inputs));
   return version ? { kind: "reuse", version } : { kind: "transcribe" };
 }
 
-export function withTranscript(
-  note: WorkingNote,
-  change: { transcript: Transcript; inputs: JSONObject; backend: string; hasVoices: boolean; voicesFrom: string | null },
-) {
-  Object.assign(note, change, { changed: true });
+export const withTranscript = (note: WorkingNote, change: TranscriptChange): WorkingNote => ({ ...note, ...change, changed: true });
+
+export const withDigest = (note: WorkingNote, digest: Digest): WorkingNote => ({ ...note, digest, changed: true });
+
+export function withData(note: WorkingNote, data: JSONValue): WorkingNote {
+  return canonicalJSON(data) === canonicalJSON(note.data ?? null) ? note : { ...note, data, changed: true };
 }
 
-export function withDigest(note: WorkingNote, digest: Digest) {
-  note.digest = digest;
-  note.changed = true;
-}
-
-export function withData(note: WorkingNote, data: JSONValue): boolean {
-  if (canonicalJSON(data) === canonicalJSON(note.data ?? null)) return false;
-  note.data = data;
-  note.changed = true;
-  return true;
-}
+export const materialized = (note: WorkingNote, versionId: string): WorkingNote => ({ ...note, versionId });
 
 export function confirmedVersionId(note: WorkingNote): string | undefined {
   return note.versionId ?? note.origin?.id;

@@ -91,7 +91,7 @@ function memory() {
   };
   return { state, calls, host };
 }
-test("reprocesar con los mismos criterios no transcribe ni crea versión; otro idioma transcribe y crea una", async () => {
+test("reprocesar sin forzar con los mismos criterios no transcribe ni crea versión; otro idioma transcribe y crea una", async () => {
   const m = memory();
   const controller = createRuntime(m.host, {
     run: async (task, context) => {
@@ -104,7 +104,7 @@ test("reprocesar con los mismos criterios no transcribe ni crea versión; otro i
     },
   });
   await controller.processRecording("r");
-  await controller.processRecording("r");
+  await controller.processRecording("r", { force: false });
   assert.equal(m.state.recordings[0].versions.length, 1);
   assert.equal(m.calls.filter((c) => c.method === "transcribe").length, 1);
   await controller.processRecording("r", { force: false });
@@ -134,6 +134,7 @@ test("una versión Swift sin diarización se reutiliza aunque la receta conserve
       speakers: null,
     },
   });
+  recording.currentVersionId = "swift:1:7";
   m.state.recipes[0].values = { idioma: "es", hablantes: { detectar: false, cuantos: 2 } };
   const runtime = createRuntime(m.host, {
     run: async (task, context) => {
@@ -144,7 +145,7 @@ test("una versión Swift sin diarización se reutiliza aunque la receta conserve
     },
   });
 
-  await runtime.processRecording("r");
+  await runtime.processRecording("r", { force: false });
 
   assert.equal(m.calls.filter((call) => call.method === "transcribe").length, 0);
   assert.equal(m.calls.filter((call) => call.method === "version_save").length, 0);
@@ -258,7 +259,7 @@ test("reutilizar una transcripción de otra versión copia sus huellas sin recon
   original.hasVoices = true;
   original.transcript.recognitions = [{ speaker: "Speaker 1", person: "Ana", distance: 0.1 }];
   await runtime.processRecording("r", { values: { hablantes: false } });
-  await runtime.processRecording("r");
+  await runtime.processRecording("r", { force: false });
   assert.equal(m.calls.filter((call) => call.method === "transcribe").length, 2);
   const reused = m.calls.filter((call) => call.method === "version_save").at(-1)?.params;
   assert.deepEqual([reused?.voicesFrom, reused?.sourceVersionId], [original.id, "v2"]);
