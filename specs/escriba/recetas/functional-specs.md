@@ -6,6 +6,10 @@ no describe la implementación. Sustituye como referencia vigente a
 `docs/requisito-recetas.md`, que conserva el diseño original (octubre de 2026,
 versión Swift) y ya no coincide con la app.
 
+Ampliación del 2026-10-16, decidida por Rubén en conversación: recetas de serie
+modulares, «Por defecto» compuesta con ellas (§6.8), y leer la nota sin
+transcribir con `escriba.nota` (§6.9).
+
 Estado: **decidido, sin construir.** Lo marcado como «hoy» es lo que hace la
 app; lo marcado como «decidido» es lo que debe pasar a hacer. Destinos queda
 **a reestudiar** (§10).
@@ -27,14 +31,20 @@ reprocesado y cuánto espera un servicio caído. Una sexta, que nada se ejecute
 fuera de la receta, queda decidida en principio y condicionada al modelo de
 destinos, que está a reestudiar.
 
+La ampliación del 2026-10-16 trocea la receta de serie en piezas que se pueden
+elegir por separado: **Transcribir**, **Resumir** y **Publicar**. «Por
+defecto» se compone con ellas en su código y se comporta como hoy. Para que
+Resumir y Publicar trabajen sobre una nota ya transcrita, la receta puede leer
+la versión vigente sin transcribir.
+
 ## 2. Actores
 
 - **Rubén**, único usuario: escribe recetas (o las genera con un formulario),
   elige cuál procesa cada nota, corrige notas en la biblioteca y revisa
   Trabajos.
-- **La receta**, código del proyecto del usuario o la «Por defecto» de serie,
-  ejecutada en un proceso aislado sin red, disco ni procesos: solo ve lo que
-  Escriba le da.
+- **La receta**, código del proyecto del usuario o una de las de serie
+  («Por defecto», Transcribir, Resumir, Publicar), ejecutada en un proceso
+  aislado sin red, disco ni procesos: solo ve lo que Escriba le da.
 - **La cola de trabajos**, que ejecuta una receta a la vez (carril de
   inferencia) y hasta tres publicaciones o retiradas a la vez (carril de red),
   recupera lo interrumpido y reintenta lo que espera.
@@ -106,6 +116,17 @@ desaparecen (§6.4).
 6. **Cancelar.** Desde la nota o Trabajos → la receta deja de poder pedir nada,
    su proceso termina y, si usaba un motor local, se corta → trabajo cancelado,
    nota fallida con «Proceso cancelado».
+7. **Usar una pieza suelta (decidido 2026-10-16).** Rubén elige Transcribir,
+   Resumir o Publicar (al grabar o añadir, en «Reprocesar» o en «Probar
+   con…»), o una receta de formulario sobre una de ellas → la pieza hace solo
+   lo suyo y confirma con `guardar()`. Transcribir crea o reutiliza versión
+   como cualquier `transcribir`. Resumir y Publicar leen la versión vigente
+   con `escriba.nota` y no crean ninguna.
+   - *Nota sin transcribir*: Resumir y Publicar fallan con «La nota aún no
+     está transcrita»; la nota no cambia.
+   - *Falla el resumen o una publicación*: la pieza suelta falla con el error;
+     un `no-disponible` espera reintento (§6.6). Solo «Por defecto» tolera
+     esos fallos y conserva la nota, como hoy.
 
 ## 6. Reglas
 
@@ -128,7 +149,8 @@ escribe `datos`.
 ### 6.3 `guardar()` es el punto de confirmación (decidido)
 
 - Las versiones las crea solo `transcribir`: una por cada criterio distinto
-  dentro de una ejecución, y una nueva al reprocesar a mano. `resumir`,
+  dentro de una ejecución, y una nueva al reprocesar a mano. `escriba.nota`
+  fija como activa la versión vigente sin crear otra (§6.9). `resumir`,
   `preguntar` y `guardar` escriben sobre esa versión activa, las veces que
   haga falta, sin crear otra.
 - Lo caro se guarda en cuanto llega (transcripción, resumen, respuestas,
@@ -174,7 +196,9 @@ trabajo **recuerda la versión que creó en su primer intento**: los reintentos
 la reutilizan y, si no llegó a crearla, la crean. Un reprocesado produce
 exactamente una versión, caiga donde caiga. Hoy el reintento reutiliza
 cualquier versión con esos criterios, también una antigua, y puede no crear
-ninguna.
+ninguna. Un reprocesado con una receta que no transcribe no produce ninguna:
+el trabajo recuerda la versión vigente que tomó con `escriba.nota` y sus
+reintentos vuelven a ella.
 
 ### 6.6 Esperar a un servicio caído (decidido)
 
@@ -195,7 +219,8 @@ se reintenta.
 - Cada capacidad recuerda lo hecho por versión: transcripción por criterios,
   resumen y respuestas por huella de la petición (LLM, instrucciones, entrada,
   esquema), publicaciones por recibo. Una versión manual nueva tiene su propia
-  memoria.
+  memoria. Un reprocesado a mano rehace resumen, preguntas y datos aunque no
+  cree versión; sus reintentos reutilizan lo que ese mismo reprocesado obtuvo.
 - Reutilizar una transcripción con hablantes exige que la versión conserve
   sus huellas; si no, se vuelve a diarizar.
 - Un STT remoto con `hablantes.detectar` es un error, nunca texto sin
@@ -204,7 +229,8 @@ se reintenta.
   conserva y el fallo se muestra.
 - `preguntar` valida la respuesta con el esquema de Zod antes de dársela a la
   receta; sin troceado automático. Las preguntas hechas antes de transcribir
-  no se recuerdan (no hay versión a la que anclarlas).
+  no se recuerdan (no hay versión a la que anclarlas); las hechas después de
+  `escriba.nota` se anclan a la vigente.
 - `datos` se validan con `receta.datos` al guardar; un valor que ya no vale
   falla nombrando el campo. Los parámetros de la receta igual.
 - Pasar la grabación a otra receta: ciclos y profundidad limitados, con un
@@ -217,13 +243,68 @@ se reintenta.
 - Cada ejecución deja su traza (pasos, segundos, error, log de la receta) en
   el trabajo y en la nota. Las pruebas no cambian la traza de la nota.
 
+### 6.8 Recetas de serie modulares (decidido 2026-10-16)
+
+Escriba trae cuatro recetas de serie, todas disponibles para procesar: en la
+lista de Recetas, al grabar o añadir, en «Reprocesar», en «Probar con…», como
+receta que procesa lo que entra («Usar por defecto» en Recetas) y como base de
+una receta de formulario.
+
+| Receta | Hace | Formulario |
+|---|---|---|
+| **Transcribir** | transcribe y guarda | STT, idioma, hablantes (detectar, cuántos) |
+| **Resumir** | resume la versión vigente y guarda | LLM, prompt |
+| **Publicar** | publica la versión vigente en los conectores elegidos | conectores |
+| **Por defecto** | transcribe, resume si se pide, guarda y publica | los tres anteriores y «Resumir» sí/no |
+
+- «Por defecto» se **compone en su código** con las tres piezas: cada pieza es
+  una función que recibe la nota y sus valores, y su receta suelta solo la
+  envuelve. No hay composición en tiempo de ejecución ni valores que pasen de
+  una receta a otra.
+- Los valores de «Por defecto» son suyos: cambiar el LLM de Resumir suelta no
+  cambia el de «Por defecto», y al revés.
+- «Por defecto» conserva los campos, los nombres y el comportamiento de hoy:
+  los valores guardados y las recetas de formulario que la usan de base siguen
+  valiendo, y tolera que fallen el resumen o una publicación (§5.7).
+- Una pieza suelta no tolera fallos: el error de su único paso es el del
+  trabajo.
+- Las recetas del proyecto siguen pudiendo pasar la grabación a cualquiera,
+  también a una de serie, con `escriba.receta(x).procesar(audio)`, que corre
+  con los valores guardados de esa receta.
+
+### 6.9 Leer la nota sin transcribir: `escriba.nota` (decidido 2026-10-16)
+
+`escriba.nota(audio)` devuelve la nota sobre la que trabajar sin transcribir,
+o nada si la grabación no tiene ninguna versión.
+
+- Si el trabajo ya tiene versión activa, devuelve esa: dentro de una cadena o
+  tras un `transcribir`, la pieza siguiente ve lo que acaba de hacerse aunque
+  aún no sea vigente. Si no, devuelve la vigente de la grabación y la fija
+  como activa.
+- No crea versión. `resumir`, `preguntar`, `guardar`, `publicar` y `vincular`
+  escriben sobre ella igual que tras `transcribir`, con la misma memoria por
+  versión.
+- Lo que corrigió la persona es la entrada: si la vigente es una corrección,
+  la devuelve tal cual, con sus hablantes, segmentos y datos. No depende de los
+  criterios de transcripción, así que vale también para las correcciones que
+  hoy se guardan sin ellos (anexo).
+- Un `transcribir` posterior en la misma ejecución crea o reutiliza versión y
+  pasa a ser la activa; la nota anterior deja de valer («La nota ya no es la
+  versión activa»).
+- En «Probar con…» lee igual y no guarda nada.
+- Solo puede pedir la nota de su grabación, como `transcribir`.
+
 ## 7. Conceptos
 
-- **Receta**: código (`flujo`) del proyecto o la «Por defecto»; una receta de
-  formulario es un nombre y unos valores sobre cualquier receta con formulario.
+- **Receta**: código (`flujo`) del proyecto o una de las cuatro de serie; una
+  receta de formulario es un nombre y unos valores sobre cualquier receta con
+  formulario.
+- **Pieza**: receta de serie que hace un solo paso (Transcribir, Resumir,
+  Publicar). «Por defecto» se compone con las tres en su código.
 - **Audio**: lo que la receta recibe de la grabación: identidad, nombre, fecha,
   duración, tamaño, formato y origen.
-- **Nota**: la vista de la versión activa que la receta manipula: texto,
+- **Nota**: la vista de la versión activa que la receta manipula, obtenida con
+  `transcribir` o con `escriba.nota`: texto,
   hablantes, segmentos con palabras, resumen, datos. Expone `resumir`,
   `guardar`, `vincular` y, decidido, renombrar hablantes y corregir segmentos.
 - **Versión**: resultado de una transcripción con unos criterios, con su
@@ -247,12 +328,17 @@ Sin pantallas nuevas. Cambios:
   conserva «Reprocesar» (con receta y valores), el menú de versiones y las
   correcciones.
 - Trabajos y la ficha de la receta siguen igual.
+- Decidido 2026-10-16: Recetas lista las cuatro de serie, cada una con su
+  formulario y «Usar por defecto»; los selectores de receta (grabar, añadir,
+  Reprocesar, Probar con…) las ofrecen todas.
 
 ## 9. Restricciones
 
 - Nada de lo decidido está construido. Al construirlo cambian las reglas del
   producto de `CLAUDE.md` (guardar, acciones a mano, estados) y el contrato
-  `escriba-recetas.d.ts`.
+  `escriba-recetas.d.ts`. Con §6.8 y §6.9, además: «Reprocesar crea una
+  versión nueva» pasa a valer solo si la receta transcribe, y el contrato
+  gana `escriba.nota`.
 - Mientras no se reestudien los destinos (§10), `escriba.conector(clave)
   .publicar(nota)` sigue publicando con la configuración del destino.
 - Fase 7 (Escriba escribe recetas con su LLM) sigue descartada; MCP (RF-17)
@@ -299,6 +385,21 @@ había puede pisarlo.
 - Se asume que una versión de corrección conserva los criterios de
   transcripción de su origen, para que `transcribir` la reconozca (§6.4). Hoy
   no los conserva.
+- «Todos los parámetros» de Transcribir son los campos de transcripción que
+  hoy tiene «Por defecto» (STT, idioma, hablantes). Ampliarlos es otra
+  decisión.
+
+### Recetas de serie modulares (2026-10-16)
+
+- ¿Resumir y Publicar sueltas sustituyen a «Resumir» y «Publicar en…» de la
+  nota? Encajan con la propuesta de §6.4, que sigue sin decidir.
+- ¿Resumir suelta actualiza lo ya publicado? Hoy el resumen a mano republica
+  las publicaciones existentes si la vigente no cambió; la pieza, tal como está
+  decidida, solo resume. Depende de destinos.
+- Al grabar o añadir, Resumir y Publicar fallan siempre (la nota aún no está
+  transcrita). ¿Se ofrecen igual en esos selectores o se ocultan?
+- Un proyecto nuevo copia hoy «Por defecto» como ejemplo. ¿Trae las cuatro,
+  con la composición a la vista?
 
 ## Anexo. Desviaciones entre documentación y código
 
