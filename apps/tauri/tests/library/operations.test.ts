@@ -49,3 +49,14 @@ test("renombrar un hablante guarda una corrección con los criterios, el resumen
   const saved = call.mock.calls.find(([method]) => method === "version_save")?.[1] as Record<string, unknown>;
   expect([saved.sourceVersionId, saved.inputs, saved.digest, saved.data, saved.backend]).toEqual(["v1", inputs, open.digest, open.data, "correccion"]);
 });
+
+test("borrar una versión o quedarse solo con una piden al almacén esa versión de esa nota", async () => {
+  const operations = await import("../../src/library/operations");
+  call.mockClear();
+  await operations.deleteVersion(recording, recording.versions[1]);
+  await operations.keepOnlyVersion(recording, recording.versions[0]);
+  expect(call.mock.calls).toEqual([
+    ["version_delete", { recordingId: "r", versionId: "v2" }],
+    ["version_keep_only", { recordingId: "r", versionId: "v1" }],
+  ]);
+});

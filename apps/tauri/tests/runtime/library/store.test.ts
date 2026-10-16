@@ -174,6 +174,34 @@ test("la primera versión de una nota es vigente aunque se guarde sin selecciona
   assert.equal(obj(await store.recording(key)).currentVersionId, first);
 });
 
+test("borrar versiones se lleva sus huellas, deja vigente la más reciente y nunca la única", async () => {
+  const audio = space.path("sample.wav");
+  write(audio, "synthetic audio");
+  let store = await space.open();
+  const key = str(obj(await store.import(audio)).id);
+  const save = async (text: string) => {
+    const transcript = await store.recognizeTranscription(key, { text, segments: [{ speaker: "Speaker 1", start: 0, end: 1, text, words: [] }], voices: [voice("Speaker 1", [1, 0])] });
+    return str(obj(await store.mutate("version_save", { recordingId: key, transcript })).id);
+  };
+  const [first, second, third] = [await save("uno"), await save("dos"), await save("tres")];
+  await store.mutate("version_delete", { recordingId: key, versionId: third });
+  assert.deepEqual(await store.versionVoices(third), []);
+  let record = obj(await store.recording(key));
+  assert.deepEqual([arr(record.versions).map((item) => obj(item).id), record.currentVersionId], [[first, second], second]);
+  await assert.rejects(store.mutate("version_delete", { recordingId: key, versionId: "otra" }), /no encontrada/);
+  await store.mutate("note_draft_begin", { recordingId: key });
+  await assert.rejects(store.mutate("version_delete", { recordingId: key, versionId: first }), /corrección sin guardar/);
+  const draft = obj(await store.mutate("note_draft_get", { recordingId: key }));
+  await store.mutate("note_draft_discard", { recordingId: key, draftId: draft.id, expectedRevision: draft.revision });
+  await store.mutate("version_keep_only", { recordingId: key, versionId: first });
+  store = await reopen(space, store);
+  record = obj(await store.recording(key));
+  assert.deepEqual([arr(record.versions).map((item) => obj(item).id), record.currentVersionId], [[first], first]);
+  assert.equal((await store.versionVoices(first)).length, 1);
+  assert.deepEqual(await store.versionVoices(second), []);
+  await assert.rejects(store.mutate("version_delete", { recordingId: key, versionId: first }), /única versión/);
+});
+
 test("actualizar la transcripción de una versión sustituye sus huellas", async () => {
   const audio = space.path("sample.wav");
   write(audio, "synthetic audio");

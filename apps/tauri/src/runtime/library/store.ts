@@ -376,11 +376,11 @@ export class Store {
     }
     const guarded = ["recording_update", "recording_remove_audio"].includes(method)
       ? text(p, "id")
-      : ["version_save", "version_select", "version_update", "publication_save", "publication_remove", "account_effect_begin", "account_effect_finish"].includes(method)
+      : ["version_save", "version_select", "version_update", "version_delete", "version_keep_only", "publication_save", "publication_remove", "account_effect_begin", "account_effect_finish"].includes(method)
         ? text(p, "recordingId")
         : undefined;
     if (guarded !== undefined) this.recordingForWrite(guarded);
-    const fullRecording = ["version_save", "version_select", "version_update", "publication_save", "publication_remove", "account_effect_begin", "account_effect_finish"].includes(method) ? text(p, "recordingId") : undefined;
+    const fullRecording = ["version_save", "version_select", "version_update", "version_delete", "version_keep_only", "publication_save", "publication_remove", "account_effect_begin", "account_effect_finish"].includes(method) ? text(p, "recordingId") : undefined;
     const before = fullRecording !== undefined ? await this.recordingEdit(fullRecording) : this.edit();
     const next = clone(before);
     const writeScope = scope({ fullRecordings: new Set(fullRecording !== undefined ? [fullRecording] : []) });
@@ -401,7 +401,9 @@ export class Store {
       }
       case "version_save":
       case "version_select":
-      case "version_update": {
+      case "version_update":
+      case "version_delete":
+      case "version_keep_only": {
         const outcome = await this.mutateVersion(next, method, p);
         result = outcome.result;
         voiceSave = outcome.voiceSave;
@@ -572,6 +574,20 @@ export class Store {
         const result = clone(version) as unknown as Json;
         appendVersion(record, version, params.select !== false);
         return { result, voiceSave: [recordingId, version.id, voices, teaching] };
+      }
+      case "version_delete":
+      case "version_keep_only": {
+        const record = recordMut(next, text(p, "recordingId"));
+        const id = text(p, "versionId");
+        const versions = record.versions ?? [];
+        if (!versions.some((version) => version.id === id)) throw Error("Versión no encontrada");
+        if ((await this.database.draftRead(record.id, false)) !== undefined)
+          throw Error("Esta nota tiene una corrección sin guardar; guárdala o descártala antes de borrar versiones");
+        const kept = versions.filter((version) => (method === "version_keep_only" ? version.id === id : version.id !== id));
+        if (!kept.length) throw Error("No se puede borrar la única versión de la nota");
+        record.versions = kept;
+        if (!kept.some((version) => version.id === record.currentVersionId)) record.currentVersionId = latestVersion(kept).id;
+        return { result: null };
       }
       case "version_select": {
         const record = recordMut(next, text(p, "recordingId"));
@@ -1260,6 +1276,9 @@ function transcriptParam(value: Json | undefined): Transcript {
   } catch {
     throw Error("Transcripción inválida");
   }
+}
+function latestVersion(versions: Version[]): Version {
+  return versions.reduce((latest, version) => ((version.createdAt ?? "") > (latest.createdAt ?? "") ? version : latest));
 }
 function appendVersion(record: Recording, version: Version, select: boolean) {
   if (select || !record.versions?.length) record.currentVersionId = version.id;

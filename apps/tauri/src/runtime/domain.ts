@@ -191,6 +191,7 @@ export function registerDomainCommands(commands: CommandRegistry, deps: DomainDe
   });
   named("recording_remove_audio", UI, "changed", (p) => library.removeAudio(json(p), (_, id) => library.busy(id)));
   for (const name of ["version_save", "version_select", "version_update", "publication_save", "publication_remove"]) mutation(name, ANY);
+  for (const name of ["version_delete", "version_keep_only"] as const) named(name, UI, "changed", (p) => library.removeVersions(name, json(p)));
   for (const name of ["note_draft_get", "note_draft_begin", "note_draft_save", "note_draft_discard", "note_draft_commit"]) mutation(name, UI);
   for (const name of ["config_save", "config_remove"])
     named(name, UI, "changed", async (p) => {

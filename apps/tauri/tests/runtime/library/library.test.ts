@@ -106,3 +106,15 @@ test("cerrar confirma lo encolado", async () => {
     await store.close();
   }
 });
+
+test("no se borran versiones mientras la nota tiene un trabajo pendiente", async () => {
+  const library = await open();
+  const [key] = await notes(library, 1);
+  const first = str(obj(await library.mutate("version_save", { recordingId: key, transcript: { text: "uno", segments: [] } })).id);
+  await library.mutate("version_save", { recordingId: key, transcript: { text: "dos", segments: [] } });
+  await library.enqueueJob("processRecording", { recordingId: key, options: { force: true } }, false);
+  await assert.rejects(library.removeVersions("version_delete", { recordingId: key, versionId: first }), /trabajo de esta nota/);
+  await library.cancelJobs(key);
+  await library.removeVersions("version_delete", { recordingId: key, versionId: first });
+  assert.equal(arr(obj(await library.recording(key)).versions).length, 1);
+});

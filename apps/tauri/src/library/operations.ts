@@ -24,6 +24,9 @@ export async function republish(recording: Recording) {
 export const reprocess = (recording: Recording, recipeId?: string, values?: JSONObject) =>
   processRecording(recording.id, { recipeId, force: true, values, baseVersionId: currentVersion(recording)?.id });
 
+export const deleteVersion = (recording: Recording, version: Version) => call("version_delete", { recordingId: recording.id, versionId: version.id });
+export const keepOnlyVersion = (recording: Recording, version: Version) => call("version_keep_only", { recordingId: recording.id, versionId: version.id });
+
 export async function chooseVersion(recording: Recording, version: Version) {
   await call("version_select", { recordingId: recording.id, versionId: version.id });
   await republish(recording);
