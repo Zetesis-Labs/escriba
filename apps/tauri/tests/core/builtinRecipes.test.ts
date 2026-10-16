@@ -1,6 +1,6 @@
 import { test } from "vitest";
 import assert from "node:assert/strict";
-import { builtinProgram, builtinRecipeProblem, BUILTIN_PROGRAMS, BUILTIN_RECIPES, withBuiltinRecipes } from "../../src/core/builtinRecipes";
+import { builtinProgram, builtinRecipeProblem, BUILTIN_PROGRAMS, BUILTIN_RECIPES, startsFrom, withBuiltinRecipes } from "../../src/core/builtinRecipes";
 import { builtinRecipeSources } from "../../runtime-host/defaultRecipe.mjs";
 
 test("cada programa de serie se compila desde su receta", () => {
@@ -35,4 +35,19 @@ test("las recetas de serie conservan su código y una variante solo puede apunta
   assert.equal(builtinRecipeProblem({ id: "variante", kind: "form", builtin: "resumir" }), undefined);
   assert.match(String(builtinRecipeProblem({ id: "variante", kind: "form", builtin: "traducir" })), /desconocida: traducir/);
   assert.match(String(builtinRecipeProblem({ id: "variante", kind: "form", base: "ejemplo", builtin: "resumir" })), /otra receta de base/);
+});
+
+test("una receta parte de un audio salvo Resumir, Publicar y las que declaran partir de una nota, y las de formulario heredan de su base", () => {
+  const code = { id: "solo-notas", name: "Solo notas", kind: "code" as const, values: {}, startsFrom: "note" as const };
+  const recipes = [...BUILTIN_RECIPES, code, { id: "ejemplo", name: "Ejemplo", kind: "code" as const, values: {} }];
+  assert.deepEqual(BUILTIN_RECIPES.map((recipe) => [recipe.id, startsFrom(recipe, recipes)]), [
+    ["default", "audio"],
+    ["serie:transcribir", "audio"],
+    ["serie:resumir", "note"],
+    ["serie:publicar", "note"],
+  ]);
+  assert.equal(startsFrom({ kind: "form", builtin: "resumir" }, recipes), "note");
+  assert.equal(startsFrom({ kind: "form", base: "solo-notas" }, recipes), "note");
+  assert.equal(startsFrom({ kind: "form", base: "ejemplo" }, recipes), "audio");
+  assert.equal(startsFrom(recipes[5], recipes), "audio");
 });

@@ -180,6 +180,7 @@ async function recipe(task: WorkerTask) {
       ...(typeof meta.descripcion === "string"
         ? { description: meta.descripcion }
         : {}),
+      ...(meta.parte === "nota" ? { startsFrom: "note" } : {}),
       ...(module.ontologias !== undefined ? { ontologias: module.ontologias } : {}),
     };
   }

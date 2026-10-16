@@ -975,6 +975,7 @@ export function createRuntime(
             recipe.name = inspected.name;
           if (typeof inspected.description === "string")
             recipe.description = inspected.description;
+          if (inspected.startsFrom === "note") recipe.startsFrom = "note";
         }
         await host.call("project_install", { recipes, destinations, providers, ontologies });
       });

@@ -23,8 +23,11 @@ esta carpeta y su lockfile se conserva junto al proyecto.
 
 Cada `receta.ts` exporta:
 
-- `receta`: `{ nombre, datos? }`, el nombre que se ve en la app y, si quieres,
-  el esquema de Zod de los datos que guarda (ver más abajo).
+- `receta`: `{ nombre, datos?, parte? }`, el nombre que se ve en la app y, si
+  quieres, el esquema de Zod de los datos que guarda (ver más abajo).
+  `parte: "nota"` dice que la receta necesita una nota ya transcrita: entonces
+  solo se ofrece al reprocesar y al probarla, no al grabar, al añadir audio ni
+  como receta por defecto. Sin `parte`, parte de un audio.
 - `flujo(audio, escriba)`: una función asíncrona con todo el recorrido de una
   grabación.
 - `buildRecipeForm(listas)`, si quieres que la receta tenga parámetros que se

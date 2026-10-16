@@ -84,7 +84,10 @@ no se ha podido leer. Preservar la lectura de datos ya guardados al actualizar.
 - Una receta por defecto procesa lo que entra; elegir otra al grabar o importar
   sólo afecta a esa nota. De serie hay cuatro, todas elegibles: Transcribir,
   Resumir, Publicar y «Por defecto», que se compone en su código con las tres
-  (`recetas/piezas.ts`); un proyecto nuevo recibe esa misma composición. No
+  (`recetas/piezas.ts`); un proyecto nuevo recibe esa misma composición. Cada
+  receta parte de un audio o de una nota (`receta.parte`); las que parten de
+  una nota (Resumir, Publicar) no se ofrecen al grabar ni al importar ni pueden
+  ser la receta por defecto. No
   hay receta por carpeta, ni exportación/importación de recetas sueltas, ni
   conversión automática de formulario a código.
 - Los formularios proceden de `buildRecipeForm(listas)` y Zod. Guardan los valores

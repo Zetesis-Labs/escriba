@@ -242,6 +242,13 @@ test("las recetas de serie no se quitan ni cambian de código, y una variante el
   assert.ok(!recipes.some((recipe) => recipe.id === "variante"));
 });
 
+test("una receta que parte de una nota no puede ser la receta por defecto", async () => {
+  const store = await space.open();
+  await assert.rejects(store.mutate("settings_save", { settings: { defaultRecipeId: "serie:resumir" } }), /parte de una nota/);
+  await store.mutate("settings_save", { settings: { defaultRecipeId: "serie:transcribir" } });
+  assert.equal(obj(store.settingsJson()).defaultRecipeId, "serie:transcribir");
+});
+
 test("una instalación nueva vigila Notas de Voz una sola vez", async () => {
   const memos = space.path("Recordings");
   const store = await space.open();

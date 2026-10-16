@@ -275,6 +275,11 @@ test("pedir la misma nota dos veces devuelve el mismo objeto y conserva sus dato
   await runner().run({ kind: "recipe", program, payload }, host);
   assert.deepEqual(host.calls.find((call) => call.operation === "save")?.args, { handle: "v2", data: { tema: "a" } });
 });
+test("una receta que declara partir de una nota lo dice al inspeccionarla", async () => {
+  const program = await recipe(`export const receta = { nombre: "Solo notas", parte: "nota" }; export async function flujo() {}`);
+  const inspected = (await runner().run({ kind: "recipe-inspect", program, payload: { lists } }, { call: async () => null })) as Record<string, unknown>;
+  assert.deepEqual([inspected.name, inspected.startsFrom], ["Solo notas", "note"]);
+});
 test("una receta de código sin formulario comunica que no tiene parámetros", async () => {
   const schema = await runner().run(
     { kind: "recipe-schema", program: "var __recipe={flujo(){}}", payload: { lists } },

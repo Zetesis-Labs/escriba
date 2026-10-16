@@ -1,7 +1,7 @@
 import { z } from "zod"
 import { camposDeResumen, notaTranscrita, resumir } from "../piezas"
 
-export const receta = { nombre: "Resumir" }
+export const receta = { nombre: "Resumir", parte: "nota" }
 
 export function buildRecipeForm(listas: ListasDeEscriba) {
   return z.object(camposDeResumen(listas))
