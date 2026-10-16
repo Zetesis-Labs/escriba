@@ -61,18 +61,20 @@ function memory() {
           createdAt: "now",
         } as unknown as Version;
         record.versions.push(v);
-        record.currentVersionId = v.id;
+        if (params.select !== false) record.currentVersionId = v.id;
         return structuredClone(v);
       }
       if (method === "version_update") {
+        const target = record.versions.find((v) => v.id === params.versionId)!;
         Object.assign(
-          record.versions.find((v) => v.id === params.versionId)!,
+          target,
           Object.fromEntries(
             Object.entries(params).filter(
-              ([k]) => k === "digest" || k === "data",
+              ([k]) => k === "digest" || k === "data" || k === "transcript" || k === "inputs",
             ),
           ),
         );
+        return structuredClone(target);
       }
       if (method === "version_select")
         record.currentVersionId = String(params.versionId);
@@ -89,7 +91,7 @@ function memory() {
   };
   return { state, calls, host };
 }
-test("reprocesado manual crea versión, automático reutiliza, cambio de idioma transcribe", async () => {
+test("reprocesar con los mismos criterios no transcribe ni crea versión; otro idioma transcribe y crea una", async () => {
   const m = memory();
   const controller = createRuntime(m.host, {
     run: async (task, context) => {
@@ -103,16 +105,17 @@ test("reprocesado manual crea versión, automático reutiliza, cambio de idioma 
   });
   await controller.processRecording("r");
   await controller.processRecording("r");
-  assert.equal(m.state.recordings[0].versions.length, 2);
+  assert.equal(m.state.recordings[0].versions.length, 1);
   assert.equal(m.calls.filter((c) => c.method === "transcribe").length, 1);
   await controller.processRecording("r", { force: false });
-  assert.equal(m.state.recordings[0].versions.length, 2);
+  assert.equal(m.state.recordings[0].versions.length, 1);
   await controller.processRecording("r", { language: "en" });
-  assert.equal(m.state.recordings[0].versions.length, 3);
+  assert.equal(m.state.recordings[0].versions.length, 2);
+  assert.equal(m.state.recordings[0].versions[1].sourceVersionId, "v1");
   assert.equal(m.calls.filter((c) => c.method === "transcribe").length, 2);
 });
 
-test("una versión Swift sin diarización se clona aunque la receta conserve un número de hablantes", async () => {
+test("una versión Swift sin diarización se reutiliza aunque la receta conserve un número de hablantes", async () => {
   const m = memory();
   const recording = m.state.recordings[0];
   recording.audioHash = "hash-de-copia";
@@ -144,10 +147,8 @@ test("una versión Swift sin diarización se clona aunque la receta conserve un 
   await runtime.processRecording("r");
 
   assert.equal(m.calls.filter((call) => call.method === "transcribe").length, 0);
-  assert.equal(recording.versions.length, 2);
-  assert.equal(m.calls.find((call) => call.method === "version_save")?.params.sourceVersionId, "swift:1:7");
-  assert.deepEqual(recording.versions[1].transcript, recording.versions[0].transcript);
-  assert.equal(recording.versions[1].inputs?.speakers, null);
+  assert.equal(m.calls.filter((call) => call.method === "version_save").length, 0);
+  assert.deepEqual([recording.versions.length, recording.currentVersionId], [1, "swift:1:7"]);
 });
 
 test("al transcribir sin diarización no se envía ni se persiste un número de hablantes", async () => {
@@ -184,7 +185,6 @@ test("una nota sin receta propia usa el valor por defecto vigente en cada ejecuc
   await runtime.processRecording("r");
 
   assert.equal(m.state.recordings[0].recipeId, undefined);
-  assert.deepEqual(m.state.recordings[0].versions.map((version) => version.recipeId), ["default", "new-default"]);
   assert.deepEqual(m.calls.filter((call) => call.method === "trace_save").map((call) => call.params.recipeId), ["default", "new-default"]);
 });
 
@@ -205,7 +205,7 @@ test("reprocesar con otra receta no cambia la elección de la nota", async () =>
   await runtime.processRecording("r");
 
   assert.equal(m.state.recordings[0].recipeId, "incorporada");
-  assert.deepEqual(m.state.recordings[0].versions.map((version) => version.recipeId), ["manual", "incorporada"]);
+  assert.deepEqual(m.calls.filter((call) => call.method === "trace_save").map((call) => call.params.recipeId), ["manual", "incorporada"]);
 });
 
 test.each(["form", "code"] as const)("los valores puntuales de una receta %s no pasan a la que llama con procesar", async (kind) => {
@@ -243,11 +243,12 @@ test("reprocesar una versión diarizada sin huellas vuelve a transcribir", async
   await runtime.processRecording("r", { force: false });
   assert.equal(m.calls.filter((call) => call.method === "transcribe").length, 2);
 });
-test("reutilizar una transcripción pasa su versión de origen para copiar huellas sin reconocer de nuevo", async () => {
+test("reutilizar una transcripción de otra versión copia sus huellas sin reconocer de nuevo y apunta su origen", async () => {
   const m = memory();
   const runtime = createRuntime(m.host, {
-    run: async (_, context) => {
-      await context.call("transcribe", { hablantes: { detectar: true } });
+    run: async (task, context) => {
+      const values = task.payload.values as { hablantes?: boolean };
+      await context.call("transcribe", { hablantes: { detectar: values.hablantes !== false } });
       await context.call("save", {});
       return null;
     },
@@ -256,10 +257,12 @@ test("reutilizar una transcripción pasa su versión de origen para copiar huell
   const original = m.state.recordings[0].versions[0];
   original.hasVoices = true;
   original.transcript.recognitions = [{ speaker: "Speaker 1", person: "Ana", distance: 0.1 }];
+  await runtime.processRecording("r", { values: { hablantes: false } });
   await runtime.processRecording("r");
-  assert.equal(m.calls.filter((call) => call.method === "transcribe").length, 1);
-  assert.equal(m.calls.filter((call) => call.method === "version_save").at(-1)?.params.sourceVersionId, original.id);
-  assert.deepEqual(m.state.recordings[0].versions[1].transcript.recognitions, original.transcript.recognitions);
+  assert.equal(m.calls.filter((call) => call.method === "transcribe").length, 2);
+  const reused = m.calls.filter((call) => call.method === "version_save").at(-1)?.params;
+  assert.deepEqual([reused?.voicesFrom, reused?.sourceVersionId], [original.id, "v2"]);
+  assert.deepEqual(m.state.recordings[0].versions[2].transcript.recognitions, original.transcript.recognitions);
 });
 test("trocea y reduce con el mismo backend, cancelación detiene siguientes peticiones", async () => {
   const calls: Record<string, unknown>[] = [];
@@ -810,11 +813,12 @@ test("recuperación recuerda preguntas y resumen ya calculados sin repetir petic
       return null;
     },
   };
+  const retry = { force: false, jobId: "trabajo", baseVersionId: null };
   await assert.rejects(
-    createRuntime(host, recipe).processRecording("r", { force: false }),
+    createRuntime(host, recipe).processRecording("r", retry),
     /cierre después/,
   );
-  await createRuntime(host, recipe).processRecording("r", { force: false });
+  await createRuntime(host, recipe).processRecording("r", retry);
   assert.equal(asks, 1);
   assert.equal(summaries, 1);
   assert.equal(m.state.recordings[0].versions.length, 1);

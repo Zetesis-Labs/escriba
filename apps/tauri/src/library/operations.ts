@@ -20,7 +20,8 @@ export async function republish(recording: Recording) {
   if (failures.length) throw Error(`El cambio se guardó, pero faltó actualizar ${failures.join("; ")}`);
 }
 
-export const reprocess = (recording: Recording, recipeId?: string, values?: JSONObject) => processRecording(recording.id, { recipeId, force: true, values });
+export const reprocess = (recording: Recording, recipeId?: string, values?: JSONObject) =>
+  processRecording(recording.id, { recipeId, force: true, values, baseVersionId: currentVersion(recording)?.id });
 
 export async function chooseVersion(recording: Recording, version: Version) {
   await call("version_select", { recordingId: recording.id, versionId: version.id });

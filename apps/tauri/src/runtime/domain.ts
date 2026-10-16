@@ -171,9 +171,9 @@ export function registerDomainCommands(commands: CommandRegistry, deps: DomainDe
   named("runtime_job_steps", UI, undefined, (p) => library.jobSteps(text(p.id, "id")));
   mutation("log", ANY);
   named("log_list", UI, undefined, (p) => library.logList(json(p)));
-  named("memory_recall", ANY, undefined, async (p) => (await library.memoryRecall(text(p.recordingId, "recordingId"), text(p.versionId, "versionId"), text(p.fingerprint, "fingerprint"))) ?? null);
+  named("memory_recall", ANY, undefined, async (p) => (await library.memoryRecall(text(p.recordingId, "recordingId"), text(p.fingerprint, "fingerprint"))) ?? null);
   named("memory_keep", ANY, undefined, async (p) => {
-    await library.memoryKeep(text(p.recordingId, "recordingId"), text(p.versionId, "versionId"), text(p.fingerprint, "fingerprint"), json(p.value ?? null));
+    await library.memoryKeep(text(p.recordingId, "recordingId"), text(p.fingerprint, "fingerprint"), json(p.value ?? null));
     return null;
   });
   named("trace_save", ANY, "changed", async (p) => {

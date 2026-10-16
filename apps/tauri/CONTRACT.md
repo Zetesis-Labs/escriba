@@ -52,9 +52,9 @@ reenvía a Bun; los comandos `knowledge_*` se atienden en Rust.
 - recording_update {id, title?, status?, error?, duration?, recipeId?} -> Recording.
 - recording_discard {id} -> void.
 - recording_remove_audio {id} -> void (solo copia propia).
-- version_save {recordingId, transcript, digest?, data?, backend, recipeId?, inputs?} -> Version (siempre nueva).
+- version_save {recordingId, transcript, digest?, data?, backend, recipeId?, inputs?, sourceVersionId?, voicesFrom?, select?, job?} -> Version (siempre nueva). `sourceVersionId` es la versión de la que parte y queda guardado en ella; `voicesFrom` dice de qué versión copiar las huellas (`null`: las de la última transcripción; sin él, las de `sourceVersionId`). `select: false` la guarda sin hacerla vigente. `job {id, note}` identifica el trabajo y la nota que la crearon para que un reintento escriba en ella.
 - version_select {recordingId, versionId} -> void.
-- version_update {recordingId, versionId, digest?, data?} -> void.
+- version_update {recordingId, versionId, digest?, data?, transcript?, inputs?, backend?, voicesFrom?} -> Version. Con `transcript` sustituye también las huellas, desde `voicesFrom` o las de la última transcripción.
 - people_list -> {name:string,color?:string,voices:VoiceMetadata[]}[] (sin vectores).
 - people_set_color {name,color} -> void (persona existente; color hexadecimal #RRGGBB, exclusivo de la UI).
 - people_rename {name,newName} -> void (si el nombre nuevo ya existe, une sus huellas); people_remove {name} -> void (borra sus huellas; las grabaciones conservan el nombre); people_remove_voice {id} -> void.
@@ -199,7 +199,7 @@ en una entidad. Una relación con referencias o procedencia puede aparecer como
 nodo de anclaje además de su arista dirigida. Tablas raw no declaradas y
 referencias arbitrarias en JSON quedan fuera de este visor.
 - account_effect_begin / account_effect_finish {recordingId} -> void; marcador duradero de escrituras arbitrarias de SDK. Solo se retira al iniciar otro reprocesado manual explícito.
-- memory_recall / memory_keep {recordingId,versionId,fingerprint,value?} -> JSON / void.
+- memory_recall / memory_keep {recordingId,fingerprint,value?} -> JSON / void. La memoria es de la grabación: la huella ya incluye la entrada.
 - trace_save {recordingId,...} -> void; trace_list {recordingId?} -> trazas.
 
 `src/runtime/index.ts` solo es cliente IPC. Bun mantiene la cola; Rust ejecuta y

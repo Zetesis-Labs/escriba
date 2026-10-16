@@ -80,13 +80,13 @@ export type ValoresDeTranscripcion = z.output<z.ZodObject<ReturnType<typeof camp
 export type ValoresDeResumen = z.output<z.ZodObject<ReturnType<typeof camposDeResumen>>>
 export type ValoresDePublicacion = z.output<z.ZodObject<ReturnType<typeof camposDePublicacion>>>
 
-export function transcribir<P>(audio: Audio, escriba: Escriba<P>, { stt, idioma, hablantes }: ValoresDeTranscripcion) {
-  return escriba.transcribir(audio, { stt, idioma, hablantes })
+export function transcribir(nota: Nota, { stt, idioma, hablantes }: ValoresDeTranscripcion) {
+  return nota.transcribir({ stt, idioma, hablantes })
 }
 
 export async function notaTranscrita<P>(audio: Audio, escriba: Escriba<P>): Promise<Nota> {
   const nota = await escriba.nota(audio)
-  if (!nota) throw Error("La nota aún no está transcrita")
+  if (nota.version === null) throw Error("La nota aún no está transcrita")
   return nota
 }
 

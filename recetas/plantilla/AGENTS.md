@@ -37,23 +37,31 @@ Lo que puede pedir, con los tipos completos en `escriba-recetas.d.ts`:
   carpeta vigilada, con su nombre: «Notas de Voz», «Just Press Record»…), o
   `null` si ya no cae en ninguna. Sirve para repartir:
   `if (audio.origen?.nombre === "Notas de Voz") return escriba.receta("Reuniones").procesar(audio)`.
-- `escriba.transcribir(audio, { stt, idioma, hablantes })` devuelve la nota.
-  Lo que no elijas va al local: Whisper, idioma automático y sin hablantes.
-- `escriba.nota(audio)` devuelve la nota sin transcribir: la versión con la
-  que ya trabaja la receta o, si aún no hay, la vigente de la grabación, con
-  lo que haya corregido la persona. Devuelve `null` si la grabación nunca se
-  transcribió. No crea versión: resumir, preguntar y guardar escriben en ella.
+- `escriba.nota(audio)` devuelve la nota sobre la que trabajar: una copia de
+  la versión que la persona tenía abierta al lanzar la receta, con lo que
+  haya corregido. Si la grabación nunca se transcribió, una nota vacía
+  (`nota.version === null`). Las llamadas siguientes, y las de una receta a la
+  que pases la grabación, devuelven la misma nota.
+- `escriba.nota(audio, { version })` devuelve una copia de otra versión
+  (`escriba.versiones(audio)` las lista con su `clave`), y `{ editar: true }`
+  la propia versión en vez de una copia.
+- `nota.transcribir({ stt, idioma, hablantes })` sustituye la transcripción de
+  la nota; con los criterios que ya tiene no vuelve a transcribir. Lo que no
+  elijas va al local: Whisper, idioma automático y sin hablantes.
+  `escriba.transcribir(audio, opciones)` hace lo mismo sobre `escriba.nota(audio)`.
 - `nota.resumir({ llm, prompt })` añade título, resumen y etiquetas. Sin
   `llm`, Apple Intelligence; sin `prompt`, el de serie.
-- `nota.guardar()` es obligatorio: una receta que termina sin guardar deja la
-  nota fallida.
+- `nota.guardar()` confirma la nota: si cambió algo, queda una versión nueva
+  que conserva de la de origen lo que no cambió y pasa a vigente; si no cambió
+  nada, no crea versión. Con `{ editar: true }` escribe en la propia versión.
+  Una receta que termina sin guardar no cambia la versión vigente.
 - `escriba.preguntar({ esquema, entrada, instrucciones, llm })` pregunta a un
   LLM y devuelve un objeto con la forma de `esquema`, un `z.object` de Zod, ya
   validado: si el LLM contesta otra cosa, es un error y nunca llegan datos a
   medias. Sin `esquema` devuelve texto. Sin `llm`, Apple Intelligence, que
   solo admite unos 3500 caracteres de `entrada` e `instrucciones`: para
   notas largas, pregunta sobre `nota.resumen.texto` o usa un LLM remoto. La
-  misma pregunta sobre la misma versión de la nota se recuerda y no se repite.
+  misma pregunta sobre la misma grabación se recuerda y no se repite.
 - `nota.datos` son los datos propios de la nota, un objeto JSON o `null`, y se
   guardan con la versión: `await nota.guardar({ datos })` o cambiando
   `nota.datos` y llamando a `guardar()`. Si `receta.datos` es un esquema, se

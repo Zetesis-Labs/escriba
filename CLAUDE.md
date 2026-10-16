@@ -94,14 +94,20 @@ no se ha podido leer. Preservar la lectura de datos ya guardados al actualizar.
 - STT y LLM son listas de resolutores sin favorito. Whisper y Apple Intelligence
   son locales de serie; los remotos hablan una API compatible con OpenAI.
   Una receta sin selección usa el local. Un fallo remoto no cambia de motor.
-- Reprocesar crea una versión nueva si la receta transcribe; con los mismos
-  criterios reutiliza la transcripción. Con `escriba.nota` trabaja sobre la
-  vigente sin crear versión. En ambos casos rehace resumen, preguntas y datos.
-  La transcripción se guarda antes de resumir. Un resumen vacío es un error; si
-  falla el resumen, la nota transcrita se conserva y el fallo se muestra.
-- El resumen pertenece a la versión. Resumir a mano ancla el resultado a esa
-  versión y no republica si mientras tanto cambió la vigente. Corregir o quitar
-  un resumen regenera las publicaciones existentes usando su programa y recibo.
+- Una receta trabaja sobre una nota: copia de la versión que la nota tenía
+  abierta al encolar el trabajo (`escriba.nota`) o de la que pida. Lo que
+  cambia sustituye su parte; al `guardar()` queda una versión nueva que hereda
+  de su origen lo demás y pasa a vigente, o con `editar` cambia esa misma.
+  Sin cambios no crea versión. Componer es pasarse la misma nota. Con los
+  criterios de la versión de origen, transcribir no vuelve a transcribir.
+  Reintentos y Relanzar parten de la misma versión. La memoria es de la
+  grabación. La transcripción se guarda antes de resumir. Un resumen vacío es
+  un error; si falla el resumen, la nota transcrita se conserva y el fallo se
+  muestra.
+- El resumen pertenece a la versión y se hereda en las derivadas. Resumir a
+  mano ancla el resultado a esa versión y no republica si mientras tanto
+  cambió la vigente. Corregir o quitar un resumen regenera las publicaciones
+  existentes usando su programa y recibo.
 - Los proveedores Notion/OKF viven en `packages/conectores`. Bun aporta
   capacidades genéricas; no duplicar plantillas ni decisiones de proveedor.
   Los errores de publicación se registran y se propagan; la receta decide si

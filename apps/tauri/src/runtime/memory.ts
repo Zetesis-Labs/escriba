@@ -12,21 +12,20 @@ function canonical(value: unknown): unknown {
 export async function remember<T>(
   host: RuntimeHost,
   recordingId: string,
-  versionId: string | undefined,
+  enabled: boolean,
   key: unknown,
   compute: () => Promise<T>,
   signal?: AbortSignal,
   renewed?: Set<string>,
 ): Promise<T> {
-  if (!versionId) return compute();
+  if (!enabled) return compute();
   const bytes = new TextEncoder().encode(JSON.stringify(canonical(key)));
   const hash = await crypto.subtle.digest("SHA-256", bytes);
   const fingerprint = Array.from(new Uint8Array(hash), (byte) =>
     byte.toString(16).padStart(2, "0"),
   ).join("");
-  const params = { recordingId, versionId, fingerprint };
-  const renewal = `${versionId}:${fingerprint}`;
-  if (!renewed || renewed.has(renewal)) {
+  const params = { recordingId, fingerprint };
+  if (!renewed || renewed.has(fingerprint)) {
     const cached = await host.call("memory_recall", params);
     aborted(signal);
     if (cached !== null && cached !== undefined) return object(cached).value as T;
@@ -34,13 +33,13 @@ export async function remember<T>(
   const value = await compute();
   aborted(signal);
   await host.call("memory_keep", { ...params, value: { value } });
-  renewed?.add(renewal);
+  renewed?.add(fingerprint);
   return value;
 }
 export function summaryMemory(
   host: RuntimeHost,
   recordingId: string,
-  versionId: string | undefined,
+  enabled: boolean,
   scope: unknown,
   signal?: AbortSignal,
   renewed?: Set<string>,
@@ -51,7 +50,7 @@ export function summaryMemory(
         ? remember(
             host,
             recordingId,
-            versionId,
+            enabled,
             { kind: "summary", scope, params },
             async () => {
               const value = await host.call(method, params);

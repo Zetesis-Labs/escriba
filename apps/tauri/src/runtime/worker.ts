@@ -100,6 +100,9 @@ function noteObject(
     get version() {
       return current.version;
     },
+    get origen() {
+      return current.origen;
+    },
     get texto() {
       return current.texto;
     },
@@ -117,6 +120,12 @@ function noteObject(
     },
     set datos(value: unknown) {
       data = value;
+    },
+    async transcribir(options: unknown = {}) {
+      current = object(
+        await rpc("transcribe", { ...object(options), handle: current.handle }),
+      );
+      return note;
     },
     async resumir(options: unknown = {}) {
       current = object(
@@ -216,11 +225,16 @@ async function recipe(task: WorkerTask) {
         throw Error("La receta solo puede procesar su grabación");
       return asNote(await rpc("transcribe", object(options)));
     },
-    async nota(target: unknown) {
+    async nota(target: unknown, options: unknown = {}) {
       if (target !== audio)
         throw Error("La receta solo puede procesar su grabación");
-      const raw = await rpc("note");
-      return raw === null ? null : asNote(raw);
+      const { version, editar } = object(options);
+      return asNote(await rpc("note", { ...(version === undefined ? {} : { version }), editar: editar === true }));
+    },
+    async versiones(target: unknown) {
+      if (target !== audio)
+        throw Error("La receta solo puede procesar su grabación");
+      return rpc("versions");
     },
     async preguntar(request: unknown) {
       const args = object(request);
