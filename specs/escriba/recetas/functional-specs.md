@@ -531,6 +531,7 @@ Hechos comprobados el 2026-10-13 sobre `feat/filtros-biblioteca` (942df11).
 | La versión apunta a su versión de origen (§6.10) | No se guarda; `sourceVersionId` solo dice de qué versión copiar las huellas | `src/runtime/library/store.ts` (`createVersion`, `version_save`) |
 | Pasa a vigente al `guardar()` (§6.3) | Pasa a vigente al crearse | `store.ts` (`appendVersion`) |
 | La corrección conserva los datos (§6.10) | Conserva el resumen y pierde datos y criterios | `src/library/operations.ts` (`saveCorrection`) |
+| Los vínculos de conocimiento siguen a sus versiones (§6.10, §6.11) | Al descartar una nota, sus vínculos en las ontologías del usuario se quedan; previo a esta iniciativa | `src-tauri/src/knowledge/base.rs` (`sync_base_change` no concilia si la grabación ya no existe) |
 | Motor JavaScriptCore, esbuild, ledger de Swift, Monaco (`requisito-recetas.md:161-173, 445-477, 526-581, 656-677`; `roadmap.md:11-13`) | Bun aislado, `Bun.build`, cola en SurrealDB, CodeMirror (ADR-0005, ADR-0007) | `apps/tauri/runtime-host/README.md`; `docs/proyecto-recetas-tauri.md` |
 | «Escritorio en Windows y Linux: SwiftUI en el Mac» (`roadmap.md:84`) | Swift solo adapta APIs de Apple; la app es Tauri | ADR-0005 |
 | Dos fuentes de destinos sin distinguir en la receta (§10) | Gestionados de la UI + declarados en el proyecto | `src-tauri/src/catalog.rs:96-106`; `store/configuration.rs:69`; `src-tauri/src/project.rs:776` |
