@@ -35,7 +35,7 @@ import { createConnectorService, currentVersion } from "./connectors";
 import { summarizeText } from "./summary";
 import { remember, summaryMemory } from "./memory";
 import type { Lists } from "./defaultRecipe";
-import { normalizeTranscriptionInputs } from "../core/transcriptionMemory";
+import { normalizeTranscriptionInputs, withCorrectionCriteria } from "../core/transcriptionMemory";
 import {
   confirmedVersionId,
   noteView,
@@ -213,6 +213,7 @@ export function createRuntime(
       const snapshot = await readContext(host, id);
       const recording = snapshot.recordings.find((r) => r.id === id);
       if (!recording) throw Error("Grabación no encontrada");
+      recording.versions = withCorrectionCriteria(recording.versions);
       if (!recording.audioPath)
         throw Error("La grabación no tiene copia de audio");
       if (recording.status === "discarded")

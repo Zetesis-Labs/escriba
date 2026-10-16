@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { normalizeTranscriptionInputs, reusableTranscription, transcriptionCriteriaKey } from "../../src/core/transcriptionMemory";
+import { normalizeTranscriptionInputs, reusableTranscription, transcriptionCriteriaKey, withCorrectionCriteria } from "../../src/core/transcriptionMemory";
 
 test("una transcripción diarizada solo se recupera cuando conserva sus huellas", () => {
   const inputs = { backend: "local-stt", diarize: true, model: "whisper" };
@@ -38,4 +38,18 @@ test("sin diarización el número guardado no cambia los criterios ni el audio s
   expect(transcriptionCriteriaKey(saved)).toBe(transcriptionCriteriaKey({ ...saved, speakers: null }));
   expect(reusableTranscription({ inputs: saved }, { ...saved, speakers: null })).toBe(true);
   expect(normalizeTranscriptionInputs({ ...saved, diarize: true })).toEqual({ ...saved, diarize: true });
+});
+
+test("una corrección guardada sin criterios toma los de la última versión no corregida anterior", () => {
+  const plain = { backend: "local-stt", diarize: false };
+  const diarized = { backend: "local-stt", diarize: true };
+  const versions = withCorrectionCriteria([
+    { backend: "local-stt", inputs: plain },
+    { backend: "correccion" },
+    { backend: "local-stt", inputs: diarized },
+    { backend: "manual" },
+    { backend: "correccion", inputs: plain },
+  ]);
+  expect(versions.map((version) => version.inputs)).toEqual([plain, plain, diarized, diarized, plain]);
+  expect(withCorrectionCriteria([{ backend: "correccion" }])).toEqual([{ backend: "correccion" }]);
 });

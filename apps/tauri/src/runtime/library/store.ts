@@ -1153,7 +1153,8 @@ export class Store {
       let voices: SpeakerVoice[] = [];
       if (created) {
         if (!base.transcript) throw Error("Transcripción de origen inválida");
-        version = { ...version, id: newId(), createdAt: now(), backend: "manual", title: draft.content.title, sourceVersionId: base.id } as Version;
+        const { job: _job, ...inherited } = version;
+        version = { ...inherited, id: newId(), createdAt: now(), backend: "manual", title: draft.content.title, sourceVersionId: base.id } as Version;
         voices = conservativeVoices(base.transcript, draft.content.transcript, await this.database.versionVoices(base.id));
         version.hasVoices = voices.length > 0;
         version.transcript = draft.content.transcript;
