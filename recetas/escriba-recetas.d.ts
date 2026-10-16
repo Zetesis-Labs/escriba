@@ -132,6 +132,7 @@ interface ListasDeEscriba {
 interface Escriba<P = null> extends ListasDeEscriba {
   readonly parametros: P
   transcribir(audio: Audio, opciones?: OpcionesDeTranscripcion): Promise<Nota>
+  nota(audio: Audio): Promise<Nota | null>
   preguntar<T>(pedido: PreguntaConEsquema<T>): Promise<T>
   preguntar(pedido: Pregunta): Promise<string>
   conector(claveONombre: string): Conector

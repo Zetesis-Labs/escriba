@@ -30,6 +30,14 @@ describe("problemas al arrancar los resolutores de la receta por defecto", () =>
     }, status)).toEqual([{ role: "stt", name: "Groq", reason: "Elige el modelo." }]);
   });
 
+  test("las piezas de serie solo avisan de los motores que usan", () => {
+    const roles = (builtin: "transcribir" | "resumir" | "publicar") =>
+      notificationProblems({ ...context, recipes: [{ id: "default", name: "Pieza", kind: "form", builtin, values: {} }] }, status).map(({ role }) => role);
+    expect(roles("transcribir")).toEqual(["stt"]);
+    expect(roles("resumir")).toEqual(["llm"]);
+    expect(roles("publicar")).toEqual([]);
+  });
+
   test("recetas de código o con base usan los motores locales estándar", () => {
     for (const recipe of [
       { id: "default", name: "Código", kind: "code" as const, values: { stt: "remote-stt", resumir: false } },

@@ -163,6 +163,33 @@ test("avisar de cada nota se guarda aunque la biblioteca no lo tuviera", async (
   assert.equal(settings.legacyWatchAdopted, undefined);
 });
 
+test("una biblioteca anterior recibe las recetas de serie al abrirse sin perder sus valores", async () => {
+  let store = await space.open();
+  assert.deepEqual(arr(obj(await store.dataJson()).recipes).map((recipe) => recipe.name), ["Por defecto", "Transcribir", "Resumir", "Publicar"]);
+  const next = obj(await store.dataJson());
+  next.recipes = [{ id: "default", name: "Por defecto", kind: "form", values: { resumir: false } }];
+  await store.replace(next);
+  store = await reopen(space, store);
+  const recipes = arr(obj(await store.dataJson()).recipes);
+  assert.deepEqual(recipes.map((recipe) => recipe.id), ["default", "serie:transcribir", "serie:resumir", "serie:publicar"]);
+  assert.deepEqual(recipes[0].values, { resumir: false });
+  assert.equal(recipes[2].builtin, "resumir");
+});
+
+test("las recetas de serie no se quitan ni cambian de código, y una variante elige una pieza conocida", async () => {
+  const store = await space.open();
+  const save = (item: { [key: string]: string | { [key: string]: string } }) => store.mutate("config_save", { collection: "recipes", item });
+  await assert.rejects(store.mutate("config_remove", { collection: "recipes", id: "serie:resumir" }), /viene de serie/);
+  await assert.rejects(save({ id: "serie:resumir", name: "Resumir", kind: "form", builtin: "publicar", values: {} }), /viene de serie/);
+  await assert.rejects(save({ id: "otra", name: "Otra", kind: "form", builtin: "traducir", values: {} }), /desconocida: traducir/);
+  await save({ id: "serie:resumir", name: "Resumir corto", kind: "form", builtin: "resumir", values: { prompt: "Corto" } });
+  await save({ id: "variante", name: "Publicar en Notion", kind: "form", builtin: "publicar", values: {} });
+  await store.mutate("config_remove", { collection: "recipes", id: "variante" });
+  const recipes = arr(obj(await store.dataJson()).recipes);
+  assert.deepEqual(recipes.find((recipe) => recipe.id === "serie:resumir")?.values, { prompt: "Corto" });
+  assert.ok(!recipes.some((recipe) => recipe.id === "variante"));
+});
+
 test("una instalación nueva vigila Notas de Voz una sola vez", async () => {
   const memos = space.path("Recordings");
   const store = await space.open();

@@ -39,6 +39,10 @@ Lo que puede pedir, con los tipos completos en `escriba-recetas.d.ts`:
   `if (audio.origen?.nombre === "Notas de Voz") return escriba.receta("Reuniones").procesar(audio)`.
 - `escriba.transcribir(audio, { stt, idioma, hablantes })` devuelve la nota.
   Lo que no elijas va al local: Whisper, idioma automático y sin hablantes.
+- `escriba.nota(audio)` devuelve la nota sin transcribir: la versión con la
+  que ya trabaja la receta o, si aún no hay, la vigente de la grabación, con
+  lo que haya corregido la persona. Devuelve `null` si la grabación nunca se
+  transcribió. No crea versión: resumir, preguntar y guardar escriben en ella.
 - `nota.resumir({ llm, prompt })` añade título, resumen y etiquetas. Sin
   `llm`, Apple Intelligence; sin `prompt`, el de serie.
 - `nota.guardar()` es obligatorio: una receta que termina sin guardar deja la

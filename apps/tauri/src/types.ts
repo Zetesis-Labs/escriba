@@ -131,6 +131,7 @@ export interface Recipe {
   kind: "form" | "code";
   values: JSONObject;
   base?: string;
+  builtin?: import("./core/builtinRecipes").BuiltinProgram;
   entry?: string;
   description?: string;
   schema?: JSONObject;

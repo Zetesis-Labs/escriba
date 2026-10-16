@@ -53,6 +53,7 @@ mi-proyecto/
     conectores.ts
     ontologias.ts
     recetas/ejemplo/receta.ts
+    recetas/piezas.ts
   node_modules/
   .escriba/                 # dependencias administradas, caché y temporales
   dist/
@@ -61,6 +62,10 @@ mi-proyecto/
     conectores.js
     ontologias.js
 ```
+
+El ejemplo es la receta «Por defecto» de la app con sus piezas: la misma
+composición de Transcribir, Resumir y Publicar, ya editable. Las tres piezas
+siguen disponibles en la app como recetas de serie.
 
 Las recetas también pueden estar en la estructura anterior `recetas/<id>/receta.ts`
 y el conector en `conectores.ts`. La variante `src/recetas/<id>` conserva el mismo

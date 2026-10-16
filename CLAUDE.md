@@ -82,8 +82,11 @@ no se ha podido leer. Preservar la lectura de datos ya guardados al actualizar.
 ## Reglas del producto
 
 - Una receta por defecto procesa lo que entra; elegir otra al grabar o importar
-  sólo afecta a esa nota. No hay receta por carpeta, ni exportación/importación
-  de recetas sueltas, ni conversión automática de formulario a código.
+  sólo afecta a esa nota. De serie hay cuatro, todas elegibles: Transcribir,
+  Resumir, Publicar y «Por defecto», que se compone en su código con las tres
+  (`recetas/piezas.ts`); un proyecto nuevo recibe esa misma composición. No
+  hay receta por carpeta, ni exportación/importación de recetas sueltas, ni
+  conversión automática de formulario a código.
 - Los formularios proceden de `buildRecipeForm(listas)` y Zod. Guardan los valores
   modificados. Un valor que deja de ser válido falla nombrando el campo.
 - El proyecto se carga desde `dist/`; construir empaqueta sus dependencias.
@@ -91,10 +94,11 @@ no se ha podido leer. Preservar la lectura de datos ya guardados al actualizar.
 - STT y LLM son listas de resolutores sin favorito. Whisper y Apple Intelligence
   son locales de serie; los remotos hablan una API compatible con OpenAI.
   Una receta sin selección usa el local. Un fallo remoto no cambia de motor.
-- Reprocesar crea una versión nueva; con los mismos criterios reutiliza la
-  transcripción, pero rehace resumen, preguntas y datos. La transcripción se
-  guarda antes de resumir. Un resumen vacío es un error; si falla el resumen,
-  la nota transcrita se conserva y el fallo se muestra.
+- Reprocesar crea una versión nueva si la receta transcribe; con los mismos
+  criterios reutiliza la transcripción. Con `escriba.nota` trabaja sobre la
+  vigente sin crear versión. En ambos casos rehace resumen, preguntas y datos.
+  La transcripción se guarda antes de resumir. Un resumen vacío es un error; si
+  falla el resumen, la nota transcrita se conserva y el fallo se muestra.
 - El resumen pertenece a la versión. Resumir a mano ancla el resultado a esa
   versión y no republica si mientras tanto cambió la vigente. Corregir o quitar
   un resumen regenera las publicaciones existentes usando su programa y recibo.

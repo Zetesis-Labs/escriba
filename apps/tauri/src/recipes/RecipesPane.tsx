@@ -6,6 +6,7 @@ import { AlertTriangle, BadgeCheck, Braces, ChevronRight, Minus, Plus, SlidersHo
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { call } from "../api";
 import { Pane } from "../app/Pane";
+import { builtinProgram, builtinProgramName, isBuiltinRecipeId } from "../core/builtinRecipes";
 import { recordingWhen } from "../core/presentation";
 import { projectRevealPath } from "../core/projectDrafts";
 import { recipeFormLoad, recipeFormOverrides, recipeFormValues, recipeFormExport, type RecipeFormLoad } from "../core/recipeForm";
@@ -67,7 +68,7 @@ export function RecipesPane({ data, refresh }: { data: Snapshot; refresh: () => 
     await save(created);
     setChosen(created.id);
   };
-  const duplicate = (recipe: Recipe) => addForm({ name: `${recipe.name} (copia)`, base: recipe.base, values: recipe.values });
+  const duplicate = (recipe: Recipe) => addForm({ name: `${recipe.name} (copia)`, base: recipe.base, builtin: recipe.builtin, values: recipe.values });
   const saveAsForm = (recipe: Recipe) => addForm({ name: `${recipe.name} (copia)`, base: recipe.id, values: recipe.values });
   const remove = async (recipe: Recipe) => {
     const next = forms.find((candidate) => candidate.id !== recipe.id);
@@ -110,7 +111,7 @@ export function RecipesPane({ data, refresh }: { data: Snapshot; refresh: () => 
   };
   const missing = !data.recipes.some((recipe) => recipe.id === defaultId) && phase.phase !== "building";
   const selectedIsForm = selected?.kind === "form";
-  const canRemove = selectedIsForm && forms.length >= 2 && selected?.id !== "default";
+  const canRemove = selectedIsForm && forms.length >= 2 && !isBuiltinRecipeId(selected.id);
 
   const row = (recipe: Recipe, subtitle: string, menu: () => ReturnType<typeof item>[]) => (
     <div
@@ -161,7 +162,7 @@ export function RecipesPane({ data, refresh }: { data: Snapshot; refresh: () => 
                 item("Duplicar", () => void duplicate(recipe)),
                 item("Usar por defecto", () => void makeDefault(recipe.id), { enabled: recipe.id !== defaultId }),
                 separator,
-                item("Quitar…", () => void remove(recipe), { enabled: forms.length >= 2 && recipe.id !== "default" }),
+                item("Quitar…", () => void remove(recipe), { enabled: forms.length >= 2 && !isBuiltinRecipeId(recipe.id) }),
               ]),
             )}
             <div className="list-section font-caption secondary">De código</div>
@@ -295,7 +296,7 @@ function RecipeDetail({
   const origin =
     recipe.kind === "form"
       ? !recipe.base
-        ? "Ejecuta el código de serie de Escriba, el de «Por defecto», con estos valores."
+        ? `Ejecuta el código de serie de Escriba, el de «${builtinProgramName(builtinProgram(recipe) ?? "por-defecto")}», con estos valores.`
         : base
           ? `Ejecuta el código de «${base.name}» con estos valores: si cambias su receta.ts, cambia también esta.`
           : `Su receta de código, «${recipe.base}», ya no está en el proyecto: no se puede usar.`

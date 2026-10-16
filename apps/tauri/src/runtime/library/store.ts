@@ -9,6 +9,7 @@ import { conservativeVoices, currentVersion, draftContent, draftFingerprint, dra
 import { array, canonical, clone, equal, isObject, newId, now, object, safeId, text, type Json } from "./json";
 import { defaultResolvers, defaultWhisperModel, folderBookmarkRequired } from "../platform";
 import { isLocalSttId, localSttId } from "../localModels";
+import { builtinRecipeProblem, isBuiltinRecipeId, withBuiltinRecipes } from "../../core/builtinRecipes";
 import { catalog, readLibraryData, readRecording, readSettings, readVersion, setCatalog, type LibraryData, type Recording, type Settings, type Transcript, type Version, type WatchedFolder } from "./model";
 import { Persistence, parseLogQuery, scope, scopedWrite, type AudioDeletion, type LibraryWrite, type Teaching, type WriteScope } from "./persistence";
 import { lightPublication, previewVersion, typedLibrary } from "./projection";
@@ -23,7 +24,7 @@ export const defaults = (): Json => ({
   accounts: [],
   destinations: [],
   resolvers: defaultResolvers(),
-  recipes: [{ id: "default", name: "Por defecto", kind: "form", values: {} }],
+  recipes: withBuiltinRecipes<Json>([]) as Json[],
   settings: { defaultRecipeId: "default", projectPath: null, watchedFolders: [], language: "es", whisperModel: defaultWhisperModel(), launchAtLogin: false },
 });
 export function discardedRecord(record: Json): Record<string, Json> {
@@ -212,6 +213,7 @@ export class Store {
     delete data.logs;
     const importedLogs = Array.isArray(logs) && stored === undefined ? importableLogs(logs) : [];
     migrateRecipeAssignments(data);
+    data.recipes = withBuiltinRecipes(array(data.recipes, "Recetas inválidas")) as Json[];
     const discardedAudio: string[] = [];
     const records = array(data.recordings, "Biblioteca incompleta");
     records.forEach((record, index) => {
@@ -595,6 +597,10 @@ export class Store {
         const key = text(item, "id");
         if (collection === "accounts" || collection === "resolvers") safeId(key);
         if (typeof item.name !== "string" || !item.name.trim()) throw Error("Escribe un nombre");
+        if (collection === "recipes") {
+          const problem = builtinRecipeProblem(item);
+          if (problem) throw Error(problem);
+        }
         if (collection === "resolvers") {
           if (!["stt", "llm"].includes(String(item.role))) throw Error("Papel de resolutor inválido");
           const addedModel = key !== "local-stt" && isLocalSttId(key);
@@ -652,7 +658,7 @@ export class Store {
       case "config_remove": {
         const collection = collectionName(p);
         const key = text(p, "id");
-        if (["local-llm", "default"].includes(key)) throw Error("Esta opción viene de serie y no se puede quitar");
+        if (["local-llm", "default"].includes(key) || (collection === "recipes" && isBuiltinRecipeId(key))) throw Error("Esta opción viene de serie y no se puede quitar");
         if (collection === "accounts" && next.recordings.some((record) => (record.publications ?? []).some((publication) => isObject(publication) && publication.accountId === key)))
           throw Error("Retira las publicaciones de esta cuenta antes de eliminarla");
         setCatalog(next, collection, catalog(next, collection).filter((item) => !isObject(item) || item.id !== key));

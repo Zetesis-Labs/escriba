@@ -23,8 +23,10 @@ const PREVIOUS_TYPES_SHA256: &[&str] = &[
     "1ddebd218cbb5a0b4f3b6a40120dadec5c8c5912eeb93a6d1d3fdd824b7146d1",
     "976e7e95fa41cffb8273cc14a72ec4fa091e89c9d9d147824f542ff971e3cebe",
     "dd560d43ed138390fcbdaa222ae214a90c04084864c4ed9595596fb4f3a83b8b",
+    "7bcbc0a206ebb579fefc562a5aeb8fcc84b963bab156540e968cd9375f42938a",
 ];
 const EXAMPLE: &str = include_str!("../../../../recetas/por-defecto/receta.ts");
+const PIECES: &str = include_str!("../../../../recetas/piezas.ts");
 const SOURCE_LIMIT: usize = 8 * 1024 * 1024;
 const BUNDLE_LIMIT: usize = 32 * 1024 * 1024;
 const MANIFEST_LIMIT: usize = 1024 * 1024;
@@ -571,6 +573,7 @@ pub fn initialize(
     }
     if !has_recipe_source(&root)? {
         write_new(&root.join("src/recetas/ejemplo/receta.ts"), EXAMPLE)?;
+        write_new(&root.join("src/recetas/piezas.ts"), PIECES)?;
     }
     if !root.join("conectores.ts").exists() {
         write_new(
@@ -1425,7 +1428,15 @@ mod tests {
     fn refresca_tipos_generados_sin_pisar_tipos_editados() {
         let folder = tempfile::tempdir().unwrap();
         let types = folder.path().join("escriba-recetas.d.ts");
-        let before_reference = TYPES
+        let before_note = TYPES.replace("  nota(audio: Audio): Promise<Nota | null>\n", "");
+        assert_eq!(
+            format!("{:x}", Sha256::digest(before_note.as_bytes())),
+            PREVIOUS_TYPES_SHA256[3]
+        );
+        fs::write(&types, &before_note).unwrap();
+        refresh_generated_types(folder.path()).unwrap();
+        assert_eq!(fs::read_to_string(&types).unwrap(), TYPES);
+        let before_reference = before_note
             .replace("interface ReferenciaDeConocimiento {\n  readonly ontologyId: \"escriba\"\n  readonly table: string\n  readonly id: string\n}\n\n", "")
             .replace("  readonly type: \"text\" | \"number\" | \"boolean\" | \"date\" | \"json\" | \"reference\"\n", "  readonly type: \"text\" | \"number\" | \"boolean\" | \"date\" | \"json\"\n")
             .replace("  readonly reference?: { readonly ontologyId: \"escriba\"; readonly table: ReferenciaDeConocimiento[\"table\"] }\n", "");
@@ -1837,7 +1848,14 @@ mod tests {
             fs::read_to_string(folder.path().join("conectores.ts")).unwrap(),
             "// personalizado"
         );
-        assert!(folder.path().join("src/recetas/ejemplo/receta.ts").exists());
+        assert_eq!(
+            fs::read_to_string(folder.path().join("src/recetas/ejemplo/receta.ts")).unwrap(),
+            EXAMPLE
+        );
+        assert_eq!(
+            fs::read_to_string(folder.path().join("src/recetas/piezas.ts")).unwrap(),
+            PIECES
+        );
         assert!(!folder.path().join("src/conectores.ts").exists());
         assert!(folder.path().join("escriba-recetas.d.ts").exists());
         let dependency = folder.path().join(".escriba/deps/conectores");
