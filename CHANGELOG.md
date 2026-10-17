@@ -1,5 +1,37 @@
 # Changelog
 
+## [0.3.0](https://github.com/Zetesis-Labs/escriba/compare/v0.2.0...v0.3.0) (2026-10-17)
+
+
+### Features
+
+* **biblioteca:** «Resumir» de la nota lanza la receta Resumir sobre la versión abierta ([7e5e148](https://github.com/Zetesis-Labs/escriba/commit/7e5e14863a7bad8eece4b064ee9ee84ebb0eaa7f))
+* **biblioteca:** borrar una versión o quedarse solo con una desde el menú de versiones ([ff21933](https://github.com/Zetesis-Labs/escriba/commit/ff21933e53f3239828c0a056ddb95f0ce4ac8686))
+* **biblioteca:** combinar grabaciones desde la selección múltiple ([9d7ea4c](https://github.com/Zetesis-Labs/escriba/commit/9d7ea4c77c44b9f26908270bc7ab3bf7fccb03a8))
+* **biblioteca:** una corrección conserva los criterios, el resumen y los datos de su versión, y las antiguas toman los de la anterior ([33d9472](https://github.com/Zetesis-Labs/escriba/commit/33d9472ac9f647d232a381f497355e2bcb70e468))
+* **conocimiento:** una versión derivada hereda los vínculos de su origen y los de una versión que ya no existe se retiran ([67bf1a6](https://github.com/Zetesis-Labs/escriba/commit/67bf1a63336695570bed0a6c5e10e98949151a1b))
+* **recetas:** cada receta declara si parte de un audio o de una nota y solo se ofrece donde puede empezar ([e12cb4e](https://github.com/Zetesis-Labs/escriba/commit/e12cb4e72a59def7c7e0aa8d5dc5d140b414ebb1))
+* **recetas:** la receta trabaja sobre una copia de la versión abierta y guarda una versión derivada ([e224c04](https://github.com/Zetesis-Labs/escriba/commit/e224c04a6c6732c83d4d71fb475050e69faeb3a8))
+* **recetas:** reprocesar a mano vuelve a transcribir una vez y guardar sin cambios no toca la vigente ([9a8dfd6](https://github.com/Zetesis-Labs/escriba/commit/9a8dfd6553335ba8808122fe27d9ff09706a473a))
+* **recetas:** Transcribir, Resumir y Publicar de serie y «Por defecto» compuesta con ellas ([8265c86](https://github.com/Zetesis-Labs/escriba/commit/8265c86c0b0f13ec13c39edb211dc83238897ffe))
+* **windows:** adapta Escriba con Whisper y diarización nativos ([aeec24a](https://github.com/Zetesis-Labs/escriba/commit/aeec24a766d8bea08705377b6642c2f34d6c3d3a))
+
+
+### Bug Fixes
+
+* **audio:** conservar el error al rechazar archivos no normales ([cc6aa91](https://github.com/Zetesis-Labs/escriba/commit/cc6aa9136484cec61b719aad7ed78b4f95ee81c2))
+* **biblioteca:** el clic derecho no deshace la selección múltiple y Rust deja pasar combineAudio ([81c1ad1](https://github.com/Zetesis-Labs/escriba/commit/81c1ad1c2a8dbe5a032b199fe0806829ae5946f9))
+* **ci:** corregir construcción aislada y fallos de pruebas ([29fa024](https://github.com/Zetesis-Labs/escriba/commit/29fa024cdeec38b889df5012a37cb55371283ec8))
+* **ci:** corregir rutas de Windows y portabilidad de la inferencia ([96812fb](https://github.com/Zetesis-Labs/escriba/commit/96812fb9d9cbf5955b6e39b258ee3e6bd356921c))
+* **ci:** descartar la extracción incompleta de sherpa ([32f1edd](https://github.com/Zetesis-Labs/escriba/commit/32f1edd40f7b817e40a9f926fe61159cd809c73c))
+* **ci:** instalar la versión fijada de Bun en Windows ([f92d375](https://github.com/Zetesis-Labs/escriba/commit/f92d375878372dc297f35672a0d4b5f11449e14a))
+* **ci:** restaurar las bibliotecas de sherpa tras recuperar la caché ([35654c8](https://github.com/Zetesis-Labs/escriba/commit/35654c8ddf675e8482e27bebc6b9fb96800a5551))
+* **recetas:** la primera versión de una nota es vigente y la misma nota es el mismo objeto en la receta ([1e092f2](https://github.com/Zetesis-Labs/escriba/commit/1e092f26933bd0ded2f433c4d5f9babae6fccacb))
+* **recetas:** una ejecución que no transcribe no cambia el estado de la nota y relanzar repite su receta ([e057be1](https://github.com/Zetesis-Labs/escriba/commit/e057be1a9d7ed0444132ca84d4e62566f3c1aef9))
+* **tests:** en macOS esperar a que RocksDB cierre su LOCK antes de borrar la base ([f49878a](https://github.com/Zetesis-Labs/escriba/commit/f49878a64b39ab99ec617f3847b1fc06a6e77d86))
+* **windows:** interpretar dependencias de Bun entre unidades ([8746e15](https://github.com/Zetesis-Labs/escriba/commit/8746e15d4b1711113df737b191cc502ff8dad2e0))
+* **windows:** resolver rutas aisladas sin consultar el gestor de volúmenes ([b884a5e](https://github.com/Zetesis-Labs/escriba/commit/b884a5e919f764f1d663cf43e043d3abfc66aeab))
+
 ## [0.2.0](https://github.com/Zetesis-Labs/escriba/compare/v0.1.0...v0.2.0) (2026-10-15)
 
 
