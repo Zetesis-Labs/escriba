@@ -80,6 +80,11 @@ Node, Bun ni WSL. NSIS instala para el usuario actual.
 construye sin generar instalador y `-PrepareOnly` prepara los motores para las
 pruebas. `-DebugBuild` selecciona la compilación de desarrollo.
 
+Antes de compilar Tauri se construye un proyecto dentro de AppContainer con
+rutas canónicas, espacios y «ñ», y se comprueba que un error conserva el último
+`dist` válido. Se puede repetir con `scripts/test-windows-project.ps1` tras preparar
+los motores; la CI muestra esa comprobación como un paso previo al instalador.
+
 ## Verificación
 
 Las pruebas se hacen con bibliotecas temporales y audio sintético. La batería

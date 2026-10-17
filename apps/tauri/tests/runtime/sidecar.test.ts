@@ -433,9 +433,10 @@ test("cancelación mata receta CPU y sidecar sigue disponible", async () => {
   try {
     await host.ready;
     const id = await host.note({ id: "default", name: "Bucle", kind: "code", values: {}, bundle: "var __recipe={flujo(){while(true){}}}" });
-    const task = host.process(id);
-    setTimeout(() => void host.cancel(id), 200);
-    await assert.rejects(task, /cancelado/);
+    await Promise.all([
+      assert.rejects(host.process(id), /cancelado/),
+      (async () => { await sleep(200); await host.cancel(id); })(),
+    ]);
     await host.recipe(FORM_RECIPE);
     await host.run("getRecipeSchema", { recipeId: "default" });
   } finally {
@@ -598,11 +599,13 @@ test("cancelar inferencia sin respuesta libera cola para la siguiente grabación
   try {
     await host.ready;
     const id = await host.note();
-    const first = host.process(id);
-    while (!host.nativeMethods.includes("transcribe"))
-      await new Promise((resolve) => setTimeout(resolve, 10));
-    await host.cancel(id);
-    await assert.rejects(first, /cancelado/);
+    await Promise.all([
+      assert.rejects(host.process(id), /cancelado/),
+      (async () => {
+        while (!host.nativeMethods.includes("transcribe")) await sleep(10);
+        await host.cancel(id);
+      })(),
+    ]);
     assert.ok(host.methods.includes("shell.native_cancel"));
     await host.process(id, { force: true });
     assert.equal((await versions(host, id)).length, 1);

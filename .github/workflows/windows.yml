@@ -18,8 +18,14 @@ jobs:
     runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4
-      - uses: ./.github/actions/windows-paquetes
+      - name: Preparar motores y comprobar proyectos
+        uses: ./.github/actions/windows-paquetes
+        with:
+          prepare-only: 'true'
+      - name: Construir el instalador
         id: packages
+        shell: pwsh
+        run: ./scripts/build-windows.ps1 -SkipDependencies
       - name: Pruebas y tipos
         shell: pwsh
         run: |
