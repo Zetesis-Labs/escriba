@@ -424,7 +424,9 @@ impl Knowledge {
                     .map_err(error)?;
                 let links: Vec<DbValue> = response.take(0).map_err(error)?;
                 for link in links {
-                    let DbValue::Object(link) = link else { continue };
+                    let DbValue::Object(link) = link else {
+                        continue;
+                    };
                     let Some(DbValue::RecordId(record)) = link.get("record").cloned() else {
                         continue;
                     };

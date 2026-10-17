@@ -1441,7 +1441,8 @@ mod tests {
         fs::write(&types, &before_versions).unwrap();
         refresh_generated_types(folder.path()).unwrap();
         assert_eq!(fs::read_to_string(&types).unwrap(), TYPES);
-        let before_note = before_versions.replace("  nota(audio: Audio): Promise<Nota | null>\n", "");
+        let before_note =
+            before_versions.replace("  nota(audio: Audio): Promise<Nota | null>\n", "");
         assert_eq!(
             format!("{:x}", Sha256::digest(before_note.as_bytes())),
             PREVIOUS_TYPES_SHA256[3]
