@@ -4,7 +4,7 @@ use surrealdb::engine::local::{Db, RocksDb};
 use surrealdb::opt::{auth::Root, Config};
 use surrealdb::Surreal;
 
-#[cfg(test)]
+#[cfg(all(test, any(target_os = "macos", target_os = "windows")))]
 fn error(e: impl std::fmt::Display) -> String {
     e.to_string()
 }

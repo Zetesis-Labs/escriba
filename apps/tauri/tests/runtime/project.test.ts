@@ -4,7 +4,7 @@ import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
 import { cp, mkdtemp, mkdir, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, toNamespacedPath } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { runInNewContext } from "node:vm";
 
@@ -28,15 +28,29 @@ async function project() {
   return folder;
 }
 
-function build(root: string) {
+function build(root: string, dependencies = vendor) {
   return spawnSync(
     bun,
     ["--no-install", "--no-env-file", ...(process.platform === "win32" ? [] : ["--config=/dev/null"]), "-e",
       `import { buildProject } from ${JSON.stringify(pathToFileURL(builder).href)}; await buildProject(process.argv[1], process.argv[2]);`,
-      root, vendor],
+      root, dependencies],
     { cwd: "/", encoding: "utf8", env: { ...process.env, BUN_BE_BUN: "1", TMPDIR: root } },
   );
 }
+
+test.runIf(process.platform === "win32")("construye con las rutas canónicas de Windows y conserva el dist al fallar", async () => {
+  const root = await project();
+  const recipe = join(root, "src/prueba/receta.ts");
+  await mkdir(join(root, "src/prueba"), { recursive: true });
+  await writeFile(recipe, 'import { z } from "zod"; export const valor = z.string().parse("prueba");');
+  const result = build(toNamespacedPath(root), toNamespacedPath(vendor));
+  assert.equal(result.status, 0, result.stderr);
+  const artifact = join(root, "dist/receta-0.js");
+  const before = await readFile(artifact, "utf8");
+  await writeFile(recipe, 'import "./ausente.ts";');
+  assert.notEqual(build(toNamespacedPath(root), toNamespacedPath(vendor)).status, 0);
+  assert.equal(await readFile(artifact, "utf8"), before);
+});
 
 test("empaqueta la ontología con dist y permite reconstruir sin borrar el artefacto anterior", async () => {
   const root = await project();

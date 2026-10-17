@@ -44,6 +44,16 @@ const MAX_RECIPES = 10_000;
 const MAX_BUNDLE = 32 * 1024 * 1024;
 const MAX_CATALOG = 30 * 1024 * 1024;
 
+function filesystemPath(path: string) {
+  if (process.platform !== "win32") return path;
+  if (path.startsWith("\\\\?\\UNC\\")) return `\\\\${path.slice(8)}`;
+  return /^\\\\\?\\[a-z]:\\/i.test(path) ? path.slice(4) : path;
+}
+
+async function canonicalPath(path: string) {
+  return filesystemPath(await realpath(filesystemPath(path)));
+}
+
 function within(path: string, directory: string) {
   return path === directory || path.startsWith(`${directory}${sep}`);
 }
@@ -79,7 +89,7 @@ function identity(directory: string) {
 async function sourcePath(root: string, relativePath: string) {
   const path = resolve(root, relativePath);
   if (!within(path, root)) throw Error("Fuente fuera del proyecto");
-  const real = await realpath(path);
+  const real = await canonicalPath(path);
   if (!within(real, root)) throw Error("Fuente enlazada fuera del proyecto");
   return path;
 }
@@ -101,10 +111,10 @@ async function moduleEntry(root: string, filename: string) {
 async function permittedVendor(vendor: string) {
   const modules = (await lstat(join(vendor, "node_modules")).catch(() => undefined))?.isDirectory()
     ? join(vendor, "node_modules") : vendor;
-  const real = await realpath(modules);
+  const real = await canonicalPath(modules);
   const allowed = [real];
   for (const packageName of ["zod", "@escriba/conectores", "surrealdb"]) {
-    try { allowed.push(await realpath(join(real, packageName))); }
+    try { allowed.push(await canonicalPath(join(real, packageName))); }
     catch { throw Error(`No está disponible ${packageName} en las dependencias incluidas`); }
   }
   return { modules: real, allowed };
@@ -163,7 +173,7 @@ async function bundle(
     if (isBuiltin(input)) continue;
     const path = resolve(input);
     if (path === wrapper) continue;
-    const real = await realpath(path);
+    const real = await canonicalPath(path);
     if (!within(real, root) && !vendor.allowed.some((directory) => within(real, directory)))
       throw Error(`El paquete ${entry} importa una fuente fuera del proyecto`);
   }
@@ -226,8 +236,8 @@ async function inspectOldDist(path: string) {
 export async function buildProject(rootPath: string, vendorPath: string): Promise<void> {
   if (!isAbsolute(rootPath) || !isAbsolute(vendorPath))
     throw Error("Las rutas del proyecto y vendor deben ser absolutas");
-  const root = await realpath(rootPath);
-  const vendor = await permittedVendor(vendorPath);
+  const root = await canonicalPath(rootPath);
+  const vendor = await permittedVendor(filesystemPath(vendorPath));
   const entries = await sources(root);
   const connector = await moduleEntry(root, "conectores");
   const ontology = await moduleEntry(root, "ontologias");

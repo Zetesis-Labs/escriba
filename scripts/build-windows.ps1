@@ -85,6 +85,7 @@ try {
     }
     Invoke-Checked node @('apps/tauri/scripts/prepare.mjs')
     Invoke-Checked npm.cmd @('run', 'typecheck:runtime', '--prefix', 'apps/tauri')
+    Invoke-Checked pwsh @('-NoProfile', '-File', (Join-Path $project 'scripts/test-windows-project.ps1'))
     if (!$PrepareOnly) {
         Push-Location $app
         try {

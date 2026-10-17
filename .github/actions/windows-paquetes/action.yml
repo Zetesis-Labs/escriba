@@ -1,5 +1,9 @@
 name: Escriba Windows
 description: Construye los motores y el instalador de Windows x64
+inputs:
+  prepare-only:
+    description: Prepara y comprueba los motores sin compilar la interfaz Tauri
+    default: 'false'
 runs:
   using: composite
   steps:
@@ -32,6 +36,9 @@ runs:
         choco install nasm llvm -y --no-progress
         "$env:ProgramFiles\NASM" | Out-File $env:GITHUB_PATH -Append
         "LIBCLANG_PATH=$env:ProgramFiles\LLVM\bin" | Out-File $env:GITHUB_ENV -Append
-    - name: Construir el instalador
+    - name: Preparar y construir Windows
       shell: pwsh
-      run: ./scripts/build-windows.ps1
+      run: |
+        $buildOptions = @{}
+        if ('${{ inputs.prepare-only }}' -eq 'true') { $buildOptions.PrepareOnly = $true }
+        ./scripts/build-windows.ps1 @buildOptions
