@@ -383,6 +383,7 @@ mod bindings {
         let platforms = serde_json::json!({
             "macos": crate::platform::MACOS,
             "linux": crate::platform::LINUX,
+            "windows": crate::platform::WINDOWS,
         });
         fs::write(
             out.join("platforms.json"),

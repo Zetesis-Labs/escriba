@@ -8,7 +8,6 @@ use serde_json::{json, Value};
 use std::{
     fs,
     future::Future,
-    os::unix::fs::PermissionsExt,
     path::{Path, PathBuf},
     pin::Pin,
     sync::{Arc, Mutex},
@@ -76,8 +75,7 @@ pub struct Registration {
 impl Registration {
     pub fn new(directory: PathBuf, executable: PathBuf) -> Result<Self, String> {
         fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
-        fs::set_permissions(&directory, fs::Permissions::from_mode(0o700))
-            .map_err(|error| error.to_string())?;
+        crate::file_security::protect_directory(&directory).map_err(|error| error.to_string())?;
         for entry in fs::read_dir(&directory).map_err(|error| error.to_string())? {
             let path = entry.map_err(|error| error.to_string())?.path();
             if path.is_file() {
@@ -140,7 +138,11 @@ impl Registration {
             }
             let sample = Sample {
                 person: person.into(),
-                path: self.directory.join(format!("{}.m4a", crate::util::id())),
+                path: self.directory.join(format!(
+                    "{}.{}",
+                    crate::util::id(),
+                    crate::platform::RECORDING_EXTENSION
+                )),
                 started_at: chrono::Utc::now().to_rfc3339(),
                 cancelled: Arc::new(tokio::sync::Notify::new()),
             };
@@ -354,9 +356,10 @@ fn discard(path: &Path) {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
+    use std::os::unix::fs::PermissionsExt;
 
     type Saved = Arc<Mutex<Vec<(String, SpeakerVoice, String)>>>;
     fn sink() -> (VoiceSink, Saved) {

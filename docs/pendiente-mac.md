@@ -16,7 +16,7 @@ Swift, y por eso el «+» de STT no ofrece modelos locales.
   `docs/tauri-native-protocol.md`. `default` es
   `WhisperKitBackend.defaultVariant`.
   - Pista: un catálogo fijo de variantes de WhisperKit con su tamaño
-    aproximado, como `MODELS` en `native-host/src/platform/linux/mod.rs`, sin
+    aproximado, como `MODELS` en `native-host/src/platform/local/mod.rs`, sin
     red para listar.
   - `installed` sale de `WhisperKitBackend.installedModelFolder(variant:)`. Si
     está instalado, `bytes` es el tamaño real de esa carpeta.
@@ -55,7 +55,7 @@ En el Mac pasan a Rust la grabación (AAC con AudioToolbox), `audioInfo`,
 WhisperKit, SpeakerKit y FoundationModels.
 
 - Crear `native-host/src/platform/macos/` con los mismos nombres que
-  `platform/linux/`:
+  `platform/local/` (compartido por Linux y Windows):
   - `Encoder` y `ENCODER_RATES`: AAC mono en m4a a 48 kHz, como hoy en
     `AVAudioRecorder`.
   - `file_flags`: `st_flags`.

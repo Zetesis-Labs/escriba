@@ -1,15 +1,26 @@
 //! Narrow authority granted to connector programs by the Rust host.
-#[cfg(test)]
+#[cfg(all(test, unix))]
 use serde_json::json;
 use serde_json::{Map, Value};
+#[cfg(unix)]
+use std::io::Write;
 use std::{
     collections::HashSet,
-    ffi::CString,
     fs,
-    io::{Read, Write},
-    os::fd::{AsRawFd, FromRawFd, OwnedFd},
+    io::Read,
     path::{Path, PathBuf},
 };
+
+#[cfg(unix)]
+use std::{
+    ffi::CString,
+    os::fd::{AsRawFd, FromRawFd, OwnedFd},
+};
+#[cfg(windows)]
+struct OwnedFd {
+    path: PathBuf,
+    _locks: Vec<fs::File>,
+}
 
 const FILE_LIMIT: usize = 64 * 1024 * 1024;
 const FILE_COUNT_LIMIT: usize = 10_000;
@@ -182,17 +193,27 @@ fn apply(root_fd: &OwnedFd, request: &Value) -> Result<Value, String> {
 }
 
 fn relative_path(path: &str) -> Result<Vec<String>, String> {
-    if path.starts_with('/') || path.contains('\\') || path.contains('\0') || !path.ends_with(".md")
+    if path.starts_with('/')
+        || path.contains('\\')
+        || path.contains('\0')
+        || (cfg!(windows) && path.contains(':'))
+        || !path.ends_with(".md")
     {
         return Err("Ruta Markdown no permitida".into());
     }
     let parts: Vec<String> = path.split('/').map(str::to_owned).collect();
-    if parts.iter().any(|p| p.is_empty() || p == "." || p == "..") {
+    if parts.iter().any(|p| {
+        p.is_empty()
+            || p == "."
+            || p == ".."
+            || (cfg!(windows) && crate::file_security::invalid_windows_name(p))
+    }) {
         return Err("Ruta relativa no permitida".into());
     }
     Ok(parts)
 }
 
+#[cfg(unix)]
 fn open_root(path: &Path) -> Result<OwnedFd, String> {
     let path = CString::new(path.as_os_str().as_encoded_bytes()).map_err(|_| "Carpeta inválida")?;
     let fd = unsafe {
@@ -207,6 +228,7 @@ fn open_root(path: &Path) -> Result<OwnedFd, String> {
     Ok(unsafe { OwnedFd::from_raw_fd(fd) })
 }
 
+#[cfg(unix)]
 fn open_parent(
     root_fd: &OwnedFd,
     parts: &[String],
@@ -257,6 +279,7 @@ fn open_parent(
     Ok(Some(parent))
 }
 
+#[cfg(unix)]
 fn read_current(root_fd: &OwnedFd, parts: &[String]) -> Result<Option<String>, String> {
     let Some(parent) = open_parent(root_fd, parts, false)? else {
         return Ok(None);
@@ -297,6 +320,7 @@ fn read_current(root_fd: &OwnedFd, parts: &[String]) -> Result<Option<String>, S
         .map_err(|_| "Solo se permiten archivos UTF-8".into())
 }
 
+#[cfg(unix)]
 fn write_change(root_fd: &OwnedFd, change: &FileChange) -> Result<(), String> {
     let Some(parent) = open_parent(root_fd, &change.components, change.contents.is_some())? else {
         return Ok(());
@@ -353,11 +377,12 @@ fn write_change(root_fd: &OwnedFd, change: &FileChange) -> Result<(), String> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
 
     #[test]
+    #[cfg(unix)]
     fn archivo_okf_autorizado_acepta_md_real_y_rechaza_escape_por_enlace() {
         let temp = tempfile::tempdir().unwrap();
         let folder = temp.path().join("bundle");
@@ -375,9 +400,11 @@ mod tests {
         assert!(authorized_okf_file(&account, &folder.join("escape.md")).is_err());
         assert!(authorized_okf_file(&account, &outside).is_err());
     }
+    #[cfg(unix)]
     use std::os::unix::fs::symlink;
 
     #[test]
+    #[cfg(unix)]
     fn files_preflights_cas_and_blocks_escape_and_symlinks() {
         let folder = tempfile::tempdir().unwrap();
         let outside = tempfile::tempdir().unwrap();
@@ -433,5 +460,53 @@ mod tests {
             files(&account, &json!({"operation":"snapshot"})).unwrap(),
             json!({"note.md":"changed","new.md":"new"})
         );
+    }
+}
+
+#[cfg(windows)]
+fn open_root(path: &Path) -> Result<OwnedFd, String> {
+    let (_, locks) = crate::windows_files::parents(path, &["probe".into()], false)?;
+    Ok(OwnedFd {
+        path: path.to_owned(),
+        _locks: locks,
+    })
+}
+#[cfg(windows)]
+fn read_current(root: &OwnedFd, parts: &[String]) -> Result<Option<String>, String> {
+    let path = parts
+        .iter()
+        .fold(root.path.clone(), |path, part| path.join(part));
+    if !path.exists() {
+        return Ok(None);
+    }
+    let (path, _locks) = crate::windows_files::parents(&root.path, parts, false)?;
+    let mut file = crate::file_security::open_regular(&path).map_err(|error| error.to_string())?;
+    let mut bytes = Vec::new();
+    Read::by_ref(&mut file)
+        .take((FILE_LIMIT + 1) as u64)
+        .read_to_end(&mut bytes)
+        .map_err(|error| error.to_string())?;
+    if bytes.len() > FILE_LIMIT {
+        return Err("Archivo supera 64 MiB".into());
+    }
+    String::from_utf8(bytes)
+        .map(Some)
+        .map_err(|_| "Solo se permiten archivos UTF-8".into())
+}
+#[cfg(windows)]
+fn write_change(root: &OwnedFd, change: &FileChange) -> Result<(), String> {
+    let path = change
+        .components
+        .iter()
+        .fold(root.path.clone(), |path, part| path.join(part));
+    if change.contents.is_none() && !path.exists() {
+        return Ok(());
+    }
+    let (path, _locks) =
+        crate::windows_files::parents(&root.path, &change.components, change.contents.is_some())?;
+    if let Some(contents) = &change.contents {
+        crate::util::atomic_write(&path, contents.as_bytes())
+    } else {
+        fs::remove_file(path).map_err(|error| error.to_string())
     }
 }

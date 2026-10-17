@@ -1,4 +1,6 @@
 //! Memory and identity of a running process, read the way each system offers them.
+#[cfg(windows)]
+pub use crate::process_windows::{process_identity, resident_bytes, still_forking};
 
 #[cfg(target_os = "macos")]
 mod macos {

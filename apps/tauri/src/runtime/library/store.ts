@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, rmSync, statSync, unlinkSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { sep, dirname, join } from "node:path";
 import { credentialPath } from "../credentials";
 import { accessEquivalent, sameAuthority, validateAccountGrant } from "../http";
 import { audioCopyRoot, audioCopyToDelete, fileHash, fileStem, importCreatedAt, linkStaged, referencesAudio, stageAudio, type StagedAudio } from "./audio";
@@ -292,7 +292,7 @@ export class Store {
       } catch (error) {
         throw Error(`No se puede comprobar el audio pendiente: ${(error as Error).message}`);
       }
-      if (canonical !== deletion.path || !canonical.startsWith(`${audioRoot}/`)) throw Error("La copia pendiente está fuera de la biblioteca");
+      if (canonical !== deletion.path || !canonical.startsWith(`${audioRoot}${sep}`)) throw Error("La copia pendiente está fuera de la biblioteca");
       if (referencesAudio(this.data, canonical)) throw Error("Otra grabación conserva la copia de audio pendiente");
       try {
         unlinkSync(deletion.path);
@@ -1287,7 +1287,7 @@ export function audio(data: LibraryData, root: string, recordId: string): string
   } catch (error) {
     throw Error(`Audio no disponible: ${(error as Error).message}`);
   }
-  if (!canonical.startsWith(`${realpathSync(join(root, "audio"))}/`)) throw Error("Audio fuera de la biblioteca");
+  if (!canonical.startsWith(`${realpathSync(join(root, "audio"))}${sep}`)) throw Error("Audio fuera de la biblioteca");
   return canonical;
 }
 function updateRecording(record: Recording, params: Json) {

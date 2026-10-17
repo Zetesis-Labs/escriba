@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { closeSync, fsyncSync, linkSync, lstatSync, openSync, readFileSync, readSync, realpathSync, rmSync, statSync, unlinkSync, writeSync } from "node:fs";
-import { basename, dirname, extname, join } from "node:path";
+import { basename, dirname, extname, join, sep } from "node:path";
 import { newId, rfc3339 } from "./json";
 import type { LibraryData } from "./model";
 import { audioDeletion, type AudioDeletion } from "./persistence";
@@ -61,6 +61,7 @@ export function stageAudio(root: string, source: string, recoveredCapture: boole
   return { root, source, temp, hash: digest.toString("hex"), digest, ext, ...(captureDate ? { captureDate } : {}), discard };
 }
 export function syncDirectory(path: string) {
+  if (process.platform === "win32") return;
   const fd = openSync(path, "r");
   try {
     fsyncSync(fd);
@@ -109,7 +110,7 @@ export function audioCopyToDelete(root: string, data: LibraryData, path: string)
   } catch (error) {
     throw Error(`No se puede comprobar el audio: ${(error as Error).message}`);
   }
-  if (!canonical.startsWith(`${audioCopyRoot(root)}/`)) throw Error("Audio fuera de la biblioteca");
+  if (!canonical.startsWith(`${audioCopyRoot(root)}${sep}`)) throw Error("Audio fuera de la biblioteca");
   if (referencesAudio(data, canonical)) return undefined;
   return audioDeletion(canonical, metadata.dev, metadata.ino, metadata.birthtimeMs);
 }

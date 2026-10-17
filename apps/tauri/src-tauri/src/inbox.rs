@@ -1,16 +1,11 @@
 //! Copias privadas de audios del usuario para que el controlador no lea rutas ajenas a sus datos.
 use std::{
-    fs::{self, OpenOptions},
-    io,
-    os::unix::fs::{OpenOptionsExt, PermissionsExt},
+    fs, io,
     path::{Path, PathBuf},
 };
 
 pub fn copy_file(source: &Path, destination: &Path) -> Result<(), String> {
-    let mut input = OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
-        .open(source)
+    let mut input = crate::file_security::open_regular(source)
         .map_err(|_| "No se pudo leer el audio elegido")?;
     let metadata = input
         .metadata()
@@ -24,11 +19,7 @@ pub fn copy_file(source: &Path, destination: &Path) -> Result<(), String> {
     let modified = metadata
         .modified()
         .map_err(|_| "No se pudo leer el audio elegido")?;
-    let mut output = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o600)
-        .open(destination)
+    let mut output = crate::file_security::create_private(destination, false)
         .map_err(|_| "No se pudo preparar la copia del audio")?;
     let copied = (|| {
         let bytes =
@@ -57,8 +48,7 @@ pub fn copy_file(source: &Path, destination: &Path) -> Result<(), String> {
 pub fn receive(root: &Path, source: &Path) -> Result<PathBuf, String> {
     let directory = root.join("inbox");
     fs::create_dir_all(&directory).map_err(|e| e.to_string())?;
-    fs::set_permissions(&directory, fs::Permissions::from_mode(0o700))
-        .map_err(|e| e.to_string())?;
+    crate::file_security::protect_directory(&directory).map_err(|e| e.to_string())?;
     let mut destination = directory.join(crate::util::id());
     if let Some(extension) = source.extension() {
         destination.set_extension(extension);
@@ -99,6 +89,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[cfg(unix)]
     fn la_copia_conserva_el_contenido_y_rechaza_enlaces_vacios_y_tuberias() {
         let temp = tempfile::tempdir().unwrap();
         let original = temp.path().join("nota.wav");
@@ -136,6 +127,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn limpiar_bandeja_elimina_copias_y_enlaces_sin_tocar_originales() {
         let temp = tempfile::tempdir().unwrap();
         let original = temp.path().join("original.wav");

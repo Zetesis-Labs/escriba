@@ -6,10 +6,14 @@ mod capabilities;
 mod command;
 mod confinement;
 mod error;
+mod file_security;
 #[cfg(target_os = "macos")]
 mod folder_access;
 #[cfg(target_os = "linux")]
 #[path = "folder_access_linux.rs"]
+mod folder_access;
+#[cfg(windows)]
+#[path = "folder_access_windows.rs"]
 mod folder_access;
 mod inbox;
 mod knowledge;
@@ -25,6 +29,8 @@ mod notification_delivery;
 mod notifications;
 mod platform;
 mod process_probe;
+#[cfg(windows)]
+mod process_windows;
 mod project;
 mod project_watch;
 mod recorder;
@@ -36,6 +42,10 @@ mod util;
 mod voice_registration;
 mod voices;
 mod watcher;
+#[cfg(windows)]
+mod windows_files;
+#[cfg(all(test, windows))]
+mod windows_tests;
 
 use command::{AppCommand, Command, Request, Untyped};
 use notifications::Problem;
@@ -637,6 +647,7 @@ fn surreal_native(app: &tauri::AppHandle) -> Option<PathBuf> {
         .into_iter()
         .chain(std::iter::once(development))
         .find(|path| path.is_file())
+        .map(|path| platform::native_library_path(&path))
 }
 
 fn voice_memos_root(app: &tauri::AppHandle) -> Result<PathBuf, String> {
@@ -1289,6 +1300,7 @@ pub fn run() {
             let result: Result<(), Box<dyn std::error::Error>> = (|| {
                 let isolated_root = std::env::var_os("ESCRIBA_TAURI_DATA").map(PathBuf::from);
                 let root = isolated_root.clone().unwrap_or(app.path().app_data_dir()?);
+                file_security::protect_directory(&root).map_err(std::io::Error::other)?;
 
                 app.asset_protocol_scope()
                     .allow_directory(root.join("audio"), true)?;

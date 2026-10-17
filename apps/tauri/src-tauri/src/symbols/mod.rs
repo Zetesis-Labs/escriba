@@ -1,8 +1,8 @@
 //! Tray and menu bar icons, drawn the way each system can.
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "windows"))]
 mod linux;
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "windows"))]
 pub use linux::image;
 #[cfg(target_os = "macos")]
 mod macos;

@@ -35,7 +35,9 @@ export const foldersFooter = (platform: Platform) =>
 export const unisolatedRecipesWarning = (platform: Platform) =>
   platform.recipesIsolated
     ? null
-    : "Este equipo no permite aislar las recetas: su código se ejecuta con tus permisos y podría leer tus archivos o conectarse a internet.";
+    : platform.system === "windows"
+      ? "No se pudo iniciar el aislamiento de Windows. Las recetas están bloqueadas."
+      : "Este equipo no permite aislar las recetas: su código se ejecuta con tus permisos y podría leer tus archivos o conectarse a internet.";
 
 export const drawsWindowControls = (platform: Platform) => platform.drawsWindowControls;
 

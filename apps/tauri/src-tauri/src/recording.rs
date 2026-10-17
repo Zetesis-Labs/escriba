@@ -5,7 +5,14 @@ use std::collections::VecDeque;
 use std::path::PathBuf;
 
 pub const LEVEL_HISTORY: usize = 48;
+#[cfg(target_os = "macos")]
 pub const MICROPHONE_DENIED: &str = "Escriba no tiene permiso para usar el micrófono. Actívalo en Ajustes del Sistema → Privacidad y seguridad → Micrófono.";
+
+#[cfg(windows)]
+pub const MICROPHONE_DENIED: &str = "Escriba no tiene permiso para usar el micrófono. Actívalo en Configuración → Privacidad y seguridad → Micrófono.";
+#[cfg(target_os = "linux")]
+pub const MICROPHONE_DENIED: &str =
+    "Escriba no puede usar el micrófono. Revisa los permisos de audio de tu escritorio.";
 
 pub struct Session {
     pub path: PathBuf,

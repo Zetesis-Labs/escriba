@@ -1,6 +1,7 @@
 use chrono::{Datelike, Local, NaiveDate, TimeZone, Timelike};
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use serde_json::{json, Value};
+#[cfg(unix)]
 use std::os::unix::fs::MetadataExt as UnixMetadataExt;
 use std::{
     collections::{HashMap, HashSet},
@@ -223,7 +224,7 @@ pub fn file_status(path: &Path) -> Result<Value, io::Error> {
         .as_secs_f64();
     Ok(json!({
         "size": metadata.len(),
-        "blocks": metadata.blocks(),
+        "blocks": file_blocks(&metadata),
         "flags": flags,
         "dataless": flags & 0x4000_0000 != 0,
         "modifiedAt": modified,
@@ -398,12 +399,17 @@ fn audio_file(path: &Path) -> bool {
 fn source_metadata(
     folder: &Folder,
     path: &Path,
-    metadata: &fs::Metadata,
+    _metadata: &fs::Metadata,
     modified: SystemTime,
 ) -> Option<(String, SystemTime, String)> {
     let relative = path.strip_prefix(&folder.path).ok()?;
     let stem = path.file_stem()?.to_str()?.to_owned();
-    let relative_key = relative.with_extension("").to_str()?.to_owned();
+    let relative_key = relative
+        .with_extension("")
+        .components()
+        .map(|part| part.as_os_str().to_str().map(str::to_owned))
+        .collect::<Option<Vec<_>>>()?
+        .join("/");
     match folder.style {
         Style::Any => Some((
             stem,
@@ -414,7 +420,10 @@ fn source_metadata(
             if relative.components().count() != 1 {
                 return None;
             }
-            let inode = metadata.ino();
+            #[cfg(unix)]
+            let inode = _metadata.ino();
+            #[cfg(windows)]
+            let inode = 0;
             let key = if inode == 0 {
                 relative_key
             } else {
@@ -482,6 +491,17 @@ fn parse_triplet(value: &str, widths: [usize; 3]) -> Option<(u32, u32, u32)> {
     Some((values[0], values[1], values[2]))
 }
 
+fn file_blocks(metadata: &fs::Metadata) -> u64 {
+    #[cfg(unix)]
+    {
+        metadata.blocks()
+    }
+    #[cfg(windows)]
+    {
+        metadata.len().div_ceil(512)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -511,6 +531,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn estado_archivo_no_sigue_symlinks_y_detecta_archivo_materializado() {
         let tmp = Temp::new();
         let file = tmp.0.join("grabación.wav");
@@ -652,6 +673,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn vacio_antiguo_se_reporta_y_symlink_no_sale_de_la_carpeta() {
         let tmp = Temp::new();
         let outside = Temp::new();
@@ -738,6 +760,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn notas_de_voz_acepta_solo_primer_nivel_y_renombrar_mantiene_clave() {
         let tmp = Temp::new();
         let original = tmp.0.join("Nueva grabación.m4a");
@@ -858,6 +881,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn salud_ordena_deduplica_y_acepta_rutas_no_utf8() {
         use std::os::unix::ffi::OsStringExt;
         let odd = PathBuf::from(std::ffi::OsString::from_vec(vec![b'/', b'v', 0xff]));

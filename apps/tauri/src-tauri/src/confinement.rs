@@ -22,6 +22,7 @@ pub struct Wrapped {
     pub arguments: Vec<OsString>,
 }
 
+#[cfg(unix)]
 fn plain(executable: &Path) -> Wrapped {
     Wrapped {
         program: executable.into(),
@@ -33,6 +34,7 @@ fn plain(executable: &Path) -> Wrapped {
 /// tool: the value of its tool and install profiles and the shell command that
 /// runs `"$executable"` with `"$profile"`, `$ROOT` and `$VENDOR`; its own
 /// arguments follow.
+#[cfg(unix)]
 pub struct Launcher {
     pub tool: String,
     pub install: String,
@@ -161,3 +163,51 @@ mod linux {
 }
 #[cfg(target_os = "linux")]
 pub use linux::{available, launcher, wrap};
+
+#[cfg(windows)]
+mod windows {
+    use super::{Profile, Wrapped};
+    use std::{
+        path::{Path, PathBuf},
+        process::Command,
+        sync::OnceLock,
+    };
+    fn sandbox() -> PathBuf {
+        crate::native::binary("escriba-sandbox")
+            .unwrap_or_else(|_| PathBuf::from("escriba-sandbox.exe"))
+    }
+    pub fn available() -> bool {
+        static AVAILABLE: OnceLock<bool> = OnceLock::new();
+        *AVAILABLE.get_or_init(|| {
+            use std::os::windows::process::CommandExt;
+            Command::new(sandbox())
+                .arg("--check")
+                .creation_flags(0x08000000)
+                .output()
+                .is_ok_and(|output| output.status.success())
+        })
+    }
+    pub fn wrap(executable: &Path, profile: Profile) -> Wrapped {
+        let mut arguments: Vec<std::ffi::OsString> = match profile {
+            Profile::Worker => vec!["worker".into()],
+            Profile::Tool {
+                project,
+                vendor,
+                network,
+            } => vec![
+                if network { "install" } else { "tool" }.into(),
+                "--project".into(),
+                project.into(),
+                "--vendor".into(),
+                vendor.into(),
+            ],
+        };
+        arguments.extend(["--executable".into(), executable.into(), "--".into()]);
+        Wrapped {
+            program: sandbox().into(),
+            arguments,
+        }
+    }
+}
+#[cfg(windows)]
+pub use windows::{available, wrap};

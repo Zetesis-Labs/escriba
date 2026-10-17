@@ -150,7 +150,7 @@ test("un proveedor de carpeta autoriza después de guardar un borrador", async (
   account.grant = { capability: "folder", allowedHeaders: [] };
   account.folder = folder;
   (destination.configuration as Record<string, unknown>).folder = space.path("alias");
-  symlinkSync(folder, space.path("alias"));
+  symlinkSync(folder, space.path("alias"), process.platform === "win32" ? "junction" : "dir");
   destination.enabled = true;
   await store.saveConnector(account as never, destination as never);
   const saved = store.item("accounts", "folder");

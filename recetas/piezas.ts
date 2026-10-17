@@ -29,7 +29,7 @@ export function camposDeTranscripcion({ stts }: ListasDeEscriba) {
           .boolean()
           .default(false)
           .meta({ title: "Detectar hablantes" })
-          .describe("Solo con Whisper en este Mac"),
+          .describe("Solo con Whisper en este equipo"),
         cuantos: z
           .number()
           .int()
@@ -47,7 +47,7 @@ export function camposDeTranscripcion({ stts }: ListasDeEscriba) {
 
 export function camposDeResumen({ llms }: ListasDeEscriba, si?: string) {
   return {
-    // Without LLMs (Linux ships none) summarizing fails visibly and the note is kept.
+    // Without LLMs, summarizing fails visibly and the note is kept.
     llm: (llms.length ? opciones(llms).default(local(llms)) : opciones(llms).nullable().default(null)).meta({
       title: "Resume con",
       ...cuando(si),

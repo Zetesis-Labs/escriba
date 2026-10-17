@@ -65,7 +65,10 @@ fn file(path: &Path) -> Result<Capture, Failure> {
 }
 
 fn denied(message: &str) -> bool {
-    message.contains("Permission denied") || message.contains("EACCES")
+    message.contains("Permission denied")
+        || message.contains("EACCES")
+        || message.to_ascii_lowercase().contains("0x80070005")
+        || message.contains("Acceso denegado")
 }
 
 fn microphone() -> Result<Capture, Failure> {

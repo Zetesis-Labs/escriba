@@ -4,19 +4,22 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::{
     collections::HashSet,
-    ffi::CString,
     fs::{self, File, OpenOptions},
     io::{Read, Write},
-    os::{
-        fd::{AsRawFd, FromRawFd, OwnedFd},
-        unix::fs::{OpenOptionsExt, PermissionsExt},
-    },
     path::{Path, PathBuf},
     process::{Command, Stdio},
     thread,
     time::{Duration, Instant},
 };
+#[cfg(unix)]
+use std::{
+    ffi::CString,
+    os::fd::{AsRawFd, FromRawFd, OwnedFd},
+};
 use walkdir::WalkDir;
+#[cfg(windows)]
+#[path = "project_windows.rs"]
+mod windows;
 
 const TYPES: &str = include_str!("../../../../recetas/escriba-recetas.d.ts");
 const PREVIOUS_TYPES_SHA256: &[&str] = &[
@@ -34,7 +37,11 @@ const MANIFEST_LIMIT: usize = 1024 * 1024;
 const CATALOG_LIMIT: usize = 30 * 1024 * 1024;
 const TOOL_OUTPUT_LIMIT: usize = 64 * 1024;
 const TOOL_TIMEOUT: Duration = Duration::from_secs(60);
+#[cfg(unix)]
 const LAUNCHER_MARKER: &str = "#!/bin/sh\nESCRIBA_LAUNCHER_VERSION=1\n";
+
+#[cfg(windows)]
+const LAUNCHER_MARKER: &str = "@echo off\r\nrem ESCRIBA_LAUNCHER_VERSION=1\r\n";
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -142,6 +149,7 @@ fn load_bundle(dist: &Path, entry: &str, total: &mut usize) -> Result<String, St
     Ok(bundle)
 }
 
+#[cfg(unix)]
 fn read_dist(dist: &Path, entry: &str, limit: usize) -> Result<Vec<u8>, String> {
     let parts = checked_entry(dist, entry, false)?;
     let root_fd = open_root(dist)?;
@@ -227,7 +235,11 @@ pub fn tool(path: &Path, runtime: &Path, vendor: &Path, name: &str) -> Result<Va
             true,
         ),
         "check" => (
-            vendor.join("node_modules/typescript/lib/tsc"),
+            vendor.join(if cfg!(windows) {
+                "node_modules/typescript/lib/tsc.exe"
+            } else {
+                "node_modules/typescript/lib/tsc"
+            }),
             vec!["--noEmit", "--pretty", "false", "-p", "."],
             false,
         ),
@@ -295,6 +307,15 @@ fn run_development(
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    #[cfg(windows)]
+    {
+        command.envs(crate::platform::process_environment());
+        command
+            .env("TEMP", managed.join("tmp"))
+            .env("TMP", managed.join("tmp"));
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x08000000);
+    }
     if bun_cli {
         command.env("BUN_BE_BUN", "1");
     }
@@ -347,10 +368,10 @@ fn run_development(
 }
 
 fn ensure_safe_project_root(root: &Path) -> Result<(), String> {
-    if root == Path::new("/") {
+    if root.parent().is_none() {
         return Err("La raíz del disco no puede ser un proyecto".into());
     }
-    if let Some(home) = std::env::var_os("HOME") {
+    if let Some(home) = std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" }) {
         let home = fs::canonicalize(home).map_err(|_| "No se pudo validar la carpeta personal")?;
         if home.starts_with(root) {
             return Err("El proyecto no puede abarcar la carpeta personal".into());
@@ -365,7 +386,11 @@ fn refresh_launcher(
     vendor: &Path,
     create: bool,
 ) -> Result<(), String> {
-    let launcher = root.join("escriba");
+    let launcher = root.join(if cfg!(windows) {
+        "escriba.cmd"
+    } else {
+        "escriba"
+    });
     match fs::symlink_metadata(&launcher) {
         Ok(metadata) if metadata.is_file() && !metadata.file_type().is_symlink() => {
             let mut existing = File::open(&launcher).map_err(|_| "No se pudo leer el lanzador")?;
@@ -382,28 +407,25 @@ fn refresh_launcher(
     let runtime = fs::canonicalize(runtime).map_err(|_| "No está disponible Bun incluido")?;
     let vendor =
         fs::canonicalize(vendor).map_err(|_| "No están disponibles las dependencias incluidas")?;
-    let checker = vendor.join("node_modules/typescript/lib/tsc");
+    let checker = vendor.join(if cfg!(windows) {
+        "node_modules/typescript/lib/tsc.exe"
+    } else {
+        "node_modules/typescript/lib/tsc"
+    });
     if !runtime.is_file() || !checker.is_file() {
         return Err("Faltan las herramientas incluidas del proyecto".into());
     }
     let script = launcher_source(&runtime, &vendor, &checker)?;
     let temporary = root.join(format!(".escriba-launcher-{}", uuid::Uuid::new_v4()));
     let result = (|| -> Result<(), String> {
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(0o700)
-            .open(&temporary)
+        let mut file = crate::file_security::create_private(&temporary, true)
             .map_err(|_| "No se pudo crear el lanzador")?;
         file.write_all(script.as_bytes())
             .map_err(|_| "No se pudo escribir el lanzador")?;
-        file.set_permissions(fs::Permissions::from_mode(0o700))
-            .map_err(|_| "No se pudo preparar el lanzador")?;
         file.sync_all()
             .map_err(|_| "No se pudo sincronizar el lanzador")?;
         fs::rename(&temporary, &launcher).map_err(|_| "No se pudo instalar el lanzador")?;
-        File::open(root)
-            .and_then(|directory| directory.sync_all())
+        crate::file_security::sync_directory(root)
             .map_err(|_| "No se pudo sincronizar el proyecto")?;
         Ok(())
     })();
@@ -411,6 +433,7 @@ fn refresh_launcher(
     result
 }
 
+#[cfg(unix)]
 fn launcher_source(runtime: &Path, vendor: &Path, checker: &Path) -> Result<String, String> {
     let runtime = shell_quote(runtime.to_str().ok_or("Ruta de Bun no UTF-8")?);
     let vendor = shell_quote(vendor.to_str().ok_or("Ruta vendor no UTF-8")?);
@@ -467,6 +490,7 @@ esac
     ))
 }
 
+#[cfg(unix)]
 pub(crate) fn shell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
 }
@@ -617,6 +641,7 @@ pub fn build(path: &Path, runtime: &Path, vendor: &Path) -> Result<Value, String
 }
 
 /// Reads a project file selected by its relative entry path.
+#[cfg(unix)]
 pub fn read(path: &Path, entry: &str) -> Result<Value, String> {
     let root = project_root(path)?;
     let components = checked_entry(&root, entry, false)?;
@@ -651,11 +676,12 @@ pub fn read(path: &Path, entry: &str) -> Result<Value, String> {
 }
 
 /// Atomically replaces one project source after checking the path under the chosen folder.
-#[cfg(test)]
+#[cfg(all(test, unix))]
 pub fn write(path: &Path, entry: &str, source: &str) -> Result<(), String> {
     write_checked(path, entry, source, None, false)
 }
 
+#[cfg(unix)]
 pub fn write_checked(
     path: &Path,
     entry: &str,
@@ -834,8 +860,7 @@ fn refresh_generated_types(root: &Path) -> Result<(), String> {
             .map_err(|_| "No se pudieron escribir los tipos del proyecto")?;
         fs::rename(&temporary, &path)
             .map_err(|_| "No se pudieron actualizar los tipos del proyecto")?;
-        File::open(root)
-            .and_then(|directory| directory.sync_all())
+        crate::file_security::sync_directory(root)
             .map_err(|_| "No se pudo sincronizar el proyecto")?;
         Ok(())
     })();
@@ -932,8 +957,7 @@ fn ensure_sdk_dependency(root: &Path) -> Result<(), String> {
         fs::set_permissions(&temporary, metadata.permissions())
             .map_err(|_| "No se pudo conservar los permisos de package.json")?;
         fs::rename(&temporary, &path).map_err(|_| "No se pudo actualizar package.json")?;
-        File::open(root)
-            .and_then(|directory| directory.sync_all())
+        crate::file_security::sync_directory(root)
             .map_err(|_| "No se pudo sincronizar el proyecto")?;
         Ok(())
     })();
@@ -1086,8 +1110,7 @@ fn install_managed_dependency(
             }
             return Err("No se pudo instalar la dependencia");
         }
-        File::open(&deps)
-            .and_then(|dir| dir.sync_all())
+        crate::file_security::sync_directory(&deps)
             .map_err(|_| "No se pudo sincronizar la dependencia")?;
         if replacing {
             fs::remove_dir_all(&backup)
@@ -1159,12 +1182,17 @@ fn checked_source(
     allow_missing: bool,
     dependency: bool,
 ) -> Result<Vec<String>, String> {
-    if entry.is_empty() || entry.starts_with('/') || entry.contains(['\\', '\0']) {
+    if entry.is_empty()
+        || entry.starts_with('/')
+        || entry.contains(['\\', '\0'])
+        || (cfg!(windows) && entry.contains(':'))
+    {
         return Err("Ruta de proyecto no permitida".into());
     }
     let parts: Vec<String> = entry.split('/').map(str::to_owned).collect();
     if parts.iter().any(|part| {
         part.is_empty()
+            || (cfg!(windows) && crate::file_security::invalid_windows_name(part))
             || part == "."
             || part == ".."
             || (excluded(part) && !(dependency && part == "node_modules"))
@@ -1190,10 +1218,12 @@ fn checked_source(
     Ok(parts)
 }
 
+#[cfg(unix)]
 fn c_name(name: &str) -> Result<CString, String> {
     CString::new(name).map_err(|_| "Ruta inválida".into())
 }
 
+#[cfg(unix)]
 fn open_root(path: &Path) -> Result<OwnedFd, String> {
     use std::os::unix::ffi::OsStrExt;
     let path = CString::new(path.as_os_str().as_bytes()).map_err(|_| "Ruta inválida")?;
@@ -1209,6 +1239,7 @@ fn open_root(path: &Path) -> Result<OwnedFd, String> {
     Ok(unsafe { OwnedFd::from_raw_fd(fd) })
 }
 
+#[cfg(unix)]
 fn open_parent(root: &OwnedFd, parts: &[String], create: bool) -> Result<Option<OwnedFd>, String> {
     let fd = unsafe { libc::fcntl(root.as_raw_fd(), libc::F_DUPFD_CLOEXEC, 0) };
     if fd < 0 {
@@ -1280,10 +1311,13 @@ fn bounded_output(mut stream: impl Read, limit: usize) -> Result<LimitedOutput, 
     Ok(LimitedOutput { bytes, truncated })
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
-    use std::{os::unix::fs::symlink, sync::Arc};
+    use std::{
+        os::unix::fs::{symlink, PermissionsExt},
+        sync::Arc,
+    };
 
     fn initialize_test(path: &Path, accounts: &Value, vendor: &Path) -> Result<bool, String> {
         let runtime = crate::native::binary("escriba-runtime")?;
@@ -1750,7 +1784,15 @@ mod tests {
         let vendor = tools.path().join("vendor");
         fs::create_dir_all(vendor.join("node_modules/typescript/lib")).unwrap();
         fs::write(&runtime, "runtime").unwrap();
-        fs::write(vendor.join("node_modules/typescript/lib/tsc"), "checker").unwrap();
+        fs::write(
+            vendor.join(if cfg!(windows) {
+                "node_modules/typescript/lib/tsc.exe"
+            } else {
+                "node_modules/typescript/lib/tsc"
+            }),
+            "checker",
+        )
+        .unwrap();
         fs::create_dir(folder.path().join("dist")).unwrap();
         fs::write(
             folder.path().join("dist/escriba.json"),
@@ -2154,4 +2196,28 @@ mod tests {
         assert!(error.contains(expected), "{error}");
         assert!(!project.join("dist/escriba.json").exists());
     }
+}
+
+#[cfg(windows)]
+fn read_dist(root: &Path, entry: &str, limit: usize) -> Result<Vec<u8>, String> {
+    windows::read_bytes(root, entry, limit)
+}
+#[cfg(windows)]
+pub fn read(path: &Path, entry: &str) -> Result<Value, String> {
+    let bytes = windows::read_bytes(&project_root(path)?, entry, SOURCE_LIMIT)?;
+    Ok(json!({"source": String::from_utf8(bytes).map_err(|_| "La fuente no es UTF-8")?}))
+}
+#[cfg(windows)]
+pub fn write_checked(
+    path: &Path,
+    entry: &str,
+    source: &str,
+    expected_source: Option<&str>,
+    create_new: bool,
+) -> Result<(), String> {
+    windows::write_source(path, entry, source, expected_source, create_new)
+}
+#[cfg(windows)]
+fn launcher_source(runtime: &Path, vendor: &Path, checker: &Path) -> Result<String, String> {
+    windows::launcher_source(runtime, vendor, checker)
 }

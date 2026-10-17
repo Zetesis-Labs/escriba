@@ -12,8 +12,8 @@ test("una credencial se guarda recortada en un fichero privado y vacía se retir
     assert.equal(await store.read("notion"), undefined);
     await store.save("notion", "  token-sintético \n");
     assert.equal(await readFile(credentialPath(root, "notion"), "utf8"), "token-sintético");
-    assert.equal((await stat(credentialPath(root, "notion"))).mode & 0o777, 0o600);
-    assert.equal((await stat(join(root, "secrets"))).mode & 0o777, 0o700);
+    if (process.platform !== "win32") assert.equal((await stat(credentialPath(root, "notion"))).mode & 0o777, 0o600);
+    if (process.platform !== "win32") assert.equal((await stat(join(root, "secrets"))).mode & 0o777, 0o700);
     assert.equal(await store.read("notion"), "token-sintético");
     await store.save("notion", "   ");
     assert.equal(await store.read("notion"), undefined);

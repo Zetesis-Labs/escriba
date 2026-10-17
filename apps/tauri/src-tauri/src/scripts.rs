@@ -203,13 +203,16 @@ fn spawn(
     } else {
         Command::new(executable)
     };
+    #[cfg(windows)]
+    command.creation_flags(0x08000000);
     let mut child = command
         .env_clear()
         .envs(
             env.iter()
                 .map(|(key, value)| (key.as_str(), value.as_str())),
         )
-        .current_dir("/")
+        .envs(crate::platform::process_environment())
+        .current_dir(std::env::temp_dir())
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -226,7 +229,7 @@ fn terminate_locked(child: &mut Child, reason: &AtomicU8, code: u8) -> bool {
     reason.store(code, Ordering::SeqCst);
     child.start_kill().is_ok()
 }
-#[cfg(test)]
+#[cfg(all(test, unix))]
 fn terminate_worker(child: &Arc<StdMutex<Child>>, reason: &AtomicU8, code: u8) -> bool {
     let Ok(mut child) = child.lock() else {
         return false;
@@ -623,7 +626,10 @@ pub(crate) fn controller_env(data: &Path) -> Vec<(String, String)> {
     let native = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../node_modules/@surrealdb")
         .join(package)
-        .join(file);
+        .join(file)
+        .canonicalize()
+        .unwrap();
+    let native = crate::platform::native_library_path(&native);
     vec![
         ("ESCRIBA_DATA".into(), data.to_string_lossy().into_owned()),
         (
@@ -643,6 +649,7 @@ mod tests {
     use std::sync::Mutex as StdMutex;
 
     #[tokio::test]
+    #[cfg(unix)]
     async fn supervisor_no_envia_senal_a_proceso_terminado() {
         let mut process = Command::new("/usr/bin/true").spawn().unwrap();
         process.wait().await.unwrap();
@@ -653,6 +660,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg(unix)]
     async fn supervisor_termina_su_propio_proceso_si_falla_la_inspeccion() {
         let process = Command::new("/bin/sleep").arg("5").spawn().unwrap();
         let child = Arc::new(StdMutex::new(process));
@@ -782,9 +790,12 @@ mod tests {
         wait_until(|| async { calls.lock().unwrap().contains(&"shell.native".to_owned()) }).await;
         let old = scripts.session.lock().await.clone().unwrap();
         let old_pid = old.child.lock().await.id().unwrap();
+        #[cfg(unix)]
         unsafe {
             libc::kill(old_pid as i32, libc::SIGKILL);
         }
+        #[cfg(windows)]
+        crate::process_windows::terminate(old_pid);
         wait_until(|| async { !old.alive.load(Ordering::SeqCst) }).await;
         let again = command(&scripts, "controller_status", json!({}), Origin::Ui, &cap)
             .await

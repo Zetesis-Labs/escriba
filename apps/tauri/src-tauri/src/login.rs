@@ -74,11 +74,12 @@ fn retire_previous_agent(home: &Path) -> Result<(), String> {
     fs::remove_file(path).map_err(|error| error.to_string())
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
 
     #[test]
+    #[cfg(unix)]
     fn retira_solo_el_agente_anterior_conocido_y_conserva_archivos_ajenos() {
         let home = tempfile::tempdir().unwrap();
         let folder = home.path().join("Library/LaunchAgents");

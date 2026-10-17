@@ -141,7 +141,10 @@ impl Native {
             }
         }
         if slot.is_none() {
-            let mut child = Command::new(&self.path)
+            let mut command = Command::new(&self.path);
+            #[cfg(windows)]
+            command.creation_flags(0x08000000);
+            let mut child = command
                 .stdin(Stdio::piped())
                 .stdout(Stdio::piped())
                 .stderr(Stdio::inherit())
@@ -219,9 +222,12 @@ impl Native {
                 let _ = session.child.start_kill();
             }
         } else if pid > 0 {
+            #[cfg(unix)]
             unsafe {
                 libc::kill(pid as i32, libc::SIGTERM);
             }
+            #[cfg(windows)]
+            crate::process_windows::terminate(pid);
         }
     }
 
@@ -259,13 +265,17 @@ pub fn unsupported(error: &AppError) -> bool {
 
 pub fn binary(name: &str) -> Result<PathBuf, String> {
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-    let sibling = exe.parent().ok_or("Ejecutable sin carpeta")?.join(name);
+    let suffix = std::env::consts::EXE_SUFFIX;
+    let sibling = exe
+        .parent()
+        .ok_or("Ejecutable sin carpeta")?
+        .join(format!("{name}{suffix}"));
     if sibling.is_file() {
         return Ok(sibling);
     }
     let development = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("binaries")
-        .join(format!("{name}-{}", development_triple()));
+        .join(format!("{name}-{}{suffix}", development_triple()));
     if development.is_file() {
         return Ok(development);
     }
@@ -274,7 +284,7 @@ pub fn binary(name: &str) -> Result<PathBuf, String> {
     ))
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
     use std::{fs, os::unix::fs::PermissionsExt};

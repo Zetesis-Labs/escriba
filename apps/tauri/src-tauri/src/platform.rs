@@ -1,12 +1,18 @@
 //! Decisions that differ between macOS and Linux, without I/O.
 
 use serde::Serialize;
+#[cfg(unix)]
+use std::process::Command;
 use std::{
     ffi::OsStr,
     path::{Path, PathBuf},
-    process::Command,
 };
 use ts_rs::TS;
+#[cfg(windows)]
+#[path = "platform_windows.rs"]
+mod windows;
+#[cfg(windows)]
+pub use windows::*;
 
 #[cfg(target_os = "macos")]
 pub fn is_models_root(root: &Path) -> bool {
@@ -23,7 +29,7 @@ pub fn is_models_root(root: &Path) -> bool {
 }
 
 // XDG asks to ignore a relative XDG_DATA_HOME.
-#[cfg(any(target_os = "linux", test))]
+#[cfg(any(target_os = "linux", all(test, unix)))]
 fn linux_models_root(data_home: Option<&OsStr>, home: Option<&OsStr>) -> Option<PathBuf> {
     let data = data_home
         .map(PathBuf::from)
@@ -135,7 +141,11 @@ pub fn surreal_native() -> (String, String) {
     let name = if cfg!(target_os = "linux") {
         format!("linux-{arch}-gnu")
     } else {
-        format!("darwin-{arch}")
+        if cfg!(windows) {
+            format!("win32-{arch}-msvc")
+        } else {
+            format!("darwin-{arch}")
+        }
     };
     (
         format!("node-native-{name}"),
@@ -149,6 +159,7 @@ pub fn surreal_native() -> (String, String) {
 pub enum System {
     Macos,
     Linux,
+    Windows,
 }
 
 /// What the interface may offer on this system; it decides with this, not
@@ -200,6 +211,16 @@ pub const LINUX: Platform = Platform {
     draws_window_controls: true,
     default_whisper_model: "large-v3-turbo",
 };
+
+#[cfg_attr(not(windows), allow(dead_code))]
+pub const WINDOWS: Platform = Platform {
+    system: System::Windows,
+    draws_window_controls: false,
+    system_settings: true,
+    ..LINUX
+};
+#[cfg(windows)]
+pub const PLATFORM: Platform = WINDOWS;
 
 #[cfg(target_os = "macos")]
 pub const PLATFORM: Platform = MACOS;
@@ -311,6 +332,32 @@ pub fn summary() -> serde_json::Value {
     .unwrap_or_default()
 }
 
+pub fn process_environment() -> Vec<(std::ffi::OsString, std::ffi::OsString)> {
+    #[cfg(windows)]
+    {
+        [
+            "SystemRoot",
+            "WINDIR",
+            "TEMP",
+            "TMP",
+            "LOCALAPPDATA",
+            "USERPROFILE",
+        ]
+        .into_iter()
+        .filter_map(|key| std::env::var_os(key).map(|value| (key.into(), value)))
+        .collect()
+    }
+    #[cfg(unix)]
+    {
+        Vec::new()
+    }
+}
+
+#[cfg(unix)]
+pub fn native_library_path(path: &Path) -> PathBuf {
+    path.to_path_buf()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -357,6 +404,8 @@ mod tests {
         let (package, file) = surreal_native();
         let system = if cfg!(target_os = "linux") {
             "linux"
+        } else if cfg!(windows) {
+            "win32"
         } else {
             "darwin"
         };
@@ -393,6 +442,8 @@ mod tests {
         );
         let expected = if cfg!(target_os = "macos") {
             MACOS
+        } else if cfg!(windows) {
+            WINDOWS
         } else {
             LINUX
         };
@@ -429,6 +480,7 @@ mod tests {
         assert_eq!(RECORDING_EXTENSION, expected);
     }
 
+    #[cfg(unix)]
     fn line(command: &Command) -> Vec<String> {
         std::iter::once(command.get_program())
             .chain(command.get_args())
@@ -437,6 +489,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn la_carpeta_de_modelos_de_linux_sigue_xdg() {
         assert_eq!(
             linux_models_root(Some(OsStr::new("/datos")), Some(OsStr::new("/home/ana"))),

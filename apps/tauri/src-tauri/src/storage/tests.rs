@@ -1,4 +1,5 @@
 use super::*;
+#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use surrealdb::types::Value as DbValue;
 
@@ -15,6 +16,7 @@ async fn abre_rocksdb_privada_y_conserva_lo_escrito_al_reabrir() {
         .unwrap();
     drop(db);
     released(&target).await.unwrap();
+    #[cfg(unix)]
     assert_eq!(
         std::fs::metadata(&target).unwrap().permissions().mode() & 0o777,
         0o700
