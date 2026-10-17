@@ -44,23 +44,29 @@ function controller() {
     if (waiter) waiter(frame);
     else frames.push(frame);
   });
-  const next = () =>
+  const next = (timeout = 10000, phase = "trama") =>
     new Promise<Frame>((resolve, reject) => {
       const queued = frames.shift();
       if (queued) return resolve(queued);
-      const timer = setTimeout(() => reject(Error(`Sin trama: ${stderr}`)), 10000);
-      waiters.push((frame) => {
+      const waiter = (frame: Frame) => {
         clearTimeout(timer);
         resolve(frame);
-      });
+      };
+      const timer = setTimeout(() => {
+        const index = waiters.indexOf(waiter);
+        if (index >= 0) waiters.splice(index, 1);
+        reject(Error(`Sin ${phase} tras ${timeout} ms (salida: ${child.exitCode ?? child.signalCode ?? "activo"}): ${stderr}`));
+      }, timeout);
+      waiters.push(waiter);
     });
   const send = (value: unknown) => child.stdin.write(`${JSON.stringify(value)}\n`);
   return {
     next,
+    ready: () => next(process.platform === "win32" ? 45000 : 10000, "inicio del controlador"),
     send,
     async command(id: string, method: string, params: unknown = {}, origin: unknown = "ui") {
       send({ type: "command", id, method, params, origin });
-      const reply = await next();
+      const reply = await next(10000, `respuesta a ${method}`);
       assert.equal(reply.id, id);
       return reply;
     },
@@ -76,7 +82,7 @@ function controller() {
 test("el controlador anuncia el protocolo y responde a un comando propio", async () => {
   const host = controller();
   try {
-    const ready = await host.next();
+    const ready = await host.ready();
     assert.equal(ready.type, "ready");
     assert.equal(ready.protocolVersion, 1);
     const reply = await host.command("c1", "controller_status");
@@ -90,7 +96,7 @@ test("el controlador anuncia el protocolo y responde a un comando propio", async
 test("un método que no es del controlador falla nombrándolo, sin cerrar el canal", async () => {
   const host = controller();
   try {
-    await host.next();
+    await host.ready();
     const unknown = await host.command("c1", "inventado");
     assert.equal(unknown.type, "error");
     assert.equal(unknown.message, "Método desconocido: inventado");
@@ -107,7 +113,7 @@ test("un método que no es del controlador falla nombrándolo, sin cerrar el can
 test("un id de comando repetido se rechaza mientras el primero sigue vivo", async () => {
   const host = controller();
   try {
-    await host.next();
+    await host.ready();
     host.send({ type: "command", id: "same", method: "controller_status", params: {}, origin: "ui" });
     host.send({ type: "command", id: "same", method: "controller_status", params: {}, origin: "ui" });
     const replies = [await host.next(), await host.next()];
