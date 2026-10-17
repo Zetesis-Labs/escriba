@@ -81,7 +81,8 @@ sign_one() {
     escriba-runtime) entitlements=(--entitlements "$script_dir/macos/bun-entitlements.plist") ;;
     EscribaNativeHost|EscribaSystemHost|escriba-tauri|Escriba.app) entitlements=(--entitlements "$script_dir/macos/audio-entitlements.plist") ;;
   esac
-  codesign --force --sign "$identity" "${sign_flags[@]}" "${entitlements[@]}" "$target"
+  # macOS ships bash 3.2, where set -u rejects "${array[@]}" of an empty array.
+  codesign --force --sign "$identity" ${sign_flags[@]+"${sign_flags[@]}"} ${entitlements[@]+"${entitlements[@]}"} "$target"
 }
 while IFS= read -r -d '' target; do
   sign_one "$target"
