@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { isBuiltin } from "node:module";
-import { lstat, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { filesystemPath, projectCanonicalPath } from "./project-path";
 
 type BuildResult = {
   success: boolean;
@@ -39,20 +40,11 @@ declare const Bun: {
 
 type Recipe = { id: string; name: string; entry: string; file: string };
 type Source = { entry: string; directory: string };
+type CanonicalPath = ReturnType<typeof projectCanonicalPath>;
 const EXCLUDED = new Set(["dist", "node_modules", ".git", ".escriba"]);
 const MAX_RECIPES = 10_000;
 const MAX_BUNDLE = 32 * 1024 * 1024;
 const MAX_CATALOG = 30 * 1024 * 1024;
-
-function filesystemPath(path: string) {
-  if (process.platform !== "win32") return path;
-  if (path.startsWith("\\\\?\\UNC\\")) return `\\\\${path.slice(8)}`;
-  return /^\\\\\?\\[a-z]:\\/i.test(path) ? path.slice(4) : path;
-}
-
-async function canonicalPath(path: string) {
-  return filesystemPath(await realpath(filesystemPath(path)));
-}
 
 function within(path: string, directory: string) {
   return path === directory || path.startsWith(`${directory}${sep}`);
@@ -86,7 +78,7 @@ function identity(directory: string) {
   return direct ? direct[1] : `code:${normalized.replaceAll("/", ":")}`;
 }
 
-async function sourcePath(root: string, relativePath: string) {
+async function sourcePath(root: string, relativePath: string, canonicalPath: CanonicalPath) {
   const path = resolve(root, relativePath);
   if (!within(path, root)) throw Error("Fuente fuera del proyecto");
   const real = await canonicalPath(path);
@@ -108,7 +100,7 @@ async function moduleEntry(root: string, filename: string) {
   return undefined;
 }
 
-async function permittedVendor(vendor: string) {
+async function permittedVendor(vendor: string, canonicalPath: CanonicalPath) {
   const modules = (await lstat(join(vendor, "node_modules")).catch(() => undefined))?.isDirectory()
     ? join(vendor, "node_modules") : vendor;
   const real = await canonicalPath(modules);
@@ -150,8 +142,9 @@ function buildProblem(error: unknown): string {
 async function bundle(
   root: string, vendor: { modules: string; allowed: string[] },
   entry: string, globalName: "__recipe" | "__conectores" | "__ontologias",
+  canonicalPath: CanonicalPath,
 ): Promise<string> {
-  const source = await sourcePath(root, entry);
+  const source = await sourcePath(root, entry, canonicalPath);
   const wrapper = join(root, ".escriba", `entry-${randomUUID()}.ts`);
   const result = await Bun.build({
     entrypoints: [wrapper],
@@ -236,8 +229,9 @@ async function inspectOldDist(path: string) {
 export async function buildProject(rootPath: string, vendorPath: string): Promise<void> {
   if (!isAbsolute(rootPath) || !isAbsolute(vendorPath))
     throw Error("Las rutas del proyecto y vendor deben ser absolutas");
+  const canonicalPath = projectCanonicalPath([rootPath, vendorPath]);
   const root = await canonicalPath(rootPath);
-  const vendor = await permittedVendor(filesystemPath(vendorPath));
+  const vendor = await permittedVendor(filesystemPath(vendorPath), canonicalPath);
   const entries = await sources(root);
   const connector = await moduleEntry(root, "conectores");
   const ontology = await moduleEntry(root, "ontologias");
@@ -264,20 +258,20 @@ export async function buildProject(rootPath: string, vendorPath: string): Promis
       if (ids.has(id)) throw Error(`ID de receta repetido: ${id}`);
       ids.add(id);
       const file = `receta-${index}.js`;
-      const program = await bundle(root, vendor, source.entry, "__recipe");
+      const program = await bundle(root, vendor, source.entry, "__recipe", canonicalPath);
       totalBytes += Buffer.byteLength(JSON.stringify({ id, name: basename(source.directory), entry: source.entry, bundle: program }));
       if (totalBytes > MAX_CATALOG) throw Error("Los paquetes superan el límite total de 30 MiB");
       await writeFile(join(stage, file), program);
       recipes.push({ id, name: basename(source.directory), entry: source.entry, file });
     }
     if (connector) {
-      const program = await bundle(root, vendor, connector, "__conectores");
+      const program = await bundle(root, vendor, connector, "__conectores", canonicalPath);
       totalBytes += Buffer.byteLength(JSON.stringify(program));
       if (totalBytes > MAX_CATALOG) throw Error("Los paquetes superan el límite total de 30 MiB");
       await writeFile(join(stage, "conectores.js"), program);
     }
     if (ontology) {
-      const program = await bundle(root, vendor, ontology, "__ontologias");
+      const program = await bundle(root, vendor, ontology, "__ontologias", canonicalPath);
       totalBytes += Buffer.byteLength(JSON.stringify(program));
       if (totalBytes > MAX_CATALOG) throw Error("Los paquetes superan el límite total de 30 MiB");
       await writeFile(join(stage, "ontologias.js"), program);

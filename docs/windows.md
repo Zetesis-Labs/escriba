@@ -85,6 +85,12 @@ rutas canónicas, espacios y «ñ», y se comprueba que un error conserva el úl
 `dist` válido. Se puede repetir con `scripts/test-windows-project.ps1` tras preparar
 los motores; la CI muestra esa comprobación como un paso previo al instalador.
 
+Bun 1.4.2 puede denegar `realpath` dentro de AppContainer al consultar el gestor
+de volúmenes ([incidencia de Bun](https://github.com/oven-sh/bun/issues/44875)).
+En ese caso el constructor recorre los componentes desde las raíces que Rust
+ya ha canonicalizado, comprueba las uniones y rechaza destinos fuera del
+proyecto y las dependencias incluidas. Los demás errores de archivos se propagan.
+
 ## Verificación
 
 Las pruebas se hacen con bibliotecas temporales y audio sintético. La batería
