@@ -35,6 +35,7 @@ if ((& bun --version).Trim() -ne $requiredBun) { throw "Escriba necesita Bun $re
 $triple = (& rustc -vV | Select-String '^host: ').ToString().Substring(6)
 if ($triple -ne 'x86_64-pc-windows-msvc') { throw 'Esta distribución de Escriba admite Windows x64 con MSVC.' }
 $env:CMAKE_POLICY_VERSION_MINIMUM = '3.5'
+$env:CMAKE_PROJECT_INCLUDE = Join-Path $project 'scripts/native-cpu.cmake'
 if (!$env:CMAKE_GENERATOR -and (Test-Path -LiteralPath $vswhere)) {
     $vs2022 = & $vswhere -latest -version '[17.0,18.0)' -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
     if ($vs2022) {

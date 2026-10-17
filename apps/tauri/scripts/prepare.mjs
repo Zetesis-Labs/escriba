@@ -1,4 +1,4 @@
-import { cp, mkdir, rm, readFile, writeFile } from "node:fs/promises";
+import { access, cp, mkdir, rm, readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import { prepareSurrealdb } from "./prepare-surrealdb.mjs";
@@ -20,6 +20,9 @@ for (const [source, target] of [
 ]) {
   await rm(target, { recursive: true, force: true });
   await cp(source, target, { recursive: true, dereference: true });
+}
+for (const file of ["lib.d.ts", process.platform === "win32" ? "tsc.exe" : "tsc"]) {
+  await access(join(vendor, "typescript/lib", file));
 }
 for (const dependency of ["@types/bun", "bun-types", "@types/node", "undici-types"]) {
   const target = join(vendor, dependency);

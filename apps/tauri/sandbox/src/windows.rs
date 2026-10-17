@@ -162,7 +162,7 @@ fn quoted(value: &OsStr) -> String {
     out
 }
 
-fn working_directory(path: &Path) -> PathBuf {
+fn compatible_path(path: &Path) -> PathBuf {
     match path.to_str() {
         Some(value) if value.starts_with(r"\\?\UNC\") => {
             PathBuf::from(format!(r"\\{}", &value[8..]))
@@ -224,6 +224,7 @@ pub fn run(request: &Request) -> Result<u32, String> {
         .executable
         .canonicalize()
         .map_err(|e| e.to_string())?;
+    let executable = compatible_path(&executable);
     let project = request
         .project
         .as_ref()
@@ -343,7 +344,7 @@ pub fn run(request: &Request) -> Result<u32, String> {
         line.push_str(&quoted(OsStr::new(argument)));
     }
     let mut line = wide(line);
-    let cwd = wide(working_directory(
+    let cwd = wide(compatible_path(
         project
             .as_deref()
             .unwrap_or_else(|| Path::new("C:\\Windows\\System32")),
@@ -397,13 +398,13 @@ mod tests {
     }
 
     #[test]
-    fn el_directorio_de_trabajo_es_compatible_con_herramientas_nativas() {
+    fn las_rutas_son_compatibles_con_herramientas_nativas() {
         assert_eq!(
-            working_directory(Path::new(r"\\?\C:\proyecto ñ")),
+            compatible_path(Path::new(r"\\?\C:\proyecto ñ")),
             Path::new(r"C:\proyecto ñ")
         );
         assert_eq!(
-            working_directory(Path::new(r"\\?\UNC\equipo\proyecto")),
+            compatible_path(Path::new(r"\\?\UNC\equipo\proyecto")),
             Path::new(r"\\equipo\proyecto")
         );
     }

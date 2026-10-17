@@ -21,6 +21,7 @@ runs:
         components: clippy, rustfmt
     - uses: Swatinem/rust-cache@v2
       with:
+        cache-on-failure: true
         workspaces: |
           apps/tauri/native-host
           apps/tauri/sandbox
