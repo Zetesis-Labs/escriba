@@ -26,7 +26,10 @@ pub fn open_regular(path: &Path) -> std::io::Result<File> {
         }
     }
     if !metadata.is_file() {
-        return Err(std::io::Error::other("No es un archivo normal"));
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "No es un archivo normal",
+        ));
     }
     Ok(file)
 }

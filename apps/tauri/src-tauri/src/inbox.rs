@@ -5,8 +5,11 @@ use std::{
 };
 
 pub fn copy_file(source: &Path, destination: &Path) -> Result<(), String> {
-    let mut input = crate::file_security::open_regular(source)
-        .map_err(|_| "No se pudo leer el audio elegido")?;
+    let mut input =
+        crate::file_security::open_regular(source).map_err(|error| match error.kind() {
+            io::ErrorKind::InvalidInput => "El audio elegido no es un archivo normal",
+            _ => "No se pudo leer el audio elegido",
+        })?;
     let metadata = input
         .metadata()
         .map_err(|_| "No se pudo leer el audio elegido")?;
@@ -114,6 +117,13 @@ mod tests {
         std::os::unix::fs::symlink(&original, &link).unwrap();
         assert!(receive(temp.path(), &link).is_err());
         assert!(receive(temp.path(), &temp.path().join("no-existe.wav")).is_err());
+        let fifo = temp.path().join("tuberia");
+        let path = std::ffi::CString::new(fifo.as_os_str().as_encoded_bytes()).unwrap();
+        assert_eq!(unsafe { libc::mkfifo(path.as_ptr(), 0o600) }, 0);
+        assert_eq!(
+            receive(temp.path(), &fifo).unwrap_err(),
+            "El audio elegido no es un archivo normal"
+        );
         assert_eq!(fs::read_dir(temp.path().join("inbox")).unwrap().count(), 1);
     }
 
