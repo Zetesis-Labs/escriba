@@ -2,8 +2,8 @@ import { afterEach, test } from "vitest";
 import assert from "node:assert/strict";
 import { mkdtemp, mkdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, toNamespacedPath } from "node:path";
-import { projectCanonicalPath } from "../../runtime-host/project-path";
+import { join, resolve, toNamespacedPath } from "node:path";
+import { metafilePath, projectCanonicalPath } from "../../runtime-host/project-path";
 
 const folders: string[] = [];
 afterEach(async () => {
@@ -17,6 +17,12 @@ async function folder() {
 }
 
 const denied = async (): Promise<string> => { throw Object.assign(Error("realpath denegado"), { code: "EPERM" }); };
+
+test.runIf(process.platform === "win32")("interpreta entradas de Bun en otra unidad sin anteponer la unidad actual", () => {
+  assert.equal(metafilePath("../../../../D:/app/vendor/zod/index.js"), "D:\\app\\vendor\\zod\\index.js");
+  assert.equal(metafilePath("E:/proyecto/src/receta.ts"), "E:\\proyecto\\src\\receta.ts");
+  assert.equal(metafilePath("../modulo.ts"), resolve("../modulo.ts"));
+});
 
 test.runIf(process.platform === "win32")("resuelve rutas dentro del proyecto cuando AppContainer deniega realpath", async () => {
   const root = await folder();

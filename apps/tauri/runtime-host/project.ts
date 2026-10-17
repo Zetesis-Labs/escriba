@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { isBuiltin } from "node:module";
 import { lstat, mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { filesystemPath, projectCanonicalPath } from "./project-path";
+import { filesystemPath, metafilePath, projectCanonicalPath } from "./project-path";
 
 type BuildResult = {
   success: boolean;
@@ -164,7 +164,7 @@ async function bundle(
     if (info.imports.some((item) => item.external && !isBuiltin(item.path)))
       throw Error(`El paquete ${entry} importa una dependencia externa`);
     if (isBuiltin(input)) continue;
-    const path = resolve(input);
+    const path = metafilePath(input);
     if (path === wrapper) continue;
     const real = await canonicalPath(path);
     if (!within(real, root) && !vendor.allowed.some((directory) => within(real, directory)))

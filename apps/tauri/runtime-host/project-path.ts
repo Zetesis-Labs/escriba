@@ -7,6 +7,11 @@ export function filesystemPath(path: string) {
   return /^\\\\\?\\[a-z]:\\/i.test(path) ? path.slice(4) : path;
 }
 
+export function metafilePath(input: string) {
+  const otherDrive = process.platform === "win32" && /^(?:\.\.\/)*([a-z]:\/.*)$/i.exec(input);
+  return resolve(otherDrive ? otherDrive[1] : input);
+}
+
 export function projectCanonicalPath(roots: string[], native: (path: string) => Promise<string> = realpath) {
   const anchors = roots.map((root) => resolve(filesystemPath(root))).sort((a, b) => b.length - a.length);
   async function confined(path: string, links = 0): Promise<string> {
