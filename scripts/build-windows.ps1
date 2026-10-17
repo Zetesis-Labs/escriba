@@ -58,6 +58,13 @@ try {
         Invoke-Checked npm.cmd @('ci', '--ignore-scripts', '--prefix', 'apps/tauri/runtime-host/toolchain')
     }
     Invoke-Checked npm.cmd @('run', 'build', '--prefix', 'packages/conectores')
+    $sherpaCache = Join-Path $app 'native-host/target/sherpa-onnx-prebuilt'
+    $sherpaImport = Get-ChildItem -LiteralPath $sherpaCache -Filter 'sherpa-onnx-c-api.lib' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+    $sherpaRuntime = Join-Path $app "native-host/target/$configuration"
+    if (!$sherpaImport -or !(Test-Path -LiteralPath (Join-Path $sherpaRuntime 'sherpa-onnx-c-api.dll')) -or !(Test-Path -LiteralPath (Join-Path $sherpaRuntime 'onnxruntime.dll'))) {
+        Write-Output 'Restaurar las bibliotecas nativas de sherpa-onnx.'
+        Invoke-Checked cargo (@('clean', '--manifest-path', 'apps/tauri/native-host/Cargo.toml', '-p', 'sherpa-onnx-sys') + $cargoArgs)
+    }
     $features = if ($Cuda) { @('--features', 'cuda') } else { @() }
     Invoke-Checked cargo (@('build', '--locked', '--manifest-path', 'apps/tauri/native-host/Cargo.toml') + $cargoArgs + $features)
     Invoke-Checked cargo (@('build', '--locked', '--manifest-path', 'apps/tauri/sandbox/Cargo.toml', '--bin', 'escriba-sandbox') + $cargoArgs)
