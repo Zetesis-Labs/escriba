@@ -1,0 +1,2 @@
+[profile.release.package.escriba-tauri]
+codegen-units = 16

@@ -43,7 +43,15 @@ impl Host {
         if let Some(data) = &data {
             command.env("XDG_DATA_HOME", data.path());
         }
+        #[cfg(windows)]
+        if let Some(data) = &data {
+            command.env("LOCALAPPDATA", data.path());
+        }
         for (key, value) in env {
+            #[cfg(windows)]
+            if *key == "XDG_DATA_HOME" {
+                command.env("LOCALAPPDATA", value);
+            }
             command.env(key, value);
         }
         let mut child = command
@@ -123,4 +131,58 @@ pub fn wait(milliseconds: u64) {
 
 pub fn seconds(value: &Value) -> f64 {
     value.as_f64().unwrap()
+}
+
+#[cfg(windows)]
+pub fn synthesize(folder: &Path, name: &str, second_voice: bool, text: &str) -> PathBuf {
+    use std::os::windows::process::CommandExt;
+    let raw = folder.join(format!("{name}.pcm"));
+    let script = r#"Add-Type -AssemblyName System.Speech
+$s = New-Object System.Speech.Synthesis.SpeechSynthesizer
+$s.SelectVoice($env:ESCRIBA_TEST_VOICE)
+$stream = [System.IO.File]::Create($env:ESCRIBA_TEST_OUTPUT)
+$format = New-Object System.Speech.AudioFormat.SpeechAudioFormatInfo(22050, [System.Speech.AudioFormat.AudioBitsPerSample]::Sixteen, [System.Speech.AudioFormat.AudioChannel]::Mono)
+$s.SetOutputToAudioStream($stream, $format)
+$s.Speak($env:ESCRIBA_TEST_TEXT)
+$s.Dispose()
+$stream.Dispose()
+"#;
+    let output = Command::new("powershell.exe")
+        .args(["-NoProfile", "-NonInteractive", "-Command", script])
+        .env(
+            "ESCRIBA_TEST_VOICE",
+            if second_voice {
+                "Microsoft Zira Desktop"
+            } else {
+                "Microsoft Helena Desktop"
+            },
+        )
+        .env("ESCRIBA_TEST_OUTPUT", &raw)
+        .env("ESCRIBA_TEST_TEXT", text)
+        .creation_flags(0x08000000)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let data = std::fs::read(&raw).unwrap();
+    let mut wav = Vec::new();
+    wav.extend_from_slice(b"RIFF");
+    wav.extend_from_slice(&(36 + data.len() as u32).to_le_bytes());
+    wav.extend_from_slice(b"WAVEfmt ");
+    wav.extend_from_slice(&16u32.to_le_bytes());
+    wav.extend_from_slice(&1u16.to_le_bytes());
+    wav.extend_from_slice(&1u16.to_le_bytes());
+    wav.extend_from_slice(&22050u32.to_le_bytes());
+    wav.extend_from_slice(&44100u32.to_le_bytes());
+    wav.extend_from_slice(&2u16.to_le_bytes());
+    wav.extend_from_slice(&16u16.to_le_bytes());
+    wav.extend_from_slice(b"data");
+    wav.extend_from_slice(&(data.len() as u32).to_le_bytes());
+    wav.extend(data);
+    let path = folder.join(format!("{name}.wav"));
+    std::fs::write(&path, wav).unwrap();
+    path
 }

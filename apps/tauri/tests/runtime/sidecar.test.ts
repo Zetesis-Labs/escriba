@@ -1,3 +1,4 @@
+import { once } from "node:events";
 import { beforeAll, afterAll, test } from "vitest";
 import assert from "node:assert/strict";
 import {
@@ -20,13 +21,14 @@ import type { Recipe, Recording, Snapshot } from "../../src/types";
 // macOS isolates with sandbox-exec and Linux with escriba-sandbox, as in the app.
 const macos = process.platform === "darwin";
 const linux = process.platform === "linux";
-const isolation = test.runIf(macos || linux);
+const windows = process.platform === "win32";
+const isolation = test.runIf(macos || linux || windows);
 let directory = "";
 let executable = "";
 let sandbox = "";
 beforeAll(async () => {
   directory = await mkdtemp(join(tmpdir(), "escriba-runtime-"));
-  executable = join(directory, "runtime");
+  executable = join(directory, process.platform === "win32" ? "runtime.exe" : "runtime");
   const build = fileURLToPath(
     new URL("../../runtime-host/build.mjs", import.meta.url),
   );
@@ -34,25 +36,25 @@ beforeAll(async () => {
     encoding: "utf8",
   });
   assert.equal(result.status, 0, result.stderr);
-  if (linux) {
+  if (linux || windows) {
     const manifest = fileURLToPath(new URL("../../sandbox/Cargo.toml", import.meta.url));
-    const cargo = spawnSync("cargo", ["build", "--quiet", "--manifest-path", manifest], { encoding: "utf8" });
+    const cargo = spawnSync("cargo", ["build", "--release", "--quiet", "--bin", "escriba-sandbox", "--manifest-path", manifest], { encoding: "utf8" });
     assert.equal(cargo.status, 0, cargo.stderr);
-    sandbox = fileURLToPath(new URL("../../sandbox/target/debug/escriba-sandbox", import.meta.url));
+    sandbox = fileURLToPath(new URL(`../../sandbox/target/release/escriba-sandbox${windows ? ".exe" : ""}`, import.meta.url));
   }
 }, 120000);
 afterAll(async () => {
-  await rm(directory, { recursive: true, force: true });
+  await rm(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
 });
 function launch(data: string, worker = false) {
   const path = realpathSync(executable);
-  if (!worker) return spawn(path, [], { env: controllerEnvironment(data), cwd: "/" });
-  if (linux) return spawn(sandbox, ["worker", "--executable", path, "--", "--worker"], { env: {}, cwd: "/" });
-  if (!macos) return spawn(path, ["--worker"], { env: {}, cwd: "/" });
+  if (!worker) return spawn(path, [], { env: controllerEnvironment(data), cwd: tmpdir() });
+  if (linux || windows) return spawn(sandbox, ["worker", "--executable", path, "--", "--worker"], { env: windows ? { SystemRoot: process.env.SystemRoot, LOCALAPPDATA: process.env.LOCALAPPDATA } : {}, cwd: tmpdir() });
+  if (!macos) return spawn(path, ["--worker"], { env: windows ? { SystemRoot: process.env.SystemRoot, LOCALAPPDATA: process.env.LOCALAPPDATA } : {}, cwd: tmpdir() });
   const profile = readFileSync(new URL("../../runtime-host/sandbox.sb", import.meta.url), "utf8");
   return spawn("/usr/bin/sandbox-exec", [
     "-p", profile, "-D", `EXECUTABLE=${path}`, path, "--worker",
-  ], { env: {}, cwd: "/" });
+  ], { env: windows ? { SystemRoot: process.env.SystemRoot, LOCALAPPDATA: process.env.LOCALAPPDATA } : {}, cwd: tmpdir() });
 }
 function localHttp(handle: (request: IncomingMessage, body: string) => { status: number; body: string }) {
   const seen: { method: string; url: string; headers: IncomingHttpHeaders; body: string }[] = [];
@@ -256,10 +258,15 @@ function supervisor(options: Options = {}) {
       await host.recipe(recipe);
       return host.importAudio();
     },
-    close() {
-      for (const worker of workers.values()) worker.kill("SIGKILL");
+    async close() {
+      const stopping = [...workers.values(), child].map(async (process) => {
+        if (process.exitCode !== null || process.signalCode !== null) return;
+        const closed = once(process, "close");
+        process.kill("SIGKILL");
+        await closed;
+      });
       workers.clear();
-      child.kill("SIGKILL");
+      await Promise.all(stopping);
       frames.close();
     },
   };
@@ -312,7 +319,7 @@ test("un dist externo aporta formularios, acciones y publicación en Bun aislado
     assert.equal(publication?.program, program);
     assert.equal(service.seen.filter((request) => request.method === "POST").length, 1);
     assert.ok(service.seen.every((request) => request.headers["x-api-key"] === "token-sintético"));
-  } finally { host.close(); service.close(); }
+  } finally { await host.close(); service.close(); }
 }, 30000);
 test("el SDK oficial de Notion consulta y escribe desde una receta en Bun aislado", async () => {
   const service = await localHttp(() => ({ status: 200, body: '{"object":"list","results":[],"has_more":false,"next_cursor":null}' }));
@@ -343,7 +350,7 @@ test("el SDK oficial de Notion consulta y escribe desde una receta en Bun aislad
     const detail = await host.detail(id);
     assert.equal(detail.accountEffectPending, true);
     assert.equal(detail.status, "done");
-  } finally { host.close(); service.close(); }
+  } finally { await host.close(); service.close(); }
 });
 test("notificaciones consultan solo el contexto de configuración y devuelven los problemas", async () => {
   const host = supervisor();
@@ -361,7 +368,7 @@ test("notificaciones consultan solo el contexto de configuración y devuelven lo
     assert.deepEqual(host.methods.filter((method) => method !== "shell.native"), []);
     assert.deepEqual(host.nativeMethods, ["status"]);
   } finally {
-    host.close();
+    await host.close();
   }
 });
 
@@ -379,7 +386,7 @@ test("el controlador abre la biblioteca, rechaza orígenes ajenos y devuelve la 
     assert.ok(host.events.some((event) => event.event === "jobs"));
     assert.ok(host.events.some((event) => event.event === "status"));
   } finally {
-    host.close();
+    await host.close();
   }
 });
 test("sidecar compilado preserva transcripción entre reinicios y las capacidades llevan el id del trabajo", async () => {
@@ -394,7 +401,7 @@ test("sidecar compilado preserva transcripción entre reinicios y las capacidade
     const jobTasks = host.calls.filter((call) => call.native === "transcribe").map((call) => call.taskId);
     assert.ok(jobTasks.length > 0 && jobTasks.every((task) => typeof task === "string" && task === jobTasks[0]), JSON.stringify(jobTasks));
   } finally {
-    host.close();
+    await host.close();
   }
   host = supervisor({ data: host.data });
   try {
@@ -403,7 +410,7 @@ test("sidecar compilado preserva transcripción entre reinicios y las capacidade
     assert.equal((await versions(host, id)).length, 1);
     assert.ok(!host.nativeMethods.includes("transcribe"));
   } finally {
-    host.close();
+    await host.close();
   }
 });
 
@@ -417,7 +424,7 @@ test("el sidecar aplica los valores puntuales sin cambiar la receta guardada", a
     assert.deepEqual((await versions(host, id)).map((version) => version.inputs?.language), ["en", "es"]);
     assert.deepEqual((await host.library()).recipes[0]?.values, { idioma: "en", resumir: false });
   } finally {
-    host.close();
+    await host.close();
   }
 });
 
@@ -432,7 +439,7 @@ test("cancelación mata receta CPU y sidecar sigue disponible", async () => {
     await host.recipe(FORM_RECIPE);
     await host.run("getRecipeSchema", { recipeId: "default" });
   } finally {
-    host.close();
+    await host.close();
   }
 });
 test("el ejecutable usa Bun y conserva el recorrido de transcribir y guardar", async () => {
@@ -448,7 +455,7 @@ test("el ejecutable usa Bun y conserva el recorrido de transcribir y guardar", a
     assert.equal(detail.versions.length, 1);
     assert.equal(detail.status, "done");
   } finally {
-    host.close();
+    await host.close();
   }
 });
 
@@ -467,7 +474,7 @@ test("las recetas pueden comparar texto con Intl dentro del sandbox", async () =
     await host.process(id);
     assert.equal((await versions(host, id)).length, 1);
   } finally {
-    host.close();
+    await host.close();
   }
 });
 
@@ -520,7 +527,7 @@ test("una receta usa el SDK SurrealDB dentro del worker Bun aislado", async () =
     assert.equal(detail.versions.length, 1);
     assert.equal(detail.accountEffectPending, true);
   } finally {
-    host.close();
+    await host.close();
   }
 });
 
@@ -552,7 +559,7 @@ isolation("el sandbox impide leer y escribir archivos y mantiene separado el can
     assert.ok(!host.methods.includes("credential_save"));
     await host.run("getRecipeSchema", { recipeId: "default" });
   } finally {
-    host.close();
+    await host.close();
   }
 });
 
@@ -581,7 +588,7 @@ isolation("el sandbox rechaza conexiones a un servidor local que sí está escuc
     await host.process(id);
     assert.equal(connections, 1);
   } finally {
-    host.close();
+    await host.close();
     await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
   }
 });
@@ -600,7 +607,7 @@ test("cancelar inferencia sin respuesta libera cola para la siguiente grabación
     await host.process(id, { force: true });
     assert.equal((await versions(host, id)).length, 1);
   } finally {
-    host.close();
+    await host.close();
   }
 });
 isolation("el sandbox impide crear procesos y relanzar el propio ejecutable", async () => {
@@ -612,11 +619,12 @@ isolation("el sandbox impide crear procesos y relanzar el propio ejecutable", as
       bundle: `var __recipe={async flujo(audio,api){
         const cp=await import('node:child_process');
         const p=await import('node:process');
-        for(const path of ['/usr/bin/true',p.execPath]){
+        const deniedCodes=${JSON.stringify(windows ? ['EPERM','EACCES','EUNKNOWN'] : ['EPERM','EACCES'])};
+        for(const path of ${windows ? '[p.execPath]' : "['/usr/bin/true',p.execPath]"}){
           const result=cp.spawnSync(path,['--worker'],{timeout:100});
-          if(!['EPERM','EACCES'].includes(result.error?.code))throw Error('subproceso permitido: '+result.error?.code);
+          if(!deniedCodes.includes(result.error?.code))throw Error('subproceso permitido: '+result.error?.code);
           let denied=false;
-          try{Bun.spawnSync([path,'--worker'],{timeout:100})}catch(error){denied=['EPERM','EACCES'].includes(error.code)}
+          try{Bun.spawnSync([path,'--worker'],{timeout:100})}catch(error){denied=deniedCodes.includes(error.code)}
           if(!denied)throw Error('subproceso Bun permitido');
         }
         await(await api.transcribir(audio)).guardar();
@@ -625,7 +633,7 @@ isolation("el sandbox impide crear procesos y relanzar el propio ejecutable", as
     await host.process(id);
     assert.equal((await versions(host, id)).length, 1);
   } finally {
-    host.close();
+    await host.close();
   }
 });
 
@@ -647,6 +655,6 @@ test("las dependencias empaquetadas usan módulos nativos de Bun sin acceder al 
     await host.process(id);
     assert.equal((await versions(host, id)).length, 1);
   } finally {
-    host.close();
+    await host.close();
   }
 });

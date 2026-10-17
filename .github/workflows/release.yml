@@ -60,3 +60,27 @@ jobs:
           sha256sum "${files[@]}" | sed 's|  .*/|  |' > SHA256SUMS
           cat SHA256SUMS
           gh release upload "$TAG" "${files[@]}" SHA256SUMS --repo "$GITHUB_REPOSITORY"
+
+  windows:
+    name: Windows x64 · instalador de la release
+    needs: release-please
+    if: needs.release-please.outputs.created == 'true'
+    runs-on: windows-2022
+    env:
+      TAG: ${{ needs.release-please.outputs.tag }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.release-please.outputs.tag }}
+      - uses: ./.github/actions/windows-paquetes
+      - name: Subir el instalador y sus hashes
+        shell: pwsh
+        run: |
+          $files = @(Get-ChildItem apps/tauri/src-tauri/target/release/bundle/nsis/*-setup.exe)
+          if ($files.Count -eq 0) { throw 'Falta el instalador de Windows' }
+          $checksums = $files | Get-FileHash -Algorithm SHA256 | ForEach-Object { "$($_.Hash.ToLowerInvariant())  $(Split-Path -Leaf $_.Path)" }
+          $checksums | Set-Content SHA256SUMS-Windows -Encoding utf8NoBOM
+          $paths = @($files.FullName) + @('SHA256SUMS-Windows')
+          gh release upload $env:TAG @paths --repo $env:GITHUB_REPOSITORY
+          if ($LASTEXITCODE -ne 0) { throw 'No se pudo adjuntar la distribución de Windows' }

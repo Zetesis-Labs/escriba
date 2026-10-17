@@ -22,5 +22,17 @@
     "system": "macos",
     "systemSettings": true,
     "voiceMemos": true
+  },
+  "windows": {
+    "bundledLlm": false,
+    "defaultWhisperModel": "large-v3-turbo",
+    "drawsWindowControls": false,
+    "floatingPanel": false,
+    "folderAuthorization": false,
+    "menuBar": false,
+    "recipesIsolated": false,
+    "system": "windows",
+    "systemSettings": true,
+    "voiceMemos": false
   }
 }

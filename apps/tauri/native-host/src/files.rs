@@ -1,6 +1,19 @@
 use crate::protocol::{required_string, Failure, Params};
 use serde_json::{json, Value};
-use std::{fs, io, os::unix::fs::MetadataExt, path::Path, time::Duration};
+#[cfg(unix)]
+use std::os::unix::fs::MetadataExt;
+use std::{fs, io, path::Path, time::Duration};
+
+fn blocks(metadata: &fs::Metadata) -> u64 {
+    #[cfg(unix)]
+    {
+        metadata.blocks()
+    }
+    #[cfg(windows)]
+    {
+        metadata.len().div_ceil(512)
+    }
+}
 
 pub fn status(params: &Params) -> Result<Value, Failure> {
     let path = required_string(params, "path")?;
@@ -24,7 +37,7 @@ pub fn status(params: &Params) -> Result<Value, Failure> {
     let flags = crate::platform::file_flags(&metadata);
     Ok(json!({
         "size": metadata.len(),
-        "blocks": metadata.blocks(),
+        "blocks": blocks(&metadata),
         "flags": flags,
         "dataless": crate::platform::dataless(flags),
         "modifiedAt": modified.to_rfc3339_opts(chrono::SecondsFormat::Secs, true),

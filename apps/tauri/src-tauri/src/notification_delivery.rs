@@ -132,3 +132,21 @@ mod linux {
 
 #[cfg(target_os = "linux")]
 pub use linux::{request_authorization, send};
+
+#[cfg(windows)]
+pub fn request_authorization() -> Result<(), String> {
+    Ok(())
+}
+#[cfg(windows)]
+pub fn send(notification: &Notification) -> Result<(), String> {
+    use winrt_notification::{Sound, Toast};
+    let toast = Toast::new("dev.zetesis.escriba.tauri")
+        .title(&notification.title)
+        .text1(&notification.body)
+        .sound(if notification.sound {
+            Some(Sound::Default)
+        } else {
+            None
+        });
+    toast.show().map_err(|error| error.to_string())
+}

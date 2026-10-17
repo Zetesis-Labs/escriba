@@ -27,7 +27,7 @@ export async function workspace() {
     },
     async dispose() {
       for (const store of opened.splice(0)) await store.close().catch(() => undefined);
-      await rm(dir, { recursive: true, force: true });
+      await rm(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
     },
   };
 }

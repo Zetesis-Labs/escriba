@@ -1,4 +1,4 @@
-//! Linux: whisper.cpp, no bundled LLM, Opus in Ogg and no on-demand files.
+//! Local inference shared by Linux and Windows, with per-system model storage.
 
 mod download;
 mod opus_ogg;
@@ -183,12 +183,16 @@ const MODELS: [(&str, u64); 6] = [
     ("medium", 1_530_000_000),
     ("large-v3", 3_100_000_000),
 ];
-const LLM_UNAVAILABLE: &str =
-    "Escriba no incluye un LLM en Linux: añade uno en LLMs y elígelo en la receta";
+const LLM_UNAVAILABLE: &str = "Escriba no incluye un LLM: añade uno en LLMs y elígelo en la receta";
 
 pub fn models_root() -> Option<PathBuf> {
     models_root_from(
-        std::env::var_os("XDG_DATA_HOME").as_deref(),
+        std::env::var_os(if cfg!(windows) {
+            "LOCALAPPDATA"
+        } else {
+            "XDG_DATA_HOME"
+        })
+        .as_deref(),
         std::env::var_os("HOME").as_deref(),
     )
 }
@@ -206,7 +210,7 @@ fn models_root_from(data_home: Option<&OsStr>, home: Option<&OsStr>) -> Option<P
     Some(data.join("escriba/models"))
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "linux"))]
 mod tests {
     use super::*;
 

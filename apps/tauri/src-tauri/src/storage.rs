@@ -4,6 +4,7 @@ use surrealdb::engine::local::{Db, RocksDb};
 use surrealdb::opt::{auth::Root, Config};
 use surrealdb::Surreal;
 
+#[cfg(test)]
 fn error(e: impl std::fmt::Display) -> String {
     e.to_string()
 }
@@ -25,9 +26,7 @@ pub(crate) async fn open(
 }
 
 fn protect(path: &Path) -> Result<(), String> {
-    use std::os::unix::fs::PermissionsExt;
-    std::fs::create_dir_all(path).map_err(error)?;
-    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700)).map_err(error)
+    crate::file_security::protect_directory(path)
 }
 
 #[cfg(not(test))]
@@ -74,7 +73,7 @@ async fn connect(path: &Path, config: Config, root: Option<&Root>) -> Result<Sur
     }
 }
 
-#[cfg(all(test, target_os = "macos"))]
+#[cfg(all(test, any(target_os = "macos", target_os = "windows")))]
 pub(crate) async fn released(path: &Path) -> Result<(), String> {
     use fs2::FileExt;
     let lock = path.join("LOCK");

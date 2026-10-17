@@ -107,12 +107,15 @@ fn estado_de_archivo_usa_lstat() {
         chrono::DateTime::parse_from_rfc3339(modified).is_ok(),
         "{modified}"
     );
-    let link = folder.path().join("atajo.m4a");
-    std::os::unix::fs::symlink(&file, &link).unwrap();
-    assert_eq!(
-        host.error("fileStatus", json!({"path": link}))["code"],
-        "invalid_audio"
-    );
+    #[cfg(unix)]
+    {
+        let link = folder.path().join("atajo.m4a");
+        std::os::unix::fs::symlink(&file, &link).unwrap();
+        assert_eq!(
+            host.error("fileStatus", json!({"path": link}))["code"],
+            "invalid_audio"
+        );
+    }
     assert_eq!(
         host.error("fileStatus", json!({"path": folder.path()}))["code"],
         "invalid_audio"

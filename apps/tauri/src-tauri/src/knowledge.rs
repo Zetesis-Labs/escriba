@@ -130,7 +130,6 @@ fn database(id: &str) -> String {
 
 impl Knowledge {
     pub async fn open(path: &Path) -> Result<Self, String> {
-        use std::os::unix::fs::OpenOptionsExt;
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).map_err(error)?;
         }
@@ -140,12 +139,8 @@ impl Knowledge {
             Ok(key) => key,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
                 let key = Uuid::new_v4().to_string();
-                let mut file = std::fs::OpenOptions::new()
-                    .write(true)
-                    .create_new(true)
-                    .mode(0o600)
-                    .open(&key_path)
-                    .map_err(error)?;
+                let mut file =
+                    crate::file_security::create_private(&key_path, false).map_err(error)?;
                 file.write_all(key.as_bytes()).map_err(error)?;
                 file.sync_all().map_err(error)?;
                 key

@@ -1,5 +1,6 @@
 import { test } from "vitest";
 import assert from "node:assert/strict";
+import { devNull } from "node:os";
 import { createServer, type Server } from "node:net";
 import { RuntimeError } from "../../src/runtime/contracts";
 import { endpoint, models, privateHost, readResponse, silentWav, transcribe } from "../../src/runtime/remote";
@@ -70,12 +71,12 @@ test("los modelos llegan ordenados y sin repetir, con el secreto como Bearer y n
   const resolver = { url: "https://api.example.com/v1", model: "m" };
   assert.deepEqual(await models(resolver, "secreta-xyz", transport), ["a", "b"]);
   assert.equal(seen[0]?.headers.get("authorization"), "Bearer secreta-xyz");
-  await assert.rejects(transcribe(resolver, "secreta-xyz", "/dev/null", {}, transport), (error: unknown) => {
+  await assert.rejects(transcribe(resolver, "secreta-xyz", devNull, {}, transport), (error: unknown) => {
     assert.ok(error instanceof RuntimeError);
     assert.equal(error.code, "backend_unavailable");
     assert.ok(!error.message.includes("secreta-xyz"), error.message);
     assert.ok(error.message.includes("[credencial]"));
     return true;
   });
-  await assert.rejects(transcribe(resolver, undefined, "/dev/null", { diarize: true }, transport), /Whisper local/);
+  await assert.rejects(transcribe(resolver, undefined, devNull, { diarize: true }, transport), /Whisper local/);
 });

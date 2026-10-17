@@ -67,7 +67,7 @@ impl Host {
             "audioInfo" => crate::audio::info(params),
             "combineAudio" => Err(Failure::new(
                 "unavailable",
-                "combinar audio no está disponible en Linux todavía",
+                "combinar audio no está disponible en este sistema todavía",
             )),
             "fileStatus" => crate::files::status(params),
             "materialize" => crate::files::materialize(params),

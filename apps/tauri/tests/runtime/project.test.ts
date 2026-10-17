@@ -5,7 +5,7 @@ import { createRequire } from "node:module";
 import { cp, mkdtemp, mkdir, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { runInNewContext } from "node:vm";
 
 const bun = process.env.ESCRIBA_BUN || "bun";
@@ -31,8 +31,8 @@ async function project() {
 function build(root: string) {
   return spawnSync(
     bun,
-    ["--no-install", "--no-env-file", "--config=/dev/null", "-e",
-      `import { buildProject } from ${JSON.stringify(builder)}; await buildProject(process.argv[1], process.argv[2]);`,
+    ["--no-install", "--no-env-file", ...(process.platform === "win32" ? [] : ["--config=/dev/null"]), "-e",
+      `import { buildProject } from ${JSON.stringify(pathToFileURL(builder).href)}; await buildProject(process.argv[1], process.argv[2]);`,
       root, vendor],
     { cwd: "/", encoding: "utf8", env: { ...process.env, BUN_BE_BUN: "1", TMPDIR: root } },
   );
@@ -127,7 +127,7 @@ test("usa el código del SDK instalado aunque un tsconfig heredado apunte a sus 
   await mkdir(join(root, "node_modules/@escriba"), { recursive: true });
   const sdk = fileURLToPath(new URL("../../src-tauri/vendor/node_modules/@escriba/conectores", import.meta.url));
   await cp(sdk, join(root, ".escriba/deps/conectores"), { recursive: true, dereference: true });
-  await symlink(join(root, ".escriba/deps/conectores"), join(root, "node_modules/@escriba/conectores"));
+  await symlink(join(root, ".escriba/deps/conectores"), join(root, "node_modules/@escriba/conectores"), process.platform === "win32" ? "junction" : "dir");
   await writeFile(join(root, "tsconfig.json"), JSON.stringify({ compilerOptions: {
     paths: { "@escriba/conectores": ["./.escriba/deps/conectores/index.d.ts"] },
   } }));
@@ -187,7 +187,7 @@ test("rechaza IDs repetidos de carpetas nuevas y heredadas", async () => {
   await assert.rejects(readFile(join(root, "dist/escriba.json")));
 });
 
-test("rechaza fuentes enlazadas fuera del proyecto", async () => {
+test.skipIf(process.platform === "win32")("rechaza fuentes enlazadas fuera del proyecto", async () => {
   const root = await project();
   const outside = await project();
   await mkdir(join(root, "src/recetas/fuera"), { recursive: true });

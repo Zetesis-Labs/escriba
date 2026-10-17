@@ -2,9 +2,10 @@
 
 <p align="center"><img src="Resources/AppIcon.png" width="160" alt="Escriba"></p>
 
-Biblioteca de notas de voz para macOS 26: graba o importa audio, transcribe con
-WhisperKit, resume con Apple Intelligence y publica mediante recetas y conectores
-TypeScript. También admite resolutores compatibles con OpenAI y carpetas vigiladas
+Biblioteca de notas de voz para macOS 26, Linux y Windows 11: graba o importa
+audio, transcribe localmente y publica mediante recetas y conectores TypeScript.
+En macOS usa WhisperKit y Apple Intelligence; en Linux y Windows usa whisper.cpp
+y los resolutores LLM que configure el usuario. También admite resolutores compatibles con OpenAI y carpetas vigiladas
 de Just Press Record, Notas de Voz o cualquier colección de audio.
 
 La aplicación de escritorio utiliza **Tauri, TypeScript y Rust**, con
@@ -23,6 +24,7 @@ conservan al actualizar. La app mantiene los trabajos
 al cerrar la ventana y recupera el procesamiento interrumpido tras reiniciar.
 
 - [Aplicación, requisitos, funciones y validación](apps/tauri/README.md)
+- [Versión para Windows: motores, instalación y pruebas](docs/windows.md)
 - [Persistencia SurrealDB](docs/tauri-persistence.md)
 - [Runtime TypeScript aislado y paquetes npm](apps/tauri/runtime-host/README.md)
 - [Protocolo del adaptador Apple](docs/tauri-native-protocol.md)

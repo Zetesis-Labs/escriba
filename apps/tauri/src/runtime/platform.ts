@@ -6,7 +6,7 @@ import type { Json } from "./library/json";
 // tools without it take Rust's table for the system they run on.
 export function currentPlatform(env: NodeJS.ProcessEnv = process.env, system: NodeJS.Platform = process.platform): Platform {
   if (env.ESCRIBA_PLATFORM) return JSON.parse(env.ESCRIBA_PLATFORM) as Platform;
-  return system === "linux" ? (platforms.linux as Platform) : macOS;
+  return system === "win32" ? (platforms.windows as Platform) : system === "linux" ? (platforms.linux as Platform) : macOS;
 }
 
 export const defaultWhisperModel = (platform: Platform = currentPlatform()) => platform.defaultWhisperModel;

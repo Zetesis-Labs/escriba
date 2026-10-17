@@ -1,0 +1,29 @@
+name: Escriba Windows
+description: Construye los motores y el instalador de Windows x64
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v4
+      with:
+        node-version: '24'
+    - uses: oven-sh/setup-bun@v2
+      with:
+        bun-version-file: apps/tauri/runtime-host/bun-version
+    - uses: dtolnay/rust-toolchain@stable
+      with:
+        components: clippy, rustfmt
+    - uses: Swatinem/rust-cache@v2
+      with:
+        workspaces: |
+          apps/tauri/native-host
+          apps/tauri/sandbox
+          apps/tauri/src-tauri
+    - name: Herramientas nativas
+      shell: pwsh
+      run: |
+        choco install nasm llvm -y --no-progress
+        "$env:ProgramFiles\NASM" | Out-File $env:GITHUB_PATH -Append
+        "LIBCLANG_PATH=$env:ProgramFiles\LLVM\bin" | Out-File $env:GITHUB_ENV -Append
+    - name: Construir el instalador
+      shell: pwsh
+      run: ./scripts/build-windows.ps1

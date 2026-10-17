@@ -4,7 +4,12 @@ import { fileURLToPath } from "node:url";
 export default defineConfig({
   plugins: [react()],
   clearScreen: false,
-  server: { port: 1420, strictPort: true, host: "127.0.0.1" },
+  server: {
+    port: 1420,
+    strictPort: true,
+    host: "127.0.0.1",
+    watch: { ignored: ["**/src-tauri/**", "**/native-host/target/**", "**/sandbox/target/**", "**/runtime-host/.build/**"] },
+  },
   resolve: {
     alias: {
       "@escriba/conectores": fileURLToPath(
@@ -25,5 +30,5 @@ export default defineConfig({
     },
   },
   build: { target: "es2022" },
-  test: { include: ["tests/**/*.test.ts"], environment: "node" },
+  test: { include: ["tests/**/*.test.ts"], environment: "node", ...(process.platform === "win32" ? { testTimeout: 60000, hookTimeout: 60000, maxWorkers: 4 } : {}) },
 });

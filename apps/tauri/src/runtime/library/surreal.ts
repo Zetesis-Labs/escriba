@@ -43,7 +43,7 @@ export async function openDatabase(path: string, namespace: string, database: st
       },
     });
     try {
-      await db.connect(`rocksdb://${path}`, { namespace, database });
+      await db.connect("rocksdb://", { namespace, database });
       openPaths.add(path);
       return db;
     } catch (error) {

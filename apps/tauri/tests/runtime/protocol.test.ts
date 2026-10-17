@@ -1,3 +1,4 @@
+import { once } from "node:events";
 import { afterAll, beforeAll, test } from "vitest";
 import assert from "node:assert/strict";
 import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from "node:child_process";
@@ -12,13 +13,13 @@ let directory = "";
 let executable = "";
 beforeAll(async () => {
   directory = await mkdtemp(join(tmpdir(), "escriba-protocol-"));
-  executable = join(directory, "runtime");
+  executable = join(directory, process.platform === "win32" ? "runtime.exe" : "runtime");
   const build = fileURLToPath(new URL("../../runtime-host/build.mjs", import.meta.url));
   const result = spawnSync(process.execPath, [build, executable], { encoding: "utf8" });
   assert.equal(result.status, 0, result.stderr);
 }, 60000);
 afterAll(async () => {
-  await rm(directory, { recursive: true, force: true });
+  await rm(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
 });
 
 interface Frame extends Record<string, unknown> {
@@ -28,7 +29,7 @@ interface Frame extends Record<string, unknown> {
 function controller() {
   const child: ChildProcessWithoutNullStreams = spawn(executable, [], {
     env: controllerEnvironment(directory),
-    cwd: "/",
+    cwd: tmpdir(),
   });
   const frames: Frame[] = [];
   const waiters: ((frame: Frame) => void)[] = [];
@@ -63,8 +64,11 @@ function controller() {
       assert.equal(reply.id, id);
       return reply;
     },
-    close() {
+    async close() {
+      if (child.exitCode !== null || child.signalCode !== null) return;
+      const closed = once(child, "close");
       child.kill("SIGKILL");
+      await closed;
     },
   };
 }
@@ -79,7 +83,7 @@ test("el controlador anuncia el protocolo y responde a un comando propio", async
     assert.equal(reply.type, "result");
     assert.deepEqual(reply.value, { protocolVersion: 1, dataPath: directory });
   } finally {
-    host.close();
+    await host.close();
   }
 });
 
@@ -96,7 +100,7 @@ test("un método que no es del controlador falla nombrándolo, sin cerrar el can
     const repeated = await host.command("c3", "controller_status");
     assert.equal(repeated.type, "result");
   } finally {
-    host.close();
+    await host.close();
   }
 });
 
@@ -112,6 +116,6 @@ test("un id de comando repetido se rechaza mientras el primero sigue vivo", asyn
     const error = replies.find((reply) => reply.type === "error");
     assert.equal(error?.message, "ID de ejecución repetido");
   } finally {
-    host.close();
+    await host.close();
   }
 });

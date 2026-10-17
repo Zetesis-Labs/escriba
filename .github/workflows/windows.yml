@@ -1,0 +1,29 @@
+name: Windows
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/windows-paquetes
+      - name: Pruebas y tipos
+        shell: pwsh
+        run: |
+          ./scripts/test-windows.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Escriba-Windows-x64
+          path: apps/tauri/src-tauri/target/release/bundle/nsis/*-setup.exe

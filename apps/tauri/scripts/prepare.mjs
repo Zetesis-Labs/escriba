@@ -1,4 +1,4 @@
-import { cp, mkdir, rm } from "node:fs/promises";
+import { cp, mkdir, rm, readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import { prepareSurrealdb } from "./prepare-surrealdb.mjs";
@@ -25,6 +25,15 @@ for (const dependency of ["@types/bun", "bun-types", "@types/node", "undici-type
   const target = join(vendor, dependency);
   await rm(target, { recursive: true, force: true });
   await cp(join(app, "runtime-host/toolchain/node_modules", dependency), target, { recursive: true, dereference: true });
+  if (process.platform === "win32") {
+    const manifest = join(target, "package.json");
+    const value = JSON.parse(await readFile(manifest, "utf8"));
+    // All types live at the root; Bun on Windows fails copying their nested file dependencies.
+    for (const name of ["bun-types", "@types/node", "undici-types"]) {
+      if (value.dependencies) delete value.dependencies[name];
+    }
+    await writeFile(manifest, `${JSON.stringify(value, null, 2)}\n`);
+  }
 }
 await prepareSurrealdb(app, vendor);
 const surreal = surrealNative(process.platform, process.arch);
@@ -34,4 +43,4 @@ const triple = hostTriple(process.platform, process.arch);
 await mkdir(join(app, "src-tauri/binaries"), { recursive: true });
 
 const { buildRuntime } = await import("../runtime-host/build.mjs");
-await buildRuntime({ output: join(app, `src-tauri/binaries/escriba-runtime-${triple}`), target: triple });
+await buildRuntime({ output: join(app, `src-tauri/binaries/escriba-runtime-${triple}${process.platform === "win32" ? ".exe" : ""}`), target: triple });

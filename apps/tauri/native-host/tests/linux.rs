@@ -1,7 +1,7 @@
 //! What the Rust host does on Linux beyond the common contract of
 //! tests/contract.rs: Opus recording, whisper.cpp models and no LLM.
 
-#![cfg(target_os = "linux")]
+#![cfg(any(target_os = "linux", target_os = "windows"))]
 
 mod support;
 
@@ -353,7 +353,7 @@ fn descargar_un_modelo_informa_del_progreso_y_lo_deja_instalado() {
     );
     let downloaded = host.result("downloadModel", json!({"model": "tiny"}));
     server.join().unwrap();
-    let file = data.path().join("escriba/models/ggml-tiny.bin");
+    let file = data.path().join("escriba/models").join("ggml-tiny.bin");
     assert_eq!(downloaded["model"], "tiny");
     assert_eq!(downloaded["path"], file.to_str().unwrap());
     assert_eq!(std::fs::metadata(&file).unwrap().len(), 300_000);
@@ -506,6 +506,7 @@ fn detectar_hablantes_sin_sus_modelos_espera_como_no_disponible() {
     }
 }
 
+#[cfg(unix)]
 fn speech(folder: &Path) -> PathBuf {
     let path = folder.join("voz.wav");
     let status = Command::new("espeak-ng")
@@ -649,6 +650,7 @@ fn borrar_un_modelo_borra_solo_ese() {
 
 const VOICE_MODEL: &str = "sherpa-onnx/nemo-titanet-small";
 
+#[cfg(unix)]
 fn say(folder: &Path, name: &str, voice: &str, text: &str) -> PathBuf {
     let path = folder.join(format!("{name}.wav"));
     let status = Command::new("espeak-ng")
@@ -757,4 +759,18 @@ fn separa_dos_voces_sinteticas_y_sus_huellas_las_distinguen() {
         heard["voices"].as_array().unwrap().len()
     );
     assert!(same < other, "misma {same} otra {other}");
+}
+
+#[cfg(windows)]
+fn speech(folder: &Path) -> PathBuf {
+    support::synthesize(
+        folder,
+        "voz",
+        false,
+        "Hola, esta es una prueba de transcripción de Escriba. Mañana revisamos el diseño.",
+    )
+}
+#[cfg(windows)]
+fn say(folder: &Path, name: &str, voice: &str, text: &str) -> PathBuf {
+    support::synthesize(folder, name, voice.contains("f3"), text)
 }

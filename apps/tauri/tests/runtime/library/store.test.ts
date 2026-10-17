@@ -559,7 +559,7 @@ test("borrado pendiente ausente se da por completado al abrir", async () => {
   assert.ok(existsSync(source));
 });
 
-test("borrado pendiente no sigue enlace a original fuera de audio", async () => {
+test.skipIf(process.platform === "win32")("borrado pendiente no sigue enlace a original fuera de audio", async () => {
   const source = space.path("original.wav");
   write(source, "audio sintetico");
   let store = await space.open(space.library, { audioCleanup: false });
@@ -899,7 +899,7 @@ test("las filas de texto del esquema anterior se actualizan transaccionalmente a
   assert.equal(obj((await store.database.selectTest("SELECT payload FROM meta WHERE key = 'schema'"))[0]).payload, "2");
 });
 
-test("las carpetas privadas y el audio importado tienen permisos restringidos", async () => {
+test.skipIf(process.platform === "win32")("las carpetas privadas y el audio importado tienen permisos restringidos", async () => {
   mkdirSync(space.library);
   chmodSync(space.library, 0o755);
   const source = space.path("note.wav");

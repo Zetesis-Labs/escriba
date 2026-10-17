@@ -5,9 +5,15 @@
 //! escriba-sandbox --check
 //! escriba-sandbox <worker|tool|install> --executable PATH [--project DIR --vendor DIR] -- ARGS...
 
+#[cfg(target_os = "linux")]
+mod policy;
+#[cfg(windows)]
+#[path = "windows.rs"]
 mod policy;
 
-use std::{os::unix::process::CommandExt, path::PathBuf, process::ExitCode};
+#[cfg(unix)]
+use std::os::unix::process::CommandExt;
+use std::{path::PathBuf, process::ExitCode};
 
 fn usage() -> ExitCode {
     eprintln!(
@@ -16,6 +22,7 @@ fn usage() -> ExitCode {
     ExitCode::from(2)
 }
 
+#[cfg(unix)]
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.first().map(String::as_str) == Some("--check") {
@@ -45,6 +52,25 @@ fn main() -> ExitCode {
         request.executable.display()
     );
     ExitCode::from(1)
+}
+
+#[cfg(windows)]
+fn main() -> ExitCode {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let result = if args == ["--check"] {
+        policy::available().map(|_| 0)
+    } else if let Some(request) = parse(&args) {
+        policy::run(&request)
+    } else {
+        return usage();
+    };
+    match result {
+        Ok(code) => ExitCode::from(code.min(255) as u8),
+        Err(error) => {
+            eprintln!("escriba-sandbox: {error}");
+            ExitCode::FAILURE
+        }
+    }
 }
 
 fn parse(args: &[String]) -> Option<policy::Request> {

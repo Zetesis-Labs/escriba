@@ -1,10 +1,12 @@
 const triples = {
+  "win32-x64": "x86_64-pc-windows-msvc",
   "darwin-arm64": "aarch64-apple-darwin",
   "darwin-x64": "x86_64-apple-darwin",
   "linux-arm64": "aarch64-unknown-linux-gnu",
   "linux-x64": "x86_64-unknown-linux-gnu",
 };
 const bunTargets = {
+  "x86_64-pc-windows-msvc": "bun-windows-x64",
   "aarch64-apple-darwin": "bun-darwin-arm64",
   "x86_64-apple-darwin": "bun-darwin-x64",
   "aarch64-unknown-linux-gnu": "bun-linux-arm64",
@@ -31,6 +33,6 @@ export function bunTarget(triple) {
 // The SurrealDB binding the controller loads; Linux packages target glibc.
 export function surrealNative(platform, arch) {
   hostTriple(platform, arch);
-  const name = platform === "linux" ? `linux-${arch}-gnu` : `${platform}-${arch}`;
+  const name = platform === "linux" ? `linux-${arch}-gnu` : platform === "win32" ? `win32-${arch}-msvc` : `${platform}-${arch}`;
   return { package: `@surrealdb/node-native-${name}`, file: `surrealdb-node.${name}.node` };
 }

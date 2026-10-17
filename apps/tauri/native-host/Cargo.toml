@@ -4,6 +4,9 @@ version = "0.1.0"
 edition = "2021"
 publish = false
 
+[features]
+cuda = ["whisper-rs/cuda"]
+
 [[bin]]
 name = "EscribaNativeHost"
 path = "src/main.rs"
@@ -28,3 +31,7 @@ tempfile = "3"
 [profile.release]
 strip = "symbols"
 lto = "thin"
+
+[profile.dev.package.audiopus_sys]
+opt-level = 3
+debug = false

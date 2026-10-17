@@ -1,6 +1,6 @@
 # Escriba
 
-Biblioteca de notas de voz para macOS 26. Es un producto OSS (MIT): cada usuario
+Biblioteca de notas de voz para macOS 26, Linux y Windows 11 x64. Es un producto OSS (MIT): cada usuario
 configura sus resolutores, cuentas y carpetas desde la aplicación.
 
 ## Producto y alcance
@@ -45,7 +45,8 @@ consultas SurrealQL, ambos guardables bajo Biblioteca, están aprobados en
 La WebView muestra estado y envía acciones; los trabajos sobreviven a cerrar
 una ventana. El controlador TypeScript y cada receta usan procesos separados.
 Bun ejecuta las recetas aisladas por proceso: `sandbox-exec` en macOS y
-`escriba-sandbox` (Landlock y seccomp) en Linux, en `src-tauri/src/confinement.rs`. Tokens,
+`escriba-sandbox` (Landlock y seccomp) en Linux y AppContainer con Job Objects
+en Windows, en `src-tauri/src/confinement.rs`. Tokens,
 rutas de audio y huellas no cruzan a código de recetas. Consultar
 `apps/tauri/CONTRACT.md`, `apps/tauri/runtime-host/README.md`,
 `docs/tauri-persistence.md` y `docs/tauri-native-protocol.md` al tocar esos límites.
@@ -67,7 +68,7 @@ no se ha podido leer. Preservar la lectura de datos ya guardados al actualizar.
 - Nunca imprimir texto de notas reales en logs, salidas de comandos ni PRs. Para
   inspeccionar datos, cerrar la app, copiar `library.rocksdb` a un temporal y
   extraer sólo recuentos, estados e ids.
-- Credenciales en archivos privados 0600; el controlador las inyecta en el transporte. El
+- Credenciales en archivos privados 0600 (DACL protegida en Windows); el controlador las inyecta en el transporte. El
   usuario aporta su token de Notion, sin OAuth ni backend de credenciales.
 - Las huellas biométricas permanecen en el controlador Bun y en el Mac. La interfaz obtiene
   metadatos, nombres y reconocimientos; ni recetas, conectores ni exportaciones
@@ -144,7 +145,8 @@ no se ha podido leer. Preservar la lectura de datos ya guardados al actualizar.
 
 Compilar en macOS con el SDK de Apple; el devcontainer de ZetesisPortal no aplica
 al repositorio. Trabajo en Linux: este bloque es de macOS; seguir
-`docs/plan-linux.md`. Usar Node >=22.12 y el Bun fijado en
+`docs/plan-linux.md`. En Windows, seguir `docs/windows.md` y
+`scripts/build-windows.ps1`; Swift no se compila ni empaqueta. Usar Node >=22.12 y el Bun fijado en
 `apps/tauri/runtime-host/bun-version`, también al ejecutar las pruebas de runtime.
 
 ```bash

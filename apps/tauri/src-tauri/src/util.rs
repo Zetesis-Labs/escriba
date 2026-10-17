@@ -1,10 +1,5 @@
 use serde_json::Value;
-use std::{
-    fs::{self, File, OpenOptions},
-    io::Write,
-    os::unix::fs::OpenOptionsExt,
-    path::Path,
-};
+use std::{fs, io::Write, path::Path};
 use uuid::Uuid;
 
 pub fn id() -> String {
@@ -21,19 +16,12 @@ pub fn atomic_write(path: &Path, data: &[u8]) -> Result<(), String> {
     fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     let tmp = parent.join(format!(".escriba-{}", id()));
     let result = (|| {
-        let mut f = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(0o600)
-            .open(&tmp)
-            .map_err(|e| e.to_string())?;
+        let mut f = crate::file_security::create_private(&tmp, false).map_err(|e| e.to_string())?;
         f.write_all(data)
             .and_then(|_| f.sync_all())
             .map_err(|e| e.to_string())?;
         fs::rename(&tmp, path).map_err(|e| e.to_string())?;
-        File::open(parent)
-            .and_then(|f| f.sync_all())
-            .map_err(|e| e.to_string())
+        crate::file_security::sync_directory(parent).map_err(|e| e.to_string())
     })();
     if result.is_err() {
         let _ = fs::remove_file(tmp);

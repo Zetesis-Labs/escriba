@@ -1,3 +1,4 @@
+#![cfg(target_os = "linux")]
 //! Each profile against the real kernel, with bash as the confined program:
 //! its builtins read, write and connect without starting other processes.
 
