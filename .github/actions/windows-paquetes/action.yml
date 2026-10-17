@@ -30,6 +30,10 @@ runs:
           apps/tauri/native-host
           apps/tauri/sandbox
           apps/tauri/src-tauri
+    - uses: actions/cache@v4
+      with:
+        path: apps/tauri/native-host/target/sherpa-onnx-prebuilt
+        key: sherpa-windows-x64-${{ hashFiles('apps/tauri/native-host/Cargo.lock') }}
     - name: Herramientas nativas
       shell: pwsh
       run: |
