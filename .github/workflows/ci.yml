@@ -16,6 +16,11 @@ jobs:
     runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
+      # With the system bash 3.2, the one the release runs it with.
+      - name: Pruebas del empaquetado de macOS
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: python3 -m unittest discover -s scripts/tests -p test_macos_package.py -v
       - uses: actions/setup-node@v4
         with:
           node-version: 22
