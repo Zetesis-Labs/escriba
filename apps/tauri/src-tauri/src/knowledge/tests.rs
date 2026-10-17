@@ -982,8 +982,14 @@ async fn una_version_derivada_hereda_los_vinculos_de_su_origen_y_los_de_una_borr
         version_id: version.into(),
         recipe_id: Some("receta".into()),
     };
-    db.link("provenance", 1, "person:a", source("v1")).await.unwrap();
-    let lineage = vec![("v1".to_owned(), None), ("v2".to_owned(), Some("v1".to_owned())), ("v3".to_owned(), Some("v2".to_owned()))];
+    db.link("provenance", 1, "person:a", source("v1"))
+        .await
+        .unwrap();
+    let lineage = vec![
+        ("v1".to_owned(), None),
+        ("v2".to_owned(), Some("v1".to_owned())),
+        ("v3".to_owned(), Some("v2".to_owned())),
+    ];
     db.reconcile_sources("note", &lineage).await.unwrap();
     db.reconcile_sources("note", &lineage).await.unwrap();
     assert_eq!(
@@ -994,7 +1000,9 @@ async fn una_version_derivada_hereda_los_vinculos_de_su_origen_y_los_de_una_borr
             {"versionId": "v3", "recipeId": "receta"}
         ])]
     );
-    db.link("provenance", 1, "person:a", source("v3")).await.unwrap();
+    db.link("provenance", 1, "person:a", source("v3"))
+        .await
+        .unwrap();
     db.reconcile_sources("note", &lineage[1..]).await.unwrap();
     assert_eq!(
         sources_of(&db, "note").await,
