@@ -6,9 +6,16 @@ runs:
     - uses: actions/setup-node@v4
       with:
         node-version: '24'
+    - name: Leer la versión de Bun del runtime
+      id: bun
+      shell: pwsh
+      run: |
+        $version = (Get-Content apps/tauri/runtime-host/bun-version -Raw).Trim()
+        if (!$version) { throw 'Falta la versión fijada de Bun' }
+        "version=$version" | Out-File $env:GITHUB_OUTPUT -Append -Encoding utf8
     - uses: oven-sh/setup-bun@v2
       with:
-        bun-version-file: apps/tauri/runtime-host/bun-version
+        bun-version: ${{ steps.bun.outputs.version }}
     - uses: dtolnay/rust-toolchain@stable
       with:
         components: clippy, rustfmt
