@@ -63,6 +63,12 @@ try {
     $sherpaRuntime = Join-Path $app "native-host/target/$configuration"
     if (!$sherpaImport -or !(Test-Path -LiteralPath (Join-Path $sherpaRuntime 'sherpa-onnx-c-api.dll')) -or !(Test-Path -LiteralPath (Join-Path $sherpaRuntime 'onnxruntime.dll'))) {
         Write-Output 'Restaurar las bibliotecas nativas de sherpa-onnx.'
+        if (!$sherpaImport -and (Test-Path -LiteralPath $sherpaCache)) {
+            $resolvedCache = (Resolve-Path -LiteralPath $sherpaCache).ProviderPath
+            $expectedTarget = [IO.Path]::GetFullPath((Join-Path $app 'native-host/target'))
+            if ([IO.Path]::GetDirectoryName($resolvedCache) -ne $expectedTarget -or [IO.Path]::GetFileName($resolvedCache) -ne 'sherpa-onnx-prebuilt') { throw 'Directorio de caché de sherpa-onnx inesperado' }
+            Remove-Item -LiteralPath $resolvedCache -Recurse -Force
+        }
         Invoke-Checked cargo (@('clean', '--manifest-path', 'apps/tauri/native-host/Cargo.toml', '-p', 'sherpa-onnx-sys') + $cargoArgs)
     }
     $features = if ($Cuda) { @('--features', 'cuda') } else { @() }
