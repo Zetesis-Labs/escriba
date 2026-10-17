@@ -2,6 +2,7 @@
 set -euo pipefail
 PROJECT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TAURI="$PROJECT/apps/tauri"
+export CMAKE_PROJECT_INCLUDE="$PROJECT/scripts/native-cpu.cmake"
 if [[ $# -gt 1 || ( $# -eq 1 && "${1:-}" != "--release" && "${1:-}" != "--dev" ) ]]; then
   echo "Uso: scripts/build-linux.sh [--release|--dev]" >&2
   exit 2
