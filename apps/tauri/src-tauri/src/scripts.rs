@@ -725,9 +725,12 @@ mod tests {
         origin: Origin,
         cap: &Capability,
     ) -> Result<Value, AppError> {
-        scripts
-            .command(method, params, origin, cap.clone(), Arc::new(|_| {}))
-            .await
+        tokio::time::timeout(
+            Duration::from_secs(30),
+            scripts.command(method, params, origin, cap.clone(), Arc::new(|_| {})),
+        )
+        .await
+        .unwrap_or_else(|_| panic!("No respondió {method}"))
     }
 
     #[tokio::test]
