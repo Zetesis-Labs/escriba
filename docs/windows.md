@@ -90,6 +90,8 @@ de volúmenes ([incidencia de Bun](https://github.com/oven-sh/bun/issues/44875))
 En ese caso el constructor recorre los componentes desde las raíces que Rust
 ya ha canonicalizado, comprueba las uniones y rechaza destinos fuera del
 proyecto y las dependencias incluidas. Los demás errores de archivos se propagan.
+También se normalizan las entradas del metafile de Bun entre unidades: una
+dependencia `D:/…` referida desde un proyecto en `C:` conserva su unidad.
 
 ## Verificación
 

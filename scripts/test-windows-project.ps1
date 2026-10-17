@@ -1,11 +1,11 @@
 [CmdletBinding()]
-param()
+param([string]$VendorPath)
 $ErrorActionPreference = 'Stop'
 $PSNativeCommandUseErrorActionPreference = $false
 $repo = Split-Path -Parent $PSScriptRoot
 $runtime = Join-Path $repo 'apps/tauri/src-tauri/binaries/escriba-runtime-x86_64-pc-windows-msvc.exe'
 $sandbox = Join-Path $repo 'apps/tauri/src-tauri/binaries/escriba-sandbox-x86_64-pc-windows-msvc.exe'
-$vendor = Join-Path $repo 'apps/tauri/src-tauri/vendor'
+$vendor = if ($VendorPath) { [IO.Path]::GetFullPath($VendorPath) } else { Join-Path $repo 'apps/tauri/src-tauri/vendor' }
 $temporary = Join-Path ([IO.Path]::GetTempPath()) ('escriba-project-check-' + [guid]::NewGuid().ToString('N'))
 $project = Join-Path $temporary 'Proyecto ñ 100%'
 $recipe = Join-Path $project 'src/prueba/receta.ts'
