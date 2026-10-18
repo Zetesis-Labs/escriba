@@ -145,7 +145,7 @@ export function MainWindow() {
     <PlatformContext.Provider value={platform}>
     <div className={`window ${active ? "" : "inactive"} ${integrated ? "integrated" : ""} ${maximized ? "maximized" : ""}`}>
       <aside className="sidebar" data-tauri-drag-region>
-        <div className="sidebar-top" data-tauri-drag-region />
+        {platform.system === "macos" && <div className="sidebar-top" data-tauri-drag-region />}
         <nav className="sidebar-list" role="listbox" aria-label="Secciones" tabIndex={0} onKeyDown={move}>
           {sections.map(({ id, label: title, icon: Icon }) => (
             <Fragment key={id}>

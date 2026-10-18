@@ -114,9 +114,6 @@
   --sidebar: rgb(235 235 237);
   font-family: system-ui, "Ubuntu Sans", Ubuntu, Cantarell, sans-serif;
 }
-.window.integrated .sidebar-top {
-  height: 12px;
-}
 .window.integrated.maximized {
   border-radius: 0;
   border: none;
