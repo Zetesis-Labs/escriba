@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.3.1](https://github.com/Zetesis-Labs/escriba/compare/v0.3.0...v0.3.1) (2026-10-18)
+
+
+### Bug Fixes
+
+* **macos:** el empaquetado funciona con el bash 3.2 de macOS ([391fccb](https://github.com/Zetesis-Labs/escriba/commit/391fccb828f339ea8602c189dbb358314e6a9249))
+* **tests:** la ayuda de errores de storage solo existe donde se usa, en Windows ([5f965a3](https://github.com/Zetesis-Labs/escriba/commit/5f965a340f9c56342e90a24d4ee69db5bfc3c85c))
+* **ui:** alinear el menú lateral con el título del panel ([4aa5c77](https://github.com/Zetesis-Labs/escriba/commit/4aa5c774c6e5b5156868b5a8813ff8b81614dbb3))
+* **ui:** quitar el hueco lateral fuera de macOS y preparar 0.3.1 ([#42](https://github.com/Zetesis-Labs/escriba/issues/42)) ([10bab44](https://github.com/Zetesis-Labs/escriba/commit/10bab44b86119b0ac03edc90bb7de3256d17bf01))
+
 ## [0.3.0](https://github.com/Zetesis-Labs/escriba/compare/v0.2.0...v0.3.0) (2026-10-17)
 
 
