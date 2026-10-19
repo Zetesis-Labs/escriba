@@ -271,6 +271,10 @@ se reintenta.
   solo se consulta en esos casos: un reprocesado a mano siempre la rehace.
 - Reutilizar una transcripción con hablantes exige que la versión conserve
   sus huellas; si no, se vuelve a diarizar.
+- Una receta puede usar el AI SDK (`ai` 7) con `escriba.modelo(claveONombre)`,
+  que devuelve un LLM remoto. Cada llamada la hace el controlador con la clave,
+  se recuerda como `preguntar` y cuenta para el tope de 50 llamadas a un LLM
+  por nota (ADR-0013).
 - Un STT remoto con `hablantes.detectar` es un error, nunca texto sin
   hablantes. Sin elección, transcribir y resumir usan el motor local.
 - Un resumen vacío es un error. Si falla el resumen, la nota transcrita se
@@ -537,7 +541,7 @@ Hechos comprobados el 2026-10-13 sobre `feat/filtros-biblioteca` (942df11).
 | `guardar()` escribe texto corregido y hablantes renombrados (`requisito-recetas.md:361-365`) | Solo `datos`; texto y hablantes son de solo lectura | `apps/tauri/src/runtime/worker.ts:125`; `controller.ts:545-566` |
 | Terminar sin guardar deja la nota saltada (`requisito-recetas.md:256`) y, dos pantallas después, fallida (`:281`) | Sin transcribir: fallida. Transcribiendo sin guardar: terminada | `controller.ts:703`; `store/versions.rs:45` pone vigente al guardar la versión |
 | Profundidad 4 al pasar entre recetas (`requisito-recetas.md:416`) | 16 | `controller.ts:308` |
-| Tope de 50 llamadas a LLM por nota (`requisito-recetas.md:467`) | No existe | — |
+| Tope de 50 llamadas a LLM por nota (`requisito-recetas.md:467`) | Existe desde el ADR-0013: cuenta `preguntar` y `modelo` de cada ejecución; fijo, no ajustable | `controller.ts` (`MAX_LLM_CALLS_PER_NOTE`) |
 | «Probar con una nota» aprovecha lo recordado (`requisito-recetas.md:320-322`) | En prueba no consulta la memoria: sin versión, calcula siempre | `runtime/memory.ts:20`; `controller.ts:514,592` |
 | Reprocesar a mano crea versión nueva (`CLAUDE.md`, reglas del producto) | Solo en el primer intento; un reintento pasa a reutilizar | `src-tauri/src/jobs.rs:463-465` |
 | Las acciones a mano llaman al `publicar` de la receta (`requisito-recetas.md:395-399`) | Resumir a mano lee los valores de la «Por defecto» de formulario y llama al LLM; corregir republica por el conector directamente | `controller.ts:750-806`; `src/library/operations.ts:11-21,33` |

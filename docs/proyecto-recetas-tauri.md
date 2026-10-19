@@ -247,6 +247,56 @@ reprocesa manualmente. OAuth, SDK que exigen red directa o transporte no
 sustituible, y recuperación automática de cualquier efecto arbitrario no forman
 parte de este contrato.
 
+## El AI SDK en una receta
+
+Una receta puede usar el AI SDK de Vercel (`ai` 7) instalándolo en su proyecto.
+Se empaqueta dentro como cualquier dependencia. El modelo lo da Escriba
+(ADR-0013): `escriba.modelo("Claude")` devuelve un LLM remoto de los
+configurados en Ajustes, por clave o por nombre. También vale el nombre a secas
+en `model`, porque el worker registra a Escriba como proveedor por defecto del
+SDK.
+
+```ts
+import { generateText, tool, stepCountIs } from "ai"
+import { z } from "zod"
+
+export async function flujo(audio: Audio, escriba: Escriba) {
+  const nota = await escriba.transcribir(audio)
+  const { text } = await generateText({
+    model: escriba.modelo("Claude"),
+    prompt: nota.texto,
+    stopWhen: stepCountIs(3),
+    tools: {
+      contar: tool({
+        description: "Cuenta las palabras de un texto",
+        inputSchema: z.object({ texto: z.string() }),
+        execute: async ({ texto }) => ({ palabras: texto.split(/\s+/).length }),
+      }),
+    },
+  })
+  escriba.log(text)
+}
+```
+
+La receta nunca ve la clave ni tiene red: cada llamada al modelo la hace el
+controlador, que aplica estas reglas:
+
+- **Ejecución:** las herramientas de la receta se ejecutan dentro de la receta,
+  aislada.
+- **Lo que se rechaza:** las herramientas que ejecuta el propio proveedor (como
+  la búsqueda web), los archivos en el prompt, `headers` y `providerOptions`.
+- **Modelos:** solo los LLM remotos. Apple Intelligence no pasa por el AI SDK;
+  se usa con `escriba.preguntar`.
+- **Lo ya hecho:** cada llamada se recuerda como `preguntar`, así que reprocesar
+  no la vuelve a pagar salvo que se fuerce.
+- **Tope:** `preguntar` y `modelo` comparten un límite de 50 llamadas a un LLM
+  por nota.
+- **Streaming:** `streamText` funciona, pero entrega el texto de una vez al
+  terminar la llamada.
+- **JSON tolerante:** solo lo tiene `escriba.preguntar`. Con `escriba.modelo` se
+  usa el comportamiento del SDK tal cual; por ejemplo, un JSON entre vallas con
+  `Output.object` falla.
+
 ## Aislamiento y compatibilidad
 
 El proceso de construcción y las herramientas pueden leer el proyecto y las

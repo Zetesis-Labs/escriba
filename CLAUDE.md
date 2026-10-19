@@ -98,7 +98,9 @@ no se ha podido leer. Preservar la lectura de datos ya guardados al actualizar.
 - STT y LLM son listas de resolutores sin favorito. Whisper y Apple Intelligence
   son locales de serie. Los STT remotos hablan una API compatible con OpenAI;
   los LLM remotos, esa misma o la propia de Anthropic, Google (Gemini) o
-  Mistral (ADR-0012), en el campo `provider` del resolutor.
+  Mistral (ADR-0012), en el campo `provider` del resolutor. Las recetas usan el
+  AI SDK con `escriba.modelo`: el controlador llama con la clave y devuelve
+  solo el contenido (ADR-0013).
   Una receta sin selección usa el local. Un fallo remoto no cambia de motor.
 - Una receta trabaja sobre una nota: copia de la versión que la nota tenía
   abierta al encolar el trabajo (`escriba.nota`) o de la que pida. Lo que
