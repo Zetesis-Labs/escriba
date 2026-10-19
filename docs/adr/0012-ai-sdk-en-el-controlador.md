@@ -86,9 +86,11 @@ Rubén pidió arreglarlo dentro de la fase 1 (2026-10-19). Por eso:
   `redirect: "manual"` y el tiempo máximo y corta la respuesta a los 32 MiB. La
   clave se tapa en todos los errores.
 
-`runtime-host/build.mjs` resolvía `zod` a `zod/index.js`. El SDK importa
-`zod/v4`, así que ahora resuelve a la carpeta del paquete, y en el binario queda
-una sola copia ESM de Zod.
+`runtime-host/build.mjs` resolvía `zod` a `zod/index.js`, y los paquetes del
+SDK importan `zod/v4`, `zod/v4/core` y `zod/v3`. Ahora cada subruta apunta a su
+`index.js`, y gana la más larga. Así el binario lleva una sola copia ESM de Zod,
+la de la app, también para los conectores. Si se apuntara a la carpeta del
+paquete, esbuild se saltaría sus `exports` y metería además los `.cjs`.
 
 ## Lo que necesita encargo aparte
 
