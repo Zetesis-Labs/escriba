@@ -96,7 +96,9 @@ no se ha podido leer. Preservar la lectura de datos ya guardados al actualizar.
 - El proyecto se carga desde `dist/`; construir empaqueta sus dependencias.
   Conservar archivos del usuario y el último artefacto válido si falla un build.
 - STT y LLM son listas de resolutores sin favorito. Whisper y Apple Intelligence
-  son locales de serie; los remotos hablan una API compatible con OpenAI.
+  son locales de serie. Los STT remotos hablan una API compatible con OpenAI;
+  los LLM remotos, esa misma o la propia de Anthropic, Google (Gemini) o
+  Mistral (ADR-0012), en el campo `provider` del resolutor.
   Una receta sin selección usa el local. Un fallo remoto no cambia de motor.
 - Una receta trabaja sobre una nota: copia de la versión que la nota tenía
   abierta al encolar el trabajo (`escriba.nota`) o de la que pida. Lo que
