@@ -105,7 +105,7 @@ async function permittedVendor(vendor: string, canonicalPath: CanonicalPath) {
     ? join(vendor, "node_modules") : vendor;
   const real = await canonicalPath(modules);
   const allowed = [real];
-  for (const packageName of ["zod", "@escriba/conectores", "surrealdb"]) {
+  for (const packageName of ["zod", "@escriba/conectores", "surrealdb", "ai"]) {
     try { allowed.push(await canonicalPath(join(real, packageName))); }
     catch { throw Error(`No está disponible ${packageName} en las dependencias incluidas`); }
   }
@@ -121,7 +121,7 @@ function vendorFallback(modules: string) {
         resolve: (args: { path: string; importer: string }) => { path: string } | undefined,
       ): void;
     }) {
-      build.onResolve({ filter: /^(zod|@escriba\/conectores|surrealdb)(\/.*)?$/ }, (args) => {
+      build.onResolve({ filter: /^(zod|@escriba\/conectores|surrealdb|ai)(\/.*)?$/ }, (args) => {
         try {
           // Left to Bun, a subpath like zod/v4 marks a file of the package as external in the metafile.
           return { path: Bun.resolveSync(args.path, args.importer) };

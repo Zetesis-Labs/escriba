@@ -17,6 +17,12 @@ const requireBuiltin = createRequire(import.meta.url);
 function load(program: string) {
   return runInNewContext(`${program}\n;__recipe`, { require: requireBuiltin });
 }
+// What a recipe worker has: Bun's globals without the network.
+function loadInWorker(program: string) {
+  const globals = ["ReadableStream", "WritableStream", "TransformStream", "TextEncoder", "TextDecoder", "TextEncoderStream", "TextDecoderStream", "setTimeout", "clearTimeout", "setInterval", "clearInterval", "queueMicrotask", "structuredClone", "crypto", "AbortController", "AbortSignal", "Headers", "Request", "Response", "URL", "Blob", "DOMException", "EventTarget", "Event", "performance", "atob", "btoa", "console", "process"];
+  const context = Object.fromEntries(globals.map((name) => [name, (globalThis as Record<string, unknown>)[name]]));
+  return runInNewContext(`${program}\n;__recipe`, { ...context, require: requireBuiltin, fetch: undefined });
+}
 
 afterEach(async () => {
   await Promise.all(folders.splice(0).map((folder) => rm(folder, { recursive: true, force: true })));
@@ -242,6 +248,16 @@ test("una receta que importa zod/v4 se construye", async () => {
   assert.equal(load(await readFile(join(root, "dist/receta-0.js"), "utf8")).valor, "prueba");
 });
 
+test("una receta que importa el AI SDK sin instalarlo usa el que trae Escriba", async () => {
+  const root = await project();
+  await mkdir(join(root, "src/recetas/de-serie"), { recursive: true });
+  await writeFile(join(root, "src/recetas/de-serie/receta.ts"), 'import { generateText } from "ai"; export const disponible = typeof generateText;');
+  const vendorModules = fileURLToPath(new URL("../../src-tauri/vendor/node_modules", import.meta.url));
+  const result = build(root, vendorModules);
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(loadInWorker(await readFile(join(root, "dist/receta-0.js"), "utf8")).disponible, "function");
+});
+
 test("una receta con el AI SDK instalado se construye entera y llama al modelo de Escriba sin red", async () => {
   const root = await project();
   await mkdir(join(root, "src/recetas/con-ia"), { recursive: true });
@@ -258,9 +274,7 @@ test("una receta con el AI SDK instalado se construye entera y llama al modelo d
   const result = build(root);
   assert.equal(result.status, 0, result.stderr);
   const program = await readFile(join(root, "dist/receta-0.js"), "utf8");
-  const globals = ["ReadableStream", "WritableStream", "TransformStream", "TextEncoder", "TextDecoder", "TextEncoderStream", "TextDecoderStream", "setTimeout", "clearTimeout", "setInterval", "clearInterval", "queueMicrotask", "structuredClone", "crypto", "AbortController", "AbortSignal", "Headers", "Request", "Response", "URL", "Blob", "DOMException", "EventTarget", "Event", "performance", "atob", "btoa", "console", "process"];
-  const context = Object.fromEntries(globals.map((name) => [name, (globalThis as Record<string, unknown>)[name]]));
-  const module = runInNewContext(`${program}\n;__recipe`, { ...context, require: requireBuiltin, fetch: undefined });
+  const module = loadInWorker(program);
   let calls = 0;
   const usage = { inputTokens: { total: 1 }, outputTokens: { total: 1 } };
   const modelo = {
