@@ -27,7 +27,7 @@ export async function buildRuntime({
     nodePaths: [resolve(app, "node_modules")],
     alias: {
       "@escriba/conectores": resolve(root, "packages/conectores/src/index.ts"),
-      zod: resolve(app, "node_modules/zod/index.js"),
+      zod: resolve(app, "node_modules/zod"),
     },
     logLevel: "warning",
   };
