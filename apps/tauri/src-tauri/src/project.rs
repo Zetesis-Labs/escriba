@@ -30,6 +30,36 @@ const PREVIOUS_TYPES_SHA256: &[&str] = &[
     "79937382df1625fde0940602a46c11b07e5b155f12df99f444ed527714cb2afa",
     "a4e68a12bd8179d99f0df8b677d43c1b9847a82fd9d6fae19a6c43c6a9666b7f",
 ];
+// The AI SDK recipes get with Escriba (ADR-0013), each package as its own managed dependency.
+const AI_DEPENDENCIES: &[(&str, &str)] = &[
+    ("ai", "ai"),
+    ("@ai-sdk/gateway", "ai-sdk-gateway"),
+    ("@ai-sdk/provider", "ai-sdk-provider"),
+    ("@ai-sdk/provider-utils", "ai-sdk-provider-utils"),
+    ("@standard-schema/spec", "standard-schema-spec"),
+    ("@vercel/oidc", "vercel-oidc"),
+    ("@workflow/serde", "workflow-serde"),
+    ("eventsource-parser", "eventsource-parser"),
+    ("json-schema", "json-schema"),
+    ("undici", "undici"),
+];
+#[derive(Clone, Copy)]
+enum Shape {
+    /// Escriba's own bundles: index.js (when it runs) and index.d.ts at the root.
+    Bundle { runtime: bool },
+    /// An npm package as published; its entries live wherever its package.json says.
+    Npm,
+}
+fn complete(directory: &Path, shape: Shape) -> bool {
+    directory.join("package.json").is_file()
+        && match shape {
+            Shape::Bundle { runtime } => {
+                (!runtime || directory.join("index.js").is_file())
+                    && directory.join("index.d.ts").is_file()
+            }
+            Shape::Npm => true,
+        }
+}
 const EXAMPLE: &str = include_str!("../../../../recetas/por-defecto/receta.ts");
 const PIECES: &str = include_str!("../../../../recetas/piezas.ts");
 const SOURCE_LIMIT: usize = 8 * 1024 * 1024;
@@ -544,7 +574,10 @@ pub fn initialize(
         ("@types/node", "types-node", false),
         ("undici-types", "undici-types", false),
     ] {
-        install_managed_dependency(&root, vendor, package, name, runtime)?;
+        install_managed_dependency(&root, vendor, package, name, Shape::Bundle { runtime })?;
+    }
+    for (package, name) in AI_DEPENDENCIES {
+        install_managed_dependency(&root, vendor, package, name, Shape::Npm)?;
     }
     write_new(
         &root.join("package.json"),
@@ -572,6 +605,7 @@ pub fn initialize(
 "#,
     )?;
     ensure_sdk_dependency(&root)?;
+    ensure_ai_dependency(&root)?;
     write_new(
         &root.join("tsconfig.json"),
         r#"{
@@ -893,19 +927,58 @@ fn refresh_existing_managed_dependencies(root: &Path, vendor: &Path) -> Result<(
         ("undici-types", "undici-types", false),
     ] {
         match fs::symlink_metadata(deps.join(name)) {
-            Ok(_) => install_managed_dependency(root, vendor, package, name, runtime)?,
+            Ok(_) => {
+                install_managed_dependency(root, vendor, package, name, Shape::Bundle { runtime })?
+            }
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
             Err(_) => return Err("No se pudo inspeccionar la dependencia administrada".into()),
         }
     }
     if vendor_modules(vendor).join("surrealdb").is_dir() {
-        install_managed_dependency(root, vendor, "surrealdb", "surrealdb", true)?;
+        install_managed_dependency(
+            root,
+            vendor,
+            "surrealdb",
+            "surrealdb",
+            Shape::Bundle { runtime: true },
+        )?;
         ensure_sdk_dependency(root)?;
+    }
+    if vendor_modules(vendor).join("ai").is_dir() {
+        for (package, name) in AI_DEPENDENCIES {
+            install_managed_dependency(root, vendor, package, name, Shape::Npm)?;
+        }
+        ensure_ai_dependency(root)?;
     }
     Ok(())
 }
 
 fn ensure_sdk_dependency(root: &Path) -> Result<(), String> {
+    ensure_dependency(
+        root,
+        "surrealdb",
+        &[("surrealdb", "file:.escriba/deps/surrealdb".to_owned())],
+        &[],
+    )
+}
+
+// Like the Bun types: every package of the chain is declared and overridden,
+// so an offline install puts them all in node_modules for the bundler.
+fn ensure_ai_dependency(root: &Path) -> Result<(), String> {
+    let shipped: Vec<(&str, String)> = AI_DEPENDENCIES
+        .iter()
+        .map(|(package, name)| (*package, format!("file:.escriba/deps/{name}")))
+        .collect();
+    ensure_dependency(root, "ai", &shipped, &shipped[1..])
+}
+
+// Adds what Escriba ships unless the project already declares `package` itself.
+fn ensure_dependency(
+    root: &Path,
+    package: &str,
+    dependencies: &[(&str, String)],
+    overrides: &[(&str, String)],
+) -> Result<(), String> {
     let path = root.join("package.json");
     let metadata = match fs::symlink_metadata(&path) {
         Ok(metadata) => metadata,
@@ -933,16 +1006,28 @@ fn ensure_sdk_dependency(root: &Path) -> Result<(), String> {
         object
             .get(*section)
             .and_then(Value::as_object)
-            .is_some_and(|deps| deps.contains_key("surrealdb"))
+            .is_some_and(|deps| deps.contains_key(package))
     }) {
         return Ok(());
     }
-    let dependencies = object
+    let declared = object
         .entry("dependencies")
         .or_insert_with(|| json!({}))
         .as_object_mut()
         .ok_or("Las dependencias de package.json son inválidas")?;
-    dependencies.insert("surrealdb".into(), json!("file:.escriba/deps/surrealdb"));
+    for (name, value) in dependencies {
+        declared.entry(*name).or_insert_with(|| json!(value));
+    }
+    if !overrides.is_empty() {
+        let forced = object
+            .entry("overrides")
+            .or_insert_with(|| json!({}))
+            .as_object_mut()
+            .ok_or("Los overrides de package.json son inválidos")?;
+        for (name, value) in overrides {
+            forced.entry(*name).or_insert_with(|| json!(value));
+        }
+    }
     let updated =
         serde_json::to_vec_pretty(&manifest).map_err(|_| "No se pudo preparar package.json")?;
     let temporary = root.join(format!(".escriba-package-{}", uuid::Uuid::new_v4()));
@@ -1035,15 +1120,11 @@ fn install_managed_dependency(
     vendor: &Path,
     package: &str,
     name: &str,
-    runtime: bool,
+    shape: Shape,
 ) -> Result<(), String> {
     let source = vendor_modules(vendor).join(package);
     let source = fs::canonicalize(source).map_err(|_| "Falta una dependencia incluida")?;
-    if !source.is_dir()
-        || !source.join("package.json").is_file()
-        || (runtime && !source.join("index.js").is_file())
-        || !source.join("index.d.ts").is_file()
-    {
+    if !source.is_dir() || !complete(&source, shape) {
         return Err("Una dependencia incluida está incompleta".into());
     }
     let managed = root.join(".escriba");
@@ -1053,12 +1134,7 @@ fn install_managed_dependency(
     let destination = deps.join(name);
     let existing = fs::symlink_metadata(&destination);
     if let Ok(kind) = existing.as_ref() {
-        if !kind.is_dir()
-            || kind.file_type().is_symlink()
-            || !destination.join("package.json").is_file()
-            || (runtime && !destination.join("index.js").is_file())
-            || !destination.join("index.d.ts").is_file()
-        {
+        if !kind.is_dir() || kind.file_type().is_symlink() || !complete(&destination, shape) {
             return Err("Dependencia administrada inválida".into());
         }
         if same_dependency(&source, &destination)? {
@@ -1355,7 +1431,7 @@ mod tests {
             vendor.path(),
             "conectores",
             "conectores",
-            true,
+            Shape::Bundle { runtime: true },
         )
         .unwrap();
         assert_eq!(
@@ -1548,6 +1624,58 @@ mod tests {
         assert_eq!(
             updated["dependencies"]["surrealdb"],
             "file:.escriba/deps/surrealdb"
+        );
+    }
+
+    #[test]
+    fn el_ai_sdk_se_declara_con_sus_overrides_salvo_que_el_usuario_traiga_el_suyo() {
+        let folder = tempfile::tempdir().unwrap();
+        let package = folder.path().join("package.json");
+        let own = br#"{"name":"custom","dependencies":{"ai":"6.0.0"}}"#;
+        fs::write(&package, own).unwrap();
+        ensure_ai_dependency(folder.path()).unwrap();
+        assert_eq!(fs::read(&package).unwrap(), own);
+        fs::write(
+            &package,
+            br#"{"name":"custom","dependencies":{"otra":"1.0.0"},"overrides":{"undici":"7.0.0"}}"#,
+        )
+        .unwrap();
+        ensure_ai_dependency(folder.path()).unwrap();
+        let updated: Value = serde_json::from_slice(&fs::read(&package).unwrap()).unwrap();
+        assert_eq!(updated["dependencies"]["ai"], "file:.escriba/deps/ai");
+        assert_eq!(
+            updated["dependencies"]["@ai-sdk/provider"],
+            "file:.escriba/deps/ai-sdk-provider"
+        );
+        assert_eq!(updated["dependencies"]["otra"], "1.0.0");
+        assert_eq!(
+            updated["overrides"]["@ai-sdk/provider-utils"],
+            "file:.escriba/deps/ai-sdk-provider-utils"
+        );
+        assert_eq!(updated["overrides"]["undici"], "7.0.0");
+    }
+
+    #[test]
+    fn un_proyecto_nuevo_trae_el_ai_sdk_sin_instalar_nada() {
+        let folder = tempfile::tempdir().unwrap();
+        initialize_test(folder.path(), &json!([]), &project_vendor()).unwrap();
+        for (_, name) in AI_DEPENDENCIES {
+            assert!(
+                folder
+                    .path()
+                    .join(".escriba/deps")
+                    .join(name)
+                    .join("package.json")
+                    .is_file(),
+                "{name}"
+            );
+        }
+        let manifest: Value =
+            serde_json::from_slice(&fs::read(folder.path().join("package.json")).unwrap()).unwrap();
+        assert_eq!(manifest["dependencies"]["ai"], "file:.escriba/deps/ai");
+        assert_eq!(
+            manifest["overrides"]["@ai-sdk/gateway"],
+            "file:.escriba/deps/ai-sdk-gateway"
         );
     }
 
@@ -1881,6 +2009,13 @@ mod tests {
         fs::write(
             folder.path().join("lanzador.test.ts"),
             "import {test,expect} from 'bun:test'; import {join} from 'node:path'; test('incluido',()=>expect(join('a','b')).toBe('a/b'));",
+        )
+        .unwrap();
+        let with_ai = folder.path().join("src/recetas/con-ia/receta.ts");
+        fs::create_dir_all(with_ai.parent().unwrap()).unwrap();
+        fs::write(
+            &with_ai,
+            "import { generateText } from 'ai';\nexport async function flujo(audio: Audio, escriba: Escriba) {\n  const nota = await escriba.transcribir(audio);\n  const { text } = await generateText({ model: escriba.modelo('Claude'), prompt: nota.texto });\n  escriba.log(text);\n}\n",
         )
         .unwrap();
         for command in ["check", "test", "build"] {
