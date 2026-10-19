@@ -232,3 +232,45 @@ test("reemplaza un dist declarado con rutas relativas y protege archivos ajenos"
   assert.match(refused.stderr, /archivos ajenos/);
   assert.equal(await readFile(join(root, "dist/mis-notas.txt"), "utf8"), "dato del usuario\n");
 });
+
+test("una receta que importa zod/v4 se construye", async () => {
+  const root = await project();
+  await mkdir(join(root, "src/recetas/v4"), { recursive: true });
+  await writeFile(join(root, "src/recetas/v4/receta.ts"), 'import { z } from "zod/v4"; export const valor = z.string().parse("prueba");');
+  const result = build(root);
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(load(await readFile(join(root, "dist/receta-0.js"), "utf8")).valor, "prueba");
+});
+
+test("una receta con el AI SDK instalado se construye entera y llama al modelo de Escriba sin red", async () => {
+  const root = await project();
+  await mkdir(join(root, "src/recetas/con-ia"), { recursive: true });
+  await writeFile(join(root, "package.json"), JSON.stringify({ name: "fixture", private: true, type: "module", dependencies: { ai: "7.0.143" } }));
+  for (const name of ["ai", "@ai-sdk/gateway", "@ai-sdk/provider", "@ai-sdk/provider-utils", "@standard-schema/spec", "@vercel/oidc", "@workflow/serde", "eventsource-parser", "json-schema", "undici", "zod"])
+    await cp(join(vendor, name), join(root, "node_modules", name), { recursive: true, dereference: true });
+  await writeFile(join(root, "src/recetas/con-ia/receta.ts"), `import { generateText, tool, stepCountIs } from "ai";
+    import { z } from "zod";
+    export async function flujo(audio: unknown, escriba: { modelo(clave: string): unknown }) {
+      const respuesta = await generateText({ model: escriba.modelo("Claude") as never, prompt: "hola", stopWhen: stepCountIs(3),
+        tools: { contar: tool({ description: "cuenta", inputSchema: z.object({ texto: z.string() }), execute: async ({ texto }) => ({ letras: texto.length }) }) } });
+      return [respuesta.text, respuesta.steps.length];
+    }`);
+  const result = build(root);
+  assert.equal(result.status, 0, result.stderr);
+  const program = await readFile(join(root, "dist/receta-0.js"), "utf8");
+  const globals = ["ReadableStream", "WritableStream", "TransformStream", "TextEncoder", "TextDecoder", "TextEncoderStream", "TextDecoderStream", "setTimeout", "clearTimeout", "setInterval", "clearInterval", "queueMicrotask", "structuredClone", "crypto", "AbortController", "AbortSignal", "Headers", "Request", "Response", "URL", "Blob", "DOMException", "EventTarget", "Event", "performance", "atob", "btoa", "console", "process"];
+  const context = Object.fromEntries(globals.map((name) => [name, (globalThis as Record<string, unknown>)[name]]));
+  const module = runInNewContext(`${program}\n;__recipe`, { ...context, require: requireBuiltin, fetch: undefined });
+  let calls = 0;
+  const usage = { inputTokens: { total: 1 }, outputTokens: { total: 1 } };
+  const modelo = {
+    specificationVersion: "v4", provider: "escriba", modelId: "Claude", supportedUrls: {},
+    doGenerate: async () =>
+      ++calls === 1
+        ? { content: [{ type: "tool-call", toolCallId: "1", toolName: "contar", input: '{"texto":"hola"}' }], finishReason: { unified: "tool-calls", raw: "tool_calls" }, usage, warnings: [] }
+        : { content: [{ type: "text", text: "cuatro" }], finishReason: { unified: "stop", raw: "stop" }, usage, warnings: [] },
+    doStream: async () => { throw Error("sin stream"); },
+  };
+  assert.equal(JSON.stringify(await module.flujo({}, { modelo: () => modelo })), '["cuatro",2]');
+  assert.equal(calls, 2);
+});
