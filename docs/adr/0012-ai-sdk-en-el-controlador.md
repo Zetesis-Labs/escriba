@@ -57,6 +57,41 @@ Lo que hoy falla o no existe:
    cubre respuesta en texto y con esquema, un servidor que ignora
    `response_format`, los errores 401, 429 y 500 y que la clave nunca aparece.
 
+## Fase 1, hecha el 2026-10-19
+
+`ask` y el resumen remoto van por `generateText` de `ai` 7.0.143 con
+`@ai-sdk/openai-compatible` 3.0.71, versiones fijadas. Listar modelos, probar
+el STT y transcribir siguen con la llamada propia.
+
+Una prueba con un servidor falso mostró que el SDK solo no arreglaba el fallo
+con los modelos locales. Con su configuración de serie:
+
+- el proveedor compatible manda `json_object` sin el esquema;
+- un JSON dentro de un bloque ```` ```json ```` o con texto alrededor falla con
+  `NoObjectGeneratedError`;
+- `jsonSchema(...)` acepta un objeto sin sus campos obligatorios;
+- el mensaje de un error del servidor puede llevar la clave dentro.
+
+Rubén pidió arreglarlo dentro de la fase 1 (2026-10-19). Por eso:
+
+- se activa `supportsStructuredOutputs`, que manda el esquema estricto como
+  antes;
+- el esquema va también en las instrucciones, para los modelos que ignoran
+  `response_format`;
+- si el SDK no consigue leer el objeto, `core/structuredAnswer.ts` saca el JSON
+  de la respuesta entera, de un bloque de código o de entre el texto;
+- el valor se valida con `z.fromJSONSchema`, y el error nombra el campo que no
+  cumple;
+- el `fetch` que recibe el SDK pasa por el transporte de Escriba, que fuerza
+  `redirect: "manual"` y el tiempo máximo y corta la respuesta a los 32 MiB. La
+  clave se tapa en todos los errores.
+
+`runtime-host/build.mjs` resolvía `zod` a `zod/index.js`, y los paquetes del
+SDK importan `zod/v4`, `zod/v4/core` y `zod/v3`. Ahora cada subruta apunta a su
+`index.js`, y gana la más larga. Así el binario lleva una sola copia ESM de Zod,
+la de la app, también para los conectores. Si se apuntara a la carpeta del
+paquete, esbuild se saltaría sus `exports` y metería además los `.cjs`.
+
 ## Lo que necesita encargo aparte
 
 - **Proveedores nativos** (Anthropic, Gemini, Mistral…) en el «+» de LLMs y STT.

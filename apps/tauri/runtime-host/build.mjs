@@ -7,6 +7,8 @@ import { buildBuiltinRecipes } from "./defaultRecipe.mjs";
 import { bunTarget as bunTargetFor } from "./targets.mjs";
 const app = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const root = resolve(app, "../..");
+// One ESM Zod for the app, the connectors and the AI SDK; the longest alias wins.
+const zod = (path) => resolve(app, "node_modules/zod", path);
 export async function buildRuntime({
   output = resolve(
     app,
@@ -27,7 +29,10 @@ export async function buildRuntime({
     nodePaths: [resolve(app, "node_modules")],
     alias: {
       "@escriba/conectores": resolve(root, "packages/conectores/src/index.ts"),
-      zod: resolve(app, "node_modules/zod/index.js"),
+      zod: zod("index.js"),
+      "zod/v3": zod("v3/index.js"),
+      "zod/v4": zod("v4/index.js"),
+      "zod/v4/core": zod("v4/core/index.js"),
     },
     logLevel: "warning",
   };
