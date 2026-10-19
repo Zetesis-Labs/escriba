@@ -14,6 +14,7 @@ import type { Library } from "./library/library";
 import type { Queue } from "./library/queue";
 import { validVoice } from "./library/voices";
 import { notification, resolverProblem, settingsChanged, type Notification } from "./notifications";
+import type { ModelMethod } from "../core/modelCall";
 import * as remote from "./remote";
 import type { NativeStatus } from "../types";
 import { missingLlm } from "./platform";
@@ -127,6 +128,15 @@ async function inference(deps: DomainDependencies, method: "transcribe" | "summa
   if (resolver.local === true) return host.call("shell.native", { method, params: p });
   const schema = method === "summarize" ? remote.digestSchema() : p.schema;
   return remote.ask(resolver, await secret(), { instructions: p.instructions, prompt: p.prompt, ...(schema === undefined ? {} : { schema }) }, transport);
+}
+async function modelInference(deps: DomainDependencies, p: Record<string, unknown>) {
+  const key = text(p.resolverId, "resolverId");
+  const resolver = deps.library.item("resolvers", key);
+  if (resolver.role !== "llm") throw Error("El resolutor no es un LLM");
+  if (resolver.enabled === false) throw Error("El resolutor está apagado");
+  if (resolver.local === true) throw Error("escriba.modelo necesita un LLM remoto: el local no pasa por el AI SDK");
+  const method = text(p.method, "method") as ModelMethod;
+  return remote.callModel(resolver, (await deps.credentials.read(key))?.trim(), method, p.options, deps.transport ?? fetch);
 }
 export function registerDomainCommands(commands: CommandRegistry, deps: DomainDependencies) {
   const { library, queue, host, tasks, emit } = deps;
@@ -290,6 +300,7 @@ export function registerDomainCommands(commands: CommandRegistry, deps: DomainDe
     return { size: statSync(path).size, type: audioType(path), filename: basename(path) };
   });
   for (const name of ["transcribe", "summarize", "ask"] as const) named(name, ANY, name === "transcribe" ? "changed" : undefined, (p) => inference(deps, name, p));
+  named("model_call", ANY, undefined, (p) => modelInference(deps, p));
   named("native_cancel", ANY, undefined, () => host.call("shell.native_cancel"));
   named("project_install", ANY, "changed", async (p) => {
     await library.install(json(p), (ontologies) => host.call("shell.validate_catalog", { ontologies }).then(() => undefined));

@@ -53,6 +53,7 @@ export const UI_CONTROLLER_METHODS = [
   "transcribe",
   "summarize",
   "ask",
+  "model_call",
   "native_cancel",
   "project_install",
   "okf_file",

@@ -270,6 +270,20 @@ test("la inferencia remota lleva la clave guardada y nunca la devuelve", async (
   await assert.rejects(f.ui("ask", { resolverId: "remote-llm", prompt: "p" }), /El resolutor está apagado/);
 });
 
+test("una receta llama al modelo de un LLM remoto con su clave, y no al local ni a uno apagado", async () => {
+  await f.ui("config_save", { collection: "resolvers", item: { id: "remote-llm", name: "LLM", role: "llm", local: false, enabled: true, url: "https://llm.example/v1", model: "m" } });
+  const options = { prompt: [{ role: "user", content: [{ type: "text", text: "hola" }] }] };
+  const result = obj(await f.ui("model_call", { resolverId: "remote-llm", method: "doGenerate", options }));
+  assert.deepEqual(result.content, [{ type: "text", text: "respuesta remota" }]);
+  assert.equal(f.requests.at(-1)?.headers.get("authorization"), "Bearer clave-llm");
+  assert.ok(!JSON.stringify(result).includes("clave-llm"));
+  await f.ui("config_save", { collection: "resolvers", item: { id: "local-llm", name: "Local", role: "llm", enabled: true } });
+  await assert.rejects(f.ui("model_call", { resolverId: "local-llm", method: "doGenerate", options }), /LLM remoto/);
+  await assert.rejects(f.ui("model_call", { resolverId: "local-stt", method: "doGenerate", options }), /no es un LLM/);
+  await f.ui("config_save", { collection: "resolvers", item: { id: "remote-llm", name: "LLM", role: "llm", local: false, enabled: false, url: "https://llm.example/v1", model: "m" } });
+  await assert.rejects(f.ui("model_call", { resolverId: "remote-llm", method: "doGenerate", options }), /apagado/);
+});
+
 test("el feed de conocimiento entrega lotes y acusa por clave y revisión", async () => {
   await f.imported();
   await f.shell("knowledge_feed_prepare", { epoch: "proyección-1" });
