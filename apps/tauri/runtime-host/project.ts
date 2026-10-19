@@ -123,8 +123,8 @@ function vendorFallback(modules: string) {
     }) {
       build.onResolve({ filter: /^(zod|@escriba\/conectores|surrealdb)(\/.*)?$/ }, (args) => {
         try {
-          Bun.resolveSync(args.path, args.importer);
-          return undefined;
+          // Left to Bun, a subpath like zod/v4 marks a file of the package as external in the metafile.
+          return { path: Bun.resolveSync(args.path, args.importer) };
         } catch {
           return { path: Bun.resolveSync(args.path, join(modules, "..", "__escriba_vendor__.ts")) };
         }
@@ -161,8 +161,8 @@ async function bundle(
   if (outputInfo.length !== 1 || outputInfo[0].imports.length)
     throw Error(`El paquete ${entry} conserva importaciones externas`);
   for (const [input, info] of Object.entries(result.metafile.inputs)) {
-    if (info.imports.some((item) => item.external && !isBuiltin(item.path)))
-      throw Error(`El paquete ${entry} importa una dependencia externa`);
+    const external = info.imports.find((item) => item.external && !isBuiltin(item.path));
+    if (external) throw Error(`El paquete ${entry} importa una dependencia externa: ${external.path}`);
     if (isBuiltin(input)) continue;
     const path = metafilePath(input);
     if (path === wrapper) continue;
