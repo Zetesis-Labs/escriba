@@ -207,7 +207,14 @@ function inferenceError(error: unknown, secret: string | undefined): Error {
 }
 function conforming(value: unknown, schema: unknown): unknown {
   if (value === undefined) throw Error("El resolutor no respetó el esquema JSON: la respuesta no contiene JSON");
-  const result = z.fromJSONSchema(schema as Parameters<typeof z.fromJSONSchema>[0]).safeParse(value);
+  let validator: z.ZodType;
+  try {
+    validator = z.fromJSONSchema(schema as Parameters<typeof z.fromJSONSchema>[0]);
+  } catch {
+    // Zod can't rebuild every JSON Schema; the recipe still validates with its own.
+    return value;
+  }
+  const result = validator.safeParse(value);
   if (result.success) return value;
   const problems = result.error.issues.map((issue) => `${issue.path.join(".") || "respuesta"}: ${issue.message}`);
   throw Error(`El resolutor no respetó el esquema JSON (${problems.join("; ")})`);

@@ -2,6 +2,7 @@ import { test } from "vitest";
 import assert from "node:assert/strict";
 import { devNull } from "node:os";
 import { createServer, type Server } from "node:net";
+import { z } from "zod";
 import { RuntimeError } from "../../src/runtime/contracts";
 import { ask, digestSchema, endpoint, models, privateHost, readResponse, silentWav, transcribe } from "../../src/runtime/remote";
 
@@ -195,4 +196,28 @@ test("una respuesta demasiado grande se corta", async () => {
   assert.equal(code, "failed");
   assert.match(message, /demasiado grande/);
   assert.ok(sent < 40, `leyó ${sent} MiB`);
+});
+
+test("el esquema de una receta con enumeraciones, opcionales, valores por defecto y anidados se valida igual que en la receta", async () => {
+  const persona = z.object({ nombre: z.string(), rol: z.enum(["cliente", "equipo"]).optional() });
+  const receta = z.object({
+    prioridad: z.enum(["alta", "media", "baja"]),
+    fecha: z.string().nullable(),
+    tareas: z.array(z.object({ quien: persona, que: z.string() })),
+    numero: z.number().int().min(0),
+    etiqueta: z.string().default("general"),
+  });
+  const respuesta = { prioridad: "alta", fecha: null, tareas: [{ quien: { nombre: "Ana" }, que: "llamar" }], numero: 2 };
+  assert.ok(receta.safeParse(respuesta).success);
+  const { transport } = answering(() => completion(JSON.stringify(respuesta)));
+  assert.deepEqual(await ask(resolver, SECRET, asked(z.toJSONSchema(receta)), transport), respuesta);
+  const { transport: mal } = answering(() => completion(JSON.stringify({ ...respuesta, prioridad: "urgente" })));
+  const { message } = (await failure(ask(resolver, SECRET, asked(z.toJSONSchema(receta)), mal)))!;
+  assert.match(message, /prioridad/);
+});
+
+test("un esquema que Zod no sabe reconstruir no impide la respuesta: la receta lo valida con el suyo", async () => {
+  const esquema = { type: "object", properties: { a: { type: "string" } }, not: { required: ["b"] } };
+  const { transport } = answering(() => completion('{"a":"x"}'));
+  assert.deepEqual(await ask(resolver, SECRET, asked(esquema), transport), { a: "x" });
 });
