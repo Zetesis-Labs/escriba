@@ -28,6 +28,7 @@ const PREVIOUS_TYPES_SHA256: &[&str] = &[
     "dd560d43ed138390fcbdaa222ae214a90c04084864c4ed9595596fb4f3a83b8b",
     "7bcbc0a206ebb579fefc562a5aeb8fcc84b963bab156540e968cd9375f42938a",
     "79937382df1625fde0940602a46c11b07e5b155f12df99f444ed527714cb2afa",
+    "a4e68a12bd8179d99f0df8b677d43c1b9847a82fd9d6fae19a6c43c6a9666b7f",
 ];
 const EXAMPLE: &str = include_str!("../../../../recetas/por-defecto/receta.ts");
 const PIECES: &str = include_str!("../../../../recetas/piezas.ts");
@@ -1463,7 +1464,17 @@ mod tests {
     fn refresca_tipos_generados_sin_pisar_tipos_editados() {
         let folder = tempfile::tempdir().unwrap();
         let types = folder.path().join("escriba-recetas.d.ts");
-        let before_versions = TYPES
+        let before_model = TYPES
+            .replace("/** Un LLM remoto para el AI SDK (`ai` 7). Llama por Escriba: la receta nunca ve su clave. */\ninterface ModeloDeLenguaje {\n  readonly specificationVersion: \"v4\"\n  readonly provider: \"escriba\"\n  readonly modelId: string\n  readonly supportedUrls: Record<string, RegExp[]>\n  doGenerate(opciones: any): PromiseLike<any>\n  doStream(opciones: any): PromiseLike<any>\n}\n\n", "")
+            .replace("  modelo(claveONombre: string): ModeloDeLenguaje\n", "");
+        assert_eq!(
+            format!("{:x}", Sha256::digest(before_model.as_bytes())),
+            PREVIOUS_TYPES_SHA256[5]
+        );
+        fs::write(&types, &before_model).unwrap();
+        refresh_generated_types(folder.path()).unwrap();
+        assert_eq!(fs::read_to_string(&types).unwrap(), TYPES);
+        let before_versions = before_model
             .replace("interface InfoDeVersion {\n  readonly clave: string\n  readonly numero: number\n  readonly fecha: string\n  readonly origen: \"receta\" | \"correccion\"\n  readonly receta: string | null\n  readonly vigente: boolean\n  readonly abierta: boolean\n  readonly criterios: OpcionesDeTranscripcion | null\n  readonly tiene: { readonly hablantes: boolean; readonly resumen: boolean; readonly datos: boolean }\n}\n\ninterface OpcionesDeNota {\n  version?: string\n  editar?: boolean\n}\n\n", "")
             .replace("  readonly origen: number | null\n", "")
             .replace("  transcribir(opciones?: OpcionesDeTranscripcion): Promise<Nota>\n", "")
