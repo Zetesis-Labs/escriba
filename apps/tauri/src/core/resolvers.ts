@@ -42,33 +42,50 @@ export const removedResolverNote = (role: Role, platform: Platform = macOS, reso
   `Se borra su clave. ${movedRecipesNote(role, platform, resolvers)}`;
 export const localId = (role: Role) => (role === "stt" ? "local-stt" : "local-llm");
 
+export const LLM_PROVIDERS = ["openai-compatible", "anthropic", "google", "mistral"] as const;
+export type LlmProvider = (typeof LLM_PROVIDERS)[number];
+
+// A resolver saved before native providers has none and speaks the OpenAI-compatible API.
+export function llmProvider(resolver: { role?: unknown; provider?: unknown }): LlmProvider {
+  const provider = resolver.provider ?? "openai-compatible";
+  if (!LLM_PROVIDERS.includes(provider as LlmProvider)) throw Error("Proveedor de resolutor no válido");
+  if (resolver.role === "stt" && provider !== "openai-compatible") throw Error("Los STT remotos usan un servicio compatible con OpenAI");
+  return provider as LlmProvider;
+}
+
 export interface RemotePreset {
   name: string;
+  provider: LlmProvider;
   baseURL: string;
   model: string;
 }
 
-const other: RemotePreset = { name: "Otro servicio compatible", baseURL: "", model: "" };
+const compatible = (name: string, baseURL: string, model = ""): RemotePreset => ({ name, provider: "openai-compatible", baseURL, model });
+const other = compatible("Otro servicio compatible", "");
+const native: RemotePreset[] = [
+  { name: "Anthropic", provider: "anthropic", baseURL: "https://api.anthropic.com/v1", model: "" },
+  { name: "Google Gemini", provider: "google", baseURL: "https://generativelanguage.googleapis.com/v1beta", model: "" },
+  { name: "Mistral", provider: "mistral", baseURL: "https://api.mistral.ai/v1", model: "" },
+];
 
 export function remotePresets(role: Role): RemotePreset[] {
   return role === "stt"
-    ? [
-        { name: "OpenAI", baseURL: "https://api.openai.com/v1", model: "whisper-1" },
-        { name: "Groq", baseURL: "https://api.groq.com/openai/v1", model: "whisper-large-v3-turbo" },
-        other,
-      ]
+    ? [compatible("OpenAI", "https://api.openai.com/v1", "whisper-1"), compatible("Groq", "https://api.groq.com/openai/v1", "whisper-large-v3-turbo"), other]
     : [
-        { name: "OpenAI", baseURL: "https://api.openai.com/v1", model: "" },
-        { name: "OpenRouter", baseURL: "https://openrouter.ai/api/v1", model: "" },
-        { name: "Groq", baseURL: "https://api.groq.com/openai/v1", model: "" },
-        { name: "LM Studio", baseURL: "http://localhost:1234/v1", model: "" },
-        { name: "Ollama", baseURL: "http://localhost:11434/v1", model: "" },
+        compatible("OpenAI", "https://api.openai.com/v1"),
+        ...native,
+        compatible("OpenRouter", "https://openrouter.ai/api/v1"),
+        compatible("Groq", "https://api.groq.com/openai/v1"),
+        compatible("LM Studio", "http://localhost:1234/v1"),
+        compatible("Ollama", "http://localhost:11434/v1"),
         other,
       ];
 }
 
-export function presetFor(role: Role, baseURL: string) {
-  return remotePresets(role).find((preset) => preset.baseURL && preset.baseURL === baseURL)?.name ?? other.name;
+export function presetFor(role: Role, baseURL: string, provider: LlmProvider = "openai-compatible") {
+  const presets = remotePresets(role);
+  if (provider !== "openai-compatible") return presets.find((preset) => preset.provider === provider)?.name ?? other.name;
+  return presets.find((preset) => preset.provider === provider && preset.baseURL && preset.baseURL === baseURL)?.name ?? other.name;
 }
 
 export function nextResolverName(base: string, taken: string[]) {

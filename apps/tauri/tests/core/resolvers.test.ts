@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { addableModels, addedModelProblem, defaultLocalStt, downloadLabel, nextResolverName, presetFor, removable, remoteURLProblem, resolverName, resolverProblem, resolversFooter, resolverSubtitle } from "../../src/core/resolvers";
+import { addableModels, addedModelProblem, defaultLocalStt, downloadLabel, llmProvider, nextResolverName, presetFor, remotePresets, removable, remoteURLProblem, resolverName, resolverProblem, resolversFooter, resolverSubtitle } from "../../src/core/resolvers";
 import { macOS } from "../../src/core/platform";
 import { linux } from "./platforms";
 
@@ -30,6 +30,31 @@ describe("resolutores como en la app Swift", () => {
     expect(nextResolverName("Groq", ["OpenAI"])).toBe("Groq");
     expect(presetFor("llm", "http://localhost:11434/v1")).toBe("Ollama");
     expect(presetFor("llm", "https://mi.servidor/v1")).toBe("Otro servicio compatible");
+  });
+});
+
+describe("proveedores nativos de LLM", () => {
+  test("los LLM ofrecen Anthropic, Google Gemini y Mistral con su API; los STT solo servicios compatibles", () => {
+    const llm = remotePresets("llm");
+    expect(llm.find((preset) => preset.name === "Anthropic")).toMatchObject({ provider: "anthropic", baseURL: "https://api.anthropic.com/v1" });
+    expect(llm.find((preset) => preset.name === "Google Gemini")).toMatchObject({ provider: "google", baseURL: "https://generativelanguage.googleapis.com/v1beta" });
+    expect(llm.find((preset) => preset.name === "Mistral")).toMatchObject({ provider: "mistral", baseURL: "https://api.mistral.ai/v1" });
+    expect(remotePresets("stt").every((preset) => preset.provider === "openai-compatible")).toBe(true);
+  });
+
+  test("un resolutor guardado sin proveedor sigue siendo compatible con OpenAI", () => {
+    expect(llmProvider({ role: "llm" })).toBe("openai-compatible");
+    expect(llmProvider({ role: "llm", provider: "anthropic" })).toBe("anthropic");
+    expect(() => llmProvider({ role: "llm", provider: "cohere" })).toThrow("Proveedor de resolutor no válido");
+    expect(() => llmProvider({ role: "stt", provider: "anthropic" })).toThrow("Los STT remotos usan un servicio compatible con OpenAI");
+    expect(llmProvider({ role: "stt", provider: "openai-compatible" })).toBe("openai-compatible");
+  });
+
+  test("el servicio elegido se reconoce por proveedor y URL", () => {
+    expect(presetFor("llm", "https://api.anthropic.com/v1", "anthropic")).toBe("Anthropic");
+    expect(presetFor("llm", "https://proxy.empresa.es/v1", "anthropic")).toBe("Anthropic");
+    expect(presetFor("llm", "https://api.mistral.ai/v1")).toBe("Otro servicio compatible");
+    expect(presetFor("llm", "https://api.mistral.ai/v1", "mistral")).toBe("Mistral");
   });
 });
 
