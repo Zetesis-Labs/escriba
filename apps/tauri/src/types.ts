@@ -132,6 +132,7 @@ export interface Resolver {
   enabled: boolean;
   url?: string;
   model?: string;
+  provider?: import("./core/resolvers").LlmProvider;
   hasCredential?: boolean;
 }
 export interface Recipe {

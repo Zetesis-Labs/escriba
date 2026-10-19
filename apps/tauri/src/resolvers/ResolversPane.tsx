@@ -25,7 +25,9 @@ import {
   nextResolverName,
   presetFor,
   remotePresets,
+  remoteSection,
   remoteURLProblem,
+  type LlmProvider,
   resolverProblem,
   resolverSubtitle,
   roleLabel,
@@ -100,6 +102,7 @@ export function ResolversPane({ data, role, refresh }: { data: Snapshot; role: R
             enabled: true,
             url: preset.baseURL,
             model: preset.model,
+            ...(preset.provider === "openai-compatible" ? {} : { provider: preset.provider }),
           };
           void call("config_save", { collection: "resolvers", item: created })
             .then(async () => {
@@ -198,27 +201,31 @@ function ResolverEditor({
   const [name, setName] = useState(resolver.name);
   const [url, setURL] = useState(resolver.url ?? "");
   const [model, setModel] = useState(resolver.model ?? "");
+  const [provider, setProvider] = useState<LlmProvider>(resolver.provider ?? "openai-compatible");
   const [key, setKey] = useState("");
   const [models, setModels] = useState<string[]>([]);
   const [working, setWorking] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const [trial, setTrial] = useState<Trial>(null);
-  const draft = { ...resolver, name, url, model };
-  const dirty = name !== resolver.name || url !== (resolver.url ?? "") || model !== (resolver.model ?? "") || key.trim() !== "";
+  const providerField = provider === "openai-compatible" ? {} : { provider };
+  const draft = { ...resolver, name, url, model, provider: undefined, ...providerField };
+  const dirty =
+    name !== resolver.name || url !== (resolver.url ?? "") || model !== (resolver.model ?? "") || provider !== (resolver.provider ?? "openai-compatible") || key.trim() !== "";
   const readiness = resolverProblem(draft, local);
-  const keyPayload = { resolver: { url, model, local: resolver.local }, resolverId: resolver.id, key };
+  const keyPayload = { resolver: { url, model, local: resolver.local, role, ...providerField }, resolverId: resolver.id, key };
 
   const discard = () => {
     setName(resolver.name);
     setURL(resolver.url ?? "");
     setModel(resolver.model ?? "");
+    setProvider(resolver.provider ?? "openai-compatible");
     setKey("");
     setProblem(null);
     setTrial(null);
   };
   const save = async () => {
     try {
-      await call("config_save", { collection: "resolvers", item: { ...resolver, name: name.trim() || resolver.name, url: url.trim(), model: model.trim(), enabled: true } });
+      await call("config_save", { collection: "resolvers", item: { ...draft, name: name.trim() || resolver.name, url: url.trim(), model: model.trim(), enabled: true } });
       if (key.trim()) await call("credential_save", { id: resolver.id, value: key.trim() });
       setKey("");
     } catch (failure) {
@@ -256,11 +263,13 @@ function ResolverEditor({
       setWorking(false);
     }
   };
+  const section = remoteSection(role, provider, platform);
   const presetOptions = remotePresets(role).map((preset) => ({ value: preset.name, label: preset.name }));
   const applyPreset = (presetName: string) => {
     const preset = remotePresets(role).find((candidate) => candidate.name === presetName);
     if (!preset) return;
     setURL(preset.baseURL);
+    setProvider(preset.provider);
     if (preset.model) setModel(preset.model);
     setModels([]);
   };
@@ -298,21 +307,17 @@ function ResolverEditor({
 
         {!resolver.local && (
           <FormSection
-            header="Servicio compatible con OpenAI"
-            footer={
-              role === "stt"
-                ? `El audio de cada nota sale del ${device(platform)} hacia este servicio. Con un servicio remoto no se detectan hablantes. OpenAI y Groq admiten audios de hasta 25 MB.`
-                : `El texto de cada nota sale del ${device(platform)} hacia este servicio. Sirve cualquier API compatible con OpenAI: OpenAI, OpenRouter, Groq o, en tu red, LM Studio y Ollama.`
-            }
+            header={section.header}
+            footer={section.footer}
           >
             <LabeledRow label="Servicio">
-              <PopupButton label="Servicio" value={presetFor(role, url)} options={presetOptions} onChange={applyPreset} />
+              <PopupButton label="Servicio" value={presetFor(role, url, provider)} options={presetOptions} onChange={applyPreset} />
             </LabeledRow>
             <LabeledRow label="URL de la API">
               <InlineField value={url} onChange={setURL} placeholder="https://api.openai.com/v1" />
             </LabeledRow>
             <LabeledRow label="Clave">
-              <InlineField value={key} onChange={setKey} secure placeholder={resolver.hasCredential ? "••••••••••••" : "Vacía si el servicio no la pide"} />
+              <InlineField value={key} onChange={setKey} secure placeholder={resolver.hasCredential ? "••••••••••••" : section.keyPlaceholder} />
             </LabeledRow>
             <LabeledRow label="Modelo">
               <InlineField value={model} onChange={setModel} placeholder={role === "stt" ? "whisper-1" : "Escribe o carga la lista"} />
