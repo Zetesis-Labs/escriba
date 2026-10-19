@@ -44,8 +44,8 @@ Con `ai` dentro, el paquete ocupa 618 KiB y carga en 47 ms (73 ms de CPU).
    llamada:
    - acepta solo las opciones `prompt`, `maxOutputTokens`, `temperature`,
      `topP`, `topK`, `presencePenalty`, `frequencyPenalty`, `stopSequences`,
-     `seed`, `responseFormat`, `tools` y `toolChoice`. Rechaza el resto, entre
-     ellas `headers`, `providerOptions` e `includeRawChunks`;
+     `seed`, `responseFormat`, `reasoning`, `tools` y `toolChoice`. Rechaza el
+     resto, entre ellas `headers`, `providerOptions` e `includeRawChunks`;
    - rechaza las herramientas que ejecuta el propio proveedor
      (`type: "provider"`, como la búsqueda web), porque harían salir al
      proveedor a internet en nombre de la receta;
