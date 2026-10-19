@@ -249,8 +249,9 @@ parte de este contrato.
 
 ## El AI SDK en una receta
 
-Una receta puede usar el AI SDK de Vercel (`ai` 7) instalándolo en su proyecto.
-Se empaqueta dentro como cualquier dependencia. El modelo lo da Escriba
+Una receta puede usar el AI SDK de Vercel (`ai` 7). Escriba lo trae, como Zod:
+el proyecto lo tiene sin instalar nada y sin red, y si declara su propia versión,
+prevalece esa. El modelo lo da Escriba
 (ADR-0013): `escriba.modelo("Claude")` devuelve un LLM remoto de los
 configurados en Ajustes, por clave o por nombre. También vale el nombre a secas
 en `model`, porque el worker registra a Escriba como proveedor por defecto del

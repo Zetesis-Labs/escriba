@@ -27,9 +27,18 @@ Con `ai` dentro, el paquete ocupa 618 KiB y carga en 47 ms (73 ms de CPU).
 
 ## Decisión
 
-1. **La receta usa su propio `ai`**, instalado con npm en su proyecto (versión
-   7, la que habla `LanguageModelV4`), y se empaqueta dentro como cualquier
-   dependencia. Escriba no lo añade a las dependencias que gestiona.
+1. **Escriba trae `ai` 7**, la versión que habla `LanguageModelV4`, como trae
+   Zod (Rubén, 2026-10-20). Funciona así:
+   - el runtime lleva el paquete con sus dependencias, sin documentación, fuentes
+     ni las dependencias de desarrollo de sus autores (4,6 MB);
+   - cada proyecto los recibe en `.escriba/deps`, declarados con `overrides` como
+     los tipos de Bun, así que se instalan sin red;
+   - una receta que no lo instala usa ese, y si el proyecto declara su propio
+     `ai`, prevalece el suyo.
+
+   El constructor resuelve los paquetes por su `package.json`. Dentro del
+   ejecutable compilado, `Bun.resolveSync` solo encuentra un `index.js` en la raíz
+   del paquete, y `ai` tiene su entrada en `dist/`.
 2. **`escriba.modelo(claveONombre)` devuelve un modelo intermediario** que
    cumple `LanguageModelV4` sin depender del SDK. Sus `doGenerate` y `doStream`
    piden la llamada al controlador por el canal de la receta.
@@ -75,10 +84,9 @@ Con `ai` dentro, el paquete ocupa 618 KiB y carga en 47 ms (73 ms de CPU).
 
 ## Alternativas
 
-- **Que Escriba aporte `ai` a los proyectos, como Zod.** Habría que copiar al
-  `vendor` y a cada proyecto `ai` con sus dependencias: el gateway, `@vercel/oidc`,
-  `undici` y siete paquetes más. A cambio, todas las recetas compartirían
-  versión. Se descarta mientras las recetas puedan instalar la suya.
+- **Que cada receta instale `ai`.** Era la primera propuesta. Se descartó porque
+  así la versión podía no encajar con `escriba.modelo` y un proyecto nuevo
+  necesitaba red.
 - **Exponer funciones sueltas en `escriba.*`** (opciones de `preguntar`,
   embeddings…). Habría que copiar el SDK a mano, función a función.
 - **Dar a las recetas los proveedores del SDK con su clave.** Descartada: rompe
@@ -86,9 +94,10 @@ Con `ai` dentro, el paquete ocupa 618 KiB y carga en 47 ms (73 ms de CPU).
 
 ## Consecuencias
 
-- **Versión de `ai`:** una receta que use otra versión mayor, con otra interfaz
-  de modelo, recibe el error del SDK sobre la versión del modelo. Cuando
-  Escriba cambie de interfaz, cambiará `escriba.modelo` y lo anunciará.
+- **Versión de `ai`:** la que trae Escriba encaja con `escriba.modelo`. Una
+  receta que declare otra versión mayor, con otra interfaz de modelo, recibe el
+  error del SDK sobre la versión del modelo. Cuando Escriba actualice `ai`,
+  actualizará `escriba.modelo` a la vez.
 - **Ajustes propios de cada proveedor:** quedan fuera hasta decidir cuáles son
   seguros.
 - **Embeddings y reranking:** tendrían su propio intermediario, si se piden.
