@@ -46,6 +46,11 @@ for (const dependency of AI_PACKAGES) {
   const target = join(vendor, dependency);
   await rm(target, { recursive: true, force: true });
   await cp(source, target, { recursive: true, dereference: true, filter: (path) => !omitted.test(path.slice(source.length)) });
+  // A file: dependency installs its devDependencies too, and a file: zod does not satisfy its zod peer:
+  // both send the install to the network. Escriba already ships the zod these packages work with.
+  const manifest = join(target, "package.json");
+  const { devDependencies: _tools, scripts: _scripts, peerDependencies: _peers, peerDependenciesMeta: _meta, ...published } = JSON.parse(await readFile(manifest, "utf8"));
+  await writeFile(manifest, `${JSON.stringify(published, null, 2)}\n`);
 }
 await prepareSurrealdb(app, vendor);
 const surreal = surrealNative(process.platform, process.arch);
