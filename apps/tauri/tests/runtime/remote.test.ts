@@ -4,7 +4,7 @@ import { devNull } from "node:os";
 import { createServer, type Server } from "node:net";
 import { z } from "zod";
 import { RuntimeError } from "../../src/runtime/contracts";
-import { ask, digestSchema, endpoint, models, privateHost, readResponse, silentWav, transcribe } from "../../src/runtime/remote";
+import { ask, callModel, digestSchema, endpoint, models, privateHost, readResponse, silentWav, transcribe } from "../../src/runtime/remote";
 
 function rawServer(status: string, body: string, declaredLength: number): Promise<{ port: number; close(): void }> {
   return new Promise((resolve) => {
@@ -300,4 +300,43 @@ test("anthropic: con un modelo que el SDK no conoce, el objeto llega por la herr
   );
   assert.deepEqual(await ask({ ...nativos.anthropic.resolver, model: "modelo-nuevo" }, SECRET, asked(digestSchema()), transport), digest);
   assert.equal((seen[0]!.body.tool_choice as { type: string }).type, "any");
+});
+
+const llamada = { prompt: [{ role: "user", content: [{ type: "text", text: "hola" }] }] };
+
+test("una receta llama al modelo por el controlador y solo recibe el contenido, sin metadatos ni la petición", async () => {
+  const { seen, transport } = answering(() => completion("respuesta"));
+  const result = await callModel(resolver, SECRET, "doGenerate", llamada, transport);
+  assert.deepEqual(Object.keys(result).sort(), ["content", "finishReason", "usage", "warnings"]);
+  assert.deepEqual((result as { content: unknown }).content, [{ type: "text", text: "respuesta" }]);
+  assert.equal(seen[0]!.request.headers.get("authorization"), `Bearer ${SECRET}`);
+  assert.ok(!JSON.stringify(result).includes(SECRET));
+});
+
+test("en streaming, la receta recibe las partes recogidas sin tramas en bruto ni metadatos", async () => {
+  const sse = ["{\"id\":\"x\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"m\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"ho\"}}]}", "{\"id\":\"x\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"m\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"la\"},\"finish_reason\":\"stop\"}]}", "[DONE]"]
+    .map((data) => `data: ${data}\n\n`)
+    .join("");
+  const { transport } = answering(() => new Response(sse, { status: 200, headers: { "content-type": "text/event-stream" } }));
+  const result = (await callModel(resolver, SECRET, "doStream", llamada, transport)) as { parts: { type: string; delta?: string; providerMetadata?: unknown }[] };
+  assert.equal(result.parts.map((part) => part.delta ?? "").join(""), "hola");
+  assert.ok(result.parts.some((part) => part.type === "finish"));
+  assert.ok(result.parts.every((part) => part.type !== "raw" && part.providerMetadata === undefined));
+});
+
+test("un error del servidor que repite la clave llega a la receta tapado, con su código y sin la URL", async () => {
+  for (const method of ["doGenerate", "doStream"] as const) {
+    const { transport } = answering(() => new Response(JSON.stringify({ error: { message: `clave ${SECRET} inválida` } }), { status: 401, headers: { "content-type": "application/json" } }));
+    const { code, message } = (await failure(callModel(resolver, SECRET, method, llamada, transport)))!;
+    assert.equal(code, "backend_unavailable", method);
+    assert.ok(message.includes("[credencial]"), message);
+    assert.ok(!message.includes("api.example.com"), message);
+  }
+});
+
+test("una llamada con opciones prohibidas no sale del controlador", async () => {
+  const { seen, transport } = answering(() => completion("x"));
+  await assert.rejects(callModel(resolver, SECRET, "doGenerate", { ...llamada, headers: { authorization: "otra" } }, transport), /headers/);
+  await assert.rejects(callModel(resolver, SECRET, "doGenerate", { ...llamada, tools: [{ type: "provider", id: "openai.web_search", name: "w", args: {} }] }, transport), /herramientas del proveedor/);
+  assert.equal(seen.length, 0);
 });
