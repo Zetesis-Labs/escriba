@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { isBuiltin } from "node:module";
 import { lstat, mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
-import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { packageEntry } from "./package-entry";
 import { filesystemPath, metafilePath, projectCanonicalPath } from "./project-path";
 
 type BuildResult = {
@@ -105,7 +106,7 @@ async function permittedVendor(vendor: string, canonicalPath: CanonicalPath) {
     ? join(vendor, "node_modules") : vendor;
   const real = await canonicalPath(modules);
   const allowed = [real];
-  for (const packageName of ["zod", "@escriba/conectores", "surrealdb", "ai"]) {
+  for (const packageName of ["zod", "@escriba/conectores", "surrealdb"]) {
     try { allowed.push(await canonicalPath(join(real, packageName))); }
     catch { throw Error(`No está disponible ${packageName} en las dependencias incluidas`); }
   }
@@ -121,13 +122,11 @@ function vendorFallback(modules: string) {
         resolve: (args: { path: string; importer: string }) => { path: string } | undefined,
       ): void;
     }) {
+      // An explicit path: left to Bun, a subpath like zod/v4 marks a file of the package as external in the metafile.
       build.onResolve({ filter: /^(zod|@escriba\/conectores|surrealdb|ai)(\/.*)?$/ }, (args) => {
-        try {
-          // Left to Bun, a subpath like zod/v4 marks a file of the package as external in the metafile.
-          return { path: Bun.resolveSync(args.path, args.importer) };
-        } catch {
-          return { path: Bun.resolveSync(args.path, join(modules, "..", "__escriba_vendor__.ts")) };
-        }
+        const path = packageEntry(args.path, dirname(args.importer)) ?? packageEntry(args.path, dirname(modules));
+        if (!path) throw Error(`No está disponible ${args.path} en las dependencias incluidas`);
+        return { path };
       });
     },
   };
