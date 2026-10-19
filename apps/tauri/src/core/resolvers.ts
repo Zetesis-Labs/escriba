@@ -88,6 +88,24 @@ export function presetFor(role: Role, baseURL: string, provider: LlmProvider = "
   return presets.find((preset) => preset.provider === provider && preset.baseURL && preset.baseURL === baseURL)?.name ?? other.name;
 }
 
+export function remoteSection(role: Role, provider: LlmProvider, platform: Platform = macOS) {
+  const from = `sale del ${device(platform)}`;
+  if (role === "stt")
+    return {
+      header: "Servicio compatible con OpenAI",
+      footer: `El audio de cada nota ${from} hacia este servicio. Con un servicio remoto no se detectan hablantes. OpenAI y Groq admiten audios de hasta 25 MB.`,
+      keyPlaceholder: "Vacía si el servicio no la pide",
+    };
+  if (provider === "openai-compatible")
+    return {
+      header: "Servicio compatible con OpenAI",
+      footer: `El texto de cada nota ${from} hacia este servicio. Sirve cualquier API compatible con OpenAI: OpenAI, OpenRouter, Groq o, en tu red, LM Studio y Ollama. Anthropic, Google Gemini y Mistral tienen su propia opción en Servicio.`,
+      keyPlaceholder: "Vacía si el servicio no la pide",
+    };
+  const name = presetFor(role, "", provider);
+  return { header: name, footer: `El texto de cada nota ${from} hacia ${name}, con su propia API.`, keyPlaceholder: "Obligatoria" };
+}
+
 export function nextResolverName(base: string, taken: string[]) {
   if (!taken.includes(base)) return base;
   for (let number = 2; ; number++) if (!taken.includes(`${base} ${number}`)) return `${base} ${number}`;

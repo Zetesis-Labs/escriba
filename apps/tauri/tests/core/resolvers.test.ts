@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { addableModels, addedModelProblem, defaultLocalStt, downloadLabel, llmProvider, nextResolverName, presetFor, remotePresets, removable, remoteURLProblem, resolverName, resolverProblem, resolversFooter, resolverSubtitle } from "../../src/core/resolvers";
+import { addableModels, addedModelProblem, defaultLocalStt, downloadLabel, llmProvider, nextResolverName, presetFor, remotePresets, remoteSection, removable, remoteURLProblem, resolverName, resolverProblem, resolversFooter, resolverSubtitle } from "../../src/core/resolvers";
 import { macOS } from "../../src/core/platform";
 import { linux } from "./platforms";
 
@@ -48,6 +48,17 @@ describe("proveedores nativos de LLM", () => {
     expect(() => llmProvider({ role: "llm", provider: "cohere" })).toThrow("Proveedor de resolutor no válido");
     expect(() => llmProvider({ role: "stt", provider: "anthropic" })).toThrow("Los STT remotos usan un servicio compatible con OpenAI");
     expect(llmProvider({ role: "stt", provider: "openai-compatible" })).toBe("openai-compatible");
+  });
+
+  test("la ficha nombra el servicio nativo y avisa de que necesita clave; los compatibles conservan su texto", () => {
+    expect(remoteSection("llm", "anthropic", linux)).toEqual({
+      header: "Anthropic",
+      footer: "El texto de cada nota sale del equipo hacia Anthropic, con su propia API.",
+      keyPlaceholder: "Obligatoria",
+    });
+    expect(remoteSection("llm", "openai-compatible").header).toBe("Servicio compatible con OpenAI");
+    expect(remoteSection("llm", "openai-compatible").footer).toContain("Anthropic, Google Gemini y Mistral tienen su propia opción en Servicio.");
+    expect(remoteSection("stt", "openai-compatible").footer).toContain("25 MB");
   });
 
   test("el servicio elegido se reconoce por proveedor y URL", () => {
