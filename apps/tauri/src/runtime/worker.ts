@@ -156,6 +156,31 @@ function noteObject(
   };
   return { note, refresh };
 }
+// ADR-0013: a LanguageModelV4 that asks the controller, which holds the key and the network.
+function escribaModel(llm: string) {
+  const call = (method: "doGenerate" | "doStream", options: unknown) => {
+    const { abortSignal: _signal, headers: _headers, ...rest } = object(options);
+    return rpc("model", { llm, method, options: rest });
+  };
+  return Object.freeze({
+    specificationVersion: "v4",
+    provider: "escriba",
+    modelId: llm,
+    supportedUrls: {},
+    doGenerate: (options: unknown) => call("doGenerate", options),
+    async doStream(options: unknown) {
+      const parts = object(await call("doStream", options)).parts;
+      return {
+        stream: new ReadableStream({
+          start(controller) {
+            for (const part of Array.isArray(parts) ? parts : []) controller.enqueue(part);
+            controller.close();
+          },
+        }),
+      };
+    },
+  });
+}
 async function recipe(task: WorkerTask) {
   const p = task.payload;
   const lists = p.lists as Lists;
@@ -287,9 +312,17 @@ async function recipe(task: WorkerTask) {
         },
       });
     },
+    modelo(key: string) {
+      return escribaModel(lookup(key, lists.llms).clave);
+    },
     log(text: string) {
       writeLog("info", [text]);
     },
+  });
+  // A model named by string in the AI SDK is one of Escriba's LLMs, never Vercel's gateway.
+  (globalThis as { AI_SDK_DEFAULT_PROVIDER?: unknown }).AI_SDK_DEFAULT_PROVIDER = Object.freeze({
+    specificationVersion: "v4",
+    languageModel: (key: string) => api.modelo(key),
   });
   if (typeof module.flujo !== "function") throw Error("La receta no exporta flujo");
   await module.flujo(audio, api);
