@@ -605,3 +605,47 @@ test("el presupuesto activo se acumula entre llamadas al host", async () => {
     /tiempo permitido/,
   );
 });
+
+test("una receta usa el AI SDK con escriba.modelo o por nombre, con herramientas y sin red ni claves", async () => {
+  const program = await recipe(`import { generateText, streamText, tool, stepCountIs } from "ai"; import { z } from "zod";
+    export async function flujo(audio, escriba) {
+      if (typeof fetch !== "undefined") throw Error("red disponible");
+      const conHerramienta = await generateText({ model: escriba.modelo("Claude"), prompt: "¿Cuántas letras?", stopWhen: stepCountIs(3),
+        tools: { contar: tool({ description: "cuenta", inputSchema: z.object({ texto: z.string() }), execute: async ({ texto }) => ({ letras: texto.length }) }) } });
+      const porNombre = await generateText({ model: "Claude", prompt: "hola" });
+      const enStream = streamText({ model: escriba.modelo("remoto"), prompt: "hola" });
+      escriba.log(JSON.stringify([conHerramienta.text, conHerramienta.steps.length, porNombre.text, await enStream.text]));
+    }`);
+  const requests: Record<string, unknown>[] = [];
+  const logs: string[] = [];
+  const usage = { inputTokens: { total: 1 }, outputTokens: { total: 1 } };
+  const text = (value: string) => ({ content: [{ type: "text", text: value }], finishReason: { unified: "stop", raw: "stop" }, usage, warnings: [] });
+  await runner().run(
+    { kind: "recipe", program, payload: { ...payload, lists: { ...lists, llms: [...lists.llms, { clave: "remoto", nombre: "Claude", local: false }] } } },
+    {
+      call: async (op, args) => {
+        if (op === "log") {
+          logs.push(String((args as { message: unknown }).message));
+          return null;
+        }
+        assert.equal(op, "model");
+        const request = args as { llm: string; method: string; options: Record<string, unknown> };
+        requests.push(request);
+        assert.equal(request.llm, "remoto");
+        assert.equal("abortSignal" in request.options || "headers" in request.options, false);
+        if (request.method === "doStream")
+          return { parts: [{ type: "stream-start", warnings: [] }, { type: "text-start", id: "1" }, { type: "text-delta", id: "1", delta: "en stream" }, { type: "text-end", id: "1" }, { type: "finish", finishReason: { unified: "stop", raw: "stop" }, usage }] };
+        if (requests.length === 1)
+          return { content: [{ type: "tool-call", toolCallId: "1", toolName: "contar", input: JSON.stringify({ texto: "hola" }) }], finishReason: { unified: "tool-calls", raw: "tool_calls" }, usage, warnings: [] };
+        if (requests.length === 2) {
+          const tool = (request.options.prompt as { role: string; content: { type: string; output?: unknown }[] }[]).find((message) => message.role === "tool");
+          assert.deepEqual(tool?.content[0]?.output, { type: "json", value: { letras: 4 } });
+          return text("cuatro letras");
+        }
+        return text("por nombre");
+      },
+    },
+  );
+  assert.deepEqual(requests.map((request) => request.method), ["doGenerate", "doGenerate", "doGenerate", "doStream"]);
+  assert.ok(logs.some((line) => line.includes('["cuatro letras",2,"por nombre","en stream"]')), logs.join("\n"));
+});

@@ -6,6 +6,7 @@ import { createMistral } from "@ai-sdk/mistral";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { APICallError, NoObjectGeneratedError, Output, generateText, jsonSchema } from "ai";
 import { z } from "zod";
+import { modelCall, publicModelParts, publicModelResult, type ModelMethod } from "../core/modelCall";
 import { llmProvider, type LlmProvider } from "../core/resolvers";
 import { answerJson } from "../core/structuredAnswer";
 import { RuntimeError, object, text } from "./contracts";
@@ -289,6 +290,30 @@ export async function ask(
       value = answerJson(error.text ?? "");
     }
     return conforming(value, schema);
+  } catch (error) {
+    throw inferenceError(error, secret);
+  }
+}
+export async function callModel(
+  resolver: Record<string, unknown>,
+  secret: string | undefined,
+  method: ModelMethod,
+  rawOptions: unknown,
+  transport: HttpTransport = fetch,
+): Promise<Record<string, unknown>> {
+  const { options } = modelCall({ method, options: rawOptions });
+  const model = languageModel(resolver, secret, transport);
+  const call = options as unknown as Parameters<typeof model.doGenerate>[0];
+  try {
+    if (method === "doGenerate") return publicModelResult(await model.doGenerate(call));
+    const { stream } = await model.doStream(call);
+    const parts: unknown[] = [];
+    const reader = stream.getReader();
+    for (let next = await reader.read(); !next.done; next = await reader.read()) {
+      if (next.value.type === "error") throw next.value.error;
+      parts.push(next.value);
+    }
+    return { parts: publicModelParts(parts) };
   } catch (error) {
     throw inferenceError(error, secret);
   }

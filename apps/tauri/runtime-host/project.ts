@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { isBuiltin } from "node:module";
 import { lstat, mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
-import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { packageEntry } from "./package-entry";
 import { filesystemPath, metafilePath, projectCanonicalPath } from "./project-path";
 
 type BuildResult = {
@@ -121,13 +122,11 @@ function vendorFallback(modules: string) {
         resolve: (args: { path: string; importer: string }) => { path: string } | undefined,
       ): void;
     }) {
-      build.onResolve({ filter: /^(zod|@escriba\/conectores|surrealdb)(\/.*)?$/ }, (args) => {
-        try {
-          Bun.resolveSync(args.path, args.importer);
-          return undefined;
-        } catch {
-          return { path: Bun.resolveSync(args.path, join(modules, "..", "__escriba_vendor__.ts")) };
-        }
+      // An explicit path: left to Bun, a subpath like zod/v4 marks a file of the package as external in the metafile.
+      build.onResolve({ filter: /^(zod|@escriba\/conectores|surrealdb|ai)(\/.*)?$/ }, (args) => {
+        const path = packageEntry(args.path, dirname(args.importer)) ?? packageEntry(args.path, dirname(modules));
+        if (!path) throw Error(`No está disponible ${args.path} en las dependencias incluidas`);
+        return { path };
       });
     },
   };
@@ -161,8 +160,8 @@ async function bundle(
   if (outputInfo.length !== 1 || outputInfo[0].imports.length)
     throw Error(`El paquete ${entry} conserva importaciones externas`);
   for (const [input, info] of Object.entries(result.metafile.inputs)) {
-    if (info.imports.some((item) => item.external && !isBuiltin(item.path)))
-      throw Error(`El paquete ${entry} importa una dependencia externa`);
+    const external = info.imports.find((item) => item.external && !isBuiltin(item.path));
+    if (external) throw Error(`El paquete ${entry} importa una dependencia externa: ${external.path}`);
     if (isBuiltin(input)) continue;
     const path = metafilePath(input);
     if (path === wrapper) continue;

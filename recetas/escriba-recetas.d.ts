@@ -148,6 +148,16 @@ interface ListasDeEscriba {
   readonly cuentas?: readonly InfoDeCuenta[]
 }
 
+/** Un LLM remoto para el AI SDK (`ai` 7). Llama por Escriba: la receta nunca ve su clave. */
+interface ModeloDeLenguaje {
+  readonly specificationVersion: "v4"
+  readonly provider: "escriba"
+  readonly modelId: string
+  readonly supportedUrls: Record<string, RegExp[]>
+  doGenerate(opciones: any): PromiseLike<any>
+  doStream(opciones: any): PromiseLike<any>
+}
+
 interface Escriba<P = null> extends ListasDeEscriba {
   readonly parametros: P
   transcribir(audio: Audio, opciones?: OpcionesDeTranscripcion): Promise<Nota>
@@ -159,6 +169,7 @@ interface Escriba<P = null> extends ListasDeEscriba {
   cuenta(claveONombre: string): Cuenta
   grafo(ontologiaId: string): Promise<import("surrealdb").Surreal>
   receta(claveONombre: string): Receta
+  modelo(claveONombre: string): ModeloDeLenguaje
   log(texto: string): void
 }
 

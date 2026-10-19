@@ -38,6 +38,22 @@ for (const dependency of ["@types/bun", "bun-types", "@types/node", "undici-type
     await writeFile(manifest, `${JSON.stringify(value, null, 2)}\n`);
   }
 }
+// The AI SDK for recipes (ADR-0013), with what it needs to run and type-check, nothing else.
+const AI_PACKAGES = ["ai", "@ai-sdk/gateway", "@ai-sdk/provider", "@ai-sdk/provider-utils", "@standard-schema/spec", "@vercel/oidc", "@workflow/serde", "eventsource-parser", "json-schema", "undici"];
+const omitted = /(^|\/)(docs|src|CHANGELOG\.md|[^/]+\.map)$/;
+for (const dependency of AI_PACKAGES) {
+  const source = join(app, "node_modules", dependency);
+  const target = join(vendor, dependency);
+  await rm(target, { recursive: true, force: true });
+  await cp(source, target, { recursive: true, dereference: true, filter: (path) => !omitted.test(path.slice(source.length)) });
+  // Projects declare every package of the chain at their root, like the Bun types. Nested ones would
+  // make a file: install fetch the authors' devDependencies and the zod peer from the network, and Bun
+  // on Windows fails copying nested file dependencies.
+  const manifest = join(target, "package.json");
+  const { dependencies: _nested, devDependencies: _tools, scripts: _scripts, peerDependencies: _peers, peerDependenciesMeta: _meta, ...published } =
+    JSON.parse(await readFile(manifest, "utf8"));
+  await writeFile(manifest, `${JSON.stringify(published, null, 2)}\n`);
+}
 await prepareSurrealdb(app, vendor);
 const surreal = surrealNative(process.platform, process.arch);
 await mkdir(join(app, "src-tauri/surreal"), { recursive: true });

@@ -76,6 +76,7 @@ export const SHELL_CONTROLLER_METHODS = [
   "knowledge_feed_prepare",
   "knowledge_feed_changes",
   "knowledge_feed_ack",
+  "model_call",
 ] as const;
 export type ControllerMethod = (typeof UI_CONTROLLER_METHODS)[number];
 export type ShellControllerMethod = (typeof SHELL_CONTROLLER_METHODS)[number];
