@@ -1,5 +1,9 @@
 import { openAsBlob } from "node:fs";
 import { basename } from "node:path";
+import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
+import { APICallError, NoObjectGeneratedError, Output, generateText, jsonSchema } from "ai";
+import { z } from "zod";
+import { answerJson } from "../core/structuredAnswer";
 import { RuntimeError, object, text } from "./contracts";
 import type { HttpTransport } from "./http";
 
@@ -153,37 +157,101 @@ export async function transcribe(
     duration: typeof value.duration === "number" ? value.duration : 0,
   };
 }
+const TOO_LARGE = "Respuesta del resolutor demasiado grande";
+const masked = (message: string, secret: string | undefined) => (secret ? message.split(secret).join("[credencial]") : message);
+function limited(response: Response): Response {
+  if (!response.body) return response;
+  let received = 0;
+  const body = response.body.pipeThrough(
+    new TransformStream<Uint8Array, Uint8Array>({
+      transform(chunk, controller) {
+        received += chunk.length;
+        if (received > RESPONSE_LIMIT) controller.error(Error(TOO_LARGE));
+        else controller.enqueue(chunk);
+      },
+    }),
+  );
+  return new Response(body, { status: response.status, statusText: response.statusText, headers: response.headers });
+}
+// The SDK calls fetch(input, init); Escriba's transport gets a Request with its own limits.
+function sdkFetch(transport: HttpTransport): typeof fetch {
+  const call = async (input: RequestInfo | URL, init?: RequestInit) => {
+    const timeout = AbortSignal.timeout(REMOTE_TIMEOUT_MS);
+    const signal = init?.signal ? AbortSignal.any([init.signal, timeout]) : timeout;
+    return limited(await transport(new Request(input, { ...init, redirect: "manual", signal })));
+  };
+  return call as typeof fetch;
+}
+function inferenceError(error: unknown, secret: string | undefined): Error {
+  if (error instanceof RuntimeError) return new RuntimeError(masked(error.message, secret), error.code);
+  if (APICallError.isInstance(error)) {
+    const status = error.statusCode;
+    if (status === undefined) return new RuntimeError("No se pudo conectar con el resolutor LLM", "backend_unavailable");
+    if (status >= 200 && status < 300) {
+      const cause = error.cause instanceof Error ? error.cause.message : "";
+      if (cause === TOO_LARGE) return Error(TOO_LARGE);
+      return error.cause instanceof TypeError
+        ? new RuntimeError("Se cortó la respuesta del resolutor", "backend_unavailable")
+        : Error("Respuesta JSON inválida del resolutor");
+    }
+    const body = [...masked(error.responseBody ?? "", secret)].slice(0, 1000).join("");
+    return new RuntimeError(
+      `El resolutor respondió ${status}: ${body}`,
+      status >= 500 || [401, 403, 408, 429].includes(status) ? "backend_unavailable" : "failed",
+    );
+  }
+  if (error instanceof Error && ["AbortError", "TimeoutError"].includes(error.name))
+    return new RuntimeError("El resolutor LLM no respondió a tiempo", "backend_unavailable");
+  if (error instanceof TypeError) return new RuntimeError("No se pudo conectar con el resolutor LLM", "backend_unavailable");
+  return Error(masked(error instanceof Error ? error.message : String(error), secret));
+}
+function conforming(value: unknown, schema: unknown): unknown {
+  if (value === undefined) throw Error("El resolutor no respetó el esquema JSON: la respuesta no contiene JSON");
+  const result = z.fromJSONSchema(schema as Parameters<typeof z.fromJSONSchema>[0]).safeParse(value);
+  if (result.success) return value;
+  const problems = result.error.issues.map((issue) => `${issue.path.join(".") || "respuesta"}: ${issue.message}`);
+  throw Error(`El resolutor no respetó el esquema JSON (${problems.join("; ")})`);
+}
 export async function ask(
   resolver: Record<string, unknown>,
   secret: string | undefined,
   params: Record<string, unknown>,
   transport: HttpTransport = fetch,
 ): Promise<unknown> {
-  const body: Record<string, unknown> = {
-    model: text(resolver.model, "model"),
-    messages: [
-      { role: "system", content: text(params.instructions, "instructions") },
-      { role: "user", content: text(params.prompt, "prompt") },
-    ],
-    temperature: 0.2,
-  };
+  const url = endpoint(resolver, "chat/completions");
+  const provider = createOpenAICompatible({
+    name: "escriba",
+    baseURL: url.href.slice(0, -"/chat/completions".length),
+    ...(secret ? { apiKey: secret } : {}),
+    supportsStructuredOutputs: true,
+    fetch: sdkFetch(transport),
+  });
+  const instructions = text(params.instructions, "instructions");
   const schema = params.schema !== undefined && params.schema !== null ? params.schema : undefined;
-  if (schema !== undefined)
-    body.response_format = { type: "json_schema", json_schema: { name: "escriba", strict: true, schema } };
-  const value = object(await send(transport, request(endpoint(resolver, "chat/completions"), secret, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
-  }), secret, "No se pudo conectar con el resolutor LLM"));
-  const choices = Array.isArray(value.choices) ? value.choices : [];
-  const first = choices[0] && typeof choices[0] === "object" ? (choices[0] as { message?: { content?: unknown } }) : undefined;
-  const content = first?.message?.content;
-  if (typeof content !== "string" || !content.trim()) throw Error("El resolutor no devolvió contenido");
-  if (schema === undefined) return content;
+  const call = {
+    model: provider(text(resolver.model, "model")),
+    prompt: text(params.prompt, "prompt"),
+    temperature: 0.2,
+    maxRetries: 0,
+  };
   try {
-    return JSON.parse(content);
-  } catch {
-    throw Error("El resolutor no respetó el esquema JSON");
+    if (schema === undefined) {
+      const answer = await generateText({ ...call, system: instructions });
+      if (!answer.text.trim()) throw Error("El resolutor no devolvió contenido");
+      return answer.text;
+    }
+    // Models that ignore response_format still learn the shape from the instructions.
+    const system = `${instructions}\n\nResponde solo con un JSON que cumpla este esquema:\n${JSON.stringify(schema)}`;
+    let value: unknown;
+    try {
+      value = (await generateText({ ...call, system, output: Output.object({ schema: jsonSchema(schema as Parameters<typeof jsonSchema>[0]) }) })).output;
+    } catch (error) {
+      if (!NoObjectGeneratedError.isInstance(error)) throw error;
+      value = answerJson(error.text ?? "");
+    }
+    return conforming(value, schema);
+  } catch (error) {
+    throw inferenceError(error, secret);
   }
 }
 export const digestSchema = () => ({
