@@ -75,7 +75,7 @@ reenvía a Bun; los comandos `knowledge_*` se atienden en Rust.
 - transcribe {recordingId,resolverId,language?,diarize?,speakers?} -> Transcript (Bun elige el resolutor y pide inferencia local mediante `shell.native` o realiza la petición remota; el controlador conserva las huellas y reconoce hablantes).
 - summarize {resolverId,instructions,prompt} -> Digest (una petición; troceo TS).
 - ask {resolverId,instructions,prompt,schema?} -> JSON.
-- model_call {resolverId,method,options} -> {content,finishReason,usage,warnings} | {parts} (llamada de `escriba.modelo` de una receta, ADR-0013: solo LLM remotos y encendidos; `method` es `doGenerate` o `doStream`; `options` admite solo las opciones permitidas de `LanguageModelV4`, sin `headers`, `providerOptions`, herramientas del proveedor ni archivos; nunca devuelve la petición, la respuesta en bruto ni los metadatos del proveedor, y los errores llegan con la clave tapada).
+- model_call {resolverId,method,options} -> {content,finishReason,usage,warnings} | {parts} (solo origen `shell`: la pide el controlador en nombre de `escriba.modelo` de una receta, ADR-0013; solo LLM remotos y encendidos; `method` es `doGenerate` o `doStream`; `options` admite solo las opciones permitidas de `LanguageModelV4`, sin `headers`, `providerOptions`, herramientas del proveedor ni archivos; nunca devuelve la petición, la respuesta en bruto ni los metadatos del proveedor, y los errores llegan con la clave tapada).
 - recording_start {recipeId?} -> estado del panel; recording_stop -> Recording | null.
 - recording_dismiss -> estado del panel (descarta el aviso de problema); recording_cancel -> void (descarta la captura en curso y su archivo).
 - export_file {path,contents} -> void (archivo elegido por usuario en diálogo).

@@ -300,7 +300,8 @@ export function registerDomainCommands(commands: CommandRegistry, deps: DomainDe
     return { size: statSync(path).size, type: audioType(path), filename: basename(path) };
   });
   for (const name of ["transcribe", "summarize", "ask"] as const) named(name, ANY, name === "transcribe" ? "changed" : undefined, (p) => inference(deps, name, p));
-  named("model_call", ANY, undefined, (p) => modelInference(deps, p));
+  // Only recipes, through the controller in this same process: the interface has no use for it.
+  named("model_call", SHELL, undefined, (p) => modelInference(deps, p));
   named("native_cancel", ANY, undefined, () => host.call("shell.native_cancel"));
   named("project_install", ANY, "changed", async (p) => {
     await library.install(json(p), (ontologies) => host.call("shell.validate_catalog", { ontologies }).then(() => undefined));
