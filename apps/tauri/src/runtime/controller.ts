@@ -58,6 +58,7 @@ import { manualSummaryReading, manualSummaryResolver } from "../core/manualSumma
 import { ontologyDependencies, ontologyRequirement } from "../core/ontologyDependencies";
 import { localModel } from "./localModels";
 import { builtinProgram } from "../core/builtinRecipes";
+import { modelCall } from "../core/modelCall";
 function lookup<T extends { id: string; name: string }>(
   values: T[],
   id: string,
@@ -104,6 +105,8 @@ const resolver = (r: Resolver) => ({
   modelo: r.model || null,
   url: r.url || null,
 });
+// requisito-recetas.md: a recipe calling an LLM in a loop never runs out of CPU time.
+const MAX_LLM_CALLS_PER_NOTE = 50;
 function selected(
   snapshot: RuntimeContext,
   role: "stt" | "llm",
@@ -238,6 +241,11 @@ export function createRuntime(
       const recomputed = fresh && !processOptions.dryRun ? new Set<string>() : undefined;
       const retranscribed = fresh && !processOptions.dryRun ? new Set<string>() : undefined;
       const remembering = !processOptions.dryRun;
+      let llmCalls = 0;
+      const countLlmCall = () => {
+        if (++llmCalls > MAX_LLM_CALLS_PER_NOTE)
+          throw Error(`La receta llegó al tope de ${MAX_LLM_CALLS_PER_NOTE} llamadas a un LLM por nota`);
+      };
       const base = startingVersion(recording, processOptions.baseVersionId);
       const notes = new Map<string, WorkingNote>();
       const opened = new Map<string, number>();
@@ -575,6 +583,7 @@ export function createRuntime(
                     return view(note);
                   }
                   case "ask": {
+                    countLlmCall();
                     const model = selected(
                       snapshot,
                       "llm",
@@ -625,6 +634,24 @@ export function createRuntime(
                     } finally {
                       if (nativeOwner === owner) nativeOwner = undefined;
                     }
+                  }
+                  case "model": {
+                    countLlmCall();
+                    const model = selected(snapshot, "llm", text(args.llm, "llm"));
+                    if (model.local) throw Error("escriba.modelo necesita un LLM remoto: el local no pasa por el AI SDK");
+                    const call = modelCall({ method: args.method, options: args.options });
+                    stage(id, "Consultando");
+                    const answer = await remember(
+                      host,
+                      id,
+                      remembering,
+                      { kind: "model", resolver: model, params: call },
+                      () => request<JSONValue>(host, "model_call", { resolverId: model.id, ...call }),
+                      signal,
+                      recomputed,
+                    );
+                    aborted(signal);
+                    return answer;
                   }
                   case "publish": {
                     const note = noteOf(args.handle);

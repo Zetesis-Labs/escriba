@@ -920,3 +920,84 @@ test("audio modificado bajo el mismo ID invalida reuso automático", async () =>
     "audio-changed",
   );
 });
+
+function withRemoteLlm(m: ReturnType<typeof memory>) {
+  (m.state.resolvers as unknown[]).push({ id: "remoto", name: "Claude", role: "llm", local: false, enabled: true, url: "https://api.example/v1", model: "m" });
+}
+const modelOptions = { prompt: [{ role: "user", content: [{ type: "text", text: "hola" }] }] };
+
+test("escriba.modelo pide la llamada al controlador por resolutor y la recuerda como preguntar", async () => {
+  const m = memory();
+  withRemoteLlm(m);
+  const cache = new Map<string, unknown>();
+  const calls: Record<string, unknown>[] = [];
+  const host: RuntimeHost = {
+    call: async (method, params = {}) => {
+      if (method === "memory_recall") return cache.get(String(params.fingerprint)) ?? null;
+      if (method === "memory_keep") {
+        cache.set(String(params.fingerprint), params.value);
+        return null;
+      }
+      if (method === "model_call") {
+        calls.push(params);
+        return { content: [{ type: "text", text: "hola" }], finishReason: { unified: "stop", raw: "stop" }, usage: {}, warnings: [] };
+      }
+      return m.host.call(method, params);
+    },
+  };
+  const answers: unknown[] = [];
+  const recipe: RuntimeRunner = {
+    run: async (_, context) => {
+      await context.call("transcribe", {});
+      answers.push(await context.call("model", { llm: "Claude", method: "doGenerate", options: modelOptions }));
+      return null;
+    },
+  };
+  await createRuntime(host, recipe).processRecording("r", { force: false });
+  await createRuntime(host, recipe).processRecording("r", { force: false });
+  assert.equal(calls.length, 1);
+  assert.deepEqual(calls[0], { resolverId: "remoto", method: "doGenerate", options: modelOptions });
+  assert.deepEqual(answers[0], answers[1]);
+});
+
+test("escriba.modelo rechaza el LLM local y las opciones prohibidas antes de llamar", async () => {
+  const m = memory();
+  withRemoteLlm(m);
+  let called = false;
+  const host: RuntimeHost = {
+    call: async (method, params = {}) => {
+      if (method === "model_call") called = true;
+      return m.host.call(method, params);
+    },
+  };
+  const attempt = (args: Record<string, unknown>) =>
+    createRuntime(host, { run: async (_, context) => (await context.call("model", args), null) }).processRecording("r", { force: false });
+  await assert.rejects(attempt({ llm: "local-llm", method: "doGenerate", options: modelOptions }), /LLM remoto/);
+  await assert.rejects(attempt({ llm: "remoto", method: "doGenerate", options: { ...modelOptions, headers: { a: "b" } } }), /headers/);
+  assert.equal(called, false);
+});
+
+test("una receta no pasa de 50 llamadas a un LLM por nota, sumando preguntar y modelo", async () => {
+  const m = memory();
+  withRemoteLlm(m);
+  let made = 0;
+  const host: RuntimeHost = {
+    call: async (method, params = {}) => {
+      if (method === "model_call" || method === "ask") {
+        made++;
+        return method === "ask" ? "respuesta" : { content: [], finishReason: { unified: "stop", raw: "stop" }, usage: {}, warnings: [] };
+      }
+      return m.host.call(method, params);
+    },
+  };
+  const recipe: RuntimeRunner = {
+    run: async (_, context) => {
+      for (let index = 0; index < 25; index++) await context.call("ask", { entrada: `Pregunta ${index}` });
+      for (let index = 0; index < 26; index++)
+        await context.call("model", { llm: "remoto", method: "doGenerate", options: { prompt: [{ role: "user", content: [{ type: "text", text: `${index}` }] }] } });
+      return null;
+    },
+  };
+  await assert.rejects(createRuntime(host, recipe).processRecording("r", { force: false }), /tope de 50 llamadas/);
+  assert.equal(made, 50);
+});
