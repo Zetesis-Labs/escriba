@@ -46,10 +46,12 @@ for (const dependency of AI_PACKAGES) {
   const target = join(vendor, dependency);
   await rm(target, { recursive: true, force: true });
   await cp(source, target, { recursive: true, dereference: true, filter: (path) => !omitted.test(path.slice(source.length)) });
-  // A file: dependency installs its devDependencies too, and a file: zod does not satisfy its zod peer:
-  // both send the install to the network. Escriba already ships the zod these packages work with.
+  // Projects declare every package of the chain at their root, like the Bun types. Nested ones would
+  // make a file: install fetch the authors' devDependencies and the zod peer from the network, and Bun
+  // on Windows fails copying nested file dependencies.
   const manifest = join(target, "package.json");
-  const { devDependencies: _tools, scripts: _scripts, peerDependencies: _peers, peerDependenciesMeta: _meta, ...published } = JSON.parse(await readFile(manifest, "utf8"));
+  const { dependencies: _nested, devDependencies: _tools, scripts: _scripts, peerDependencies: _peers, peerDependenciesMeta: _meta, ...published } =
+    JSON.parse(await readFile(manifest, "utf8"));
   await writeFile(manifest, `${JSON.stringify(published, null, 2)}\n`);
 }
 await prepareSurrealdb(app, vendor);

@@ -962,14 +962,14 @@ fn ensure_sdk_dependency(root: &Path) -> Result<(), String> {
     )
 }
 
-// Like the Bun types: every package of the chain is declared and overridden,
-// so an offline install puts them all in node_modules for the bundler.
+// Like the Bun types: every package of the chain is declared at the root and ships
+// without nested dependencies, so an offline install puts them all in node_modules.
 fn ensure_ai_dependency(root: &Path) -> Result<(), String> {
     let shipped: Vec<(&str, String)> = AI_DEPENDENCIES
         .iter()
         .map(|(package, name)| (*package, format!("file:.escriba/deps/{name}")))
         .collect();
-    ensure_dependency(root, "ai", &shipped, &shipped[1..])
+    ensure_dependency(root, "ai", &shipped, &[])
 }
 
 // Adds what Escriba ships unless the project already declares `package` itself.
@@ -1628,7 +1628,7 @@ mod tests {
     }
 
     #[test]
-    fn el_ai_sdk_se_declara_con_sus_overrides_salvo_que_el_usuario_traiga_el_suyo() {
+    fn el_ai_sdk_se_declara_entero_salvo_que_el_usuario_traiga_el_suyo() {
         let folder = tempfile::tempdir().unwrap();
         let package = folder.path().join("package.json");
         let own = br#"{"name":"custom","dependencies":{"ai":"6.0.0"}}"#;
@@ -1649,8 +1649,8 @@ mod tests {
         );
         assert_eq!(updated["dependencies"]["otra"], "1.0.0");
         assert_eq!(
-            updated["overrides"]["@ai-sdk/provider-utils"],
-            "file:.escriba/deps/ai-sdk-provider-utils"
+            updated["dependencies"]["undici"],
+            "file:.escriba/deps/undici"
         );
         assert_eq!(updated["overrides"]["undici"], "7.0.0");
     }
@@ -1674,9 +1674,10 @@ mod tests {
             serde_json::from_slice(&fs::read(folder.path().join("package.json")).unwrap()).unwrap();
         assert_eq!(manifest["dependencies"]["ai"], "file:.escriba/deps/ai");
         assert_eq!(
-            manifest["overrides"]["@ai-sdk/gateway"],
+            manifest["dependencies"]["@ai-sdk/gateway"],
             "file:.escriba/deps/ai-sdk-gateway"
         );
+        assert!(manifest["overrides"].get("@ai-sdk/gateway").is_none());
     }
 
     #[test]

@@ -31,8 +31,9 @@ Con `ai` dentro, el paquete ocupa 618 KiB y carga en 47 ms (73 ms de CPU).
    Zod (Rubén, 2026-10-20). Funciona así:
    - el runtime lleva el paquete con sus dependencias, sin documentación, fuentes
      ni las dependencias de desarrollo de sus autores (4,6 MB);
-   - cada proyecto los recibe en `.escriba/deps`, declarados con `overrides` como
-     los tipos de Bun, así que se instalan sin red;
+   - cada proyecto los recibe en `.escriba/deps`, todos declarados en la raíz y sin
+     dependencias anidadas, como los tipos de Bun, así que se instalan sin red
+     (y en Windows, donde Bun no copia dependencias `file:` anidadas);
    - una receta que no lo instala usa ese, y si el proyecto declara su propio
      `ai`, prevalece el suyo.
 
