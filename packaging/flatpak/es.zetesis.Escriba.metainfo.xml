@@ -2,7 +2,8 @@
 <component type="desktop-application">
   <id>es.zetesis.Escriba</id>
   <name>Escriba</name>
-  <summary>Biblioteca de notas de voz con transcripción local</summary>
+  <summary>Voice-note library with local transcription</summary>
+  <summary xml:lang="es">Biblioteca de notas de voz con transcripción local</summary>
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>MIT</project_license>
   <developer id="es.zetesis">
@@ -10,15 +11,25 @@
   </developer>
   <description>
     <p>
+      Escriba keeps your voice notes, transcribes them on your computer with
+      Whisper, with no account anywhere, and processes them with recipes you
+      can write yourself.
+    </p>
+    <p xml:lang="es">
       Escriba guarda tus notas de voz, las transcribe en tu equipo con Whisper
       sin cuenta en ningún sitio y las procesa con recetas que puedes escribir tú.
     </p>
     <ul>
-      <li>Vigila carpetas donde llegan tus grabaciones y las procesa solas.</li>
-      <li>Graba desde la propia app.</li>
-      <li>Transcribe en local con varios modelos de Whisper o con un servicio compatible con OpenAI.</li>
-      <li>Detecta quién habla y reconoce a las personas que registres.</li>
-      <li>Resume y publica en Notion u OKF con recetas aisladas.</li>
+      <li>Watches the folders where your recordings arrive and processes them on its own.</li>
+      <li xml:lang="es">Vigila carpetas donde llegan tus grabaciones y las procesa solas.</li>
+      <li>Records from the app itself.</li>
+      <li xml:lang="es">Graba desde la propia app.</li>
+      <li>Transcribes locally with several Whisper models, or with an OpenAI-compatible service.</li>
+      <li xml:lang="es">Transcribe en local con varios modelos de Whisper o con un servicio compatible con OpenAI.</li>
+      <li>Detects who is speaking and recognizes the people you register.</li>
+      <li xml:lang="es">Detecta quién habla y reconoce a las personas que registres.</li>
+      <li>Summarizes and publishes to Notion or OKF with isolated recipes.</li>
+      <li xml:lang="es">Resume y publica en Notion u OKF con recetas aisladas.</li>
     </ul>
   </description>
   <launchable type="desktop-id">es.zetesis.Escriba.desktop</launchable>
@@ -35,7 +46,8 @@
   <releases>
     <release version="0.1.0" date="2026-10-14">
       <description>
-        <p>Primera versión para Linux.</p>
+        <p>First Linux release.</p>
+        <p xml:lang="es">Primera versión para Linux.</p>
       </description>
     </release>
   </releases>

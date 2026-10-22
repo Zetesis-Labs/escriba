@@ -30,8 +30,8 @@
       "nsis": {
         "installMode": "currentUser",
         "languages": [
-          "Spanish",
-          "English"
+          "English",
+          "Spanish"
         ]
       }
     },
