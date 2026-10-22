@@ -78,7 +78,9 @@ no se ha podido leer. Preservar la lectura de datos ya guardados al actualizar.
 - Una sección está validada cuando Rubén la confirma en pantalla. Instalar y
   avisar al terminar cada apartado; no reinstalar mientras prueba sin avisar.
 - Sin push, merge ni cambios en PRs salvo petición de Rubén. Commits
-  convencionales en castellano, sin trailers de IA.
+  convencionales en inglés, también el ámbito (`library`, `recipes`…), sin
+  trailers de IA: release-please hace con ellos el CHANGELOG y las notas de
+  cada release (Rubén, 2026-10-23).
 
 ## Reglas del producto
 
