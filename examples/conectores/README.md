@@ -1,12 +1,12 @@
-# Proveedor externo de ejemplo
+# Example external provider
 
-Este proyecto se instala y construye como un proyecto de recetas independiente. `src/conectores.ts` registra un proveedor con clave de API separada de la configuración, formulario Zod, opciones de colección obtenidas por `host.fetch` y un ciclo de publicación con recibo. `src/recetas/ejemplo/receta.ts` muestra consultas y escrituras desde una receta mediante `api.cuenta(...).fetch`, sin acceso al valor de la clave.
+This project is installed and built as a standalone recipe project. `src/conectores.ts` registers a provider with an API key kept apart from the configuration, a Zod form, collection options fetched through `host.fetch`, and a publication cycle with a receipt. `src/recetas/ejemplo/receta.ts` shows reads and writes from a recipe through `api.cuenta(...).fetch`, without access to the key's value.
 
-1. Copia esta carpeta a cualquier ubicación fuera del repositorio.
-2. Elígela en **Recetas → Cambiar…** de Escriba. La app prepara `.escriba/deps/conectores` y el lanzador `escriba`, sin cambiar las fuentes.
-3. Ejecuta **Dependencias** y **Construir** desde el editor, o `./escriba install` y `./escriba build` desde el terminal.
-4. En **Conectores → +**, elige **Notas de ejemplo** y configura su cuenta. Sustituye `mi-cuenta-sintetica` en la receta por el nombre o ID de esa cuenta.
+1. Copy this folder anywhere outside the repository.
+2. Choose it in Escriba under **Recetas → Cambiar…** (Recipes → Change…). The app prepares `.escriba/deps/conectores` and the `escriba` launcher, without changing the sources.
+3. Run **Dependencias** (Dependencies) and **Construir** (Build) from the editor, or `./escriba install` and `./escriba build` from the terminal.
+4. In **Conectores → +** (Connectors → +), choose **Notas de ejemplo** (the example provider) and set up its account. Replace `mi-cuenta-sintetica` in the recipe with that account's name or ID.
 
-No se necesita el checkout de Escriba para construirlo. El paquete usa la copia administrada que incluye la aplicación; la versión npm de Zod se instala en este proyecto. Para distribuir la integración ya construida basta `dist/`, sin `.escriba`, fuentes ni `node_modules`.
+You do not need a checkout of Escriba to build it. The package uses the managed copy bundled with the app; the npm version of Zod is installed in this project. To distribute the built integration, `dist/` is enough, without `.escriba`, sources or `node_modules`.
 
-`https://api.example.test` es un dominio ficticio: el ejemplo no contacta con un servicio real. Para probarlo, sustituye ese origen por el de un servidor local sintético (por ejemplo, `http://127.0.0.1:3000`) y configura la cuenta en Escriba. El servidor debe ofrecer `GET /me`, `POST /drafts`, `GET /workspaces/:id/collections`, `GET /workspaces/:id/collections/:id/notes/by-key/:key`, `POST /workspaces/:id/collections/:id/notes`, `PUT` y `DELETE` sobre `/workspaces/:id/collections/:id/notes/:id`. La consulta por clave permite reconciliar una creación cuya respuesta se perdió. Si no aparece una creación que quedó pendiente, el ejemplo falla y exige decidir manualmente antes de otra escritura.
+`https://api.example.test` is a fictitious domain: the example does not contact a real service. To try it, replace that origin with a synthetic local server (for example, `http://127.0.0.1:3000`) and set up the account in Escriba. The server must offer `GET /me`, `POST /drafts`, `GET /workspaces/:id/collections`, `GET /workspaces/:id/collections/:id/notes/by-key/:key`, `POST /workspaces/:id/collections/:id/notes`, and `PUT` and `DELETE` on `/workspaces/:id/collections/:id/notes/:id`. The lookup by key makes it possible to reconcile a creation whose response was lost. If a creation left pending does not show up, the example fails and requires a manual decision before any other write.

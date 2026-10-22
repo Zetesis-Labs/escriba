@@ -1,48 +1,50 @@
-# Proyectos de recetas en Escriba
+# Recipe projects in Escriba
 
-Ampliación pedida por Rubén el 2026-10-10: proyecto TypeScript normal, herramientas
-incluidas en la app y editor interno CodeMirror.
+Extension requested by Rubén on 2026-10-10: a regular TypeScript project, tools
+bundled with the app and an internal CodeMirror editor.
 
-La ampliación del 2026-10-11 incorpora proveedores declarados por el proyecto,
-formularios y credenciales gestionados por la app, y transporte autenticado
-para SDK desde recetas. El contrato está implementado en la rama de trabajo;
-la validación instalada por Rubén sigue pendiente. Véase
-[el objetivo y sus criterios de aceptación](objetivo-extensibilidad-recetas.md).
+The extension of 2026-10-11 adds providers declared by the project, forms and
+credentials managed by the app, and authenticated transport for SDKs used from
+recipes. The contract is implemented on the working branch; Rubén's validation
+of the installed app is still pending. See
+[the goal and its acceptance criteria](objetivo-extensibilidad-recetas.md).
 
-La misma rama incorpora ontologías de conocimiento propuestas por el proyecto.
-La persona usuaria las instala o actualiza explícitamente desde Recetas; construir
-o elegir otro proyecto no modifica las ontologías ya instaladas.
+The same branch adds knowledge ontologies proposed by the project. The user
+installs or updates them explicitly from **Recetas** (Recipes); building or
+choosing another project does not modify the ontologies already installed.
 
-## Editar y construir
+## Editing and building
 
-En Recetas, elegir una carpeta vacía crea el proyecto y sus tipos. Abrir editor
-muestra los archivos y permite crear otros, editar y guardar con ⌘S. Los cambios
-sin guardar se conservan al volver a Recetas durante la sesión; hay que guardarlos
-antes de ejecutar una herramienta. Si un editor externo cambió el archivo, el
-guardado falla conservando el borrador para evitar sobrescribirlo.
-Recargar vuelve a leer el archivo y pide confirmación antes de descartar un
-borrador; si la lectura falla, conserva los cambios.
+In **Recetas**, choosing an empty folder creates the project and its types.
+Opening the editor shows the files and lets you create new ones, edit and save
+with ⌘S. Unsaved changes are kept when you return to **Recetas** during the
+session; you must save them before running a tool. If an external editor changed
+the file, saving fails and keeps the draft so it does not overwrite that change.
+Reloading rereads the file and asks for confirmation before discarding a draft;
+if the read fails, it keeps the changes.
 
-El playground incluye estas acciones:
+The playground includes these actions:
 
-- **Dependencias:** `bun install --ignore-scripts`, con caché dentro de `.escriba`.
-  Ejecutarlo antes de comprobar tipos o pruebas en un proyecto nuevo.
-- **Comprobar tipos:** TypeScript 7.0.2 nativo en Go, `tsc --noEmit` sobre `tsconfig.json`.
-- **Pruebas:** `bun test` sobre el proyecto.
-- **Construir:** Bun empaqueta las recetas y conectores en `dist/`; después Escriba
-  inspecciona los programas y actualiza su catálogo.
+- **Dependencias** (Dependencies): `bun install --ignore-scripts`, with the
+  cache inside `.escriba`. Run it before type-checking or running tests in a new
+  project.
+- **Comprobar tipos** (Type-check): native TypeScript 7.0.2 in Go, `tsc --noEmit`
+  over `tsconfig.json`.
+- **Pruebas** (Tests): `bun test` over the project.
+- **Construir** (Build): Bun bundles the recipes and connectors into `dist/`;
+  then Escriba inspects the programs and updates its catalog.
 
-Las herramientas están encima del código. **Abrir en VS Code** abre la carpeta
-completa del proyecto en Visual Studio Code, si está instalado en el Mac; no
-requiere instalar el comando `code` en el terminal. La consola permanece debajo
-del editor.
+The tools sit above the code. **Abrir en VS Code** (Open in VS Code) opens the
+whole project folder in Visual Studio Code, if it is installed on the Mac; it
+does not require installing the `code` command in the terminal. The console
+stays below the editor.
 
-El editor ofrece sintaxis TypeScript y completado básico de CodeMirror. Los errores
-del comprobador aparecen en la consola; no se integra un servidor de lenguaje.
-No hace falta instalar Node, Bun, npm ni Go en el equipo. Go solo es el lenguaje
-en el que está compilado el comprobador distribuido. El proyecto nuevo incluye
-también las declaraciones de Bun y Node para comprobar tests TypeScript e
-imports de módulos integrados.
+The editor offers TypeScript syntax and CodeMirror's basic completion. Checker
+errors appear in the console; no language server is integrated. There is no need
+to install Node, Bun, npm or Go on the machine. Go is only the language the
+distributed checker is compiled in. The new project also includes the Bun and
+Node declarations, to type-check TypeScript tests and imports of built-in
+modules.
 
 ```text
 mi-proyecto/
@@ -63,37 +65,39 @@ mi-proyecto/
     ontologias.js
 ```
 
-El ejemplo es la receta «Por defecto» de la app con sus piezas: la misma
-composición de Transcribir, Resumir y Publicar, ya editable. Las tres piezas
-siguen disponibles en la app como recetas de serie.
+The example is the app's *Por defecto* recipe with its pieces: the same
+composition of Transcribir, Resumir and Publicar, now editable. The three pieces
+remain available in the app as built-in recipes.
 
-Las recetas también pueden estar en la estructura anterior `recetas/<id>/receta.ts`
-y el conector en `conectores.ts`. La variante `src/recetas/<id>` conserva el mismo
-ID. Se rechazan IDs duplicados. En otras carpetas, el ID se deriva de la ruta con
-prefijo `code:`. `receta.ts` prevalece sobre `receta.js` en la misma carpeta.
+Recipes can also live in the earlier layout `recetas/<id>/receta.ts`, with the
+connector in `conectores.ts`. The `src/recetas/<id>` variant keeps the same ID.
+Duplicate IDs are rejected. In other folders, the ID is derived from the path
+with the `code:` prefix. `receta.ts` takes precedence over `receta.js` in the
+same folder.
 
-El proyecto puede importar paquetes ESM, CommonJS y JSON de su `node_modules`.
-Su versión de Zod prevalece; si falta, el constructor usa la incluida. Zod y
-`@escriba/conectores` y `surrealdb` 2.1.1 tienen una copia administrada y están declarados como
-dependencias `file:` en el proyecto nuevo, que se puede preparar sin descargar
-paquetes. Se pueden cambiar por las versiones npm que necesite el proyecto.
-La app actualiza sus copias administradas en `.escriba/deps` al cargar o preparar
-el proyecto; **Dependencias** propaga esas versiones a `node_modules`. Los tipos
-`escriba-recetas.d.ts` generados por la versión anterior se actualizan sólo si su
-contenido sigue intacto; una copia editada por el usuario se conserva. Las fuentes
-y dependencias propias del usuario no se reemplazan. Un proyecto antiguo que use opciones retiradas por TypeScript 7,
-como `baseUrl`, debe actualizar su `tsconfig.json`; el comprobador informa el error.
+The project can import ESM packages, CommonJS packages and JSON from its
+`node_modules`. Its own version of Zod takes precedence; if it is missing, the
+builder uses the bundled one. Zod, `@escriba/conectores` and `surrealdb` 2.1.1
+have a managed copy and are declared as `file:` dependencies in the new project,
+which can be prepared without downloading packages. They can be replaced by the
+npm versions the project needs. The app updates its managed copies in
+`.escriba/deps` when it loads or prepares the project; **Dependencias** propagates
+those versions to `node_modules`. The `escriba-recetas.d.ts` types generated by
+the previous version are updated only if their content is still intact; a copy
+edited by the user is kept. The user's own sources and dependencies are not
+replaced. An old project that uses options removed by TypeScript 7, such as
+`baseUrl`, must update its `tsconfig.json`; the checker reports the error.
 
-La app genera también el lanzador `./escriba`, con los comandos `install`,
-`check`, `test` y `build`. Usa los mismos ejecutables y perfiles que el editor.
-Al cargar el proyecto, Escriba actualiza las rutas de su lanzador administrado
-si la aplicación ha cambiado de ubicación. Los proyectos existentes conservan sus propios archivos.
+The app also generates the `./escriba` launcher, with the commands `install`,
+`check`, `test` and `build`. It uses the same executables and profiles as the
+editor. When the project is loaded, Escriba updates the paths of its managed
+launcher if the application has moved. Existing projects keep their own files.
 
-## Contrato de distribución
+## Distribution contract
 
-Escriba carga únicamente `dist/escriba.json` y los JavaScript que declara. Acepta
-un proyecto con `dist/` y sin fuentes ni dependencias. Elegirlo no añade un ejemplo.
-El manifiesto de versión 1 tiene esta forma:
+Escriba loads only `dist/escriba.json` and the JavaScript files it declares. It
+accepts a project with `dist/` and without sources or dependencies. Choosing it
+does not add an example. The version 1 manifest has this shape:
 
 ```json
 {
@@ -111,49 +115,51 @@ El manifiesto de versión 1 tiene esta forma:
 }
 ```
 
-`connectors` y `ontologies` son opcionales. `entry` identifica la fuente para el editor, pero no tiene
-que existir al cargar. Las rutas de `file` y `connectors` son relativas a `dist`;
-no se permiten enlaces ni escapes. Cada paquete registra sus exports en
-`globalThis.__recipe`, `globalThis.__conectores` o `globalThis.__ontologias`. El constructor incluido genera
-CommonJS empaquetado y lo envuelve para ese contrato. El runtime aporta `require`
-solo para módulos integrados de Node; las dependencias npm deben ir empaquetadas.
+`connectors` and `ontologies` are optional. `entry` identifies the source for
+the editor, but it does not have to exist at load time. The `file` and
+`connectors` paths are relative to `dist`; links and escapes are not allowed.
+Each bundle registers its exports in `globalThis.__recipe`,
+`globalThis.__conectores` or `globalThis.__ontologias`. The bundled builder
+produces bundled CommonJS and wraps it for that contract. The runtime provides
+`require` only for Node built-in modules; npm dependencies must be bundled.
 
-El constructor genera un directorio temporal antes de sustituir `dist`. Un error
-de empaquetado conserva el artefacto anterior. Si la posterior inspección de
-exports, formularios o destinos falla, se conserva el catálogo instalado; `dist`
-contiene la última compilación y la consola informa por qué no se pudo instalar.
-Construir no comprueba tipos: es una acción separada, igual que en Bun.
+The builder generates a temporary directory before replacing `dist`. A bundling
+error keeps the previous artifact. If the later inspection of exports, forms or
+destinations fails, the installed catalog is kept; `dist` holds the latest build
+and the console reports why it could not be installed. Building does not
+type-check: that is a separate action, as in Bun.
 
-Los cambios de fuentes guardadas disparan una construcción. Los cambios de
-`dist` solo lo recargan. `.escriba`, `.git` y `node_modules` no disparan builds.
-Las construcciones y la instalación de su catálogo se atienden en orden para
-que el watcher y el botón Construir no se adelanten entre sí.
+Changes to saved sources trigger a build. Changes to `dist` only reload it.
+`.escriba`, `.git` and `node_modules` do not trigger builds. Builds and the
+installation of their catalog are handled in order so that the watcher and the
+**Construir** button do not get ahead of each other.
 
-## Ontologías y grafo
+## Ontologies and graph
 
-`src/ontologias.ts` exporta `ontologias` como una lista de `Ontologia`. Cada
-definición tiene `id` estable, `name`, `version`, `migrations` y `collections`.
-Una colección declara su tabla, etiqueta, campo de título y campos de formulario;
-una colección de relación indica además las tablas `from` y `to`. El formulario
-de Escriba usa tipos `text`, `number`, `boolean`, `date`, `json` y `reference`, pero no limita
-el esquema SurrealQL a esos tipos. La definición aparece como candidata
-al construir o cargar el proyecto. **Instalar** o **Actualizar** aplica sus
-migraciones; ejecutar una receta nunca migra el esquema. Las ontologías instaladas
-son de la biblioteca y permanecen al cambiar de proyecto.
+`src/ontologias.ts` exports `ontologias` as a list of `Ontologia`. Each
+definition has a stable `id`, `name`, `version`, `migrations` and `collections`.
+A collection declares its table, label, title field and form fields; a relation
+collection also specifies the `from` and `to` tables. Escriba's form uses the
+types `text`, `number`, `boolean`, `date`, `json` and `reference`, but the
+SurrealQL schema is not limited to those types. The definition appears as a
+candidate when the project is built or loaded. **Instalar** (Install) or
+**Actualizar** (Update) applies its migrations; running a recipe never migrates
+the schema. Installed ontologies belong to the library and remain when you
+switch projects.
 
-Las migraciones empiezan en `version: 1`, avanzan sin saltos hasta la versión de
-la ontología y conservan intacto el prefijo ya instalado. Cambiar una definición
-sin aumentar versión, bajar versión o reescribir una migración aplicada falla.
-Cada actualización ejecuta las migraciones pendientes y guarda la nueva
-definición en una transacción: un error deja la versión anterior. Pueden definir
-tablas, campos, índices, funciones, analizadores, secuencias y parámetros, con
-el espacio `_escriba_` reservado al host. No se admiten `EVENT`, vistas
-`TABLE AS SELECT`, acciones `REFERENCE ON DELETE THEN`, autenticación ni
-comandos de sesión: en SurrealDB 3.3.2 esos callbacks podrían ejecutarse con
-privilegios superiores a los de la receta. Tampoco hay acceso de red o scripting
-JavaScript desde la base.
+Migrations start at `version: 1`, advance without gaps up to the ontology's
+version, and leave the already installed prefix intact. Changing a definition
+without increasing the version, lowering the version or rewriting an applied
+migration fails. Each update runs the pending migrations and saves the new
+definition in one transaction: an error leaves the previous version in place.
+They can define tables, fields, indexes, functions, analyzers, sequences and
+parameters, with the `_escriba_` namespace reserved for the host. `EVENT`,
+`TABLE AS SELECT` views, `REFERENCE ON DELETE THEN` actions, authentication and
+session commands are not allowed: in SurrealDB 3.3.2 those callbacks could run
+with higher privileges than the recipe's. There is also no network access or
+JavaScript scripting from the database.
 
-Cada receta que utiliza el grafo exporta sus propias dependencias, por ejemplo:
+Each recipe that uses the graph exports its own dependencies, for example:
 
 ```ts
 export const ontologias = [
@@ -161,110 +167,107 @@ export const ontologias = [
 ] satisfies readonly DependenciaDeOntologia[];
 ```
 
-El intervalo inclusivo se comprueba frente a la versión instalada al abrir el
-grafo y en cada operación. La receta no puede declarar una dependencia distinta
-durante la ejecución; cambiar la versión instalada invalida la conexión abierta.
-La llamada `const db = await api.grafo("ejemplo.reuniones")` devuelve el SDK oficial
-de SurrealDB 2.1.1, con la conexión y autenticación fijadas por Escriba. Permite
-`query`, `select`, `create`, `update`, `delete` y `relate` del SDK según los
-permisos de las tablas. El transporte usa CBOR: `RecordId`, `DateTime` y
-`Decimal` conservan sus tipos. No abre un servidor ni un socket para las recetas.
-Una consulta SurrealQL puede contener un lote transaccional `BEGIN`/`COMMIT`;
-las transacciones interactivas del SDK y las consultas `live` no están disponibles.
-La sesión de receta tiene permisos de registro (`RECORD`), sin DDL, `USE` ni
-administración de autenticación. No hay cruces automáticos entre bases de
-ontologías; la receta abre cada ontología declarada por separado.
+The inclusive range is checked against the installed version when the graph is
+opened and on every operation. The recipe cannot declare a different dependency
+during execution; changing the installed version invalidates the open
+connection. The call `const db = await api.grafo("ejemplo.reuniones")` returns
+the official SurrealDB 2.1.1 SDK, with the connection and authentication fixed by
+Escriba. It allows the SDK's `query`, `select`, `create`, `update`, `delete` and
+`relate` according to the tables' permissions. The transport uses CBOR:
+`RecordId`, `DateTime` and `Decimal` keep their types. It does not open a server
+or a socket for recipes. A SurrealQL query can contain a transactional
+`BEGIN`/`COMMIT` batch; the SDK's interactive transactions and `live` queries
+are not available. The recipe session has record permissions (`RECORD`), with no
+DDL, `USE` or authentication administration. There are no automatic joins
+between ontology databases; the recipe opens each declared ontology separately.
 
-La base `escriba` v1 está instalada de serie y se abre con
-`await api.grafo("escriba")` sin declararla en `ontologias`. Si la receta declara
-un intervalo explícito para `escriba`, se respeta y falla si no admite v1. Esta
-base expone en solo lectura `person`, `recording`, `version`, `transcript`,
-`speaker`, `segment` y `word`. Escriba sincroniza sus registros desde la
-biblioteca antes de cada lectura. Los IDs de `recording` y `person` usan sus UUID
-reales; los de `version` y `transcript` usan `[recordingId, versionId]`, los de
-`speaker` usan `[recordingId, versionId, label]`, los de `segment` añaden su
-índice y los de `word` añaden los índices de segmento y palabra. No se exponen
-rutas, credenciales, huellas biométricas ni embeddings. La base no requiere
-migraciones del proyecto.
+The `escriba` v1 database is installed by default and is opened with
+`await api.grafo("escriba")` without declaring it in `ontologias`. If the recipe
+declares an explicit range for `escriba`, it is respected and fails if it does
+not admit v1. This database exposes `person`, `recording`, `version`,
+`transcript`, `speaker`, `segment` and `word` as read-only. Escriba syncs its
+records from the library before every read. The IDs of `recording` and `person`
+use their real UUIDs; those of `version` and `transcript` use
+`[recordingId, versionId]`, those of `speaker` use
+`[recordingId, versionId, label]`, those of `segment` add their index, and those
+of `word` add the segment and word indexes. Paths, credentials, biometric
+voiceprints and embeddings are not exposed. The database needs no migrations
+from the project.
 
-Una colección de otra ontología puede declarar un campo `reference` con
-`reference: { ontologyId: "escriba", table: "segment" }`. El valor almacenado es
-un objeto `{ ontologyId: "escriba", table: "segment", id: "segment:..." }`,
-con el ID obtenido de una consulta real al SDK. Es una referencia lógica: no
-permite un recorrido SurrealQL entre bases. Véase el ejemplo de acuerdos.
+A collection in another ontology can declare a `reference` field with
+`reference: { ontologyId: "escriba", table: "segment" }`. The stored value is an
+object `{ ontologyId: "escriba", table: "segment", id: "segment:..." }`, with the
+ID obtained from a real query to the SDK. It is a logical reference: it does not
+allow a SurrealQL traversal across databases. See the agreements example.
 
-`await nota.vincular(ontologiaId, recordId)` asocia un registro existente con
-la versión activa de la nota. La asociación conserva la grabación, versión y
-receta de origen; un registro puede compartirse entre notas. Solo se pueden
-vincular registros de tablas enumeradas en `collections`; una
-consulta raw de la receta sí puede usar otras tablas propias de la ontología
-según sus permisos SurrealQL. En Biblioteca se
-pueden consultar las colecciones instaladas, añadir registros, vincular uno
-existente o desvincularlo. Escriba usa formularios JSON para esas ediciones,
-independientes de la representación CBOR del SDK; un guardado comprueba la
-revisión previa y las correcciones manuales quedan protegidas de escrituras
-posteriores de una receta. Véase el [ejemplo completo](../examples/conocimiento/).
-La base `escriba` ya se deriva de la biblioteca; `nota.vincular("escriba", …)`
-se rechaza.
+`await nota.vincular(ontologiaId, recordId)` associates an existing record with
+the note's active version. The association keeps the source recording, version
+and recipe; a record can be shared between notes. Only records from tables listed
+in `collections` can be linked; a raw query from the recipe can use other tables
+of the ontology, according to their SurrealQL permissions. In **Biblioteca**
+(Library) you can browse the installed collections, add records, link an existing
+one or unlink it. Escriba uses JSON forms for those edits, independent of the
+SDK's CBOR representation; a save checks the previous revision, and manual
+corrections are protected from later writes by a recipe. See the
+[full example](../examples/conocimiento/). The `escriba` database is already
+derived from the library; `nota.vincular("escriba", …)` is rejected.
 
-La prueba de receta (`dryRun`) deniega el grafo, incluso las consultas de solo
-lectura. En una ontología de usuario, SurrealQL puede mezclar lecturas y
-escrituras: iniciar una consulta marca la grabación para evitar un reintento
-automático incierto. Las consultas a la base `escriba` son de solo lectura y no
-activan ese marcador; un
-reprocesado manual puede iniciar otra ejecución. No se incluyen embeddings,
-búsqueda vectorial gestionada ni un canvas de grafos.
+The recipe test (`dryRun`) denies the graph, even read-only queries. In a user
+ontology, SurrealQL can mix reads and writes: starting a query marks the
+recording to avoid an uncertain automatic retry. Queries to the `escriba`
+database are read-only and do not trigger that marker; a manual reprocess can
+start another execution. Embeddings, managed vector search and a graph canvas
+are not included.
 
-## Proveedores, cuentas y operaciones
+## Providers, accounts and operations
 
-`src/conectores.ts` puede exportar `inspect` y `run` desde
-`createProgram(destinos, proveedores)`. Cada proveedor se crea con
-`defineProvider`: su manifiesto declara ID, nombre, capacidad `http` o `folder`,
-origen y cabeceras permitidas, definición de credencial si corresponde y
-configuración inicial. Un esquema Zod valida esa configuración. `describe`
-devuelve secciones, campos, acciones y vistas previas para el formulario común;
-`action` puede obtener opciones del proveedor con la cuenta autorizada. El
-estado de esas opciones es temporal y no contiene secretos. Notion y OKF usan
-el mismo contrato que los proveedores externos. En el
-[proyecto de ejemplo](../examples/conectores/README.md) hay una declaración
-completa con opciones dinámicas.
+`src/conectores.ts` can export `inspect` and `run` from
+`createProgram(destinos, proveedores)`. Each provider is created with
+`defineProvider`: its manifest declares ID, name, `http` or `folder` capability,
+allowed origin and headers, the credential definition if applicable, and initial
+configuration. A Zod schema validates that configuration. `describe` returns
+sections, fields, actions and previews for the common form; `action` can obtain
+provider options with the authorized account. The state of those options is
+temporary and contains no secrets. Notion and OKF use the same contract as
+external providers. The
+[example project](../examples/conectores/README.md) has a complete declaration
+with dynamic options.
 
-La cuenta conserva la autorización concedida: proveedor, origen o carpeta,
-cabeceras y credencial. El token se solicita y guarda por separado de los
-campos del formulario. `api.cuenta(id).fetch` permite a una receta consultar y
-modificar recursos mediante un SDK que acepte sustituir su transporte. Rust
-comprueba en cada petición la cuenta activa y el alcance concedido, restringe
-el origen y las cabeceras e inyecta la credencial. El programa recibe sólo las
-respuestas del servicio. Un cambio de manifiesto no cambia la autorización de
-una cuenta ya creada; el usuario debe conceder el nuevo alcance.
+The account keeps the authorization granted: provider, origin or folder, headers
+and credential. The token is requested and stored separately from the form
+fields. `api.cuenta(id).fetch` lets a recipe query and modify resources through
+an SDK that accepts replacing its transport. Rust checks the active account and
+the granted scope on every request, restricts the origin and headers, and injects
+the credential. The program receives only the service's responses. A manifest
+change does not change the authorization of an account that already exists; the
+user must grant the new scope.
 
-`api.conector(id).publicar(nota)` crea una publicación gestionada: Escriba
-conserva su recibo y puede actualizarla o retirarla. Las llamadas arbitrarias
-de `api.cuenta(id).fetch` son operaciones de cuenta; no generan por sí solas
-un recibo ni entran en ese ciclo. Si una escritura de la receta termina sin
-confirmación, Escriba detiene el reintento automático hasta que el usuario
-reprocesa manualmente. OAuth, SDK que exigen red directa o transporte no
-sustituible, y recuperación automática de cualquier efecto arbitrario no forman
-parte de este contrato.
+`api.conector(id).publicar(nota)` creates a managed publication: Escriba keeps
+its receipt and can update or withdraw it. Arbitrary calls to
+`api.cuenta(id).fetch` are account operations; on their own they neither produce
+a receipt nor enter that cycle. If a write from the recipe ends without
+confirmation, Escriba stops the automatic retry until the user reprocesses
+manually. OAuth, SDKs that require direct network access or a non-replaceable
+transport, and automatic recovery from any arbitrary effect are not part of this
+contract.
 
-## Aislamiento y compatibilidad
+## Isolation and compatibility
 
-El proceso de construcción y las herramientas pueden leer el proyecto y las
-dependencias incluidas, y escribir dentro del proyecto. Solo la instalación
-permite red; los scripts de instalación de paquetes están desactivados. Desde el
-editor, las herramientas tienen un límite de 60 segundos y 64 KiB de salida;
-el lanzador de terminal usa el mismo aislamiento, sin esos límites de consola.
-Las recetas sobre notas
-corren en otros procesos sin permisos de archivos, red ni subprocesos: usan las
-capacidades de Escriba. Los tokens y las rutas de audio siguen en Rust.
+The build process and the tools can read the project and the bundled
+dependencies, and write inside the project. Only installation allows network
+access; package install scripts are disabled. From the editor, tools have a
+60-second limit and 64 KiB of output; the terminal launcher uses the same
+isolation, without those console limits. Recipes that operate on notes run in
+other processes with no file, network or subprocess permissions: they use
+Escriba's capabilities. Tokens and audio paths stay in Rust.
 
-El artefacto no conserva módulos npm externos, chunks ni archivos auxiliares.
-Paquetes que necesitan binarios nativos, archivos en tiempo de ejecución o imports
-dinámicos cuyo destino no se puede empaquetar no son compatibles con este contrato.
-Las APIs puras de Node disponibles en Bun, como `node:path` o los hashes de
-`node:crypto`, pueden usarse. Instalar un paquete no concede permisos nuevos.
+The artifact does not keep external npm modules, chunks or auxiliary files.
+Packages that need native binaries, runtime files, or dynamic imports whose
+target cannot be bundled are not compatible with this contract. Pure Node APIs
+available in Bun, such as `node:path` or the hashes of `node:crypto`, can be
+used. Installing a package does not grant new permissions.
 
-El entorno de desarrollo de Escriba usa Bun fijado en
-`apps/tauri/runtime-host/bun-version`; el checker de recetas está fijado en
-`apps/tauri/runtime-host/toolchain/package-lock.json`. El TypeScript usado para
-compilar la interfaz de la app es una dependencia de desarrollo distinta.
+Escriba's development environment uses the Bun pinned in
+`apps/tauri/runtime-host/bun-version`; the recipe checker is pinned in
+`apps/tauri/runtime-host/toolchain/package-lock.json`. The TypeScript used to
+compile the app's interface is a separate development dependency.

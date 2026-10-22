@@ -6,20 +6,21 @@
 
 Escriba is a desktop app for macOS, Linux and Windows. You record a meeting or
 a voice memo, or drop in any audio file. Escriba transcribes it locally, works
-out who is speaking, can summarise it, and files the note where you keep your
+out who is speaking, can summarize it, and files the note where you keep your
 notes: Notion, a folder of Markdown files, or any service you connect.
 
 What happens to each recording is up to you. A **recipe**, a small TypeScript
 program, decides which engine transcribes it, whether to detect speakers or
-summarise, and where to publish. Escriba ships with recipes for the usual path
+summarize, and where to publish. Escriba ships with recipes for the usual path
 and shows their options as forms, so you do not need to write code to use it.
 
 Escriba is not a dictation tool: it does not type into the app you are using.
 It works on recordings, from a few seconds to a few hours, and keeps them in a
 library with every version of every note.
 
-> **The interface is in Spanish for now**, and so is the documentation under
-> `docs/`. Section names below are given in Spanish with their English meaning.
+> **The interface is in Spanish for now**, and so are the project's working
+> notes under `docs/`. The documentation for recipe authors is in English.
+> Section names below are given in Spanish with their English meaning.
 
 ## How a recording becomes a note
 
@@ -27,7 +28,7 @@ library with every version of every note.
    folder Escriba watches gets a new one, such as the recordings Just Press
    Record or Voice Memos sync from your phone.
 2. **A recipe processes it.** It transcribes, detects speakers if asked,
-   summarises or answers questions you define, and decides where the note goes.
+   summarizes or answers questions you define, and decides where the note goes.
 3. **The note keeps its versions.** Fix a speaker or the text, or reprocess
    with another recipe: the previous result is still there.
 4. **It is published.** The note lands in Notion or a folder, and later
@@ -44,7 +45,7 @@ library with every version of every note.
   Linux and Windows. Models are downloaded explicitly from the *STT* section.
 - **Speakers and people** (*Personas*): on-device speaker detection, with
   the local Whisper only. Name a
-  speaker once and Escriba recognises their voice in later recordings.
+  speaker once and Escriba recognizes their voice in later recordings.
   Voiceprints never leave your computer: recipes, connectors and exports do
   not receive them.
 - **Summaries and structured answers**: Apple Intelligence on macOS, or any
@@ -53,7 +54,7 @@ library with every version of every note.
   one. A failing remote never falls back to another engine silently.
 - **Recipes** (*Recetas*): TypeScript programs that decide how a recording is
   processed and what happens to the note. Four come built in: *Transcribir*
-  (transcribe), *Resumir* (summarise), *Publicar* (publish) and *Por defecto*
+  (transcribe), *Resumir* (summarize), *Publicar* (publish) and *Por defecto*
   (default), which chains the other three. One recipe processes everything that
   comes in; you can pick another when recording or importing.
 - **Connectors** (*Conectores*): Notion, an OKF bundle (Markdown with YAML
@@ -92,14 +93,14 @@ settings.
 1. Download `Escriba_X.Y.Z_macos_arm64_unnotarized.zip` (up to 0.3.1 it was
    named `…_sin-notarizar.zip`), unzip it and drag `Escriba.app` to
    Applications.
-2. Open it. The app is signed ad hoc, not notarised, so macOS blocks the first
+2. Open it. The app is signed ad hoc, not notarized, so macOS blocks the first
    launch: go to **System Settings → Privacy & Security** and click
    **Open Anyway**. See [Apple's instructions](https://support.apple.com/en-us/102445).
 
-Notarised builds will be named `Escriba_X.Y.Z_macos_arm64.zip` once Developer ID
+Notarized builds will be named `Escriba_X.Y.Z_macos_arm64.zip` once Developer ID
 signing is set up.
 
-To watch a folder, authorise it from **Ajustes → Carpetas vigiladas**
+To watch a folder, authorize it from **Ajustes → Carpetas vigiladas**
 (Settings → Watched folders). Full Disk Access is only an optional fallback.
 
 ### Linux
@@ -191,10 +192,10 @@ Escriba is a single [Tauri](https://tauri.app) app.
 | Rust native host (Linux, Windows) | whisper.cpp, sherpa-onnx and audio capture |
 
 The window only shows state and sends actions; the work lives in separate
-processes. More detail (in Spanish):
+processes. More detail in the [recipe runtime](apps/tauri/runtime-host/README.md)
+and, in Spanish, the
 [app](apps/tauri/README.md) ·
 [persistence](docs/tauri-persistence.md) ·
-[recipe runtime](apps/tauri/runtime-host/README.md) ·
 [native protocol](docs/tauri-native-protocol.md) ·
 [Windows](docs/windows.md) ·
 [Linux](docs/plan-linux.md) ·
