@@ -18,7 +18,7 @@ La variable del repositorio `MACOS_NOTARIZE` controla el modo. Se configura en
 **Settings > Secrets and variables > Actions > Variables**. Si no está definida
 o vale `false`, la app
 lleva firma ad hoc y el artefacto se llama
-`Escriba_X.Y.Z_macos_arm64_sin-notarizar.zip`. Si vale `true`, se usa firma
+`Escriba_X.Y.Z_macos_arm64_unnotarized.zip`. Si vale `true`, se usa firma
 Developer ID, `notarytool` para enviar y consultar la notarización, y `stapler`
 para grapar el ticket aprobado. El ZIP se llama
 `Escriba_X.Y.Z_macos_arm64.zip`.

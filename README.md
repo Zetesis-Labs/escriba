@@ -89,8 +89,9 @@ settings.
 
 ### macOS
 
-1. Download `Escriba_X.Y.Z_macos_arm64_sin-notarizar.zip` (*sin notarizar*
-   means "not notarised"), unzip it and drag `Escriba.app` to Applications.
+1. Download `Escriba_X.Y.Z_macos_arm64_unnotarized.zip` (up to 0.3.1 it was
+   named `…_sin-notarizar.zip`), unzip it and drag `Escriba.app` to
+   Applications.
 2. Open it. The app is signed ad hoc, not notarised, so macOS blocks the first
    launch: go to **System Settings → Privacy & Security** and click
    **Open Anyway**. See [Apple's instructions](https://support.apple.com/en-us/102445).

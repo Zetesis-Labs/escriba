@@ -66,16 +66,16 @@ class MacOSPackageTests(unittest.TestCase):
     def test_ad_hoc_zip_contains_verified_app_and_readme_without_mutating_source(self):
         result = self.run_package("false")
         self.assertEqual(result.returncode, 0, result.stderr)
-        archive = self.out / "Escriba_1.2.3_macos_arm64_sin-notarizar.zip"
+        archive = self.out / "Escriba_1.2.3_macos_arm64_unnotarized.zip"
         self.assertTrue(archive.exists())
         with zipfile.ZipFile(archive) as package:
             self.assertIn("Escriba.app/Contents/MacOS/escriba-runtime", package.namelist())
-            self.assertIn("LEEME.txt", package.namelist())
-            readme = package.read("LEEME.txt").decode()
+            self.assertIn("README.txt", package.namelist())
+            readme = package.read("README.txt").decode()
             self.assertIn("macOS 26", readme)
             self.assertIn("Apple Silicon (M1", readme)
-            self.assertIn("Abrir igualmente", readme)
-            self.assertIn("https://support.apple.com/es-es/102445", readme)
+            self.assertIn("Open Anyway", readme)
+            self.assertIn("https://support.apple.com/en-us/102445", readme)
         self.assertTrue((self.out / "SHA256SUMS-macos-arm64").exists())
         self.assertEqual((self.app / "Contents" / "MacOS" / "escriba-runtime").read_bytes(), b"\xcf\xfa\xed\xfeBUN")
         self.assertFalse((self.app / "Contents" / "_CodeSignature").exists())
@@ -117,9 +117,9 @@ class MacOSPackageTests(unittest.TestCase):
         archive = self.out / "Escriba_1.2.3_macos_arm64.zip"
         self.assertTrue(archive.exists())
         with zipfile.ZipFile(archive) as package:
-            readme = package.read("LEEME.txt").decode()
-            self.assertIn("Aplicaciones", readme)
-            self.assertNotIn("Abrir igualmente", readme)
+            readme = package.read("README.txt").decode()
+            self.assertIn("Applications", readme)
+            self.assertNotIn("Open Anyway", readme)
         self.assertTrue(any("EscribaSystemHost" in call and "audio-entitlements.plist" in call for call in calls))
 
 

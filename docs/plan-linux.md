@@ -277,14 +277,14 @@ de versión; al fusionarla etiqueta `vX.Y.Z`, publica la release y
 x86_64 y `SHA256SUMS`. La versión vive en `tauri.conf.json` y
 `apps/tauri/package.json`. La release incluye también un ZIP de macOS y
 `SHA256SUMS-macos-arm64`, construidos en `macos-26` para Apple Silicon. El ZIP
-contiene `Escriba.app` y `LEEME.txt` con las instrucciones de su modalidad.
+contiene `Escriba.app` y `README.txt` con las instrucciones de su modalidad.
 Cuando se configure una vez la identidad y las credenciales de
 Apple en GitHub Actions, `MACOS_NOTARIZE=true` seleccionará firma Developer ID,
 envío con `notarytool` y grapado con `stapler`; ausente o `false` conservará la
 firma ad hoc. Si se solicita notarizar y falta una credencial o falla Apple, el
 job falla y no publica un ZIP alternativo sin notarizar. El ZIP notarizado se
 llamará `Escriba_X.Y.Z_macos_arm64.zip`; el paquete ad hoc conserva el sufijo
-`_sin-notarizar`. La notarización real y la ruta de Apple siguen pendientes de
+`_unnotarized`. La notarización real y la ruta de Apple siguen pendientes de
 validación. `workflow_dispatch` permite añadir macOS a una release existente
 indicando su tag; detalles y nombres de secretos, en
 [releases de macOS](releases-macos.md).

@@ -171,7 +171,7 @@ jobs:
         run: |
           gh release upload "$TAG" release-macos/*.zip release-macos/SHA256SUMS-macos-arm64 --repo "$GITHUB_REPOSITORY" --clobber
           previous="Escriba_${TAG#v}_macos_arm64.zip"
-          if [[ "$MACOS_NOTARIZE" == true ]]; then previous="Escriba_${TAG#v}_macos_arm64_sin-notarizar.zip"; fi
+          if [[ "$MACOS_NOTARIZE" == true ]]; then previous="Escriba_${TAG#v}_macos_arm64_unnotarized.zip"; fi
           gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' > "$RUNNER_TEMP/release-assets"
           if grep -Fxq "$previous" "$RUNNER_TEMP/release-assets"; then
             gh release delete-asset "$TAG" "$previous" --repo "$GITHUB_REPOSITORY" --yes

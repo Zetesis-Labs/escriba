@@ -28,7 +28,7 @@ if [[ "$mode" == true ]]; then
   [[ "$APPLE_SIGNING_IDENTITY" == 'Developer ID Application: '* ]] || die 'APPLE_SIGNING_IDENTITY debe ser Developer ID Application'
 fi
 
-suffix=_sin-notarizar
+suffix=_unnotarized
 [[ "$mode" == true ]] && suffix=''
 archive="Escriba_${version}_macos_arm64${suffix}.zip"
 [[ ! -e "$output/$archive" && ! -e "$output/SHA256SUMS-macos-arm64" ]] || die 'El artefacto de salida ya existe'
@@ -131,28 +131,28 @@ PY
 fi
 
 if [[ "$mode" == true ]]; then
-  cat > "$work/stage/LEEME.txt" <<EOF
-Escriba $version para macOS 26 o posterior en Apple Silicon (M1 o posterior).
+  cat > "$work/stage/README.txt" <<EOF
+Escriba $version for macOS 26 or later on Apple Silicon (M1 or later).
 
-Descomprime el ZIP y arrastra Escriba.app a la carpeta Aplicaciones.
-Abre Escriba desde Aplicaciones. Esta versión está firmada con Developer ID y notarizada.
+Unzip the archive and drag Escriba.app to the Applications folder.
+Open Escriba from Applications. This build is signed with Developer ID and notarized by Apple.
 EOF
 else
-  cat > "$work/stage/LEEME.txt" <<EOF
-Escriba $version para macOS 26 o posterior en Apple Silicon (M1 o posterior).
+  cat > "$work/stage/README.txt" <<EOF
+Escriba $version for macOS 26 or later on Apple Silicon (M1 or later).
 
-Descomprime el ZIP y arrastra Escriba.app a la carpeta Aplicaciones.
-Esta versión tiene firma ad hoc y no está notarizada. Si macOS impide abrirla,
-intenta abrir Escriba y luego ve a Ajustes del Sistema > Privacidad y seguridad >
-Abrir igualmente. Sigue las indicaciones de macOS.
+Unzip the archive and drag Escriba.app to the Applications folder.
+This build is signed ad hoc and is not notarized. If macOS refuses to open it,
+try to open Escriba, then go to System Settings > Privacy & Security and click
+Open Anyway. Follow the prompts from macOS.
 
-Ayuda de Apple: https://support.apple.com/es-es/102445
+Apple help: https://support.apple.com/en-us/102445
 EOF
 fi
 ditto -c -k --sequesterRsrc "$work/stage" "$work/$archive"
 mkdir "$work/extracted"
 ditto -x -k "$work/$archive" "$work/extracted"
-[[ -d "$work/extracted/Escriba.app" && -f "$work/extracted/LEEME.txt" ]] || die 'El ZIP no contiene Escriba.app y LEEME.txt'
+[[ -d "$work/extracted/Escriba.app" && -f "$work/extracted/README.txt" ]] || die 'El ZIP no contiene Escriba.app y README.txt'
 verify_app "$work/extracted/Escriba.app"
 if [[ "$mode" == true ]]; then
   xcrun stapler validate "$work/extracted/Escriba.app"
