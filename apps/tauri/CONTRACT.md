@@ -128,7 +128,7 @@ Los eventos que emite (`changed`, `log`, `imported`, `project`,
 - controller_status -> {protocolVersion, dataPath} (el controlador está vivo y sabe dónde están los datos).
 - credential_save {id, value} -> void (ficheros 0600 en `secrets/`, escritos por el controlador; vacío elimina; nunca lectura a la UI o recetas; emite `changed`).
 - connector_http {accountId,expectedGrant,url,method?,headers?,body?,multipart?} -> {status,headers,body} (cuenta fija origen y cabeceras; el controlador inyecta el secreto, no sigue redirecciones y redacta el secreto de la respuesta; multipart [{name,value?,audio?:{recordingId,start?,end?},filename?,type?}]; el controlador consulta internamente la ruta del audio). Lo usa también para recetas y conectores.
-- resolver_models {resolver,key?,resolverId?} -> string[] (modelos del servicio compatible con OpenAI); resolver_try {resolver,key?,resolverId?,role,instructions?,prompt?} -> Digest | {text} (prueba sin guardar; la clave escrita prevalece sobre la guardada; el LLM local se prueba por `shell.native`).
+- resolver_models {resolver,key?,resolverId?} -> string[] (modelos del servicio: compatible con OpenAI, o la API de Anthropic, Google o Mistral según `resolver.provider`; sin `provider` es compatible con OpenAI); resolver_try {resolver,key?,resolverId?,role,instructions?,prompt?} -> Digest | {text} (prueba sin guardar; la clave escrita prevalece sobre la guardada; el LLM local se prueba por `shell.native`).
 
 El controlador resuelve `transcribe`, `summarize` y `ask`. Solo la cáscara
 (`origin: shell`) llama sus métodos auxiliares de biblioteca, vigilancia y

@@ -92,11 +92,27 @@ SDK importan `zod/v4`, `zod/v4/core` y `zod/v3`. Ahora cada subruta apunta a su
 la de la app, también para los conectores. Si se apuntara a la carpeta del
 paquete, esbuild se saltaría sus `exports` y metería además los `.cjs`.
 
+## Fase 2: proveedores nativos de LLM (encargo de Rubén, 2026-10-19)
+
+- El resolutor guarda `provider`: `openai-compatible`, `anthropic`, `google` o
+  `mistral`. Un resolutor sin `provider` es compatible con OpenAI, así que los
+  ya guardados no cambian.
+- Solo para LLM. Los STT remotos siguen siendo compatibles con OpenAI: Anthropic
+  no transcribe, y la transcripción del SDK es experimental (decisión 5).
+- El «+» de LLMs ofrece Anthropic, Google Gemini y Mistral junto a los
+  compatibles. Cada proveedor usa su paquete `@ai-sdk/*` con versión fijada,
+  su URL base de serie y la misma regla de URL: https, o http solo dentro de tu
+  red.
+- Listar modelos usa la ruta de cada API: `/models` con Bearer (compatibles y
+  Mistral), con `x-api-key` y `anthropic-version` (Anthropic), o con
+  `x-goog-api-key` (Google, que devuelve `models/<id>` y solo se ofrecen los que
+  generan contenido).
+- Igual que en la fase 1: transporte de Escriba, `maxRetries: 0`, los mismos
+  errores reintentables, la clave tapada, el JSON tolerante y la validación
+  contra el esquema.
+
 ## Lo que necesita encargo aparte
 
-- **Proveedores nativos** (Anthropic, Gemini, Mistral…) en el «+» de LLMs y STT.
-  Es interfaz nueva y cambia la regla «los remotos hablan una API compatible
-  con OpenAI» del `CLAUDE.md` y de la spec de recetas.
 - **Streaming** del resumen hacia la interfaz o el Registro.
 - **Herramientas** (tool calling) disponibles para recetas.
 

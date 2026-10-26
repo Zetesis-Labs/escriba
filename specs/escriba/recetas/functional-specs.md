@@ -60,7 +60,9 @@ por reprocesar.
   inferencia) y hasta tres publicaciones o retiradas a la vez (carril de red),
   recupera lo interrumpido y reintenta lo que espera.
 - **Servicios externos**: motores STT y LLM locales (Whisper, Apple
-  Intelligence) o remotos compatibles con OpenAI, y las cuentas de Notion, OKF
+  Intelligence) o remotos: STT compatibles con OpenAI y LLM compatibles con
+  OpenAI o con la API de Anthropic, Google (Gemini) o Mistral. También las
+  cuentas de Notion, OKF
   o proveedores declarados por el proyecto.
 
 ## 3. Objetivos

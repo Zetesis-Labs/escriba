@@ -1315,6 +1315,18 @@ test("un modelo de Whisper añadido es un resolutor local que se puede quitar", 
   assert.throws(() => store.item("resolvers", "local-stt-base"));
 });
 
+test("un LLM remoto guarda su proveedor nativo y un STT o un proveedor desconocido se rechazan", async () => {
+  const store = await space.open();
+  const saved = obj(await store.mutate("config_save", { collection: "resolvers", item: { id: "claude", name: "Anthropic", role: "llm", provider: "anthropic", url: "https://api.anthropic.com/v1", model: "m", enabled: true } }));
+  assert.equal(saved.provider, "anthropic");
+  const reopened = await reopen(space, store);
+  assert.equal(reopened.item("resolvers", "claude").provider, "anthropic");
+  await assert.rejects(reopened.mutate("config_save", { collection: "resolvers", item: { id: "x", name: "x", role: "llm", provider: "cohere", url: "https://x.es/v1", model: "m" } }), /Proveedor de resolutor no válido/);
+  await assert.rejects(reopened.mutate("config_save", { collection: "resolvers", item: { id: "y", name: "y", role: "stt", provider: "anthropic", url: "https://x.es/v1", model: "m" } }), /compatible con OpenAI/);
+  const legacy = obj(await reopened.mutate("config_save", { collection: "resolvers", item: { id: "z", name: "z", role: "llm", url: "https://x.es/v1", model: "m" } }));
+  assert.equal(legacy.provider, undefined);
+});
+
 test("el Whisper de serie se puede quitar; Apple Intelligence y la receta por defecto no", async () => {
   const store = await space.open();
   await store.mutate("config_remove", { collection: "resolvers", id: "local-stt" });

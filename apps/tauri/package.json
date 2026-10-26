@@ -13,6 +13,9 @@
     "typecheck:runtime": "node runtime-host/typecheck.mjs"
   },
   "dependencies": {
+    "@ai-sdk/anthropic": "4.0.82",
+    "@ai-sdk/google": "4.0.99",
+    "@ai-sdk/mistral": "4.0.66",
     "@ai-sdk/openai-compatible": "3.0.71",
     "@codemirror/autocomplete": "6.20.3",
     "@codemirror/lang-javascript": "6.2.5",

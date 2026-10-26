@@ -10,6 +10,7 @@ import { array, canonical, clone, equal, isObject, newId, now, object, safeId, t
 import { defaultResolvers, defaultWhisperModel, folderBookmarkRequired } from "../platform";
 import { isLocalSttId, localSttId } from "../localModels";
 import { builtinRecipeProblem, isBuiltinRecipeId, startsFrom, withBuiltinRecipes } from "../../core/builtinRecipes";
+import { llmProvider } from "../../core/resolvers";
 import type { CombinedRecord } from "../../core/combine";
 import type { Recipe as RecipeInfo } from "../../types";
 import { catalog, readLibraryData, readRecording, readSettings, readVersion, setCatalog, type LibraryData, type Recording, type Settings, type Transcript, type Version, type WatchedFolder } from "./model";
@@ -631,6 +632,7 @@ export class Store {
         }
         if (collection === "resolvers") {
           if (!["stt", "llm"].includes(String(item.role))) throw Error("Papel de resolutor inválido");
+          llmProvider(item);
           const addedModel = key !== "local-stt" && isLocalSttId(key);
           if (addedModel && (item.role !== "stt" || localSttId(String(item.model)) !== key)) throw Error("El modelo no corresponde a este Whisper local");
           if (!["local-stt", "local-llm"].includes(key) && !addedModel) item.local = false;

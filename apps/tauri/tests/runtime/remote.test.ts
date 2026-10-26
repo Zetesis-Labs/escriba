@@ -221,3 +221,83 @@ test("un esquema que Zod no sabe reconstruir no impide la respuesta: la receta l
   const { transport } = answering(() => completion('{"a":"x"}'));
   assert.deepEqual(await ask(resolver, SECRET, asked(esquema), transport), { a: "x" });
 });
+
+const nativos = {
+  anthropic: {
+    resolver: { url: "https://api.anthropic.com/v1", model: "claude-sonnet-4-5", provider: "anthropic", role: "llm" },
+    ruta: "https://api.anthropic.com/v1/messages",
+    cabecera: ["x-api-key", SECRET] as const,
+    texto: (content: string) => ({ id: "m", type: "message", role: "assistant", model: "claude", content: [{ type: "text", text: content }], stop_reason: "end_turn", usage: { input_tokens: 1, output_tokens: 1 } }),
+    objeto: (value: unknown) => ({ id: "m", type: "message", role: "assistant", model: "claude", content: [{ type: "text", text: JSON.stringify(value) }], stop_reason: "end_turn", usage: { input_tokens: 1, output_tokens: 1 } }),
+    modelos: { ruta: "https://api.anthropic.com/v1/models?limit=1000", respuesta: { data: [{ id: "claude-b" }, { id: "claude-a" }], has_more: false }, ids: ["claude-a", "claude-b"] },
+  },
+  google: {
+    resolver: { url: "https://generativelanguage.googleapis.com/v1beta", model: "gemini", provider: "google", role: "llm" },
+    ruta: "https://generativelanguage.googleapis.com/v1beta/models/gemini:generateContent",
+    cabecera: ["x-goog-api-key", SECRET] as const,
+    texto: (content: string) => ({ candidates: [{ content: { role: "model", parts: [{ text: content }] }, finishReason: "STOP" }], usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 1, totalTokenCount: 2 } }),
+    objeto: (value: unknown) => ({ candidates: [{ content: { role: "model", parts: [{ text: JSON.stringify(value) }] }, finishReason: "STOP" }], usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 1, totalTokenCount: 2 } }),
+    modelos: {
+      ruta: "https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000",
+      respuesta: { models: [{ name: "models/gemini-b", supportedGenerationMethods: ["generateContent"] }, { name: "models/embedding", supportedGenerationMethods: ["embedContent"] }, { name: "models/gemini-a", supportedGenerationMethods: ["countTokens", "generateContent"] }] },
+      ids: ["gemini-a", "gemini-b"],
+    },
+  },
+  mistral: {
+    resolver: { url: "https://api.mistral.ai/v1", model: "mistral", provider: "mistral", role: "llm" },
+    ruta: "https://api.mistral.ai/v1/chat/completions",
+    cabecera: ["authorization", `Bearer ${SECRET}`] as const,
+    texto: (content: string) => ({ id: "x", object: "chat.completion", created: 1, model: "mistral", choices: [{ index: 0, finish_reason: "stop", message: { role: "assistant", content } }], usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } }),
+    objeto: (value: unknown) => ({ id: "x", object: "chat.completion", created: 1, model: "mistral", choices: [{ index: 0, finish_reason: "stop", message: { role: "assistant", content: JSON.stringify(value) } }], usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } }),
+    modelos: { ruta: "https://api.mistral.ai/v1/models", respuesta: { data: [{ id: "mistral-b" }, { id: "mistral-a" }] }, ids: ["mistral-a", "mistral-b"] },
+  },
+};
+const json = (value: unknown, status = 200) => new Response(JSON.stringify(value), { status, headers: { "content-type": "application/json" } });
+
+for (const [nombre, caso] of Object.entries(nativos)) {
+  test(`${nombre}: pregunta y resume con su API, su cabecera y la clave fuera de la URL`, async () => {
+    const conEsquema = answering(() => json(caso.objeto(digest)));
+    assert.deepEqual(await ask(caso.resolver, SECRET, asked(digestSchema()), conEsquema.transport), digest);
+    const { request } = conEsquema.seen[0]!;
+    assert.equal(request.url, caso.ruta);
+    assert.equal(request.headers.get(caso.cabecera[0]), caso.cabecera[1]);
+    assert.ok(!request.url.includes(SECRET));
+    assert.equal(request.redirect, "manual");
+    const sinEsquema = answering(() => json(caso.texto("respuesta")));
+    assert.equal(await ask(caso.resolver, SECRET, asked(), sinEsquema.transport), "respuesta");
+    const entreTexto = answering(() => json(caso.texto(`Aquí tienes:\n\`\`\`json\n${JSON.stringify(digest)}\n\`\`\``)));
+    assert.deepEqual(await ask(caso.resolver, SECRET, asked(digestSchema()), entreTexto.transport), digest);
+  });
+
+  test(`${nombre}: los errores se traducen igual, sin reintentos y sin la clave`, async () => {
+    for (const [status, expected] of [[401, "backend_unavailable"], [429, "backend_unavailable"], [500, "backend_unavailable"], [400, "failed"]] as const) {
+      const { seen, transport } = answering(() => json({ error: { message: `clave ${SECRET} rechazada` } }, status));
+      const { code } = (await failure(ask(caso.resolver, SECRET, asked(), transport)))!;
+      assert.equal(code, expected, `${nombre} ${status}`);
+      assert.equal(seen.length, 1);
+    }
+  });
+
+  test(`${nombre}: sin clave no se llama, y los modelos se listan con su ruta`, async () => {
+    const vacio = answering(() => json(caso.texto("x")));
+    await assert.rejects(ask(caso.resolver, undefined, asked(), vacio.transport), /Falta la clave/);
+    assert.equal(vacio.seen.length, 0);
+    const seen: Request[] = [];
+    const lista = await models(caso.resolver, SECRET, async (request) => {
+      seen.push(request);
+      return json(caso.modelos.respuesta);
+    });
+    assert.deepEqual(lista, caso.modelos.ids);
+    assert.equal(seen[0]!.url, caso.modelos.ruta);
+    assert.equal(seen[0]!.headers.get(caso.cabecera[0]), caso.cabecera[1]);
+    assert.ok(!seen[0]!.url.includes(SECRET));
+  });
+}
+
+test("anthropic: con un modelo que el SDK no conoce, el objeto llega por la herramienta json que se le obliga a usar", async () => {
+  const { seen, transport } = answering(() =>
+    json({ id: "m", type: "message", role: "assistant", model: "x", content: [{ type: "tool_use", id: "t", name: "json", input: digest }], stop_reason: "tool_use", usage: { input_tokens: 1, output_tokens: 1 } }),
+  );
+  assert.deepEqual(await ask({ ...nativos.anthropic.resolver, model: "modelo-nuevo" }, SECRET, asked(digestSchema()), transport), digest);
+  assert.equal((seen[0]!.body.tool_choice as { type: string }).type, "any");
+});

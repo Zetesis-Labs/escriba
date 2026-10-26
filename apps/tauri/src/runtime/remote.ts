@@ -1,13 +1,19 @@
 import { openAsBlob } from "node:fs";
 import { basename } from "node:path";
+import { createAnthropic } from "@ai-sdk/anthropic";
+import { createGoogleGenerativeAI } from "@ai-sdk/google";
+import { createMistral } from "@ai-sdk/mistral";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { APICallError, NoObjectGeneratedError, Output, generateText, jsonSchema } from "ai";
 import { z } from "zod";
+import { llmProvider, type LlmProvider } from "../core/resolvers";
 import { answerJson } from "../core/structuredAnswer";
 import { RuntimeError, object, text } from "./contracts";
 import type { HttpTransport } from "./http";
 
 const RESPONSE_LIMIT = 32 * 1024 * 1024;
+// Native providers warn about settings they ignore; that is expected here, not news.
+(globalThis as { AI_SDK_LOG_WARNINGS?: boolean }).AI_SDK_LOG_WARNINGS = false;
 const REMOTE_TIMEOUT_MS = 1_800_000;
 
 export function privateHost(raw: string): boolean {
@@ -20,6 +26,9 @@ export function privateHost(raw: string): boolean {
   if (octets.some((octet) => !Number.isInteger(octet) || octet > 255)) return false;
   const [a, b] = octets as [number, number, number, number];
   return a === 127 || a === 10 || (a === 192 && b === 168) || (a === 172 && b >= 16 && b <= 31) || (a === 100 && b >= 64 && b <= 127);
+}
+export function baseURL(resolver: Record<string, unknown>): string {
+  return endpoint(resolver, "").href.replace(/\/$/, "");
 }
 export function endpoint(resolver: Record<string, unknown>, route: string): URL {
   const base = text(resolver.url, "url");
@@ -108,16 +117,35 @@ export async function readResponse(response: Response, secret: string | undefine
     throw Error("Respuesta JSON inválida del resolutor");
   }
 }
-function request(url: URL, secret: string | undefined, init: RequestInit) {
+function authorization(provider: LlmProvider, secret: string | undefined): Record<string, string> {
+  if (!secret) return {};
+  if (provider === "anthropic") return { "x-api-key": secret, "anthropic-version": "2023-06-01" };
+  if (provider === "google") return { "x-goog-api-key": secret };
+  return { authorization: `Bearer ${secret}` };
+}
+function request(url: URL, secret: string | undefined, init: RequestInit, provider: LlmProvider = "openai-compatible") {
   const headers = new Headers(init.headers);
-  if (secret) headers.set("authorization", `Bearer ${secret}`);
+  for (const [name, value] of Object.entries(authorization(provider, secret))) headers.set(name, value);
   return new Request(url, { ...init, headers, redirect: "manual", signal: AbortSignal.timeout(REMOTE_TIMEOUT_MS) });
 }
+const field = (item: unknown, name: string) => (item && typeof item === "object" ? (item as Record<string, unknown>)[name] : undefined);
 export async function models(resolver: Record<string, unknown>, secret: string | undefined, transport: HttpTransport = fetch): Promise<string[]> {
-  const value = object(await send(transport, request(endpoint(resolver, "models"), secret, { method: "GET" }), secret, "No se pudo conectar con el servicio"));
-  const ids = (Array.isArray(value.data) ? value.data : [])
-    .map((model) => (model && typeof model === "object" ? (model as { id?: unknown }).id : undefined))
-    .filter((id): id is string => typeof id === "string");
+  const provider = llmProvider(resolver);
+  const url = endpoint(resolver, "models");
+  if (provider === "anthropic") url.searchParams.set("limit", "1000");
+  if (provider === "google") url.searchParams.set("pageSize", "1000");
+  const value = object(await send(transport, request(url, secret, { method: "GET" }, provider), secret, "No se pudo conectar con el servicio"));
+  const ids =
+    provider === "google"
+      ? (Array.isArray(value.models) ? value.models : [])
+          .filter((model) => {
+            const methods = field(model, "supportedGenerationMethods");
+            return Array.isArray(methods) && methods.includes("generateContent");
+          })
+          .map((model) => field(model, "name"))
+          .filter((name): name is string => typeof name === "string")
+          .map((name) => name.replace(/^models\//, ""))
+      : (Array.isArray(value.data) ? value.data : []).map((model) => field(model, "id")).filter((id): id is string => typeof id === "string");
   return [...new Set(ids)].sort();
 }
 export async function probeTranscription(resolver: Record<string, unknown>, secret: string | undefined, transport: HttpTransport = fetch): Promise<string> {
@@ -219,24 +247,28 @@ function conforming(value: unknown, schema: unknown): unknown {
   const problems = result.error.issues.map((issue) => `${issue.path.join(".") || "respuesta"}: ${issue.message}`);
   throw Error(`El resolutor no respetó el esquema JSON (${problems.join("; ")})`);
 }
+// Every provider gets the key explicitly: none may fall back to an environment variable.
+function languageModel(resolver: Record<string, unknown>, secret: string | undefined, transport: HttpTransport) {
+  const provider = llmProvider(resolver);
+  const model = text(resolver.model, "model");
+  const settings = { baseURL: baseURL(resolver), fetch: sdkFetch(transport) };
+  if (provider === "openai-compatible")
+    return createOpenAICompatible({ ...settings, name: "escriba", ...(secret ? { apiKey: secret } : {}), supportsStructuredOutputs: true })(model);
+  if (!secret) throw Error("Falta la clave del resolutor");
+  if (provider === "anthropic") return createAnthropic({ ...settings, apiKey: secret })(model);
+  if (provider === "google") return createGoogleGenerativeAI({ ...settings, apiKey: secret })(model);
+  return createMistral({ ...settings, apiKey: secret })(model);
+}
 export async function ask(
   resolver: Record<string, unknown>,
   secret: string | undefined,
   params: Record<string, unknown>,
   transport: HttpTransport = fetch,
 ): Promise<unknown> {
-  const url = endpoint(resolver, "chat/completions");
-  const provider = createOpenAICompatible({
-    name: "escriba",
-    baseURL: url.href.slice(0, -"/chat/completions".length),
-    ...(secret ? { apiKey: secret } : {}),
-    supportsStructuredOutputs: true,
-    fetch: sdkFetch(transport),
-  });
   const instructions = text(params.instructions, "instructions");
   const schema = params.schema !== undefined && params.schema !== null ? params.schema : undefined;
   const call = {
-    model: provider(text(resolver.model, "model")),
+    model: languageModel(resolver, secret, transport),
     prompt: text(params.prompt, "prompt"),
     temperature: 0.2,
     maxRetries: 0,
