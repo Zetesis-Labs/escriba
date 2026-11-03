@@ -44,19 +44,8 @@ impl DesktopCommand {
     }
 }
 
-pub fn models_root() -> Option<PathBuf> {
-    std::env::var_os("LOCALAPPDATA")
-        .map(PathBuf::from)
-        .filter(|path| path.is_absolute())
-        .map(|path| path.join("escriba/models"))
-}
-
 pub fn native_library_path(path: &Path) -> PathBuf {
     dunce::simplified(path).to_path_buf()
-}
-
-pub fn is_models_root(root: &Path) -> bool {
-    models_root().is_some_and(|expected| expected == root)
 }
 
 pub fn open(target: &OsStr) -> DesktopCommand {
