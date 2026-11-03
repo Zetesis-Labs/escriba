@@ -570,3 +570,20 @@ graba y transcribe con el host, aísla una receta y la app arranca):
 | Debian 13 | ✓ (2026-10-14) | pendiente |
 | Fedora 44 | ✓ (2026-10-14) | pendiente |
 | Fedora 43 | ✓ (2026-10-14) | pendiente |
+
+**Varios modelos de Whisper en el Mac** (2026-11-03). El host de Swift responde
+`models` y `deleteModel`. El catálogo son las variantes de WhisperKit
+equivalentes a las de Linux, por decisión de Rubén: `openai_whisper-tiny`,
+`-base`, `-small`, `-medium`, `-large-v3` y la de serie,
+`openai_whisper-large-v3-v20240930`, que es large-v3-turbo (su `config.json`
+tiene 4 capas de decodificador). Los tamaños son los de descarga en
+`argmaxinc/whisperkit-coreml` ese día, los mismos que en Linux. Borrar quita la
+carpeta de la variante y sus metadatos de descarga. Con eso todos los hosts
+tienen catálogo: `whisper_model` ya no mide ni borra la carpeta de modelos
+entera, y sin catálogo el botón dice «Descargar» en vez de los 3 GB que el Mac
+daba por hechos. Pasan `swift test`, los tests de la app y la batería común
+contra el host de Swift; esta última se lanza desde un crate aparte con
+`tests/contract.rs` y `tests/support`, porque `native-host` no compila en el
+Mac hasta que exista `platform/macos/` (punto 3 de `docs/pendiente-mac.md`).
+Falta la comprobación en pantalla del punto 1 de ese documento.
+
