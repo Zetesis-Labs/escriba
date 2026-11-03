@@ -40,7 +40,7 @@ import "./resolvers.css";
 
 type NativeStatus = { whisper?: { available?: boolean; model?: string }; llm?: { available?: boolean; reason?: string | null } };
 
-// Hosts without a catalog (Swift until its session) leave a single local Whisper.
+// A host whose catalog cannot be read leaves a single local Whisper.
 function useWhisperCatalog(role: Role) {
   const [catalog, setCatalog] = useState<WhisperCatalog | null>(null);
   const reload = useCallback(() => {
@@ -468,7 +468,7 @@ function WhisperModelSection({ model, explicit, catalog, onChange }: { model: st
         <>
           <LabeledRow label="Estado">no descargado</LabeledRow>
           <FormRow>
-            <Button onClick={() => void download()}>{downloadLabel(info?.model ?? model, catalog, platform)}</Button>
+            <Button onClick={() => void download()}>{downloadLabel(info?.model ?? model, catalog)}</Button>
           </FormRow>
         </>
       )}

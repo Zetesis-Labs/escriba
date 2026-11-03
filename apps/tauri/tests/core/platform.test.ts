@@ -1,7 +1,6 @@
 import { describe, expect, test } from "vitest";
 import {
   device,
-  whisperDownloadLabel,
   floatingRecordingPanel,
   paintsPanelBackground,
   drawsWindowControls,
@@ -56,11 +55,6 @@ describe("plataforma", () => {
     const flatpak = { ...linux, folderAuthorization: true };
     expect(foldersFooter(flatpak)).toContain("vuelve a autorizarla");
     expect(foldersFooter(flatpak)).not.toMatch(/macOS|disco/i);
-  });
-
-  test("sin catálogo de modelos, solo el Mac sabe el tamaño de su Whisper", () => {
-    expect(whisperDownloadLabel(macOS)).toBe("Descargar (unos 3 GB)");
-    expect(whisperDownloadLabel(linux)).toBe("Descargar");
   });
 
   test("las opciones salen de lo que Rust dice que ofrece el sistema, no de su nombre", () => {
