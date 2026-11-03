@@ -78,10 +78,10 @@ describe("modelos de Whisper local", () => {
     expect(resolversFooter("stt", linux, [remote])).toBe("Cada receta elige con qué transcribir, en Recetas. La que no elige espera hasta que añadas un Whisper local.");
   });
 
-  test("descargar dice el tamaño de ese modelo; sin catálogo, el del modelo de serie del sistema", () => {
-    expect(downloadLabel("tiny", catalog, linux)).toBe("Descargar (unos 78 MB)");
-    expect(downloadLabel("large-v3-turbo", catalog, linux)).toBe("Descargar (unos 1,6 GB)");
-    expect(downloadLabel("openai_whisper-large-v3-v20240930", null, macOS)).toBe("Descargar (unos 3 GB)");
+  test("descargar dice el tamaño de ese modelo; sin catálogo no lo adivina", () => {
+    expect(downloadLabel("tiny", catalog)).toBe("Descargar (unos 78 MB)");
+    expect(downloadLabel("large-v3-turbo", catalog)).toBe("Descargar (unos 1,6 GB)");
+    expect(downloadLabel("openai_whisper-large-v3-v20240930", null)).toBe("Descargar");
   });
 
   test("un modelo añadido sin descargar lo dice en su fila", () => {

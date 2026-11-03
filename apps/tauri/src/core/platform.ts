@@ -51,6 +51,3 @@ export const isNewRecordingShortcut = (event: Keys, platform: Platform) =>
 export const paintsPanelBackground = (platform: Platform) => !platform.floatingPanel;
 
 export const floatingRecordingPanel = (platform: Platform) => platform.floatingPanel;
-
-// Until Swift answers `models`, the Mac has no catalog and its model is WhisperKit large-v3.
-export const whisperDownloadLabel = (platform: Platform) => (isMac(platform) ? "Descargar (unos 3 GB)" : "Descargar");

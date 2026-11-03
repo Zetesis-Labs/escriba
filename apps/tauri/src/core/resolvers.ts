@@ -1,5 +1,5 @@
 import type { Resolver } from "../types";
-import { device, macOS, whisperDownloadLabel, whisperName, type Platform } from "./platform";
+import { device, macOS, whisperName, type Platform } from "./platform";
 
 export type Role = "stt" | "llm";
 
@@ -172,7 +172,7 @@ export function addedModelProblem(resolver: Pick<Resolver, "id" | "local" | "mod
   return catalog.models.find((entry) => entry.model === resolver.model)?.installed ? null : "el modelo no está descargado; descárgalo aquí abajo";
 }
 
-export function downloadLabel(model: string, catalog: WhisperCatalog | null, platform: Platform = macOS) {
+export function downloadLabel(model: string, catalog: WhisperCatalog | null) {
   const entry = catalog?.models.find((candidate) => candidate.model === model);
-  return entry ? `Descargar (unos ${bytesLabel(entry.bytes)})` : whisperDownloadLabel(platform);
+  return entry ? `Descargar (unos ${bytesLabel(entry.bytes)})` : "Descargar";
 }
