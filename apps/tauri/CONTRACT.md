@@ -63,9 +63,9 @@ reenvía a Bun; los comandos `knowledge_*` se atienden en Rust.
 - voice_registration_status, voice_registration_start {name}, voice_registration_import {name,path}, voice_registration_stop, voice_registration_cancel y voice_registration_dismiss -> VoiceRegistration; emiten `escriba://voice-registration` con cada estado. Registrar exige 30 segundos de habla.
 - note_draft_get {recordingId} -> NoteDraft | null (detalle privado de la UI).
 - note_draft_begin {recordingId} -> NoteDraft (recupera el existente o toma la versión vigente).
-- note_draft_save {recordingId,draftId,expectedRevision,content} -> NoteDraft (duradero; sin crear versión).
+- note_draft_save {recordingId,draftId,expectedRevision,content} -> NoteDraft (duradero; sin crear versión). `content.learnVoices` lista los nombres cuya voz se guardará en Personas al confirmar.
 - note_draft_discard {recordingId,draftId,expectedRevision} -> void (no altera la versión base).
-- note_draft_commit {recordingId,draftId,expectedRevision} -> {version:Version,created:boolean} (una versión por borrador, confirmación idempotente; no publica).
+- note_draft_commit {recordingId,draftId,expectedRevision} -> {version:Version,created:boolean,learnedVoices:string[]} (una versión por borrador, confirmación idempotente; no publica). En la misma transacción guarda en Personas la huella de cada hablante detectado que pasó entero a un nombre de `learnVoices`; `learnedVoices` dice cuáles.
 - config_save {collection:'resolvers'|'recipes'|'accounts'|'destinations', item} -> item (upsert por id).
 - config_remove {collection,id} -> void (locales/base no se borran).
 - settings_save {settings: Partial<Settings>} -> Settings.

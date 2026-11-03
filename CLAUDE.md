@@ -133,7 +133,10 @@ no se ha podido leer. Preservar la lectura de datos ya guardados al actualizar.
   sin adivinar cuántos hay; la corrección es explícita. Personas aprende N
   huellas por persona, compara con el mismo modelo y su umbral (0,30 en
   SpeakerKit) y reconoce sólo al transcribir. Registrar voz exige 30 segundos
-  de habla; admite micrófono y archivo. Una versión diarizada sin huellas se
+  de habla; admite micrófono y archivo. Al cambiar entero un hablante en la
+  nota, el usuario decide si guarda su huella en Personas (desmarcado de
+  serie); asignar un fragmento o juntarlo con otro hablante que no es persona
+  no la guarda. Una versión diarizada sin huellas se
   vuelve a diarizar.
 - WhisperKit es el motor local; modelos en
   `~/Library/Application Support/escriba/models`, descargados explícitamente.

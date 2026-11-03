@@ -9,8 +9,13 @@ const draftContentSchema = z.strictObject({
   transcript: transcriptSchema,
   digest: draftDigestSchema.nullable(),
   data: z.json(),
+  learnVoices: z.array(z.string().min(1)).optional(),
 });
 export type DraftContent = z.infer<typeof draftContentSchema>;
+export function noteContent(content: DraftContent): Omit<DraftContent, "learnVoices"> {
+  const { learnVoices: _learnVoices, ...note } = content;
+  return note;
+}
 export interface NoteDraft {
   id: string;
   recordingId: string;
@@ -62,7 +67,12 @@ export function validateContent(content: DraftContent) {
   }
   if (typeof content.transcript.duration === "number" && content.transcript.duration < 0) throw Error("Duración inválida");
 }
-export function conservativeVoices(source: Transcript, corrected: Transcript, voices: SpeakerVoice[]): SpeakerVoice[] {
+interface VoiceMove {
+  voice: SpeakerVoice;
+  label: string;
+  segments: number;
+}
+function wholeSpeakerMoves(source: Transcript, corrected: Transcript, voices: SpeakerVoice[]): VoiceMove[] {
   const uniqueIntervals = (transcript: Transcript) => {
     const intervals = new Map<string, number | null>();
     transcript.segments.forEach((segment, index) => {
@@ -73,9 +83,7 @@ export function conservativeVoices(source: Transcript, corrected: Transcript, vo
   };
   const sourceIntervals = uniqueIntervals(source);
   const correctedIntervals = uniqueIntervals(corrected);
-  const labelCounts = new Map<string, number>();
-  for (const segment of corrected.segments) if (typeof segment.speaker === "string") labelCounts.set(segment.speaker, (labelCounts.get(segment.speaker) ?? 0) + 1);
-  const result: SpeakerVoice[] = [];
+  const moves: VoiceMove[] = [];
   for (const voice of voices) {
     let label: string | undefined;
     let matched = 0;
@@ -92,10 +100,23 @@ export function conservativeVoices(source: Transcript, corrected: Transcript, vo
       label = next;
       matched += 1;
     }
-    if (ambiguous || label === undefined || labelCounts.get(label) !== matched) continue;
-    result.push({ ...voice, speaker: label });
+    if (!ambiguous && label !== undefined) moves.push({ voice, label, segments: matched });
   }
-  return result;
+  return moves;
+}
+export function conservativeVoices(source: Transcript, corrected: Transcript, voices: SpeakerVoice[]): SpeakerVoice[] {
+  const labelCounts = new Map<string, number>();
+  for (const segment of corrected.segments) if (typeof segment.speaker === "string") labelCounts.set(segment.speaker, (labelCounts.get(segment.speaker) ?? 0) + 1);
+  return wholeSpeakerMoves(source, corrected, voices)
+    .filter((move) => labelCounts.get(move.label) === move.segments)
+    .map((move) => ({ ...move.voice, speaker: move.label }));
+}
+export function voicesToLearn(source: Transcript, corrected: Transcript, voices: SpeakerVoice[], names: readonly string[]): Map<string, SpeakerVoice[]> {
+  const learned = new Map<string, SpeakerVoice[]>();
+  for (const move of wholeSpeakerMoves(source, corrected, voices))
+    if (names.includes(move.label) && move.label !== move.voice.speaker)
+      learned.set(move.label, [...(learned.get(move.label) ?? []), { ...move.voice, speaker: move.label }]);
+  return learned;
 }
 export interface DraftRequest {
   key: string;

@@ -3,7 +3,7 @@ import { useLayoutEffect, useRef, useState, type CSSProperties, type TextareaHTM
 import { clockStamp, type PlaybackPosition } from "../core/presentation";
 import { groupSelectionRanges, transcriptGroups } from "../core/transcriptGroups";
 import type { TranscriptSelectionRange } from "../core/transcriptEditing";
-import { Button, Sheet } from "../mac/controls";
+import { Button, Sheet, Toggle } from "../mac/controls";
 import { errorText, item, popupMenu } from "../mac/native";
 import type { Person, Segment, Transcript } from "../types";
 
@@ -143,25 +143,29 @@ export function TranscriptEditor({ transcript, editing, disabled, position, onSe
   </div>;
 }
 
-export function SpeakerPicker({ people, speakers, target, excerpt, onChoose, onCancel, error, speakerColors }: {
-  people: Person[]; speakers: string[]; target: SpeakerTarget; excerpt: string; error: string | null;
-  onChoose(name: string, personId?: string): void; onCancel(): void;
+export function SpeakerPicker({ people, speakers, target, excerpt, canLearn, onChoose, onCancel, error, speakerColors }: {
+  people: Person[]; speakers: string[]; target: SpeakerTarget; excerpt: string; error: string | null; canLearn: boolean;
+  onChoose(name: string, personId?: string, learn?: boolean): void; onCancel(): void;
   speakerColors?: Readonly<Record<string, string>>;
 }) {
   const [name, setName] = useState("");
+  const [learn, setLearn] = useState(false);
+  const learning = canLearn && target.kind === "speaker";
   const saved = new Set(people.map((person) => person.name));
   const others = speakers.filter((speaker) => !saved.has(speaker));
+  const chooseNamed = (chosen: string, personId?: string) => onChoose(chosen, personId, learning && learn);
   return <Sheet onCancel={onCancel}>
     <div className="font-title3">{target.kind === "speaker" ? `Cambiar «${target.speaker}» en toda la nota` : "Asignar hablante"}</div>
     <p className="secondary font-callout">{target.kind === "speaker" ? "Se reasignarán todas sus intervenciones en este borrador." : "Solo cambiará el fragmento seleccionado."}</p>
     {excerpt && <blockquote className="speaker-excerpt selectable">{excerpt}</blockquote>}
+    {learning && <div className="speaker-learn"><div><div>Guardar su voz en Personas</div><div className="font-caption secondary">Al guardar los cambios, para reconocerla en otras notas. Solo con una persona guardada o un nombre nuevo.</div></div><Toggle label="Guardar su voz en Personas" checked={learn} onChange={setLearn} /></div>}
     <div className="speaker-choices">
       <div className="font-caption secondary">Personas guardadas</div>
-      {people.length ? people.map((person) => <button type="button" className="speaker-choice" style={speakerStyle(person.name, speakerColors)} key={person.id ?? person.name} onClick={() => onChoose(person.name, person.id)}><UserRound size={15} />{person.name}</button>) : <p className="secondary font-callout">Aún no hay personas guardadas.</p>}
+      {people.length ? people.map((person) => <button type="button" className="speaker-choice" style={speakerStyle(person.name, speakerColors)} key={person.id ?? person.name} onClick={() => chooseNamed(person.name, person.id)}><UserRound size={15} />{person.name}</button>) : <p className="secondary font-callout">Aún no hay personas guardadas.</p>}
       {error && <p className="warning" role="alert">{error}</p>}
-      {!!others.length && <><div className="font-caption secondary">Hablantes de esta nota</div>{others.map((speaker) => <button type="button" className="speaker-choice" style={speakerStyle(speaker, speakerColors)} key={speaker} onClick={() => onChoose(speaker)}><UserRound size={15} />{speaker}</button>)}</>}
+      {!!others.length && <><div className="font-caption secondary">Hablantes de esta nota</div>{others.map((speaker) => <button type="button" className="speaker-choice" style={speakerStyle(speaker, speakerColors)} key={speaker} onClick={() => onChoose(speaker, undefined, false)}><UserRound size={15} />{speaker}</button>)}</>}
     </div>
-    <label className="speaker-name-label">Otro nombre<input className="text-field" value={name} placeholder="Nombre del hablante" onChange={(event) => setName(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && name.trim()) { event.preventDefault(); onChoose(name.trim()); } }} /></label>
-    <div className="sheet-actions"><Button onClick={onCancel}>Cancelar</Button><Button prominent disabled={!name.trim()} onClick={() => onChoose(name.trim())}>Asignar</Button></div>
+    <label className="speaker-name-label">Otro nombre<input className="text-field" value={name} placeholder="Nombre del hablante" onChange={(event) => setName(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && name.trim()) { event.preventDefault(); chooseNamed(name.trim()); } }} /></label>
+    <div className="sheet-actions"><Button onClick={onCancel}>Cancelar</Button><Button prominent disabled={!name.trim()} onClick={() => chooseNamed(name.trim())}>Asignar</Button></div>
   </Sheet>;
 }

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
-import { canBeginVoiceSample, correctedSpeaker, forgottenRecognition, personName, speakerTitle, voiceCount } from "../../src/core/people";
-import type { Transcript } from "../../src/types";
+import { canBeginVoiceSample, correctedSpeaker, forgottenRecognition, personName, speakerTitle, voiceCount, voicesNotLearned, withVoiceLearning } from "../../src/core/people";
+import type { NoteContent, Transcript } from "../../src/types";
 
 const recognized: Transcript = {
   text: "Hola. Adiós.",
@@ -92,4 +92,21 @@ test("el color elegido prevalece y el automático es estable al reordenar person
   expect(personColors(["Ana", "Luis", "Otra"], people)).toEqual({ Ana: "#123ABC", Luis: personColor("Luis"), Otra: personColor("Otra") });
   expect(personColor(null)).toBe("#8e8e93");
   expect(personColor("Ana", [{ name: "Ana", color: "url(externo)", voices: [] }])).toMatch(/^#[0-9a-f]{6}$/);
+});
+
+describe("guardar la voz al nombrar un hablante", () => {
+  const content: NoteContent = { title: "Nota", transcript: recognized, digest: null, data: null };
+
+  test("marcar la casilla apunta el nombre una vez y desmarcarla lo quita", () => {
+    const marked = withVoiceLearning(withVoiceLearning(content, "Aritz", true), "Aritz", true);
+    expect(marked.learnVoices).toEqual(["Aritz"]);
+    expect(withVoiceLearning(marked, "Aritz", false)).toEqual(content);
+    expect(withVoiceLearning(content, "Aritz", false)).toBe(content);
+  });
+
+  test("avisa de las voces pedidas que no se guardaron, sin contar nombres que ya no están en la nota", () => {
+    const requested = { ...content, learnVoices: ["Nuria", "Speaker 1", "Aritz"] };
+    expect(voicesNotLearned(requested, ["Nuria"])).toEqual(["Speaker 1"]);
+    expect(voicesNotLearned(content, [])).toEqual([]);
+  });
 });

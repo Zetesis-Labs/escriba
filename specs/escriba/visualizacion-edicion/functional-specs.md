@@ -65,6 +65,12 @@ desde el Registro existentes.
 - Guardar dos veces la misma confirmación no crea dos versiones.
 - La asignación parcial no enseña automáticamente a Personas una huella de
   toda la intervención. Las muestras biométricas no se editan desde esta vista.
+- Al cambiar un hablante en toda la nota por una persona guardada o un nombre
+  nuevo, el usuario decide con «Guardar su voz en Personas» (desmarcado de
+  serie) si su huella se añade a esa persona al guardar los cambios (Rubén,
+  2026-11-03). Así no se acumulan huellas que no aportan. Solo se guarda la
+  huella del hablante detectado que pasó entero a ese nombre; si no se puede,
+  se avisa tras guardar.
 - Los fragmentos consecutivos del mismo hablante forman un bloque visual con
   una sola cabecera. La cabecera reasigna ese bloque; la selección de palabras
   permite separar un fragmento, manteniendo los índices y tiempos originales.
