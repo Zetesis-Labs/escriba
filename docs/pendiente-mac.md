@@ -5,39 +5,17 @@ se compila Swift ni el código de Rust que solo existe en macOS, así que nada d
 esto está probado. Al cerrar un punto, se borra de aquí y se apunta en el
 Registro de `docs/plan-linux.md`.
 
-## 1. Varios modelos de Whisper local
+## 1. Varios modelos de Whisper local: comprobarlo en la app
 
-Spec: `specs/escriba/modelos-whisper/functional-specs.md`. Rust, el controlador
-y la interfaz ya lo tienen; en Linux está validado. En el Mac falta el host de
-Swift, y por eso el «+» de STT no ofrece modelos locales.
+Hecho el 2026-11-03 (ver el Registro de `docs/plan-linux.md`). Falta que Rubén
+lo vea en su Mac:
 
-- **`models`** en `Sources/EscribaNativeHost/NativeHost.swift`: devuelve
-  `{default, models: [{model, label, bytes, installed}]}`, como en
-  `docs/tauri-native-protocol.md`. `default` es
-  `WhisperKitBackend.defaultVariant`.
-  - Pista: un catálogo fijo de variantes de WhisperKit con su tamaño
-    aproximado, como `MODELS` en `native-host/src/platform/local/mod.rs`, sin
-    red para listar.
-  - `installed` sale de `WhisperKitBackend.installedModelFolder(variant:)`. Si
-    está instalado, `bytes` es el tamaño real de esa carpeta.
-- **`deleteModel`**: borra solo la carpeta que devuelve
-  `installedModelFolder(variant:)`. Si no existe, responde `model_missing`. Si
-  el motor tenía cargada esa variante, la descarga antes de borrar.
-- Mientras Swift no los tenga, `whisper_model` en `src-tauri/src/lib.rs` usa el
-  comportamiento anterior: mide la carpeta de modelos y solo borra el de serie,
-  borrando la carpeta entera. Con `deleteModel` ese camino deja de usarse en el
-  Mac. Comprobar que borrar el de serie no se lleva los demás modelos.
-- Con el catálogo, el «−» también quita el Whisper de serie (hoy está
-  desactivado en el Mac porque no podría volver con «+»). Comprobar que una
-  receta sin STT pasa al primer Whisper local que quede.
-- Comprobar en la app:
-  - Añadir un modelo, descargarlo con progreso y transcribir con él.
-  - Dos modelos distintos no reutilizan la misma transcripción.
-  - «Quitar» no borra del disco y pasa sus recetas al de serie.
-  - Detectar hablantes funciona con un modelo añadido.
-- Comprobar `ESCRIBA_NATIVE_HOST=<EscribaNativeHost> cargo test --test contract`
-  desde `apps/tauri/native-host`: `el_catalogo_de_modelos_tiene_el_de_serie_y_tamanos`
-  debe pasar.
+- Añadir un modelo, descargarlo con progreso y transcribir con él.
+- Dos modelos distintos no reutilizan la misma transcripción.
+- «Quitar» no borra del disco y pasa sus recetas al primer Whisper local que
+  quede; el «−» también quita el Whisper de serie, que vuelve con «+».
+- Borrar un modelo no se lleva los demás.
+- Detectar hablantes funciona con un modelo añadido.
 
 ## 2. Protocolo: lo que Swift no cumple
 
