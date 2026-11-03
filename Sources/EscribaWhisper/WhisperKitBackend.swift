@@ -55,6 +55,56 @@ public enum WhisperKitBackend {
         }
     }
 
+    public struct CatalogModel: Sendable, Equatable {
+        public let variant: String
+        public let label: String
+        public let bytes: Int64
+        public let installed: Bool
+    }
+
+    /// The same models as Linux, with their download size in argmaxinc/whisperkit-coreml on 2026-11-03.
+    static let catalogVariants: [(variant: String, label: String, bytes: Int64)] = [
+        (defaultVariant, "large-v3-turbo", 1_619_531_263),
+        ("openai_whisper-tiny", "tiny", 76_635_397),
+        ("openai_whisper-base", "base", 146_719_453),
+        ("openai_whisper-small", "small", 486_487_465),
+        ("openai_whisper-medium", "medium", 1_529_654_233),
+        ("openai_whisper-large-v3", "large-v3", 3_090_319_899),
+    ]
+
+    public static func catalog(modelsRoot: URL = defaultModelsRoot) -> [CatalogModel] {
+        catalogVariants.map { entry in
+            let folder = installedModelFolder(variant: entry.variant, modelsRoot: modelsRoot)
+            return CatalogModel(
+                variant: entry.variant, label: entry.label,
+                bytes: folder.map(size(of:)) ?? entry.bytes, installed: folder != nil)
+        }
+    }
+
+    /// Removes the folder of one variant and its download metadata; false when it is not installed.
+    public static func deleteModel(variant: String, modelsRoot: URL = defaultModelsRoot) throws -> Bool {
+        guard let folder = installedModelFolder(variant: variant, modelsRoot: modelsRoot) else { return false }
+        try FileManager.default.removeItem(at: folder)
+        let metadata = folder.deletingLastPathComponent()
+            .appending(path: ".cache/huggingface/download/\(variant)")
+        if FileManager.default.fileExists(atPath: metadata.path(percentEncoded: false)) {
+            try FileManager.default.removeItem(at: metadata)
+        }
+        return true
+    }
+
+    static func size(of folder: URL) -> Int64 {
+        guard let walker = FileManager.default.enumerator(
+            at: folder, includingPropertiesForKeys: [.fileSizeKey, .isRegularFileKey])
+        else { return 0 }
+        var total: Int64 = 0
+        for case let url as URL in walker {
+            let values = try? url.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey])
+            if values?.isRegularFile == true { total += Int64(values?.fileSize ?? 0) }
+        }
+        return total
+    }
+
     @discardableResult
     public static func downloadModel(
         variant: String = defaultVariant,
