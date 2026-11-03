@@ -6,6 +6,7 @@ mod capabilities;
 mod command;
 mod confinement;
 mod error;
+mod exit;
 mod file_security;
 #[cfg(target_os = "macos")]
 mod folder_access;
@@ -55,7 +56,7 @@ use std::{
     collections::HashMap,
     fs,
     path::{Path, PathBuf},
-    sync::{atomic::AtomicBool, Arc, Mutex},
+    sync::{Arc, Mutex},
     time::{Duration, SystemTime},
 };
 use tauri::{Emitter, Manager};
@@ -82,7 +83,7 @@ struct Runtime {
     recording_lock: tokio::sync::Mutex<()>,
     voice_registration: voice_registration::Registration,
     menubar: Mutex<menubar::Bar>,
-    quitting: AtomicBool,
+    exit_gate: exit::ExitGate,
     vendor: PathBuf,
     library_root: PathBuf,
     project_runtime: PathBuf,
@@ -1356,7 +1357,7 @@ pub fn run() {
                     recording_problem: Mutex::new(None),
                     recording_lock: tokio::sync::Mutex::new(()),
                     menubar: Mutex::new(menubar::Bar::default()),
-                    quitting: AtomicBool::new(false),
+                    exit_gate: exit::ExitGate::default(),
                     vendor,
                     library_root: root.clone(),
                     project_runtime: native::binary("escriba-runtime")
@@ -1434,19 +1435,30 @@ pub fn run() {
             std::process::exit(1);
         })
         .run(|app, event| match event {
-            tauri::RunEvent::ExitRequested { api, .. } => {
+            tauri::RunEvent::ExitRequested { api, code, .. } => {
                 let state = app.state::<Arc<Runtime>>().inner().clone();
-                if !state.quitting.load(std::sync::atomic::Ordering::SeqCst)
-                    && recorder::is_recording(&state)
-                {
-                    api.prevent_exit();
-                    let app = app.clone();
-                    tauri::async_runtime::spawn(async move { menubar::quit(&app, &state).await });
+                match state.exit_gate.request() {
+                    exit::ExitStep::Allow => {}
+                    exit::ExitStep::Hold => api.prevent_exit(),
+                    exit::ExitStep::HoldAndClose => {
+                        api.prevent_exit();
+                        let app = app.clone();
+                        tauri::async_runtime::spawn(async move {
+                            menubar::quit(&app, &state, code.unwrap_or(0)).await
+                        });
+                    }
                 }
             }
             tauri::RunEvent::Exit => {
                 if let Some(state) = app.try_state::<Arc<Runtime>>() {
-                    tauri::async_runtime::block_on(state.scripts.shutdown());
+                    let state = state.inner().clone();
+                    // The run loop is already gone: WebKit callbacks that need it would block this wait forever.
+                    if !exit::wait_at_most(
+                        async move { state.scripts.shutdown().await },
+                        Duration::from_secs(6),
+                    ) {
+                        eprintln!("El motor TypeScript no se cerró a tiempo al salir");
+                    }
                 }
             }
             #[cfg(target_os = "macos")]

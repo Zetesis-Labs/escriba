@@ -200,6 +200,9 @@ las dependencias de inferencia.
 ## Trampas de integración
 
 - Bandejas, menús y `NSStatusItem`, incluida su destrucción, en el hilo principal.
+- Salir cierra el controlador en `ExitRequested`, con el bucle de eventos vivo
+  (`src-tauri/src/exit.rs`). Nunca bloquear el hilo principal sin límite: WebKit
+  lo necesita para responder a `asset://`, y en `Exit` el bucle ya no corre.
 - Declarar cada ventana en `capabilities/main.json` para habilitar IPC/eventos.
 - `settings_save` sólo acepta claves de `SETTABLE` en `src/runtime/library/store.ts`.
 - Un comando de biblioteca nuevo se registra en el controlador Bun y en

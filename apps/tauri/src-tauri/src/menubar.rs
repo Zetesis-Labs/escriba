@@ -1,6 +1,6 @@
 use crate::{recorder, Runtime};
 use serde_json::Value;
-use std::sync::{atomic::Ordering, Arc};
+use std::sync::Arc;
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem},
     tray::TrayIconBuilder,
@@ -353,7 +353,7 @@ pub fn handle(app: &AppHandle, id: &str) {
             "bar-settings" => show(&app, "settings"),
             "bar-log" => show(&app, "log"),
             "bar-quit" | "app-quit" => {
-                quit(&app, &state).await;
+                app.exit(0);
                 Ok(())
             }
             _ => Ok(()),
@@ -376,8 +376,7 @@ pub fn show(app: &AppHandle, section: &str) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
-pub async fn quit(app: &AppHandle, state: &Arc<Runtime>) {
-    state.quitting.store(true, Ordering::SeqCst);
+pub async fn quit(app: &AppHandle, state: &Arc<Runtime>, code: i32) {
     if recorder::is_recording(state) {
         if let Err(error) = recorder::stop(app, state).await {
             crate::log_error(
@@ -386,7 +385,9 @@ pub async fn quit(app: &AppHandle, state: &Arc<Runtime>) {
             );
         }
     }
-    app.exit(0);
+    state.scripts.shutdown().await;
+    state.exit_gate.closed();
+    app.exit(code);
 }
 
 #[cfg(test)]
