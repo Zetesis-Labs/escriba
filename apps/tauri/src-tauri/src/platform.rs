@@ -15,34 +15,6 @@ mod windows;
 pub use windows::*;
 
 #[cfg(target_os = "macos")]
-pub fn is_models_root(root: &Path) -> bool {
-    root.ends_with("Application Support/escriba/models")
-}
-
-#[cfg(target_os = "linux")]
-pub fn is_models_root(root: &Path) -> bool {
-    linux_models_root(
-        std::env::var_os("XDG_DATA_HOME").as_deref(),
-        std::env::var_os("HOME").as_deref(),
-    )
-    .is_some_and(|expected| expected == root)
-}
-
-// XDG asks to ignore a relative XDG_DATA_HOME.
-#[cfg(any(target_os = "linux", all(test, unix)))]
-fn linux_models_root(data_home: Option<&OsStr>, home: Option<&OsStr>) -> Option<PathBuf> {
-    let data = data_home
-        .map(PathBuf::from)
-        .filter(|path| path.is_absolute())
-        .or_else(|| {
-            home.map(PathBuf::from)
-                .filter(|path| path.is_absolute())
-                .map(|home| home.join(".local/share"))
-        })?;
-    Some(data.join("escriba/models"))
-}
-
-#[cfg(target_os = "macos")]
 pub fn open(target: &OsStr) -> Command {
     let mut command = Command::new("/usr/bin/open");
     command.arg(target);
@@ -486,49 +458,6 @@ mod tests {
             .chain(command.get_args())
             .map(|part| part.to_string_lossy().into_owned())
             .collect()
-    }
-
-    #[test]
-    #[cfg(unix)]
-    fn la_carpeta_de_modelos_de_linux_sigue_xdg() {
-        assert_eq!(
-            linux_models_root(Some(OsStr::new("/datos")), Some(OsStr::new("/home/ana"))),
-            Some(PathBuf::from("/datos/escriba/models"))
-        );
-        assert_eq!(
-            linux_models_root(None, Some(OsStr::new("/home/ana"))),
-            Some(PathBuf::from("/home/ana/.local/share/escriba/models"))
-        );
-        assert_eq!(
-            linux_models_root(Some(OsStr::new("relativa")), Some(OsStr::new("/home/ana"))),
-            Some(PathBuf::from("/home/ana/.local/share/escriba/models"))
-        );
-        assert_eq!(linux_models_root(None, None), None);
-        assert_eq!(linux_models_root(None, Some(OsStr::new("relativa"))), None);
-    }
-
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn en_linux_solo_vale_la_carpeta_de_modelos_de_escriba() {
-        let expected = linux_models_root(
-            std::env::var_os("XDG_DATA_HOME").as_deref(),
-            std::env::var_os("HOME").as_deref(),
-        )
-        .unwrap();
-        assert!(is_models_root(&expected));
-        assert!(!is_models_root(Path::new("/tmp/escriba/models")));
-        assert!(!is_models_root(Path::new(
-            "/Users/ana/Library/Application Support/escriba/models"
-        )));
-    }
-
-    #[cfg(target_os = "macos")]
-    #[test]
-    fn en_macos_vale_application_support() {
-        assert!(is_models_root(Path::new(
-            "/Users/ana/Library/Application Support/escriba/models"
-        )));
-        assert!(!is_models_root(Path::new("/tmp/escriba/models")));
     }
 
     #[cfg(target_os = "linux")]

@@ -82,7 +82,7 @@ reenvía a Bun; los comandos `knowledge_*` se atienden en Rust.
 - open_privacy_settings -> void (abre Ajustes del Sistema, destino fijo; no disponible para recetas).
 - okf_file {accountId,path,action:'open'|'reveal'} -> void (solo documentos dentro de la carpeta autorizada de la cuenta OKF).
 - system_appearance -> {accent:string|null} (color de acento del sistema).
-- whisper_model {action:'info'|'delete',model?} -> {model,available,bytes} | void (un modelo del Whisper local; sin `model`, el de serie; el host nativo borra solo ese modelo y, si no tiene `deleteModel`, se borra la carpeta de modelos de Escriba como antes).
+- whisper_model {action:'info'|'delete',model?} -> {model,available,bytes} | void (un modelo del Whisper local; sin `model`, el de serie; el host nativo borra solo ese modelo con `deleteModel`; `bytes` sale de su catálogo `models`).
 - project_init {path} -> {hasDist:boolean} (crea ausentes; si ya existe el artefacto no añade fuentes).
 - project_open_vscode -> void (abre la carpeta del proyecto en VS Code).
 - project_list -> {files:string[]} (fuentes y JSON/Markdown; excluye dist, node_modules, .git, .escriba y enlaces).

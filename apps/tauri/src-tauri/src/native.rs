@@ -258,11 +258,6 @@ fn development_triple() -> &'static str {
     env!("TAURI_ENV_TARGET_TRIPLE")
 }
 
-// A host without a method (the Swift one, for per-model calls) answers so.
-pub fn unsupported(error: &AppError) -> bool {
-    error.message.starts_with("método desconocido")
-}
-
 pub fn binary(name: &str) -> Result<PathBuf, String> {
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
     let suffix = std::env::consts::EXE_SUFFIX;
@@ -338,18 +333,6 @@ done
             error.message.contains("protocolo nativo incompatible"),
             "{error}"
         );
-    }
-
-    #[test]
-    fn un_metodo_que_el_host_no_conoce_se_reconoce_para_volver_al_comportamiento_anterior() {
-        assert!(unsupported(&AppError::new(
-            ErrorCode::Failed,
-            "método desconocido: models"
-        )));
-        assert!(!unsupported(&AppError::new(
-            ErrorCode::Failed,
-            "el modelo base no está descargado"
-        )));
     }
 
     #[test]
