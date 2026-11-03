@@ -5,19 +5,7 @@ se compila Swift ni el código de Rust que solo existe en macOS, así que nada d
 esto está probado. Al cerrar un punto, se borra de aquí y se apunta en el
 Registro de `docs/plan-linux.md`.
 
-## 1. Varios modelos de Whisper local: comprobarlo en la app
-
-Hecho el 2026-11-03 (ver el Registro de `docs/plan-linux.md`). Falta que Rubén
-lo vea en su Mac:
-
-- Añadir un modelo, descargarlo con progreso y transcribir con él.
-- Dos modelos distintos no reutilizan la misma transcripción.
-- «Quitar» no borra del disco y pasa sus recetas al primer Whisper local que
-  quede; el «−» también quita el Whisper de serie, que vuelve con «+».
-- Borrar un modelo no se lleva los demás.
-- Detectar hablantes funciona con un modelo añadido.
-
-## 2. Protocolo: lo que Swift no cumple
+## 1. Protocolo: lo que Swift no cumple
 
 - **`recordingStatus` no devuelve `paused`**, que el protocolo pide. Basta con
   `false` mientras el Mac no pause.
@@ -26,7 +14,7 @@ lo vea en su Mac:
   Linux, los dos sistemas o ninguno.
 - Pasar la batería común contra el host de Swift y corregir lo que falle.
 
-## 3. Grabar y leer archivos con el host de Rust (ADR-0010, decisión 3)
+## 2. Grabar y leer archivos con el host de Rust (ADR-0010, decisión 3)
 
 En el Mac pasan a Rust la grabación (AAC con AudioToolbox), `audioInfo`,
 `fileStatus` y `materialize`, sin cambios visibles. Swift se queda con
@@ -53,7 +41,7 @@ WhisperKit, SpeakerKit y FoundationModels.
 - Mismas pruebas: la batería común y `tests/linux.rs`, con su equivalente para
   m4a, contra el host de Rust en el Mac.
 
-## 4. Compilar lo movido y pasar la suite
+## 3. Compilar lo movido y pasar la suite
 
 Código del Mac que se movió tal cual desde Linux, sin compilarlo:
 
@@ -97,7 +85,7 @@ Código del Mac que se movió tal cual desde Linux, sin compilarlo:
 Después, la suite completa del bloque «Construir y comprobar» del `CLAUDE.md`,
 con `sidecar.test.ts` entero, incluidas sus pruebas de aislamiento.
 
-## 5. Comprobar en pantalla que nada cambió
+## 4. Comprobar en pantalla que nada cambió
 
 Con la app instalada:
 

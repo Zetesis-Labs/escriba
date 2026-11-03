@@ -584,6 +584,10 @@ entera, y sin catálogo el botón dice «Descargar» en vez de los 3 GB que el M
 daba por hechos. Pasan `swift test`, los tests de la app y la batería común
 contra el host de Swift; esta última se lanza desde un crate aparte con
 `tests/contract.rs` y `tests/support`, porque `native-host` no compila en el
-Mac hasta que exista `platform/macos/` (punto 3 de `docs/pendiente-mac.md`).
-Falta la comprobación en pantalla del punto 1 de ese documento.
+Mac hasta que exista `platform/macos/` («Grabar y leer archivos con el host de
+Rust» en `docs/pendiente-mac.md`). En la primera prueba salieron tres fallos,
+ya corregidos: la barra parecía parada porque WhisperKit reparte el progreso
+por ficheros (ahora cuenta los bytes en disco), desaparecía al cambiar de
+pestaña (las descargas viven fuera de la ficha) y el nombre usaba la variante en
+vez del nombre corto. **Validado por Rubén en su Mac el mismo día.**
 
