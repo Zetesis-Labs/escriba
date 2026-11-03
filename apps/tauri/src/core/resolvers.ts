@@ -110,9 +110,9 @@ export function resolverProblem(resolver: Pick<Resolver, "local" | "url" | "mode
   return resolver.model?.trim() ? null : "Elige el modelo.";
 }
 
-export function resolverSubtitle(resolver: Resolver, problem: string | null, platform: Platform = macOS) {
+export function resolverSubtitle(resolver: Resolver, problem: string | null, platform: Platform = macOS, catalog: WhisperCatalog | null = null) {
   if (problem && !resolver.local) return "Sin terminar de configurar";
-  if (resolver.local) return [`En este ${device(platform)}`, isAddedModel(resolver) ? resolver.model : ""].filter(Boolean).join(" · ");
+  if (resolver.local) return [`En este ${device(platform)}`, isAddedModel(resolver) ? modelLabel(resolver.model ?? "", catalog) : ""].filter(Boolean).join(" · ");
   let host = resolver.url ?? "";
   try {
     host = new URL(resolver.url ?? "").host || host;
@@ -150,6 +150,9 @@ export interface WhisperCatalog {
   models: { model: string; label: string; bytes: number; installed: boolean }[];
 }
 
+// On the Mac a model is a WhisperKit variant; people see its short name.
+export const modelLabel = (model: string, catalog: WhisperCatalog | null) => catalog?.models.find((entry) => entry.model === model)?.label ?? model;
+
 // Each Whisper model added in STT is a local resolver of its own.
 export const isAddedModel = (resolver: Pick<Resolver, "id" | "local">) => resolver.local && resolver.id.startsWith("local-stt-");
 // The default Whisper goes only where the catalog lets it come back through «+».
@@ -164,7 +167,7 @@ export function addableModels(catalog: WhisperCatalog | null, resolvers: Pick<Re
   const hasDefault = resolvers.some((resolver) => resolver.local && resolver.id === "local-stt");
   return catalog.models
     .filter((entry) => !(hasDefault && entry.model === catalog.default) && !present.has(entry.model))
-    .map((entry) => ({ model: entry.model, title: `Whisper · ${entry.label} (unos ${bytesLabel(entry.bytes)})` }));
+    .map((entry) => ({ model: entry.model, name: `Whisper · ${entry.label}`, title: `Whisper · ${entry.label} (unos ${bytesLabel(entry.bytes)})` }));
 }
 
 export function addedModelProblem(resolver: Pick<Resolver, "id" | "local" | "model">, catalog: WhisperCatalog | null) {
