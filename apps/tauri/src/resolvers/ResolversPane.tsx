@@ -2,10 +2,8 @@ import { device } from "../core/platform";
 import { usePlatform } from "../app/platform";
 import { AlertTriangle, CheckCircle2, Globe, Laptop, Minus, Plus, Sparkles, AudioWaveform } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { listen } from "@tauri-apps/api/event";
 import { call, native } from "../api";
 import { Pane } from "../app/Pane";
-import { progressForModel } from "../core/downloadProgress";
 import {
   addableModels,
   addedModelProblem,
@@ -36,6 +34,7 @@ import {
 } from "../core/resolvers";
 import { Button, ContentUnavailable, FormRow, FormSection, InlineField, LabeledRow, ListBar, ListBarButton, PopupButton, Spinner } from "../mac/controls";
 import { alertMessage, confirmDestructive, errorText, item, popupMenu, separator } from "../mac/native";
+import { startWhisperDownload, useWhisperDownload } from "./whisperDownloads";
 import type { Digest, Resolver, Snapshot } from "../types";
 import "./resolvers.css";
 
@@ -388,52 +387,27 @@ function ResolverEditor({
 function WhisperModelSection({ model, explicit, catalog, onChange }: { model: string; explicit: boolean; catalog: WhisperCatalog | null; onChange: () => void }) {
   const platform = usePlatform();
   const [info, setInfo] = useState<{ model: string; available: boolean; bytes: number } | null>(null);
-  const [downloadProgress, setDownloadProgress] = useState<number | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
-  const lifecycle = useRef(0);
-  const listeners = useRef(new Set<() => void>());
-  useEffect(() => {
-    lifecycle.current += 1;
-    return () => {
-      lifecycle.current += 1;
-      for (const unlisten of listeners.current) unlisten();
-      listeners.current.clear();
-    };
-  }, []);
+  const { fraction: downloadProgress, failure: downloadFailure } = useWhisperDownload(model);
   const load = useCallback(() => {
     void call<{ model: string; available: boolean; bytes: number }>("whisper_model", { action: "info", ...(explicit ? { model } : {}) })
       .then(setInfo)
       .catch((error) => setFailure(errorText(error)));
   }, [explicit, model]);
   useEffect(load, [load]);
-  const download = async () => {
-    const currentLifecycle = lifecycle.current;
-    setDownloadProgress(0);
-    setFailure(null);
-    let unlisten: (() => void) | undefined;
-    try {
-      const subscribed = await listen<{ model: string; fraction: number }>("escriba://whisper-download", (event) => {
-        if (lifecycle.current !== currentLifecycle) return;
-        const fraction = progressForModel(event.payload, model);
-        if (fraction !== null) setDownloadProgress(fraction);
-      });
-      if (lifecycle.current === currentLifecycle) {
-        unlisten = subscribed;
-        listeners.current.add(subscribed);
-      } else {
-        subscribed();
-      }
-      await native("downloadModel", { model });
-    } catch (error) {
-      if (lifecycle.current === currentLifecycle) setFailure(errorText(error));
-    } finally {
-      if (unlisten && listeners.current.delete(unlisten)) unlisten();
-      if (lifecycle.current === currentLifecycle) {
-        setDownloadProgress(null);
-        load();
-        onChange();
-      }
+  const downloading = useRef(downloadProgress !== null);
+  useEffect(() => {
+    if (downloadProgress !== null) {
+      downloading.current = true;
+    } else if (downloading.current) {
+      downloading.current = false;
+      load();
+      onChange();
     }
+  }, [downloadProgress, load, onChange]);
+  const download = () => {
+    setFailure(null);
+    startWhisperDownload(model);
   };
   const remove = async () => {
     try {
@@ -469,13 +443,13 @@ function WhisperModelSection({ model, explicit, catalog, onChange }: { model: st
         <>
           <LabeledRow label="Estado">no descargado</LabeledRow>
           <FormRow>
-            <Button onClick={() => void download()}>{downloadLabel(info?.model ?? model, catalog)}</Button>
+            <Button onClick={download}>{downloadLabel(info?.model ?? model, catalog)}</Button>
           </FormRow>
         </>
       )}
-      {failure && (
+      {(failure ?? downloadFailure) && (
         <FormRow>
-          <span className="font-caption trial-problem selectable">{failure}</span>
+          <span className="font-caption trial-problem selectable">{failure ?? downloadFailure}</span>
         </FormRow>
       )}
     </FormSection>
