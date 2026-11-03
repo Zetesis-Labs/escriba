@@ -36,8 +36,8 @@ con «+» como un modelo más.
 
 - El Whisper de serie («Whisper · en este Mac» o «en este equipo») viene en la
   lista, va el primero y su modelo es el de serie de cada sistema. Se puede
-  quitar donde el «+» permite volver a añadir su modelo; en el Mac, cuando Swift
-  dé el catálogo (Rubén, 2026-10-14).
+  quitar porque el «+» permite volver a añadir su modelo, también en el Mac
+  desde que Swift da el catálogo (Rubén, 2026-10-14).
 - La receta que no elige STT usa el primer Whisper local que quede en la lista.
   Si no queda ninguno, sus notas esperan como «no disponible» hasta que se
   añada uno.
@@ -69,6 +69,7 @@ con «+» como un modelo más.
 ## 6. Reparto por sistema
 
 El protocolo nativo gana `models` (catálogo con tamaño e instalados) y
-`deleteModel` (borra un modelo). Linux los implementa en el host de Rust. En el
-Mac los implementa la sesión del Mac en Swift con el catálogo de WhisperKit;
-hasta entonces el Mac se comporta como hoy, con un único modelo.
+`deleteModel` (borra un modelo). Linux y Windows los implementan en el host de
+Rust. En el Mac los implementa el host de Swift con las variantes de WhisperKit
+equivalentes a las de Linux (Rubén, 2026-11-03): tiny, base, small, medium,
+large-v3-turbo, que es el de serie, y large-v3.

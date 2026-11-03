@@ -26,6 +26,7 @@ struct NativeInference {
 final class NativeHost {
     private let inference: NativeInference?
     private let modelDownload: @Sendable (String, (@Sendable (Double) -> Void)?) async throws -> URL
+    private let modelsRoot: URL
     private var transcriptionEngines: [String: WhisperKitEngine] = [:]
     private var voiceEngine: WhisperKitEngine?
     private var recorder: AVAudioRecorder?
@@ -36,10 +37,12 @@ final class NativeHost {
         inference: NativeInference? = nil,
         modelDownload: @escaping @Sendable (String, (@Sendable (Double) -> Void)?) async throws -> URL = {
             variant, progress in try await WhisperKitBackend.downloadModel(variant: variant, onProgress: progress)
-        }
+        },
+        modelsRoot: URL = WhisperKitBackend.defaultModelsRoot
     ) {
         self.inference = inference
         self.modelDownload = modelDownload
+        self.modelsRoot = modelsRoot
     }
 
     func handle(_ line: String, onProgress: (@Sendable (String, Double) -> Void)? = nil) async -> String {
@@ -93,6 +96,8 @@ final class NativeHost {
         case "fileStatus": return try fileStatus(params)
         case "materialize": return try await materialize(params)
         case "downloadModel": return try await downloadModel(params, onProgress: onProgress)
+        case "models": return models()
+        case "deleteModel": return try deleteModel(params)
         case "recordingStatus": return recordingStatus()
         case "recordingStart": return try await recordingStart(params)
         case "recordingStop": return try recordingStop()
@@ -107,9 +112,9 @@ final class NativeHost {
         return .object([
             field("protocolVersion", .number(1)),
             field("whisper", .object([
-                field("available", .bool(WhisperKitBackend.installedModelFolder(variant: model) != nil)),
+                field("available", .bool(WhisperKitBackend.installedModelFolder(variant: model, modelsRoot: modelsRoot) != nil)),
                 field("model", .string(model)),
-                field("modelsPath", .string(WhisperKitBackend.defaultModelsRoot.path(percentEncoded: false))),
+                field("modelsPath", .string(modelsRoot.path(percentEncoded: false))),
             ])),
             field("llm", .object([
                 field("available", .bool(availability.isReady)),
@@ -354,6 +359,34 @@ final class NativeHost {
         let variant = try modelName(params)
         let folder = try await modelDownload(variant, onProgress)
         return .object([field("model", .string(variant)), field("path", .string(folder.path(percentEncoded: false)))])
+    }
+
+    private func models() -> DataValue {
+        .object([
+            field("default", .string(WhisperKitBackend.defaultVariant)),
+            field("models", .array(WhisperKitBackend.catalog(modelsRoot: modelsRoot).map { model in
+                .object([
+                    field("model", .string(model.variant)),
+                    field("label", .string(model.label)),
+                    field("bytes", .number(Double(model.bytes))),
+                    field("installed", .bool(model.installed)),
+                ])
+            })),
+        ])
+    }
+
+    private func deleteModel(_ params: DataValue) throws -> DataValue {
+        _ = try requiredString(params, "model")
+        let variant = try modelName(params)
+        transcriptionEngines = transcriptionEngines.filter { !$0.key.hasPrefix(variant + "\u{0}") }
+        let deleted: Bool
+        do {
+            deleted = try WhisperKitBackend.deleteModel(variant: variant, modelsRoot: modelsRoot)
+        } catch {
+            throw HostFailure("delete_failed", "no se pudo borrar el modelo: \(error.localizedDescription)")
+        }
+        guard deleted else { throw HostFailure("model_missing", "el modelo \(variant) no está descargado") }
+        return .object([field("model", .string(variant))])
     }
 
     nonisolated static func progressFrame(id: String, fraction: Double) -> String {

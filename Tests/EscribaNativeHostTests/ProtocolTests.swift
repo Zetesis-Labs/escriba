@@ -56,6 +56,57 @@ struct ProtocolTests {
         #expect(reply["error"] == nil)
     }
 
+    @Test func elCatalogoDaElDeSerieYMarcaLoInstaladoEnSuCarpeta() async throws {
+        let root = try modelsRoot()
+        try installModel("openai_whisper-tiny", in: root)
+        let host = NativeHost(modelsRoot: root)
+
+        let reply = try parseData(await host.handle(#"{"id":"c1","method":"models","params":{}}"#))
+
+        #expect(reply["error"] == nil)
+        #expect(reply["result"]?["default"] == .string("openai_whisper-large-v3-v20240930"))
+        guard case .array(let models)? = reply["result"]?["models"] else {
+            Issue.record("models no es una lista: \(reply)")
+            return
+        }
+        #expect(models.count == 6)
+        let tiny = models.first { $0["model"] == .string("openai_whisper-tiny") }
+        #expect(tiny?["label"] == .string("tiny"))
+        #expect(tiny?["installed"] == .bool(true))
+        #expect(tiny?["bytes"] == .number(3))
+        let turbo = models.first { $0["model"] == .string("openai_whisper-large-v3-v20240930") }
+        #expect(turbo?["installed"] == .bool(false))
+    }
+
+    @Test func borrarModeloQuitaSoloEseYSiFaltaRespondeModeloAusente() async throws {
+        let root = try modelsRoot()
+        try installModel("openai_whisper-tiny", in: root)
+        try installModel("openai_whisper-base", in: root)
+        let host = NativeHost(modelsRoot: root)
+        let request = #"{"id":"d1","method":"deleteModel","params":{"model":"openai_whisper-tiny"}}"#
+
+        let deleted = try parseData(await host.handle(request))
+        let again = try parseData(await host.handle(request))
+        let catalog = try parseData(await host.handle(#"{"id":"c2","method":"models","params":{}}"#))
+
+        #expect(deleted["result"]?["model"] == .string("openai_whisper-tiny"))
+        #expect(again["error"]?["code"] == .string("model_missing"))
+        guard case .array(let models)? = catalog["result"]?["models"] else {
+            Issue.record("models no es una lista: \(catalog)")
+            return
+        }
+        let installed = models.filter { $0["installed"] == .bool(true) }.compactMap { $0["model"]?.text }
+        #expect(installed == ["openai_whisper-base"])
+    }
+
+    @Test func borrarModeloExigeUnNombreDeVarianteSinRutas() async throws {
+        let host = NativeHost(modelsRoot: try modelsRoot())
+        for params in [#"{}"#, #"{"model":"../fuera"}"#, #"{"model":""}"#] {
+            let reply = try parseData(await host.handle(#"{"id":"d2","method":"deleteModel","params":\#(params)}"#))
+            #expect(reply["error"]?["code"] == .string("invalid_params"))
+        }
+    }
+
     @Test func transcripcionRechazaIdiomaYNumeroDeHablantesInvalidos() async throws {
         let file = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString + ".wav")
         defer { try? FileManager.default.removeItem(at: file) }
@@ -252,6 +303,20 @@ struct ProtocolTests {
         let outsideReply = try parseData(await NativeHost().handle(request(outside)))
         #expect(outsideReply["error"]?["code"] == .string("invalid_params"))
         #expect(outsideReply["result"] == nil)
+    }
+
+    private func modelsRoot() throws -> URL {
+        let root = FileManager.default.temporaryDirectory.appending(path: "escriba-models-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        return root
+    }
+
+    private func installModel(_ variant: String, in root: URL) throws {
+        for component in ["AudioEncoder.mlmodelc", "MelSpectrogram.mlmodelc", "TextDecoder.mlmodelc"] {
+            let dir = root.appending(path: "models/argmaxinc/whisperkit-coreml/\(variant)/\(component)")
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            try Data("x".utf8).write(to: dir.appending(path: "coremldata.bin"))
+        }
     }
 
     private func syntheticWAV(duration: Double) -> Data {
