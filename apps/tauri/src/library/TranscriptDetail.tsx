@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { audioURL, call } from "../api";
 import { clockStamp, longDate, playbackPosition, speakers } from "../core/presentation";
 import { piecesLabel } from "../core/combine";
-import { forgottenRecognition, personColors } from "../core/people";
+import { forgottenRecognition, personColors, voicesNotLearned, withVoiceLearning } from "../core/people";
 import { assignSelectedSpeaker, changeSegmentText, renameSpeaker, transcriptWithSegments } from "../core/transcriptEditing";
 import { transcriptGroups } from "../core/transcriptGroups";
 import { Button, Sheet, Spinner } from "../mac/controls";
@@ -122,24 +122,27 @@ export function TranscriptDetail({ recording, origin, job, recipes, canSummarize
       }
     });
   }, [editRequest, loading]);
-  const chooseSpeaker = (name: string, personId?: string) => {
+  const chooseSpeaker = (name: string, personId?: string, learn = false) => {
     const latest = session.getState().content;
     if (!latest || !picker) return;
     if (latest.transcript !== picker.transcript) { setPicker(null); setActionError("La transcripción cambió. Vuelve a seleccionar el fragmento."); return; }
     const segmented = transcriptWithSegments(latest.transcript);
-    const changed = picker.target.kind === "speaker" ? renameSpeaker(segmented, picker.target.speaker, name, personId) : assignSelectedSpeaker(segmented, picker.target.ranges, name, personId);
-    update({ transcript: changed });
+    if (picker.target.kind === "speaker") session.update(withVoiceLearning({ ...latest, transcript: renameSpeaker(segmented, picker.target.speaker, name, personId) }, name, learn));
+    else update({ transcript: assignSelectedSpeaker(segmented, picker.target.ranges, name, personId) });
     setPicker(null);
   };
   const commit = () => void run(async () => {
     if (!form.current?.reportValidity()) return;
     if (tagInput.trim()) addTags();
+    const requested = session.getState().content;
     const result = await session.commit();
     await onRefresh();
     if (result.created) {
       try { await republish(recording); setPublicationFailed(false); }
       catch (error) { setPublicationFailed(true); throw error; }
     }
+    const missing = requested ? voicesNotLearned(requested, result.learnedVoices ?? []) : [];
+    if (missing.length) throw Error(`No se guardó la voz de ${missing.join(", ")} en Personas: solo se guarda al cambiar entero un hablante detectado al transcribir.`);
   });
   useEffect(() => {
     if (!active || !editing) return;
@@ -187,7 +190,7 @@ export function TranscriptDetail({ recording, origin, job, recipes, canSummarize
         </> : <StatusPlaceholder recording={recording} job={job} onReprocess={onReprocess} trace={trace} recipeName={recipeName} />}
       </form>
     </div>
-    {picker && <SpeakerPicker speakerColors={speakerColors} people={people} speakers={speakers(picker.transcript)} target={picker.target} excerpt={picker.target.kind === "selection" ? picker.target.ranges.map((range) => transcriptWithSegments(picker.transcript).segments[range.segment]?.text.slice(range.start, range.end) ?? "").join(" ") : ""} error={peopleError} onChoose={chooseSpeaker} onCancel={() => setPicker(null)} />}
+    {picker && <SpeakerPicker speakerColors={speakerColors} people={people} speakers={speakers(picker.transcript)} target={picker.target} canLearn={version?.hasVoices === true} excerpt={picker.target.kind === "selection" ? picker.target.ranges.map((range) => transcriptWithSegments(picker.transcript).segments[range.segment]?.text.slice(range.start, range.end) ?? "").join(" ") : ""} error={peopleError} onChoose={chooseSpeaker} onCancel={() => setPicker(null)} />}
     {recovering && <Sheet onCancel={() => setRecovering(false)}><div className="font-title3">¿Recuperar el borrador guardado?</div><p className="secondary">Se cargarán las últimas correcciones conservadas en este {device(platform)}. Los cambios que aún no se hayan podido guardar se perderán.</p><div className="sheet-actions"><Button onClick={() => setRecovering(false)}>Cancelar</Button><Button prominent onClick={() => { setRecovering(false); setTagInput(""); void run(() => session.load()); }}>Recuperar borrador</Button></div></Sheet>}
     {discarding && <Sheet onCancel={() => setDiscarding(false)}><div className="font-title3">¿Descartar este borrador?</div><p className="secondary">Se quitarán sus correcciones. La versión guardada se conserva.</p><div className="sheet-actions"><Button onClick={() => setDiscarding(false)}>Cancelar</Button><Button prominent onClick={() => { setDiscarding(false); setTagInput(""); void run(() => session.discard()); }}>Descartar borrador</Button></div></Sheet>}
   </div>;

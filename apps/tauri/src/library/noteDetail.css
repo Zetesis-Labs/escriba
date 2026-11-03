@@ -49,6 +49,7 @@
 .speaker-choice { background: color-mix(in srgb, var(--speaker-color, var(--fill)) 9%, var(--fill)); border: 0; border-left: 3px solid var(--speaker-color, transparent); border-radius: 6px; padding: 9px 10px; text-align: left; display: flex; align-items: center; gap: 8px; color: var(--label); }
 .speaker-choice:hover { background: var(--unemphasized); }
 .speaker-name-label { display: flex; flex-direction: column; gap: 5px; font-size: 12px; }
+.speaker-learn { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 10px; border-radius: 6px; background: var(--fill); }
 @media (max-width: 1050px) { .note-content { padding: 22px 22px 40px; } .draft-status .secondary { display: block; width: 100%; } }
 
 .turn-actions { display: flex; align-items: center; gap: 8px; }

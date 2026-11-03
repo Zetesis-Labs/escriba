@@ -262,6 +262,80 @@ test("el color de una persona fusionada prioriza el destino y hereda si no tiene
   }
 });
 
+async function diarizedDraft(segments: { start: number; end: number; text: string; speaker: string }[], voices: ReturnType<typeof voice>[]) {
+  const { store, key, draft: initial } = await noteDraftFixture();
+  await store.mutate("note_draft_discard", { recordingId: key, draftId: initial.id, expectedRevision: 0 });
+  const transcript = await store.recognizeTranscription(key, { text: segments.map((segment) => segment.text).join(" "), segments, voices });
+  const source = obj(await store.mutate("version_save", { recordingId: key, transcript }));
+  const draft = obj(await store.mutate("note_draft_begin", { recordingId: key }));
+  const content = obj(draft.content);
+  const commit = async (learnVoices?: string[]) => {
+    if (learnVoices) content.learnVoices = learnVoices;
+    await store.mutate("note_draft_save", { recordingId: key, draftId: draft.id, expectedRevision: 0, content });
+    return obj(await store.mutate("note_draft_commit", { recordingId: key, draftId: draft.id, expectedRevision: 1 }));
+  };
+  return { store, key, source, draft, segments: arr(obj(content.transcript).segments), commit };
+}
+const threeSegments = [{ start: 0, end: 1, text: "uno", speaker: "Speaker 1" }, { start: 1, end: 2, text: "dos", speaker: "Speaker 1" }, { start: 2, end: 3, text: "tres", speaker: "Speaker 2" }];
+
+test("nombrar un hablante entero y pedir guardar su voz la enseña a Personas y se reconoce al retranscribir", async () => {
+  const { store, key, draft, segments, commit } = await diarizedDraft(threeSegments, [voice("Speaker 1", [1, 0]), voice("Speaker 2", [0, 1])]);
+  for (const segment of segments) if (segment.speaker === "Speaker 1") segment.speaker = "Aritz";
+  const result = await commit(["Aritz"]);
+  assert.deepEqual(result.learnedVoices, ["Aritz"]);
+  assert.ok(!("learnVoices" in obj(result.version)));
+  assert.ok(!JSON.stringify(result).includes("embedding"));
+  const learned = arr(await store.people());
+  assert.deepEqual(learned.map((person) => [person.name, arr(person.voices).length, arr(person.voices)[0]!.source]), [["Aritz", 1, key]]);
+  const retried = obj(await store.mutate("note_draft_commit", { recordingId: key, draftId: draft.id, expectedRevision: 1 }));
+  assert.equal(obj(retried.version).id, obj(result.version).id);
+  assert.equal((await store.knownVoices()).length, 1);
+  const again = obj(await store.recognizeTranscription(key, { text: "uno dos tres", segments: [{ start: 0, end: 2, text: "uno dos", speaker: "Speaker 2" }, { start: 2, end: 3, text: "tres", speaker: "Speaker 1" }], voices: [voice("Speaker 1", [0, 1]), voice("Speaker 2", [1, 0.01])] }));
+  assert.deepEqual(arr(again.recognitions).map((item) => [item.speaker, item.person]), [["Speaker 2", "Aritz"]]);
+});
+
+test("nombrar un hablante sin pedir guardar su voz no toca Personas", async () => {
+  const { store, segments, commit } = await diarizedDraft(threeSegments, [voice("Speaker 1", [1, 0]), voice("Speaker 2", [0, 1])]);
+  for (const segment of segments) if (segment.speaker === "Speaker 1") segment.speaker = "Aritz";
+  const result = await commit();
+  assert.deepEqual(result.learnedVoices, []);
+  assert.deepEqual(await store.knownVoices(), []);
+});
+
+test("juntar un hablante con la persona reconocida guarda solo la huella del que se movió", async () => {
+  const { store, key, draft: initial } = await noteDraftFixture();
+  await store.mutate("note_draft_discard", { recordingId: key, draftId: initial.id, expectedRevision: 0 });
+  await store.addPersonVoice("Rubén", voice("Rubén", [0, 1]), "registro");
+  const transcript = obj(await store.recognizeTranscription(key, { text: "uno dos", segments: [{ start: 0, end: 1, text: "uno", speaker: "Speaker 1" }, { start: 1, end: 2, text: "dos", speaker: "Speaker 2" }], voices: [voice("Speaker 1", [1, 0]), voice("Speaker 2", [0.05, 1])] }));
+  assert.deepEqual(arr(transcript.recognitions).map((item) => item.person), ["Rubén"]);
+  await store.mutate("version_save", { recordingId: key, transcript });
+  const draft = obj(await store.mutate("note_draft_begin", { recordingId: key }));
+  const content = obj(draft.content);
+  arr(obj(content.transcript).segments)[0]!.speaker = "Rubén";
+  content.learnVoices = ["Rubén"];
+  await store.mutate("note_draft_save", { recordingId: key, draftId: draft.id, expectedRevision: 0, content });
+  const result = obj(await store.mutate("note_draft_commit", { recordingId: key, draftId: draft.id, expectedRevision: 1 }));
+  assert.deepEqual(result.learnedVoices, ["Rubén"]);
+  const known = await store.knownVoices();
+  assert.deepEqual(known.map((item) => [item.person, item.embedding]), [["Rubén", [0, 1]], ["Rubén", [1, 0]]]);
+});
+
+test("asignar solo un fragmento no guarda la voz aunque se pida", async () => {
+  const { store, segments, commit } = await diarizedDraft(threeSegments, [voice("Speaker 1", [1, 0]), voice("Speaker 2", [0, 1])]);
+  segments[0]!.speaker = "Aritz";
+  const result = await commit(["Aritz"]);
+  assert.deepEqual(result.learnedVoices, []);
+  assert.deepEqual(await store.knownVoices(), []);
+});
+
+test("pedir guardar una voz sin otros cambios no crea versión", async () => {
+  const { store, source, commit } = await diarizedDraft(threeSegments, [voice("Speaker 1", [1, 0]), voice("Speaker 2", [0, 1])]);
+  const result = await commit(["Speaker 1"]);
+  assert.equal(result.created, false);
+  assert.equal(obj(result.version).id, source.id);
+  assert.deepEqual(await store.knownVoices(), []);
+});
+
 test("dividir un hablante conserva solo huellas con intervalos inequívocos", async () => {
   const { store, key, draft: initial } = await noteDraftFixture();
   await store.mutate("note_draft_discard", { recordingId: key, draftId: initial.id, expectedRevision: 0 });

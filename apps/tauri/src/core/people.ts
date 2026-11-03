@@ -1,4 +1,4 @@
-import type { Person, Segment, Transcript, VoiceRegistration } from "../types";
+import type { NoteContent, Person, Segment, Transcript, VoiceRegistration } from "../types";
 
 function withSpeakerLabel(segment: Segment, speaker: string): Segment {
   const { personId: _personId, ...rest } = segment;
@@ -58,3 +58,16 @@ export function personColor(name: string | null | undefined, people: readonly Pe
 
 export const personColors = (names: readonly string[], people: readonly Person[]) =>
   Object.fromEntries([...new Set([...names, ...people.map((person) => person.name)])].map((name) => [name, personColor(name, people)]));
+
+export function withVoiceLearning(content: NoteContent, name: string, learn: boolean): NoteContent {
+  const current = content.learnVoices ?? [];
+  if (current.includes(name) === learn) return content;
+  const { learnVoices: _learnVoices, ...rest } = content;
+  const next = learn ? [...current, name] : current.filter((item) => item !== name);
+  return next.length ? { ...rest, learnVoices: next } : rest;
+}
+
+export function voicesNotLearned(content: NoteContent, learned: readonly string[]) {
+  const present = new Set(content.transcript.segments.map((segment) => segment.speaker));
+  return (content.learnVoices ?? []).filter((name) => present.has(name) && !learned.includes(name));
+}

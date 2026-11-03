@@ -5,7 +5,7 @@ import { credentialPath } from "../credentials";
 import { accessEquivalent, sameAuthority, validateAccountGrant } from "../http";
 import { audioCopyRoot, audioCopyToDelete, fileHash, fileStem, importCreatedAt, linkStaged, referencesAudio, stageAudio, type StagedAudio } from "./audio";
 import { changes, type RowOp } from "./changes";
-import { conservativeVoices, currentVersion, draftContent, draftFingerprint, draftRequest, newDraft, parseDraftContent, readDraft, validateContent, type NoteDraft } from "./drafts";
+import { conservativeVoices, currentVersion, draftContent, draftFingerprint, draftRequest, newDraft, noteContent, parseDraftContent, readDraft, validateContent, voicesToLearn, type NoteDraft } from "./drafts";
 import { array, canonical, clone, equal, isObject, newId, now, object, safeId, text, type Json } from "./json";
 import { defaultResolvers, defaultWhisperModel, folderBookmarkRequired } from "../platform";
 import { isLocalSttId, localSttId } from "../localModels";
@@ -465,14 +465,14 @@ export class Store {
       const [recordingId, versionId, voices, teaching] = voiceSave;
       taught = [recordingId, teaching !== undefined];
       write.versionVoices = [versionId, voices];
-      if (teaching) write.teaching = teaching;
+      if (teaching) write.teachings = [teaching];
     }
     write.audioDeletions = audioToDelete;
     const learned = await this.database.write(write);
     this.data = index;
     if (taught) {
       this.pendingVoices.delete(taught[0]);
-      if (taught[1] && isObject(result)) (result as Record<string, Json>).learnedVoice = learned;
+      if (taught[1] && isObject(result)) (result as Record<string, Json>).learnedVoice = learned.length > 0;
     }
     if (method === "recording_discard") {
       this.pendingVoices.delete(text(p, "id"));
@@ -1186,7 +1186,7 @@ export class Store {
         if (!isObject(receipt) || receipt.recordingId !== key || receipt.revision !== revision) throw Error("La confirmación del borrador no coincide");
         const version = (record.versions ?? []).find((item) => item.id === receipt.versionId);
         if (!version) throw Error("Versión confirmada no encontrada");
-        return { version: clone(version) as unknown as Json, created: receipt.created ?? null };
+        return { version: clone(version) as unknown as Json, created: receipt.created ?? null, learnedVoices: receipt.learnedVoices ?? [] };
       }
     }
     if (!stored) throw Error("El borrador ya no existe");
@@ -1215,22 +1215,26 @@ export class Store {
       return result;
     }
     if (method === "note_draft_commit") {
-      const created = canonical(draft.content) !== canonical(draftContent(record, base));
+      const created = canonical(noteContent(draft.content)) !== canonical(draftContent(record, base));
       let version: Version = clone(base);
       let voices: SpeakerVoice[] = [];
+      let teachings: Teaching[] = [];
       if (created) {
         if (!base.transcript) throw Error("Transcripción de origen inválida");
         const { job: _job, ...inherited } = version;
         version = { ...inherited, id: newId(), createdAt: now(), backend: "manual", title: draft.content.title, sourceVersionId: base.id } as Version;
-        voices = conservativeVoices(base.transcript, draft.content.transcript, await this.database.versionVoices(base.id));
+        const baseVoices = await this.database.versionVoices(base.id);
+        voices = conservativeVoices(base.transcript, draft.content.transcript, baseVoices);
+        teachings = [...voicesToLearn(base.transcript, draft.content.transcript, baseVoices, draft.content.learnVoices ?? [])].map(([person, learned]) => ({ person, voices: learned, source: key, existingOnly: false }));
         version.hasVoices = voices.length > 0;
         version.transcript = draft.content.transcript;
         version.digest = draft.content.digest === null ? null : (draft.content.digest as unknown as Json);
         version.data = draft.content.data;
       }
-      const result: Json = { version: clone(version) as unknown as Json, created };
+      const learnedVoices = teachings.map((teaching) => teaching.person);
+      const result: Json = { version: clone(version) as unknown as Json, created, learnedVoices };
       writeScope.draftChange = [key, null];
-      writeScope.draftReceipt = [draft.id, key, { recordingId: key, revision, versionId: version.id, created }];
+      writeScope.draftReceipt = [draft.id, key, { recordingId: key, revision, versionId: version.id, created, learnedVoices }];
       const next = clone(before);
       if (created) {
         const target = recordMut(next, key);
@@ -1240,6 +1244,7 @@ export class Store {
       const index = lighten(clone(next), writeScope.fullRecordings);
       const write = Store.scopedWrite(before, next, writeScope);
       if (created) write.versionVoices = [version.id, voices];
+      if (teachings.length) write.teachings = teachings;
       await this.database.write(write);
       this.data = index;
       return result;

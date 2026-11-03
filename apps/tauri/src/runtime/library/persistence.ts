@@ -43,7 +43,7 @@ export interface LibraryWrite {
   draftReceipt?: [string, string, Json];
   audioDeletions?: AudioDeletion[];
   versionVoices?: [string, SpeakerVoice[]];
-  teaching?: Teaching;
+  teachings?: Teaching[];
   logs?: Json[];
 }
 export const scopedWrite = (scope: WriteScope, ops: RowOp[]): LibraryWrite => ({
@@ -608,17 +608,25 @@ interface TeachingPlan {
   source: string;
   startPosition: number;
 }
-async function teachingPlan(db: Database, teaching: Teaching | undefined): Promise<TeachingPlan | undefined> {
-  if (!teaching || !teaching.voices.length) return undefined;
-  if (!teaching.person.trim()) throw Error("Escribe un nombre");
-  const existing = (await personRecords(db)).find((person) => person.name === teaching.person);
-  if (teaching.existingOnly && !existing) return undefined;
-  const person = existing ?? { id: newId(), name: teaching.person, created_at: now() };
-  const startPosition = Math.max(-1, ...(await rows(db, "person_voice")).map((row) => row.position)) + 1;
-  return { person, fresh: !existing, voices: teaching.voices, source: teaching.source, startPosition };
+async function teachingPlans(db: Database, teachings: Teaching[]): Promise<TeachingPlan[]> {
+  if (!teachings.some((teaching) => teaching.voices.length)) return [];
+  const people = await personRecords(db);
+  let position = Math.max(-1, ...(await rows(db, "person_voice")).map((row) => row.position)) + 1;
+  const plans: TeachingPlan[] = [];
+  for (const teaching of teachings) {
+    if (!teaching.voices.length) continue;
+    if (!teaching.person.trim()) throw Error("Escribe un nombre");
+    const existing = people.find((person) => person.name === teaching.person);
+    if (teaching.existingOnly && !existing) continue;
+    const person = existing ?? { id: newId(), name: teaching.person, created_at: now() };
+    if (!existing) people.push(person);
+    plans.push({ person, fresh: !existing, voices: teaching.voices, source: teaching.source, startPosition: position });
+    position += teaching.voices.length;
+  }
+  return plans;
 }
-async function apply(db: Database, write: LibraryWrite): Promise<boolean> {
-  const plan = await teachingPlan(db, write.teaching);
+async function apply(db: Database, write: LibraryWrite): Promise<string[]> {
+  const plans = await teachingPlans(db, write.teachings ?? []);
   const tx = new Transaction();
   for (const op of write.ops) {
     if (op.kind === "upsert") upsertRow(tx, op.row);
@@ -642,7 +650,7 @@ async function apply(db: Database, write: LibraryWrite): Promise<boolean> {
       tx.add(`CREATE type::record('voice', ${tx.bind(record.id)}) SET key = ${tx.bind(record.id)}, parent = ${tx.bind(versionId)}, position = ${tx.bind(position)}, payload = ${tx.bind(record)}`);
     });
   }
-  if (plan) {
+  for (const plan of plans) {
     if (plan.fresh) tx.add(`CREATE type::record('person', ${tx.bind(plan.person.id)}) SET key = ${tx.bind(plan.person.id)}, parent = '', position = 0, payload = ${tx.bind(plan.person)}`);
     plan.voices.forEach((voice, index) => {
       const record: PersonVoiceRecord = { id: newId(), person_id: plan.person.id, model: voice.model, embedding: voice.embedding, source: plan.source, added_at: now() };
@@ -655,7 +663,7 @@ async function apply(db: Database, write: LibraryWrite): Promise<boolean> {
   tx.add("UPSERT meta:initialized SET key = 'initialized', parent = '', position = 0, payload = '1'");
   tx.add("UPSERT meta:schema SET key = 'schema', parent = '', position = 0, payload = '2'");
   await tx.commit(db);
-  return plan !== undefined;
+  return plans.map((plan) => plan.person.name);
 }
 async function trimLogs(db: Database) {
   const [found] = await run<[{ at?: string }[]]>(db, "SELECT payload.at AS at FROM log ORDER BY at DESC LIMIT 1 START $retained", { retained: LOG_RETAINED });

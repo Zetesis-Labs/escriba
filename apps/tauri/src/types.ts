@@ -73,6 +73,7 @@ export interface NoteContent {
   transcript: Transcript;
   digest: Digest | null;
   data: JSONValue;
+  learnVoices?: string[];
 }
 export interface NoteDraft {
   id: string;
@@ -87,6 +88,7 @@ export interface NoteDraft {
 export interface NoteDraftCommit {
   version: Version;
   created: boolean;
+  learnedVoices?: string[];
 }
 export interface Publication {
   managed?: boolean;
