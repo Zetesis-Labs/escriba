@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.4.0](https://github.com/Zetesis-Labs/escriba/compare/v0.3.1...v0.4.0) (2026-11-03)
+
+
+### Features
+
+* **ui:** new app logo ([e977d4a](https://github.com/Zetesis-Labs/escriba/commit/e977d4a49920c802fad25305ea5b2ec45467df2c))
+
+
+### Bug Fixes
+
+* **people:** renaming a whole speaker can save their voice to People ([42edb35](https://github.com/Zetesis-Labs/escriba/commit/42edb356cfb3336203defd23ae2739834371db73))
+
 ## [0.3.1](https://github.com/Zetesis-Labs/escriba/compare/v0.3.0...v0.3.1) (2026-10-18)
 
 
