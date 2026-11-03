@@ -3,6 +3,7 @@ import EscribaCore
 import EscribaEngine
 import EscribaSystemKit
 import SpeakerKit
+import Synchronization
 import WhisperKit
 
 public enum WhisperKitBackend {
@@ -105,6 +106,12 @@ public enum WhisperKitBackend {
         return total
     }
 
+    /// WhisperKit weighs every file the same, so a 1 GB weight file barely moves its fraction.
+    static func downloadFraction(files: Double, bytes: Int64, expected: Int64?) -> Double {
+        guard let expected, expected > 0 else { return files }
+        return max(files, min(Double(bytes) / Double(expected), 0.99))
+    }
+
     @discardableResult
     public static func downloadModel(
         variant: String = defaultVariant,
@@ -112,11 +119,21 @@ public enum WhisperKitBackend {
         onProgress: (@Sendable (Double) -> Void)? = nil
     ) async throws -> URL {
         try FileManager.default.createDirectory(at: modelsRoot, withIntermediateDirectories: true)
+        let tracker = DownloadProgress(
+            expected: catalogVariants.first { $0.variant == variant }?.bytes, report: onProgress)
+        let baseline = size(of: modelsRoot)
+        let watcher = Task.detached {
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(500))
+                tracker.bytes(size(of: modelsRoot) - baseline)
+            }
+        }
+        defer { watcher.cancel() }
 
         return try await WhisperKit.download(
             variant: variant,
             downloadBase: modelsRoot,
-            progressCallback: { progress in onProgress?(progress.fractionCompleted) })
+            progressCallback: { progress in tracker.files(progress.fractionCompleted) })
     }
 
     static func transcript(from results: [TranscriptionResult]) -> Transcript {
@@ -201,6 +218,38 @@ public enum WhisperKitBackend {
         text
             .replacingOccurrences(of: "<\\|[^|]*\\|>", with: "", options: .regularExpression)
             .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+/// Joins what WhisperKit reports and the bytes already on disk, and only reports forward.
+final class DownloadProgress: Sendable {
+    private struct State {
+        var files = 0.0
+        var bytes: Int64 = 0
+        var sent = -1.0
+    }
+
+    private let state = Mutex(State())
+    private let expected: Int64?
+    private let report: (@Sendable (Double) -> Void)?
+
+    init(expected: Int64?, report: (@Sendable (Double) -> Void)?) {
+        self.expected = expected
+        self.report = report
+    }
+
+    func files(_ fraction: Double) { update { $0.files = fraction } }
+
+    func bytes(_ count: Int64) { update { $0.bytes = count } }
+
+    private func update(_ change: (inout State) -> Void) {
+        state.withLock { state in
+            change(&state)
+            let fraction = WhisperKitBackend.downloadFraction(files: state.files, bytes: state.bytes, expected: expected)
+            guard fraction > state.sent else { return }
+            state.sent = fraction
+            report?(fraction)
+        }
     }
 }
 
