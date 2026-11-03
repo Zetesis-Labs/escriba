@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { addableModels, addedModelProblem, defaultLocalStt, downloadLabel, nextResolverName, presetFor, removable, remoteURLProblem, resolverName, resolverProblem, resolversFooter, resolverSubtitle } from "../../src/core/resolvers";
+import { addableModels, addedModelProblem, defaultLocalStt, downloadLabel, modelLabel, nextResolverName, presetFor, removable, remoteURLProblem, resolverName, resolverProblem, resolversFooter, resolverSubtitle } from "../../src/core/resolvers";
 import { macOS } from "../../src/core/platform";
 import { linux } from "./platforms";
 
@@ -46,7 +46,7 @@ describe("modelos de Whisper local", () => {
   const base = { id: "local-stt-base", name: "Whisper · base", role: "stt" as const, local: true, enabled: true, model: "base" };
 
   test("el «+» ofrece los modelos que faltan, sin el de serie, con su tamaño", () => {
-    expect(addableModels(catalog, [serie, base])).toEqual([{ model: "tiny", title: "Whisper · tiny (unos 78 MB)" }]);
+    expect(addableModels(catalog, [serie, base])).toEqual([{ model: "tiny", name: "Whisper · tiny", title: "Whisper · tiny (unos 78 MB)" }]);
     expect(addableModels(null, [serie])).toEqual([]);
   });
 
@@ -55,6 +55,21 @@ describe("modelos de Whisper local", () => {
     expect(resolverName(serie, "stt", linux)).toBe("Whisper · en este equipo");
     expect(resolverSubtitle(base, null, linux)).toBe("En este equipo · base");
     expect(resolverSubtitle(serie, null, linux)).toBe("En este equipo");
+  });
+
+  test("en el Mac un modelo se nombra por su nombre corto, no por su variante de WhisperKit", () => {
+    const mac = {
+      default: "openai_whisper-large-v3-v20240930",
+      models: [
+        { model: "openai_whisper-large-v3-v20240930", label: "large-v3-turbo", bytes: 1_620_000_000, installed: true },
+        { model: "openai_whisper-large-v3", label: "large-v3", bytes: 3_090_000_000, installed: false },
+      ],
+    };
+    const added = { id: "local-stt-openai_whisper-large-v3", name: "Whisper · large-v3", role: "stt" as const, local: true, enabled: true, model: "openai_whisper-large-v3" };
+    expect(addableModels(mac, [serie])).toEqual([{ model: "openai_whisper-large-v3", name: "Whisper · large-v3", title: "Whisper · large-v3 (unos 3,1 GB)" }]);
+    expect(resolverSubtitle(added, null, macOS, mac)).toBe("En este Mac · large-v3");
+    expect(modelLabel("openai_whisper-large-v3-v20240930", mac)).toBe("large-v3-turbo");
+    expect(modelLabel("openai_whisper-large-v3", null)).toBe("openai_whisper-large-v3");
   });
 
   test("el de serie se quita donde el catálogo permite volver a añadirlo; Apple Intelligence nunca", () => {

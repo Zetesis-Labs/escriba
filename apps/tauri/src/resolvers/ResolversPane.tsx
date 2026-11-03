@@ -11,6 +11,7 @@ import {
   addedModelProblem,
   downloadLabel,
   isAddedModel,
+  modelLabel,
   removable,
   resolverName,
   type WhisperCatalog,
@@ -78,8 +79,8 @@ export function ResolversPane({ data, role, refresh }: { data: Snapshot; role: R
   const local = localProblem(role, status);
   const current = resolvers.find((resolver) => resolver.id === selected);
 
-  const addModel = (model: string) => {
-    const created: Resolver = { id: `local-stt-${model}`, name: `Whisper · ${model}`, role, local: true, enabled: true, model };
+  const addModel = (model: string, name: string) => {
+    const created: Resolver = { id: `local-stt-${model}`, name, role, local: true, enabled: true, model };
     void call("config_save", { collection: "resolvers", item: created })
       .then(async () => {
         await refresh();
@@ -87,7 +88,7 @@ export function ResolversPane({ data, role, refresh }: { data: Snapshot; role: R
       })
       .catch((failure) => alertMessage("No se pudo", errorText(failure)));
   };
-  const models = addableModels(catalog, resolvers).map((entry) => item(entry.title, () => addModel(entry.model)));
+  const models = addableModels(catalog, resolvers).map((entry) => item(entry.title, () => addModel(entry.model, entry.name)));
   const add = async (event: React.MouseEvent<HTMLButtonElement>) => {
     await popupMenu(
       [...remotePresets(role).map((preset) =>
@@ -149,7 +150,7 @@ export function ResolversPane({ data, role, refresh }: { data: Snapshot; role: R
                   {resolver.local ? <Laptop size={15} strokeWidth={1.7} className="secondary" /> : <Globe size={15} strokeWidth={1.7} className="secondary" />}
                   <div className="resolver-row-text">
                     <div>{resolverName(resolver, role, platform)}</div>
-                    <div className={`font-caption ${problem && !resolver.local ? "warning" : "secondary"}`}>{resolverSubtitle(resolver, problem, platform)}</div>
+                    <div className={`font-caption ${problem && !resolver.local ? "warning" : "secondary"}`}>{resolverSubtitle(resolver, problem, platform, catalog)}</div>
                   </div>
                 </div>
               );
@@ -446,7 +447,7 @@ function WhisperModelSection({ model, explicit, catalog, onChange }: { model: st
   };
   return (
     <FormSection header="Modelo">
-      <LabeledRow label="Modelo">{info?.model ?? model}</LabeledRow>
+      <LabeledRow label="Modelo">{modelLabel(info?.model ?? model, catalog)}</LabeledRow>
       {info?.available ? (
         <>
           <LabeledRow label="Estado">{`descargado${info.bytes ? ` · ${bytesLabel(info.bytes)}` : ""}`}</LabeledRow>
