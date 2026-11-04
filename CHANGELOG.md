@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.5.0](https://github.com/Zetesis-Labs/escriba/compare/v0.4.0...v0.5.0) (2026-11-04)
+
+
+### Features
+
+* **macos:** offer several local Whisper models on the Mac ([c8eec1d](https://github.com/Zetesis-Labs/escriba/commit/c8eec1d14b18aa5d02ba37629362b023c2581756))
+
+
+### Bug Fixes
+
+* **app:** close the controller before the event loop stops when quitting ([259c099](https://github.com/Zetesis-Labs/escriba/commit/259c099d737177cd4c604ee37e073328cf47e705))
+* **macos:** download progress follows the bytes on disk, not the file count ([ebab1c9](https://github.com/Zetesis-Labs/escriba/commit/ebab1c98ce10d0cc4b49da54aea1f96af787f251))
+* **ui:** a model download keeps its progress after leaving the pane ([4f30d4e](https://github.com/Zetesis-Labs/escriba/commit/4f30d4e37fb9018a208bae9897d6b424c8c5a869))
+* **ui:** do not guess the Whisper download size without a catalog ([003dd75](https://github.com/Zetesis-Labs/escriba/commit/003dd7556184f9ccbba1edc8e36a46820199cd5b))
+* **ui:** name an added Whisper model by its short name, not its WhisperKit variant ([998c642](https://github.com/Zetesis-Labs/escriba/commit/998c642fe74df9591dc9cd530179eab595b1a2ba))
+
 ## [0.4.0](https://github.com/Zetesis-Labs/escriba/compare/v0.3.1...v0.4.0) (2026-11-03)
 
 
